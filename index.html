@@ -3612,11 +3612,42 @@ button, input, select { font: inherit; color: inherit; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 [hidden] { display: none !important; }
 
-/* ── Top bar ── */
-#topbar {
-  display: flex; align-items: stretch; gap: 10px; flex-wrap: wrap;
-  padding: 6px 12px; padding-top: calc(6px + env(safe-area-inset-top, 0px));
-  background: var(--panel); border-bottom: 1px solid var(--rule); min-width: 0;
+/* ── Top bar: brand, workspaces and file buttons; the ribbon of tools under it ── */
+#topbar { display: flex; flex-direction: column; background: var(--panel); border-bottom: 1px solid var(--rule); min-width: 0; }
+.top-row {
+  display: flex; align-items: stretch; gap: 10px; min-width: 0;
+  padding: 4px 12px; padding-top: calc(4px + env(safe-area-inset-top, 0px));
+}
+.ribbon {
+  display: flex; align-items: stretch; min-width: 0; overflow-x: auto; overflow-y: hidden;
+  border-top: 1px solid var(--rule); background: color-mix(in srgb, var(--panel-2) 45%, var(--panel)); padding: 4px 4px 0; scrollbar-width: thin;
+}
+.rb-panel { display: flex; flex-direction: column; flex: none; padding: 0 6px; border-right: 1px solid var(--rule); }
+.rb-panel:last-child { border-right: 0; }
+.rb-body { display: flex; align-items: stretch; gap: 2px; flex: 1; }
+.rb-title { font: 600 9.5px/1 var(--font); letter-spacing: .09em; text-transform: uppercase; color: var(--muted); text-align: center; padding: 5px 0 5px; white-space: nowrap; }
+.rb-btn { border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--ink-2); cursor: pointer; transition: background .12s, color .12s, border-color .12s; }
+.rb-btn svg { stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.rb-btn:hover { background: var(--panel); color: var(--ink); border-color: var(--rule); }
+.rb-btn:active { transform: scale(.96); }
+.rb-btn.on { background: var(--accent-soft); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+.rb-btn.finish { color: var(--ok); }
+.rb-btn.pend { color: #d9792a; }
+.rb-big { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; min-width: 60px; max-width: 76px; padding: 4px 6px; font-size: 11px; line-height: 1.15; text-align: center; }
+.rb-big svg { width: 24px; height: 24px; }
+.rb-col { display: flex; flex-direction: column; gap: 1px; }
+.rb-sm { display: flex; align-items: center; gap: 7px; height: 22px; padding: 0 8px 0 5px; font-size: 11.5px; white-space: nowrap; text-align: left; }
+.rb-sm svg { width: 15px; height: 15px; }
+/* sections of the selected body's panel */
+.gz-sec { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 14px 0 2px; padding-top: 10px; border-top: 1px solid var(--rule); }
+.gz-sec h3 { margin: 0; font: 600 11px/1 var(--font); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); }
+.gz-sec .chip { padding: 3px 9px; font-size: 11px; }
+.row3 .seg { display: flex; }
+.row3 .seg button { flex: 1; padding: 4px 0; }
+@media (max-width: 1280px) {
+  .rb-panel { padding: 0 3px; }
+  .rb-big { min-width: 48px; padding: 3px 4px; font-size: 10.5px; }
+  .rb-sm { padding: 0 6px 0 4px; gap: 5px; font-size: 11px; }
 }
 .brand { display: flex; align-items: center; gap: 8px; padding-right: 6px; }
 .brand-mark { width: 22px; height: 22px; }
@@ -3895,6 +3926,9 @@ body.sim-on #mouseLegend { bottom: 132px; }
   #panel { position: absolute; left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 46%; z-index: 12; border: 1px solid var(--rule); border-radius: 10px; box-shadow: var(--shadow); }
   .tb span { display: none; }
   .tb { min-width: 34px; }
+  .rb-big { min-width: 50px; }
+  .rb-sm span { display: none; }
+  .rb-sm { padding: 0 5px; }
   .brand-name { display: none; }
   .mob-only { display: flex; }
   #hint { max-width: calc(100% - 150px); }
@@ -4071,6 +4105,7 @@ table.meas tr.bad td { color: var(--danger); }
 </head>
 <body>
 <header id="topbar">
+  <div class="top-row">
   <div class="brand">
     <button class="tb mob-only" id="btnTree" title="Browser"><svg viewBox="0 0 20 20"><path d="M3 5h14M3 10h14M3 15h14"/></svg></button>
     <svg class="brand-mark" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.7" stroke-linejoin="round"><path d="M3 8l9-5 9 5-9 5z"/><path d="M3 8v8l9 5 9-5V8" opacity=".55"/><path d="M12 13v8" opacity=".55"/></svg>
@@ -4078,13 +4113,14 @@ table.meas tr.bad td { color: var(--danger); }
     <div class="ws" role="tablist" aria-label="Workspace"><button data-ws="design" class="on">Design</button><button data-ws="cam">Manufacture</button><button data-ws="sheet">Setup Sheet</button></div>
     <span class="mode-chip" id="modeChip">Model</span>
   </div>
-  <div class="tb-groups" id="toolbar"></div>
   <div class="tb-right">
     <button class="tb" id="btnUndo" title="Undo (Ctrl+Z)"><svg viewBox="0 0 20 20"><path d="M7 5L3 9l4 4"/><path d="M3 9h9a5 5 0 010 10H9"/></svg><span>Undo</span></button>
     <button class="tb" id="btnRedo" title="Redo (Ctrl+Y)"><svg viewBox="0 0 20 20"><path d="M13 5l4 4-4 4"/><path d="M17 9H8a5 5 0 000 10h3"/></svg><span>Redo</span></button>
     <button class="tb" id="btnFile" title="File"><svg viewBox="0 0 20 20"><path d="M5 2h7l4 4v12H5z"/><path d="M12 2v4h4"/></svg><span>File</span></button>
     <button class="tb" id="btnHelp" title="Shortcuts (?)"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.5"/><path d="M8 8a2 2 0 113 1.7c-.7.4-1 .8-1 1.6M10 14h0"/></svg><span>Keys</span></button>
   </div>
+  </div>
+  <nav class="ribbon" id="toolbar" aria-label="Tools"></nav>
 </header>
 
 <div id="main">
@@ -9436,7 +9472,7 @@ function refreshToolbar() {
   const c = t => CMD && CMD.type === t;
   let h = '';
   if (UIX.ws === 'sheet') {
-    tb.innerHTML = `<div class="tb-group">${btn('sheetfill', 'Rebuild from Program', 'Fill the sheet again from the Manufacture program', false, '', 'campost')}${btn('tocam', 'Manufacture', '', false, '', 'camsetup')}</div>`;
+    tb.innerHTML = sheetRibbonHTML();
     tb.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => b.dataset.act === 'sheetfill' ? openSetupSheet() : setWorkspace('cam')));
     document.querySelectorAll('[data-ws]').forEach(b => b.classList.toggle('on', b.dataset.ws === UIX.ws));
     return;
@@ -9451,12 +9487,7 @@ function refreshToolbar() {
     return;
   }
   if (S.sk) {
-    h += SKETCH_TOOLS.map(g => `<div class="tb-group">${g.map(([a, l, k]) => btn(a, l, k, S.tool === a, '', a === 'origin' ? 'origin2' : null)).join('')}</div>`).join('');
-    const xfOn = SKETCH_XF.some(x => x[0] === S.tool);
-    h += `<div class="tb-group"><button class="tb tb-menu ${xfOn ? 'on' : ''}" data-menu="sktransform" title="Mirror, pattern, move, rotate, scale">${svg(xfOn ? (S.tool === 'array' ? 'array' : S.tool) : 'smove')}<span>${xfOn ? skToolName(S.tool) : 'Transform'}</span></button></div>`;
-    h += `<div class="tb-group">${btn('cons', 'Construction', 'X')}${btn('del', 'Delete', 'Del')}</div>`;
-    const np = dimsPending(S.sk).length;
-    h += `<div class="tb-group">${btn('upd', np ? `Update (${np})` : 'Update Sketch', 'Ctrl+B', false, np ? 'pend' : '')}${btn('extrude', 'Extrude', 'E')}${btn('finish', 'Finish Sketch', 'Enter', false, 'finish')}</div>`;
+    h += sketchRibbonHTML();
   } else {
     h += modelToolbarHTML(btn, c);
   }
@@ -11131,6 +11162,46 @@ function silhouetteAbove(z, holes = false) {
   g.sil.set(key, res);
   return res;
 }
+// Leads straight off a corner, so the tool never enters or leaves on a finished wall (no
+// witness mark): in along the line of one wall from well out in the air, round the loop,
+// and out along the line of the wall before that corner. Only at a sharp outside corner
+// (the loop swings round the part's corner point at the tool radius), where those two
+// straight passes finish the corner by themselves, and only when both lines stay where
+// the tool center may go. Picks the corner with the longest walls either side.
+// Returns { k, pts: [F, S … E], S: F, G } or null. rr = tool radius + stock left.
+function cornerLeads(loop, rr, len, allowed) {
+  const n = loop.length;
+  if (n < 3) return null;
+  const segL = i => dst2(loop[i], loop[(i + 1) % n]), dir = i => nrm2(sub2(loop[(i + 1) % n], loop[i]));
+  const straight = Math.max(0.5, rr * 0.6);
+  let area = 0; for (let i = 0; i < n; i++) area += crs2(loop[i], loop[(i + 1) % n]);
+  let best = null;
+  for (let k = 0; k < n; k++) {
+    if (segL(k) < straight) continue;
+    // back over the corner's arc to the wall before it
+    let j = (k - 1 + n) % n, steps = 0;
+    while (segL(j) < straight && steps++ < n) j = (j - 1 + n) % n;
+    if (j === k || steps >= n) continue;
+    const tk = dir(k), tj = dir(j), turn = crs2(tj, tk);
+    if (!(turn * area > 0)) continue;                                   // turning away from the air is an inside corner
+    if (dot2(tj, tk) > Math.cos(25 * Math.PI / 180)) continue;           // hardly a corner
+    const S = loop[k], E = loop[(j + 1) % n];
+    // the part's corner point: rr in from S, square to the wall (on the side away from the air)
+    const nl = P2(-tk.y, tk.x), side = inPaths(add2(S, mul2(nl, rr * 0.5)), allowed) ? -1 : 1, V = add2(S, mul2(nl, side * rr));
+    const tol = Math.max(0.02, rr * 0.01);
+    let sharp = Math.abs(dst2(E, V) - rr) < tol;
+    for (let i = (j + 1) % n; sharp && i !== k; i = (i + 1) % n) if (Math.abs(dst2(loop[i], V) - rr) > tol) sharp = false;
+    if (!sharp) continue;
+    const F = sub2(S, mul2(tk, len)), G = add2(E, mul2(tj, len));
+    if (!inPaths(F, allowed) || !inPaths(G, allowed) || segHitsPaths(F, S, allowed) || segHitsPaths(E, G, allowed)) continue;
+    const score = Math.min(segL(k), segL(j));
+    if (!best || score > best.score) best = { score, k, j, F, G };
+  }
+  if (!best) return null;
+  const pts = [best.F];
+  for (let i = best.k; ; i = (i + 1) % n) { pts.push(loop[i]); if (i === (best.j + 1) % n) break; }
+  return { k: best.k, pts, S: best.F, G: best.G };
+}
 function rotateToLongest(pts) {
   let bi = 0, bl = -1;
   for (let i = 0; i < pts.length; i++) { const l = dst2(pts[i], pts[(i + 1) % pts.length]); if (l > bl) { bl = l; bi = i; } }
@@ -11371,13 +11442,17 @@ const GEN = {
     const groups = new Map();
     loops.forEach((L, i) => { const g = find(i); if (!groups.has(g)) groups.set(g, []); groups.get(g).push(L); });
     const prep = L => {
-      const pts = rotateToLongest(uP(orient(L, inside)));      // climb: CW outside, CCW inside
+      const loop = uP(orient(L, inside));                        // climb: CW outside, CCW inside
+      const corner = op.lead === 'corner' && cornerLeads(loop, r + leave, Math.max(tool.d + 2, 5), allowed);
+      if (corner) return { ...corner, full: startAt(loop, corner.k), closed: false, leadIn: z => P.feed(corner.pts[0].x, corner.pts[0].y, z), leadOut: z => P.feed(corner.G.x, corner.G.y, z) };
+      const pts = rotateToLongest(loop);
       // lead in / out on the air side of the cut: a tangent quarter arc, or a straight line
+      // (off a corner when there is none to use: the arc when it stays clear of the part, else the line)
       const t = nrm2(sub2(pts[1], pts[0])), left = P2(-t.y, t.x), rho = r * 0.6 + 1, C = add2(pts[0], mul2(left, rho));
       const arcAt = phi => sub2(C, mul2(add2(mul2(t, Math.cos(phi)), mul2(left, Math.sin(phi))), rho));
-      const arc = op.lead === 'arc', S = arc ? arcAt(0) : add2(pts[0], mul2(left, rho));
+      const arc = op.lead === 'arc' || (op.lead === 'corner' && [0, 4, 8, 12, 16].every(k => inPaths(arcAt(Math.PI / 2 * k / 8), allowed))), S = arc ? arcAt(0) : add2(pts[0], mul2(left, rho));
       return {
-        pts, S,
+        pts, S, full: pts, closed: true,
         leadIn: z => { if (arc) for (let k = 1; k <= 8; k++) { const q = arcAt(Math.PI / 2 * k / 8); P.feed(q.x, q.y, z); } else P.feed(pts[0].x, pts[0].y, z); },
         leadOut: z => { if (arc) { for (let k = 9; k <= 16; k++) { const q = arcAt(Math.PI / 2 * k / 8); P.feed(q.x, q.y, z); } P.feed(S.x, S.y, z); } else P.feed(S.x, S.y, z); },
       };
@@ -11389,7 +11464,7 @@ const GEN = {
         const cut = [];
         const zAbove = li ? zs[li - 1] : st.z1 + 0.5;
         G.forEach((L, q) => {
-          const ramp = op.entry === 'ramp' && q === 0;
+          const ramp = op.entry === 'ramp' && q === 0 && L.closed;
           const target = ramp ? L.pts[0] : L.S;
           if (q === 0) {
             // down to the next depth from where the tool already is, when it can get there at depth
@@ -11403,9 +11478,9 @@ const GEN = {
           }
           L.leadIn(z);
           for (let i = 1; i < L.pts.length; i++) P.feed(L.pts[i].x, L.pts[i].y, z);
-          P.feed(L.pts[0].x, L.pts[0].y, z);
+          if (L.closed) P.feed(L.pts[0].x, L.pts[0].y, z);
           L.leadOut(z);
-          cut.push(L.pts);
+          cut.push(L.full);
         });
       });
     }
@@ -12922,6 +12997,7 @@ function camPanel() {
     if (op.type === 'contour' && !op.holes) f += `<div class="field"><span>Side</span><div class="seg"><button data-opset="side:outside" class="${op.side !== 'inside' ? 'on' : ''}">Outside</button><button data-opset="side:inside" class="${op.side === 'inside' ? 'on' : ''}">Inside</button></div></div>
       <div class="field"><span>Boundary</span><div class="pick ${faces ? '' : 'empty'}"><span>${faces ? 'Chosen faces · click to add/remove' : 'Part outline · or click flat faces'}</span><span class="n">${faces || 'auto'}</span></div></div>
       <div class="row3">${num('opSd', op.stepdown, 'Stepdown', 0.1)}${num('opLeave', op.leave, 'Leave', 0.05)}${num('opThrough', op.through, 'Below bottom', 0.1)}</div>${op.side !== 'inside' ? `<div class="row2">${num('opRest', op.restD || 0, 'Rest after tool Ø (0 = off)', 1)}</div>` : ''}`;
+    if (op.type === 'contour') f += `<div class="field"><span>Lead in / out</span><div class="seg">${[['corner', 'Off a corner'], ['arc', 'Arc'], ['line', 'Line']].map(([k, l]) => `<button data-opset="lead:${k}" class="${(op.lead || 'line') === k ? 'on' : ''}" title="${k === 'corner' ? 'Straight in and out along the walls at a sharp outside corner, well clear of the part: no witness mark' : k === 'arc' ? 'A tangent quarter arc on the air side' : 'A short straight line square to the wall'}">${l}</button>`).join('')}</div></div>`;
     if (op.type === 'contour' && op.holes) f += `<div class="field"><span>Faces holding the cut-outs</span><div class="pick ${faces ? '' : 'empty'}"><span>${faces ? 'Click a face again to remove it' : 'Click the flat faces the openings are in'}</span><span class="n">${faces}</span></div></div>
       <div class="row3">${num('opSd', op.stepdown, 'Stepdown', 0.1)}${num('opLeave', op.leave, 'Leave', 0.05)}${num('opThrough', op.through, 'Below bottom', 0.1)}</div>`;
     if (op.type === 'pocket') f += `<div class="field"><span>Floors</span><div class="pick ${faces ? '' : 'empty'}"><span>${faces ? 'Click a face again to remove it' : 'Click flat floor faces'}</span><span class="n">${faces}</span></div></div>
@@ -14551,7 +14627,7 @@ function autoPlan(R) {
     const lib = C.tools.filter(t => t.type === 'flat' && fit(t.d)).sort((a, b) => b.d - a.d)[0];
     const tl = lib ? { n: lib.n, t: lib, isNew: false } : pick('flat', [...stdFlat()].reverse().find(fit) || 1, true);
     step({ key: 'cutout', type: 'contour', title: 'Contour the through cut-outs', why: `${R.groups.get('cutout').n} opening${R.groups.get('cutout').n > 1 ? 's' : ''} cut from the inside, down through the part.${R.groups.get('sharp') ? ' Sharp inside corners keep the tool radius.' : ''}`,
-      tool: tl, faces: R.cutoutFaces, op: { entry: 'ramp', lead: 'arc', holes: true, faces: R.cutoutFaces.map(refOf), side: 'inside', stepdown: +Math.max(0.5, Math.min(tl.t.d * 0.5, 3)).toFixed(2), leave: 0, through: 0.5 }, covered: coveredBy(o => o.type === 'contour' && o.holes) });
+      tool: tl, faces: R.cutoutFaces, op: { entry: 'ramp', lead: 'corner', holes: true, faces: R.cutoutFaces.map(refOf), side: 'inside', stepdown: +Math.max(0.5, Math.min(tl.t.d * 0.5, 3)).toFixed(2), leave: 0, through: 0.5 }, covered: coveredBy(o => o.type === 'contour' && o.holes) });
   }
   // 5 · outside profile before the 3D finish: the finishing tool then only meets the part
   if (R.st.x1 - R.part.x1 > 1e-3 || R.part.x0 - R.st.x0 > 1e-3) {
@@ -14562,7 +14638,7 @@ function autoPlan(R) {
     const leftBy = d => { const cl = cOffset(cOffset(outline, d / 2), -d / 2), lf = cDiff(cl, cOffset(outline, 0.01)); return cOffset(cOffset(lf, -0.35), 0.35).filter(p => Math.abs(cArea(p)) > 1e-3); };
     const needRest = outline.length && leftBy(dBig).length;
     const dSmall = needRest ? (sizes.find(d => d < dBig && !leftBy(d).length) || sizes[sizes.length - 1]) : dBig;
-    const cop = (d, extra) => ({ lead: 'arc', side: 'outside', stepdown: +Math.max(1, Math.min(d * 0.5, 3)).toFixed(2), leave: 0, through: 0.5, faces: [], ...extra });
+    const cop = (d, extra) => ({ lead: 'corner', side: 'outside', stepdown: +Math.max(1, Math.min(d * 0.5, 3)).toFixed(2), leave: 0, through: 0.5, faces: [], ...extra });
     const tool = pick('flat', dBig, true), wallF = R.groups.get('wall') ? R.groups.get('wall').faces : [];
     step({ key: 'contour', type: 'contour', title: `Contour the outside profile (Ø${fmtD(dBig)})`, why: `Cut around the part outline through the stock with the biggest end mill that suits it, before the 3D finish, so the ball mill never meets raw stock.`, tool, faces: wallF,
       op: cop(dBig), covered: coveredBy(o => o.type === 'contour' && !o.holes && o.side !== 'inside') });
@@ -19985,6 +20061,12 @@ function gzAnchorFromShown(st, Pu) {
   const v = new THREE.Vector3(Pu[0] - st.a[0] - st.t[0], Pu[1] - st.a[1] - st.t[1], Pu[2] - st.a[2] - st.t[2]).applyMatrix4(gzRotU(st.r).invert()).multiplyScalar(1 / st.s);
   return [v.x + st.a[0], v.y + st.a[1], v.z + st.a[2]];
 }
+// turn by deg about the world axis i (0 X, 1 Y, 2 Z), after the turn it already has
+function gzTurn(st, i, deg) {
+  const R = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(...GZ_AX[i]), deg * Math.PI / 180).multiply(gzRotU(st.r)), e = new THREE.Euler().setFromRotationMatrix(R, 'ZYX');
+  st.r = [e.x, e.y, e.z].map(v => { const d = v * 180 / Math.PI; return Math.abs(d - Math.round(d)) < 1e-6 ? Math.round(d) : d; });
+}
+try { GZ.always = localStorage.getItem('datum.gzAlways') === '1'; } catch (e) { GZ.always = false; }
 const gzIdentity = st => Math.hypot(...st.t) < 1e-9 && Math.hypot(...st.r) < 1e-9 && Math.abs(st.s - 1) < 1e-12;
 function gzCommit(id, st, label) {
   const before = snap();
@@ -20138,7 +20220,8 @@ solidClick = function (x, y, ev) {
   if (!CMD && !S.sk && UIX.ws === 'design' && h && h.kind === 'sbody') {
     selProfiles.length = 0; selEdges.length = 0;
     sel3D = sel3D && sel3D.kind === 'body' && sel3D.body === h.body && !(ev && (ev.shiftKey || ev.ctrlKey)) ? null : { kind: 'body', body: h.body, fid: h.fid, mesh: h.mesh, point: h.point };
-    GZ.pick = false;
+    GZ.pick = !!(sel3D && GZ.always); GZ.pickHover = null;
+    if (GZ.pick) toast('Click the anchor point: a vertex, edge midpoint, hole or face center · Esc to skip');
     rebuildHighlights(); refreshPanel(); requestDraw(); return;
   }
   solidClick0(x, y, ev);
@@ -20159,17 +20242,24 @@ idlePanel = function () {
   const P = [st.a[0] + st.t[0], st.a[1] + st.t[1], st.a[2] + st.t[2]];
   const num = (key, v, s, t) => `<input type="number" data-gz="${key}" step="${s}" value="${+(+v).toFixed(4)}" title="${t}" aria-label="${t}">`;
   const face = sel3D.fid != null && Surf.list[sel3D.fid], gear = ft && ft.type === 'gear';
+  // a section heading; its button puts that tool's handles in the view
+  const gzSec = (t, mode, lab) => `<div class="gz-sec"><h3>${t}</h3>${mode ? `<button class="chip ${GZ.mode === mode ? 'on' : ''}" data-gzm="${mode}" title="${lab} in the view">${lab} in view</button>` : ''}</div>`;
   return `<div class="pn-head"><h2>${xmlEsc(nm)}</h2><span class="tag">body</span></div><div class="pn-body">
     <p class="note">${ft ? `Made by <b>${xmlEsc(ft.name)}</b>. ` : ''}Drag the ${GZ.mode === 'rotate' ? 'rings' : GZ.mode === 'scale' ? 'handles' : 'arrows'} in the view or type values. Shift: finer steps.</p>
     <div class="field"><span>Color</span><input type="color" id="gzCol" value="${(doc.colors && doc.colors[id]) || '#b4bec9'}"></div>
-    <div class="field"><span>Tool</span><div class="seg">${[['move', 'Position'], ['rotate', 'Rotation'], ['scale', 'Scale']].map(([k, l]) => `<button data-gzm="${k}" class="${GZ.mode === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+    ${gzSec('Move', 'move', 'Arrows')}
     <div class="field"><span>Position of the anchor (${U})</span><div class="row3">${[0, 1, 2].map(i => num('p' + i, toU(P[i]), step, 'XYZ'[i])).join('')}</div></div>
+    <div class="field"><span>Move by (${U}) — type a distance, Enter</span><div class="row3">${[0, 1, 2].map(i => `<input type="number" data-gzby="${i}" step="${step}" value="0" title="Move by ${'XYZ'[i]}" aria-label="Move by ${'XYZ'[i]}">`).join('')}</div></div>
+    ${gzSec('Rotate', 'rotate', 'Rings')}
     <div class="field"><span>Rotation about the anchor (°)</span><div class="row3">${[0, 1, 2].map(i => num('r' + i, st.r[i], 15, 'About ' + 'XYZ'[i])).join('')}</div></div>
+    <div class="field"><span>Turn 90° about</span><div class="row3">${[0, 1, 2].map(i => `<div class="seg"><button data-gzturn="${i}:-90" title="−90° about ${'XYZ'[i]}">−${'XYZ'[i]}</button><button data-gzturn="${i}:90" title="+90° about ${'XYZ'[i]}">+${'XYZ'[i]}</button></div>`).join('')}</div></div>
+    ${gzSec('Scale', 'scale', 'Handles')}
     <div class="field"><span>Scale about the anchor (×)</span>${num('s', st.s, 0.1, 'Scale factor')}</div>
-    <div class="divider"></div>
+    ${gzSec('Anchor')}
     <div class="field"><span>Anchor, on the body as built (${U})</span><div class="row3">${[0, 1, 2].map(i => num('a' + i, toU(st.a[i]), step, 'Anchor ' + 'XYZ'[i])).join('')}</div></div>
-    <div class="btns"><button class="btn ${GZ.pick ? 'primary' : ''}" data-gzdo="pick" title="Snap the anchor to a vertex, edge midpoint, hole center or face center">${GZ.pick ? 'Click a point…' : 'Snap anchor…'}</button><button class="btn" data-gzdo="center" title="Put the anchor back at the body's center">Center</button></div>
-    <p class="note">The anchor is the point the body turns and scales about. Moving it never moves the body.</p>
+    <div class="btns"><button class="btn ${GZ.pick ? 'primary' : ''}" data-gzdo="pick" title="Snap the anchor to a vertex, edge midpoint, hole center or face center">${GZ.pick ? 'Click a point…' : 'Set anchor point…'}</button><button class="btn" data-gzdo="center" title="Put the anchor back at the body's center">Center</button></div>
+    <label class="chk"><input type="checkbox" id="gzAlways" ${GZ.always ? 'checked' : ''}> Always set the anchor when I select a body</label>
+    <p class="note">The anchor is the point the body moves from and turns and scales about. Moving the anchor never moves the body.</p>
     <div class="divider"></div>
     <div class="btns">${st.f ? '<button class="btn" data-gzdo="reset">Undo transform</button>' : ''}${face && face.t === 'P' ? '<button class="btn" data-gzdo="face">Select face</button>' : ''}${gear ? '<button class="btn" data-gzdo="gear">Edit gear</button>' : ''}</div>
   </div>`;
@@ -20179,6 +20269,16 @@ function gzBindPanel() {
   const id = sel3D.body;
   const col = panel.querySelector('#gzCol');
   if (col) { let before = null; col.addEventListener('click', () => { before = snap(); }); col.addEventListener('input', () => setBodyColor(id, col.value, true)); col.addEventListener('change', () => { setBodyColor(id, col.value); if (before) record('Body color', before); before = null; refreshUI(); }); }
+  const alw = panel.querySelector('#gzAlways');
+  if (alw) alw.addEventListener('change', () => { GZ.always = alw.checked; try { localStorage.setItem('datum.gzAlways', GZ.always ? '1' : '0'); } catch (e) { /* ok */ } if (GZ.always && !GZ.pick) { GZ.pick = true; GZ.pickHover = null; toast('Click a vertex, edge midpoint, hole or face center for the anchor · Esc to skip'); } refreshPanel(); requestDraw(); });
+  panel.querySelectorAll('[data-gzby]').forEach(inp => inp.addEventListener('change', () => {
+    const v = +inp.value; if (!Number.isFinite(v) || !v) return;
+    const st = gzState(id); st.t[+inp.dataset.gzby] += fromU(v); gzCommit(id, st, 'Move body');
+  }));
+  panel.querySelectorAll('[data-gzturn]').forEach(b => b.addEventListener('click', () => {
+    const [i, deg] = b.dataset.gzturn.split(':').map(Number), st = gzState(id);
+    gzTurn(st, i, deg); gzCommit(id, st, 'Rotate body');
+  }));
   panel.querySelectorAll('[data-gzm]').forEach(b => b.addEventListener('click', () => { GZ.mode = b.dataset.gzm; try { localStorage.setItem('datum.gzMode', GZ.mode); } catch (e) { /* ok */ } refreshPanel(); requestDraw(); }));
   panel.querySelectorAll('[data-gz]').forEach(inp => inp.addEventListener('change', () => {
     const k = inp.dataset.gz, v = +inp.value; if (!Number.isFinite(v)) return;
@@ -21920,6 +22020,150 @@ SAMPLES.unshift(
   { axes: 'model', name: 'Haas VF-1 machining center', make: sHaasVF1, desc: '26 × 14" table on its saddle and linear guides, column and spindle head, CAT 40 tool, 20-pocket umbrella changer, enclosure with the doors slid open and the pendant.' },
   { axes: 'model', name: 'Engine lathe 13 × 40', make: sLathe, desc: 'Geared-head lathe on its cabinet stand: 13" swing, 7-3/8" bed, 8" three-jaw chuck holding a bar, carriage with cross slide, compound and tool post, tailstock with dead center.' }
 );
+</script>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  The ribbon: every tool on the top, in titled panels (Create, Modify,
+//  Pattern…), none hidden in a menu. A panel's main tools are big
+//  buttons; the rest stack three to a column beside them. The buttons
+//  run the same actions as before (data-act in Design and Sketch,
+//  data-cam in Manufacture).
+// ═══════════════════════════════════════════════════════════════════
+// drawn icons for the few tools that only had a Font Awesome glyph
+for (const [k, v] of Object.entries({
+  skcopy: '<rect x="7" y="7" width="10" height="10" rx="1.2"/><path d="M13 7V4.2A1.2 1.2 0 0011.8 3H4.2A1.2 1.2 0 003 4.2v7.6A1.2 1.2 0 004.2 13H7"/>',
+  skcut: '<circle cx="5.5" cy="15" r="2.3"/><circle cx="14.5" cy="15" r="2.3"/><path d="M7.2 13.3L15 3M12.8 13.3L5 3"/>',
+  spaste: '<rect x="4" y="4" width="12" height="14" rx="1.2"/><path d="M7.5 4V2.5h5V4"/><path d="M7 9h6M7 12h6M7 15h4" opacity=".6"/>',
+  gear: '<circle cx="10" cy="10" r="3"/><path d="M10 1.8v2.4M10 15.8v2.4M1.8 10h2.4M15.8 10h2.4M4.2 4.2l1.7 1.7M14.1 14.1l1.7 1.7M4.2 15.8l1.7-1.7M14.1 5.9l1.7-1.7"/>',
+})) if (!IC[k]) IC[k] = v;
+
+// it: [action, label, shortcut, icon, on, extra class]
+function rbBtn(attr, it, size) {
+  const [a, l, k, ic, on, cls] = it;
+  return `<button class="rb-btn rb-${size} ${on ? 'on' : ''} ${cls || ''}" ${attr}="${a}" title="${l}${k ? ' (' + k + ')' : ''}">${svg(ic || a)}<span>${l}</span></button>`;
+}
+function rbPanel(title, items, big = 1, attr = 'data-act') {
+  items = items.filter(Boolean);
+  if (!items.length) return '';
+  const bigs = items.slice(0, big), rest = items.slice(big), cols = [];
+  for (let i = 0; i < rest.length; i += 3) cols.push(rest.slice(i, i + 3));
+  return `<section class="rb-panel" aria-label="${title}"><div class="rb-body">${bigs.map(it => rbBtn(attr, it, 'big')).join('')}${cols.map(c => `<div class="rb-col">${c.map(it => rbBtn(attr, it, 'sm')).join('')}</div>`).join('')}</div><div class="rb-title">${title}</div></section>`;
+}
+
+// ── Design ──
+modelToolbarHTML = function () {
+  const c = t => CMD && CMD.type === t, edge = k => c('edge') && CMD.f.type === k, pat = k => cmdIs('pattern') && CMD.f.kind === k;
+  const f = (k, l, key) => ['f:' + k, l, key, k, cmdIs(k)];
+  return rbPanel('Sketch', [['sketch', 'Create Sketch', 'K', 'sketch', c('pickPlane')]])
+    + rbPanel('Create', [['extrude', 'Extrude', 'E', 'extrude', c('extrude')], f('revolve', 'Revolve', 'R'), f('sweep', 'Sweep', 'S'), f('loft', 'Loft', 'L'), f('coil', 'Coil', ''), f('hole', 'Hole', ''), FEATS.gear ? f('gear', 'Gear', '') : null], 2)
+    + rbPanel('Modify', [['fillet3', 'Fillet', 'F', 'fillet3', edge('fillet')], ['chamfer3', 'Chamfer', 'C', 'chamfer3', edge('chamfer')], f('shell', 'Shell', ''), ['thread', 'Thread', 'T', 'thread', c('thread')], f('combine', 'Combine', ''), f('split', 'Split Body', ''), f('move', 'Move / Copy', 'G'), f('rotate', 'Rotate', ''), f('scale', 'Scale', '')], 2)
+    + rbPanel('Pattern', [['p:rect', 'Rectangular', '', 'pattern', pat('rect')], ['p:circ', 'Circular', '', 'patternc', pat('circ')], ['p:mirror', 'Mirror', '', 'mirror3', pat('mirror')]], 0)
+    + rbPanel('Construct', [['plane', 'Offset Plane', 'P', 'plane', c('offset')], ['point', 'Point', 'O', 'point', c('point')]], 1)
+    + rbPanel('Inspect', [['measure', 'Measure', 'M', 'measure', c('measure')], ['blueprint', 'Blueprint Drawing', '', 'blueprint']], 1)
+    + rbPanel('Insert', [['import', 'Import', '', 'import'], ['export', 'Export', '', 'export']], 0);
+};
+
+// ── Sketch ──
+function sketchRibbonHTML() {
+  const t = a => S.tool === a, T = (a, l, k, ic) => [a, l, k, ic || a, t(a)];
+  const np = dimsPending(S.sk).length;
+  return rbPanel('Select', [T('select', 'Select', 'S')])
+    + rbPanel('Create', [T('line', 'Line', 'L'), T('rect', 'Rectangle', 'R'), T('circle', 'Circle', 'C'), T('crect', 'Center Rect', ''), T('arc3', '3-Point Arc', 'A'), T('carc', 'Center Arc', ''), T('poly', 'Polygon', 'G')], 3)
+    + rbPanel('Modify', [T('trim', 'Trim', 'T'), T('fillet', 'Fillet', 'I'), T('chamfer', 'Chamfer', ''), T('extend', 'Extend', 'W'), T('offset', 'Offset', 'O'), T('origin', 'Set Origin', 'Z', 'origin2')], 1)
+    + rbPanel('Transform', [T('mirror', 'Mirror', 'M'), T('array', 'Pattern', 'P'), T('smove', 'Move', ''), T('srot', 'Rotate', ''), T('sscale', 'Scale', ''), ['sk:copy', 'Copy', 'Ctrl+C', 'skcopy'], ['sk:cut', 'Cut', 'Ctrl+X', 'skcut'], T('spaste', 'Paste', 'Ctrl+V')], 0)
+    + rbPanel('Constrain', [T('dim', 'Dimension', 'D'), T('project', 'Project', 'J'), ['cons', 'Construction', 'X', 'cons'], ['del', 'Delete', 'Del', 'del']], 1)
+    + rbPanel('Finish', [['finish', 'Finish Sketch', 'Enter', 'finish', false, 'finish'], ['upd', np ? `Update (${np})` : 'Update Sketch', 'Ctrl+B', 'upd', false, np ? 'pend' : ''], ['extrude', 'Extrude', 'E', 'extrude']], 1);
+}
+
+// ── Setup sheet ──
+function sheetRibbonHTML() {
+  return rbPanel('Setup Sheet', [['sheetfill', 'Rebuild from Program', '', 'campost'], ['tocam', 'Manufacture', '', 'camsetup']], 2);
+}
+
+// ── Manufacture ──
+camToolbar = function () {
+  const v = CAMUI.view, wire = typeof isWire === 'function' && isWire();
+  const op = k => OP_INFO[k] ? ['add:' + k, OP_INFO[k].name, '', OP_INFO[k].icon] : null;
+  const D2 = ['face', 'contour', 'pocket', 'drill', 'chamfer'], D3 = ['parallel'], known = new Set([...D2, ...D3, 'wire']);
+  const other = Object.keys(OP_INFO).filter(k => !known.has(k));
+  const P = (title, items, big) => rbPanel(title, items, big, 'data-cam');
+  return P('Setup', [['setup', 'Setup', '', 'camsetup', v === 'setup'], ['tools', 'Tool Library', '', 'camtools', v === 'tools']], 1)
+    + (wire ? '' : P('Automate', [['autoprog', 'Auto Program', '', 'autoprog', v === 'report'], ['auto', 'Auto Detect', '', 'auto', v === 'auto'], ['verify', 'Verify', '', 'verify']], 1))
+    + (wire ? P('Wire EDM', [op('wire')], 1) : P('2D', D2.map(op), 2) + P('3D', D3.map(op), 1) + P('Other', other.map(op), 1))
+    + P('Actions', [['sim', 'Simulate', '', 'camsim', v === 'sim'], ['post', 'Post G-code', '', 'campost', v === 'post'], ['ws:sheet', 'Setup Sheet', '', 'blueprint']], 1)
+    + P('Inspect', [['measure', 'Measure', 'M', 'measure', CMD && CMD.type === 'measure']], 1);
+};
+const camActionRb0 = camAction;
+camAction = function (a) { if (a === 'ws:sheet') { setWorkspace('sheet'); return; } camActionRb0(a); };
+</script>
+
+<script>
+// ── Sharp 1640L precision engine lathe, in inches ──
+// Published: 16" swing over the bed (8" center height), 24-3/8" over the 9-3/4" gap, 8-3/4"
+// over the cross slide; 40" between centers; 11-3/4" bed; D1-8 camlock nose with a 3-1/16"
+// bore; 10" three-jaw chuck; cross slide travel 9-1/2"; compound 4-1/2" wide, 4.9" travel;
+// tailstock quill 2-1/4" with 5" travel; about 85 × 32" of floor. Heights of the base and
+// headstock are proportioned for a 43" spindle center line.
+function sSharp1640L() {
+  const M = machineKit(25.4), { K, u, box, cylX, cylY, cylZ, sideX, wheel } = M;
+  const CAST = '#d5d9dc', DARK = '#4d545b', BED = '#8f9899', CHROME = '#dde1e5', STEEL = '#b7bec5', BLACK = '#25282c', BAR = '#a9b1b8', BLUE = '#3f6fa8';
+  const cz = 43, bedTop = cz - 8, bw = 11.75 / 2, gapTop = cz - 24.375 / 2, face = -18, gapEnd = face + 9.75;
+  // one-piece base with its chip pan and splash guard, the foot brake bar along the front
+  K.name(box(-41, 43, -10, 10, 0, 23, DARK, 1), 'Base');
+  K.name(box(-42, 44, -15, 13, 23, 26, STEEL), 'Chip pan');
+  K.name(box(-42, 44, 12, 13, 26, 52, STEEL), 'Splash guard');
+  K.name(cylX(-38, 40, -11.2, 3.5, 0.6, CHROME), 'Foot brake bar');
+  for (const x of [-38, 40]) box(x - 0.6, x + 0.6, -11.2, -10, 2.9, 4.1, CHROME);
+  // the bed: full height under the headstock and from the gap on, lowered through the gap
+  K.name(box(-41, face, -bw, bw, 26, bedTop, BED), 'Bed (headstock end)');
+  K.name(box(face, gapEnd, -bw, bw, 26, gapTop, BED), 'Gap');
+  K.name(box(gapEnd, 42, -bw, bw, 26, bedTop, BED), 'Bed');
+  box(gapEnd, 38, -bw - 0.5, -bw, 32, 33, STEEL);                        // rack
+  // headstock with its speed levers, control panel and the electrical cabinet behind
+  K.name(box(-41, face, -9, 9, bedTop, 56, CAST, 1.5), 'Headstock');
+  for (const [x, z] of [[-36, 51], [-30, 51], [-24, 51], [-36, 45.5], [-30, 45.5]]) { cylY(-10.5, -9, x, z, 0.35, CHROME); cylY(-11.3, -10.5, x, z, 0.6, BLACK); }
+  K.name(box(-27, -19.5, -9.6, -9, 43, 47.5, BLUE), 'Control panel');
+  for (const [x, c] of [[-25.5, '#2f9e5b'], [-23.25, '#e5484d'], [-21, '#e2a13a']]) cylY(-10.1, -9.6, x, 45.25, 0.55, c);
+  K.name(box(-40, -24, 9, 12, 26, 52, DARK, 0.5), 'Electrical cabinet');
+  // quick-change gearbox under the headstock, lead screw and feed rod along the bed
+  K.name(box(-40, -22, -9.8, -bw, 26.5, bedTop - 0.5, CAST, 0.6), 'Gearbox');
+  for (const x of [-37, -33, -29, -25]) { cylY(-10.6, -9.8, x, 30.5, 1, CHROME); cylY(-11.5, -10.6, x, 30.5, 0.4, BLACK); }
+  K.name(cylX(-22, 43, -bw - 1.1, 31.5, 0.6, CHROME), 'Lead screw');
+  K.name(cylX(-22, 43, -bw - 1.1, 29.6, 0.45, CHROME), 'Feed rod');
+  K.name(cylX(-22, 43, -bw - 1.1, 27.9, 0.35, CHROME), 'Spindle control rod');
+  box(42, 44, -bw - 2, -bw, 26.5, 33, CAST);                              // end bracket
+  // D1-8 spindle nose, 10" three-jaw chuck bored 3-1/16", its jaws, and a 2-1/2" bar
+  K.name(cylX(face, face + 1.6, 0, cz, 4.1, STEEL), 'Spindle nose');
+  K.name(cylX(face + 1.6, face + 6.4, 0, cz, 5, DARK), 'Chuck');
+  K.extrude(K.sketch(K.RIGHT(u(face + 6.5)), [K.C(0, u(cz), u(3.0625 / 2))]), [P2(0, u(cz))], -u(7), 'cut');
+  for (let k = 0; k < 3; k++) {
+    const a = Math.PI / 2 + k * TAU / 3, c = Math.cos(a), s = Math.sin(a), p = (r, o) => [c * r - s * o, cz + s * r + c * o];
+    sideX([p(1.25, -0.55), p(4.6, -0.55), p(4.6, 0.55), p(1.25, 0.55)], face + 6.4, face + 7.8, STEEL);
+  }
+  K.name(cylX(face + 6.4, -2, 0, cz, 1.25, BAR), 'Workpiece');
+  // carriage: saddle, apron and its handwheel, cross slide (9-1/2" travel), compound, tool post
+  K.name(box(-10, 4, -8.5, 8.5, bedTop, bedTop + 2.5, CAST), 'Saddle');
+  K.name(box(-10, 4, -10.2, -bw - 0.5, 25.5, bedTop + 2.5, CAST, 0.6), 'Apron');
+  cylY(-11.5, -10.2, -6, 31, 0.6, CHROME); wheel('y', [-6, -11.5, 31], 4, 0.7, CHROME, BLACK);
+  cylX(1, 3, -10.8, 34, 0.35, CHROME);                                  // half-nut lever
+  K.name(box(-8.5, 1.5, -10.5, 8, bedTop + 2.5, bedTop + 4.5, CAST), 'Cross slide');
+  cylY(-12.5, -10.5, -3.5, bedTop + 3.5, 0.5, CHROME); wheel('y', [-3.5, -12.5, bedTop + 3.5], 2.8, 0.6, CHROME, BLACK);
+  K.name(box(-6.25, -1.75, -6.5, 0.5, bedTop + 4.5, bedTop + 6.4, CAST), 'Compound');
+  K.name(box(-5.5, -2.5, -4.8, -1.8, bedTop + 6.4, cz + 1.6, DARK), 'Tool post');
+  box(-4.3, -3.7, -1.8, -1.3, cz - 0.3, cz + 0.3, CHROME);               // the tool, on center
+  cylZ(-4, -3.3, 0.45, cz + 1.6, cz + 2.6, CHROME);
+  // tailstock: base, body, 2-1/4" quill, dead center, handwheel, quill lock
+  K.name(box(26, 35, -6.5, 6.5, bedTop, bedTop + 2.5, CAST), 'Tailstock base');
+  K.name(box(26, 34, -5, 5, bedTop + 2.5, cz + 3.5, CAST, 0.8), 'Tailstock');
+  K.name(cylX(21.5, 26, 0, cz, 1.125, STEEL), 'Tailstock quill');
+  const cs = K.sketch(K.FRONT(0), M.poly([[20, cz], [21.5, cz], [21.5, cz + 0.62]])), ax = K.cons(K.L(u(19), u(cz), u(23), u(cz))); cs.ents.push(ax);
+  const dc = K.revolve(cs, [P2(u(21.1), u(cz + 0.15))], ax, 'new'); K.name(dc, 'Dead center'); K.color(dc, CHROME);
+  cylX(34, 36, 0, cz, 0.6, CHROME); wheel('x', [36, 0, cz], 3.5, 0.7, CHROME, BLACK);
+  cylY(-6.5, -5, 30, cz + 2, 0.35, CHROME);
+  return K.doc();
+}
+SAMPLES.unshift({ axes: 'model', name: 'Sharp 1640L lathe', make: sSharp1640L, desc: '16 × 40" precision engine lathe: 16" swing, 24-3/8" over the gap, 11-3/4" bed, D1-8 nose with a 10" three-jaw chuck, carriage, 4-1/2" compound, tailstock with a 2-1/4" quill.' });
 </script>
 
 <script>boot();</script>
