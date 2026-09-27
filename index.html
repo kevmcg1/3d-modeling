@@ -22737,7 +22737,8 @@ function jawBuild() {
   if (!(p.gap >= 0)) p.gap = 3;
   if (!(p.L > 0)) p.L = Math.max(152.4, Math.ceil((ex + 25.4) / 12.7 - 1e-9) * 12.7);
   if (!(p.W > 0)) p.W = Math.max(38.1, r6(ey / 2 - p.gap / 2 + 12.7));
-  if (!(p.H > 0)) p.H = Math.max(38.1, r6(p.depth + 12.7));
+  // tall enough for the depth, plus anything of the part hanging below the held face, plus a floor
+  if (!(p.H > 0)) p.H = Math.max(38.1, r6(p.depth + Math.max(0, zFace - zmin) + 12.7));
   const depth = clamp(p.depth, 0.1, Math.max(0.1, height)), H = p.H;
   // the face sits depth below the jaw top; center the part over the jaws
   const t = [-(x0 + x1) / 2, -(y0 + y1) / 2, H - depth - zFace];
