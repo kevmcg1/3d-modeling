@@ -3612,11 +3612,36 @@ button, input, select { font: inherit; color: inherit; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 [hidden] { display: none !important; }
 
-/* ── Top bar ── */
-#topbar {
-  display: flex; align-items: stretch; gap: 10px; flex-wrap: wrap;
-  padding: 6px 12px; padding-top: calc(6px + env(safe-area-inset-top, 0px));
-  background: var(--panel); border-bottom: 1px solid var(--rule); min-width: 0;
+/* ── Top bar: brand, workspaces and file buttons; the ribbon of tools under it ── */
+#topbar { display: flex; flex-direction: column; background: var(--panel); border-bottom: 1px solid var(--rule); min-width: 0; }
+.top-row {
+  display: flex; align-items: stretch; gap: 10px; min-width: 0;
+  padding: 4px 12px; padding-top: calc(4px + env(safe-area-inset-top, 0px));
+}
+.ribbon {
+  display: flex; align-items: stretch; min-width: 0; overflow-x: auto; overflow-y: hidden;
+  border-top: 1px solid var(--rule); background: color-mix(in srgb, var(--panel-2) 45%, var(--panel)); padding: 4px 4px 0; scrollbar-width: thin;
+}
+.rb-panel { display: flex; flex-direction: column; flex: none; padding: 0 6px; border-right: 1px solid var(--rule); }
+.rb-panel:last-child { border-right: 0; }
+.rb-body { display: flex; align-items: stretch; gap: 2px; flex: 1; }
+.rb-title { font: 600 9.5px/1 var(--font); letter-spacing: .09em; text-transform: uppercase; color: var(--muted); text-align: center; padding: 5px 0 5px; white-space: nowrap; }
+.rb-btn { border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--ink-2); cursor: pointer; transition: background .12s, color .12s, border-color .12s; }
+.rb-btn svg { stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.rb-btn:hover { background: var(--panel); color: var(--ink); border-color: var(--rule); }
+.rb-btn:active { transform: scale(.96); }
+.rb-btn.on { background: var(--accent-soft); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+.rb-btn.finish { color: var(--ok); }
+.rb-btn.pend { color: #d9792a; }
+.rb-big { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; min-width: 60px; max-width: 76px; padding: 4px 6px; font-size: 11px; line-height: 1.15; text-align: center; }
+.rb-big svg { width: 24px; height: 24px; }
+.rb-col { display: flex; flex-direction: column; gap: 1px; }
+.rb-sm { display: flex; align-items: center; gap: 7px; height: 22px; padding: 0 8px 0 5px; font-size: 11.5px; white-space: nowrap; text-align: left; }
+.rb-sm svg { width: 15px; height: 15px; }
+@media (max-width: 1280px) {
+  .rb-panel { padding: 0 3px; }
+  .rb-big { min-width: 48px; padding: 3px 4px; font-size: 10.5px; }
+  .rb-sm { padding: 0 6px 0 4px; gap: 5px; font-size: 11px; }
 }
 .brand { display: flex; align-items: center; gap: 8px; padding-right: 6px; }
 .brand-mark { width: 22px; height: 22px; }
@@ -3895,6 +3920,9 @@ body.sim-on #mouseLegend { bottom: 132px; }
   #panel { position: absolute; left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 46%; z-index: 12; border: 1px solid var(--rule); border-radius: 10px; box-shadow: var(--shadow); }
   .tb span { display: none; }
   .tb { min-width: 34px; }
+  .rb-big { min-width: 50px; }
+  .rb-sm span { display: none; }
+  .rb-sm { padding: 0 5px; }
   .brand-name { display: none; }
   .mob-only { display: flex; }
   #hint { max-width: calc(100% - 150px); }
@@ -4071,6 +4099,7 @@ table.meas tr.bad td { color: var(--danger); }
 </head>
 <body>
 <header id="topbar">
+  <div class="top-row">
   <div class="brand">
     <button class="tb mob-only" id="btnTree" title="Browser"><svg viewBox="0 0 20 20"><path d="M3 5h14M3 10h14M3 15h14"/></svg></button>
     <svg class="brand-mark" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.7" stroke-linejoin="round"><path d="M3 8l9-5 9 5-9 5z"/><path d="M3 8v8l9 5 9-5V8" opacity=".55"/><path d="M12 13v8" opacity=".55"/></svg>
@@ -4078,13 +4107,14 @@ table.meas tr.bad td { color: var(--danger); }
     <div class="ws" role="tablist" aria-label="Workspace"><button data-ws="design" class="on">Design</button><button data-ws="cam">Manufacture</button><button data-ws="sheet">Setup Sheet</button></div>
     <span class="mode-chip" id="modeChip">Model</span>
   </div>
-  <div class="tb-groups" id="toolbar"></div>
   <div class="tb-right">
     <button class="tb" id="btnUndo" title="Undo (Ctrl+Z)"><svg viewBox="0 0 20 20"><path d="M7 5L3 9l4 4"/><path d="M3 9h9a5 5 0 010 10H9"/></svg><span>Undo</span></button>
     <button class="tb" id="btnRedo" title="Redo (Ctrl+Y)"><svg viewBox="0 0 20 20"><path d="M13 5l4 4-4 4"/><path d="M17 9H8a5 5 0 000 10h3"/></svg><span>Redo</span></button>
     <button class="tb" id="btnFile" title="File"><svg viewBox="0 0 20 20"><path d="M5 2h7l4 4v12H5z"/><path d="M12 2v4h4"/></svg><span>File</span></button>
     <button class="tb" id="btnHelp" title="Shortcuts (?)"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.5"/><path d="M8 8a2 2 0 113 1.7c-.7.4-1 .8-1 1.6M10 14h0"/></svg><span>Keys</span></button>
   </div>
+  </div>
+  <nav class="ribbon" id="toolbar" aria-label="Tools"></nav>
 </header>
 
 <div id="main">
@@ -9436,7 +9466,7 @@ function refreshToolbar() {
   const c = t => CMD && CMD.type === t;
   let h = '';
   if (UIX.ws === 'sheet') {
-    tb.innerHTML = `<div class="tb-group">${btn('sheetfill', 'Rebuild from Program', 'Fill the sheet again from the Manufacture program', false, '', 'campost')}${btn('tocam', 'Manufacture', '', false, '', 'camsetup')}</div>`;
+    tb.innerHTML = sheetRibbonHTML();
     tb.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => b.dataset.act === 'sheetfill' ? openSetupSheet() : setWorkspace('cam')));
     document.querySelectorAll('[data-ws]').forEach(b => b.classList.toggle('on', b.dataset.ws === UIX.ws));
     return;
@@ -9451,12 +9481,7 @@ function refreshToolbar() {
     return;
   }
   if (S.sk) {
-    h += SKETCH_TOOLS.map(g => `<div class="tb-group">${g.map(([a, l, k]) => btn(a, l, k, S.tool === a, '', a === 'origin' ? 'origin2' : null)).join('')}</div>`).join('');
-    const xfOn = SKETCH_XF.some(x => x[0] === S.tool);
-    h += `<div class="tb-group"><button class="tb tb-menu ${xfOn ? 'on' : ''}" data-menu="sktransform" title="Mirror, pattern, move, rotate, scale">${svg(xfOn ? (S.tool === 'array' ? 'array' : S.tool) : 'smove')}<span>${xfOn ? skToolName(S.tool) : 'Transform'}</span></button></div>`;
-    h += `<div class="tb-group">${btn('cons', 'Construction', 'X')}${btn('del', 'Delete', 'Del')}</div>`;
-    const np = dimsPending(S.sk).length;
-    h += `<div class="tb-group">${btn('upd', np ? `Update (${np})` : 'Update Sketch', 'Ctrl+B', false, np ? 'pend' : '')}${btn('extrude', 'Extrude', 'E')}${btn('finish', 'Finish Sketch', 'Enter', false, 'finish')}</div>`;
+    h += sketchRibbonHTML();
   } else {
     h += modelToolbarHTML(btn, c);
   }
@@ -21920,6 +21945,82 @@ SAMPLES.unshift(
   { axes: 'model', name: 'Haas VF-1 machining center', make: sHaasVF1, desc: '26 × 14" table on its saddle and linear guides, column and spindle head, CAT 40 tool, 20-pocket umbrella changer, enclosure with the doors slid open and the pendant.' },
   { axes: 'model', name: 'Engine lathe 13 × 40', make: sLathe, desc: 'Geared-head lathe on its cabinet stand: 13" swing, 7-3/8" bed, 8" three-jaw chuck holding a bar, carriage with cross slide, compound and tool post, tailstock with dead center.' }
 );
+</script>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  The ribbon: every tool on the top, in titled panels (Create, Modify,
+//  Pattern…), none hidden in a menu. A panel's main tools are big
+//  buttons; the rest stack three to a column beside them. The buttons
+//  run the same actions as before (data-act in Design and Sketch,
+//  data-cam in Manufacture).
+// ═══════════════════════════════════════════════════════════════════
+// drawn icons for the few tools that only had a Font Awesome glyph
+for (const [k, v] of Object.entries({
+  skcopy: '<rect x="7" y="7" width="10" height="10" rx="1.2"/><path d="M13 7V4.2A1.2 1.2 0 0011.8 3H4.2A1.2 1.2 0 003 4.2v7.6A1.2 1.2 0 004.2 13H7"/>',
+  skcut: '<circle cx="5.5" cy="15" r="2.3"/><circle cx="14.5" cy="15" r="2.3"/><path d="M7.2 13.3L15 3M12.8 13.3L5 3"/>',
+  spaste: '<rect x="4" y="4" width="12" height="14" rx="1.2"/><path d="M7.5 4V2.5h5V4"/><path d="M7 9h6M7 12h6M7 15h4" opacity=".6"/>',
+  gear: '<circle cx="10" cy="10" r="3"/><path d="M10 1.8v2.4M10 15.8v2.4M1.8 10h2.4M15.8 10h2.4M4.2 4.2l1.7 1.7M14.1 14.1l1.7 1.7M4.2 15.8l1.7-1.7M14.1 5.9l1.7-1.7"/>',
+})) if (!IC[k]) IC[k] = v;
+
+// it: [action, label, shortcut, icon, on, extra class]
+function rbBtn(attr, it, size) {
+  const [a, l, k, ic, on, cls] = it;
+  return `<button class="rb-btn rb-${size} ${on ? 'on' : ''} ${cls || ''}" ${attr}="${a}" title="${l}${k ? ' (' + k + ')' : ''}">${svg(ic || a)}<span>${l}</span></button>`;
+}
+function rbPanel(title, items, big = 1, attr = 'data-act') {
+  items = items.filter(Boolean);
+  if (!items.length) return '';
+  const bigs = items.slice(0, big), rest = items.slice(big), cols = [];
+  for (let i = 0; i < rest.length; i += 3) cols.push(rest.slice(i, i + 3));
+  return `<section class="rb-panel" aria-label="${title}"><div class="rb-body">${bigs.map(it => rbBtn(attr, it, 'big')).join('')}${cols.map(c => `<div class="rb-col">${c.map(it => rbBtn(attr, it, 'sm')).join('')}</div>`).join('')}</div><div class="rb-title">${title}</div></section>`;
+}
+
+// ── Design ──
+modelToolbarHTML = function () {
+  const c = t => CMD && CMD.type === t, edge = k => c('edge') && CMD.f.type === k, pat = k => cmdIs('pattern') && CMD.f.kind === k;
+  const f = (k, l, key) => ['f:' + k, l, key, k, cmdIs(k)];
+  return rbPanel('Sketch', [['sketch', 'Create Sketch', 'K', 'sketch', c('pickPlane')]])
+    + rbPanel('Create', [['extrude', 'Extrude', 'E', 'extrude', c('extrude')], f('revolve', 'Revolve', 'R'), f('sweep', 'Sweep', 'S'), f('loft', 'Loft', 'L'), f('coil', 'Coil', ''), f('hole', 'Hole', ''), FEATS.gear ? f('gear', 'Gear', '') : null], 2)
+    + rbPanel('Modify', [['fillet3', 'Fillet', 'F', 'fillet3', edge('fillet')], ['chamfer3', 'Chamfer', 'C', 'chamfer3', edge('chamfer')], f('shell', 'Shell', ''), ['thread', 'Thread', 'T', 'thread', c('thread')], f('combine', 'Combine', ''), f('split', 'Split Body', ''), f('move', 'Move / Copy', 'G'), f('rotate', 'Rotate', ''), f('scale', 'Scale', '')], 2)
+    + rbPanel('Pattern', [['p:rect', 'Rectangular', '', 'pattern', pat('rect')], ['p:circ', 'Circular', '', 'patternc', pat('circ')], ['p:mirror', 'Mirror', '', 'mirror3', pat('mirror')]], 0)
+    + rbPanel('Construct', [['plane', 'Offset Plane', 'P', 'plane', c('offset')], ['point', 'Point', 'O', 'point', c('point')]], 1)
+    + rbPanel('Inspect', [['measure', 'Measure', 'M', 'measure', c('measure')], ['blueprint', 'Blueprint Drawing', '', 'blueprint']], 1)
+    + rbPanel('Insert', [['import', 'Import', '', 'import'], ['export', 'Export', '', 'export']], 0);
+};
+
+// ── Sketch ──
+function sketchRibbonHTML() {
+  const t = a => S.tool === a, T = (a, l, k, ic) => [a, l, k, ic || a, t(a)];
+  const np = dimsPending(S.sk).length;
+  return rbPanel('Select', [T('select', 'Select', 'S')])
+    + rbPanel('Create', [T('line', 'Line', 'L'), T('rect', 'Rectangle', 'R'), T('circle', 'Circle', 'C'), T('crect', 'Center Rect', ''), T('arc3', '3-Point Arc', 'A'), T('carc', 'Center Arc', ''), T('poly', 'Polygon', 'G')], 3)
+    + rbPanel('Modify', [T('trim', 'Trim', 'T'), T('fillet', 'Fillet', 'I'), T('chamfer', 'Chamfer', ''), T('extend', 'Extend', 'W'), T('offset', 'Offset', 'O'), T('origin', 'Set Origin', 'Z', 'origin2')], 1)
+    + rbPanel('Transform', [T('mirror', 'Mirror', 'M'), T('array', 'Pattern', 'P'), T('smove', 'Move', ''), T('srot', 'Rotate', ''), T('sscale', 'Scale', ''), ['sk:copy', 'Copy', 'Ctrl+C', 'skcopy'], ['sk:cut', 'Cut', 'Ctrl+X', 'skcut'], T('spaste', 'Paste', 'Ctrl+V')], 0)
+    + rbPanel('Constrain', [T('dim', 'Dimension', 'D'), T('project', 'Project', 'J'), ['cons', 'Construction', 'X', 'cons'], ['del', 'Delete', 'Del', 'del']], 1)
+    + rbPanel('Finish', [['finish', 'Finish Sketch', 'Enter', 'finish', false, 'finish'], ['upd', np ? `Update (${np})` : 'Update Sketch', 'Ctrl+B', 'upd', false, np ? 'pend' : ''], ['extrude', 'Extrude', 'E', 'extrude']], 1);
+}
+
+// ── Setup sheet ──
+function sheetRibbonHTML() {
+  return rbPanel('Setup Sheet', [['sheetfill', 'Rebuild from Program', '', 'campost'], ['tocam', 'Manufacture', '', 'camsetup']], 2);
+}
+
+// ── Manufacture ──
+camToolbar = function () {
+  const v = CAMUI.view, wire = typeof isWire === 'function' && isWire();
+  const op = k => OP_INFO[k] ? ['add:' + k, OP_INFO[k].name, '', OP_INFO[k].icon] : null;
+  const D2 = ['face', 'contour', 'pocket', 'drill', 'chamfer'], D3 = ['parallel'], known = new Set([...D2, ...D3, 'wire']);
+  const other = Object.keys(OP_INFO).filter(k => !known.has(k));
+  const P = (title, items, big) => rbPanel(title, items, big, 'data-cam');
+  return P('Setup', [['setup', 'Setup', '', 'camsetup', v === 'setup'], ['tools', 'Tool Library', '', 'camtools', v === 'tools']], 1)
+    + (wire ? '' : P('Automate', [['autoprog', 'Auto Program', '', 'autoprog', v === 'report'], ['auto', 'Auto Detect', '', 'auto', v === 'auto'], ['verify', 'Verify', '', 'verify']], 1))
+    + (wire ? P('Wire EDM', [op('wire')], 1) : P('2D', D2.map(op), 2) + P('3D', D3.map(op), 1) + P('Other', other.map(op), 1))
+    + P('Actions', [['sim', 'Simulate', '', 'camsim', v === 'sim'], ['post', 'Post G-code', '', 'campost', v === 'post'], ['ws:sheet', 'Setup Sheet', '', 'blueprint']], 1)
+    + P('Inspect', [['measure', 'Measure', 'M', 'measure', CMD && CMD.type === 'measure']], 1);
+};
+const camActionRb0 = camAction;
+camAction = function (a) { if (a === 'ws:sheet') { setWorkspace('sheet'); return; } camActionRb0(a); };
 </script>
 
 <script>boot();</script>
