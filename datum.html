@@ -5281,14 +5281,16 @@ function linearCornerTool(E0, E1, t1, t2, kind, size, tol, meta) {
 // ── Circular-edge corner tool: the same profile revolved about an axis ─
 // ax: {p, dir, e1, e2}; edge at radius R, height h0; t1/t2 are 2D (ρ,h)
 // unit directions along each face; angular range th0..th1 (full = TAU).
-function revolvedCornerTool(ax, R, h0, t1, t2, kind, size, th0, th1, tol, meta) {
+// brk: optional ascending angles th0..th1 to put facet columns on — the
+// angles of the body's own facets along the edge, so the tool meets them
+// vertex for vertex and the tangent seam cuts clean instead of zig-zagging.
+function revolvedCornerTool(ax, R, h0, t1, t2, kind, size, th0, th1, tol, meta, brk) {
   const T1 = [t1[0], t1[1], 0], T2 = [t2[0], t2[1], 0];
   const pr = cornerProfile(T1, T2, kind, size, tol);
   if (!pr) return null;
   const prof = pr.pts.map(p => [R + p[0], h0 + p[1]]);
   if (prof.some(p => p[0] < -1e-9)) return null;
   const full = th1 - th0 >= TAU - 1e-9, rMax = Math.max(...prof.map(p => p[0]));
-  const N = Math.max(8, Math.ceil(circleN(rMax, tol) * (th1 - th0) / TAU));
   const at = (p, th) => add3(add3(ax.p, mul3(ax.dir, p[1])), add3(mul3(ax.e1, p[0] * Math.cos(th)), mul3(ax.e2, p[0] * Math.sin(th))));
   // make profile CCW in (ρ,h)
   let area = 0;
@@ -5307,12 +5309,27 @@ function revolvedCornerTool(ax, R, h0, t1, t2, kind, size, th0, th1, tol, meta) 
     if (pr.face && Math.min(i, j) === pr.face[0] && Math.max(i, j) === pr.face[1]) Surf.addMeta(f, meta);
     return f;
   };
-  const ths = []; for (let k = 0; k <= N; k++) ths.push(th0 + (th1 - th0) * k / N);
+  const ths = [], chord = [];
+  if (brk && brk.length >= 2) {
+    // split each span evenly only where the widest radius of the profile needs it; points
+    // added on the edge's own radius stay on the body's flat facet (its chord), not the circle
+    const step = TAU / circleN(rMax, tol);
+    for (let i = 0; i + 1 < brk.length; i++) {
+      const a = brk[i], b = brk[i + 1], n = Math.max(1, Math.ceil((b - a) / step - 1e-9)), hw = (b - a) / 2;
+      for (let k = 0; k < n; k++) { const th = a + (b - a) * k / n; ths.push(th); chord.push(Math.cos(hw) / Math.cos(th - a - hw)); }
+    }
+    ths.push(brk[brk.length - 1]); chord.push(1);
+  } else { const N = Math.max(8, Math.ceil(circleN(rMax, tol) * (th1 - th0) / TAU)); for (let k = 0; k <= N; k++) { ths.push(th0 + (th1 - th0) * k / N); chord.push(1); } }
+  const N = ths.length - 1;
+  const atK = (p, k) => at(Math.abs(p[0] - R) < 1e-9 ? [p[0] * chord[k], p[1]] : p, ths[k]);
   for (let e = 0; e < m; e++) {
     const i = order[e], j = order[(e + 1) % m], a = prof[i], b = prof[j];
+    // a face from the edge's radius to another one is bent where the edge row sits on a chord: two triangles
+    const bentRow = (Math.abs(a[0] - R) < 1e-9) !== (Math.abs(b[0] - R) < 1e-9);
     for (let k = 0; k < N; k++) {
-      const q = [at(a, ths[k]), at(a, ths[k + 1]), at(b, ths[k + 1]), at(b, ths[k])].filter((v, x, arr) => dist3(v, arr[(x + 1) % arr.length]) > 1e-12);
-      if (q.length < 3) continue;
+      const q4 = [atK(a, k), atK(a, k + 1), atK(b, k + 1), atK(b, k)].filter((v, x, arr) => dist3(v, arr[(x + 1) % arr.length]) > 1e-12);
+      if (q4.length < 3) continue;
+      for (const q of q4.length === 4 && bentRow && (chord[k] !== 1 || chord[k + 1] !== 1) ? [[q4[0], q4[1], q4[2]], [q4[0], q4[2], q4[3]]] : [q4]) {
       const p = CSG.poly(q, 0);
       let f = surfFor(i, j);
       if (f === null) f = Surf.plane(p.n, p.w);
@@ -5322,6 +5339,7 @@ function revolvedCornerTool(ax, R, h0, t1, t2, kind, size, th0, th1, tol, meta) 
         if (dot3(want, p.n) < 0) f = Surf.flip(f);
       }
       polys.push(CSG.poly(q, f, p.n, p.w));
+      }
     }
   }
   if (!full) for (const [th, s] of [[th0, -1], [th1, 1]]) {
@@ -5510,22 +5528,31 @@ function edgeTool(body, mesh, ch, kind, size, tol, meta) {
     const hh = v => dot3(sub3(v, ax.p), ax.dir);
     const planeC = Surf.list[ch.fa].t === 'P' ? cA : cB, cylC = Surf.list[ch.fa].t === 'P' ? cB : cA;
     const t1 = [Math.sign(rho(planeC) - g.r) || -1, 0], t2 = [0, Math.sign(hh(cylC) - g.h0) || -1];
-    let th0 = 0, th1 = TAU;
     const ang = v => { const w = sub3(v, ax.p); return mod(Math.atan2(dot3(w, ax.e2), dot3(w, ax.e1)), TAU); };
-    if (!g.full) {
-      const as = ch.pts.map(ang).sort((a, b) => a - b);
+    // the edge's own vertices, in order around the axis: the tool's facet columns go on them
+    const as = [];
+    for (const a of ch.pts.map(ang).sort((a, b) => a - b)) if (!as.length || a - as[as.length - 1] > 1e-9) as.push(a);
+    if (g.full && as.length > 1 && as[0] + TAU - as[as.length - 1] < 1e-9) as.pop();
+    let brk;
+    if (g.full) brk = as.length >= 3 ? [...as, as[0] + TAU] : null;
+    else {
       let gap = as[0] + TAU - as[as.length - 1], gi = as.length - 1;
       for (let i = 0; i + 1 < as.length; i++) if (as[i + 1] - as[i] > gap) { gap = as[i + 1] - as[i]; gi = i; }
-      th0 = as[(gi + 1) % as.length]; th1 = as[gi]; if (th1 <= th0) th1 += TAU;
+      brk = as.slice(gi + 1).concat(as.slice(0, gi + 1).map(a => (gi + 1 < as.length ? a + TAU : a)));
     }
+    if (!brk || brk.length < 2) brk = [0, TAU];
+    const th0 = brk[0], th1 = brk[brk.length - 1];
 
     const pn = Surf.list[ch.fa].t === 'P' ? Surf.list[ch.fa].n : Surf.list[ch.fb].n;
     const convex = dot3(pn, g.dir) * t2[1] < 0;
     // A full ring is the worst case for BSP booleans (every facet plane
     // slices the far side of the ring), so revolve in ≤45° sectors.
-    const ns = Math.max(1, Math.ceil((th1 - th0) / (Math.PI / 4))), pieces = [];
+    // Sector ends land on edge vertices, so every sector keeps the body's facet angles.
+    const ns = Math.min(brk.length - 1, Math.max(1, Math.ceil((th1 - th0) / (Math.PI / 4) - 1e-9))), pieces = [];
+    const cut = k => Math.round(k * (brk.length - 1) / ns);
     for (let k = 0; k < ns; k++) {
-      const polys = revolvedCornerTool(ax, g.r, g.h0, t1, t2, kind, size, th0 + (th1 - th0) * k / ns, th0 + (th1 - th0) * (k + 1) / ns, tol, meta);
+      const b = brk.slice(cut(k), cut(k + 1) + 1);
+      const polys = revolvedCornerTool(ax, g.r, g.h0, t1, t2, kind, size, b[0], b[b.length - 1], tol, meta, b);
       if (!polys) return { err: 'Size is larger than the edge allows' };
       pieces.push(polys);
     }
@@ -5746,7 +5773,8 @@ function resolveProfiles(f, arr) {
   return [...out];
 }
 function sketchPlane(f, ctx) {
-  const b = resolvePlane(f.ref, f.plane, ctx), o = f.org || { x: 0, y: 0 };
+  const b0 = resolvePlane(f.ref, f.plane, ctx), o = f.org || { x: 0, y: 0 };
+  const b = f.mv ? { ...b0, o: add3(b0.o, f.mv) } : b0;               // a whole-sketch move (3D)
   return (o.x || o.y) ? { ...b, o: add3(b.o, add3(mul3(b.u, o.x), mul3(b.v, o.y))) } : b;
 }
 function evalFeature(f, ctx, tol) {
@@ -10029,7 +10057,7 @@ const TOOL_HELP = {
   project: 'Click a face of a body to copy its edges into this sketch (circles stay true circles).',
   chamfer: 'Click near a corner where two lines meet to cut it with a straight line, the same distance along both.',
   dim: 'Click a line, circle or arc, or two of them (points too), then click where the dimension goes. Change a value on the drawing or in this panel, then Update Sketch (Ctrl+B) — every dimension is held while the sketch re-solves.',
-  smove: 'Click curves (or a closed face), Pick base point, then move the mouse — or type X / Y. Everything updates live; OK keeps it, Cancel puts it back.',
+  smove: 'Click curves (or a closed face), pick the point to move from (the anchor), then click the point to move it to — or type To X / Y. OK keeps it, Cancel puts it back.',
   srot: 'Click curves (or a closed face), Pick center, then turn with the mouse — or type the angle. OK keeps it, Cancel puts it back.',
   sscale: 'Click curves (or a closed face), Pick base point, then drag to size — or type the factor. OK keeps it, Cancel puts it back.',
   array: 'Click curves (or a closed face). Rectangular updates at once; for Circular, Pick center. Counts and spacing update live; OK keeps it, Cancel puts it back.',
@@ -17192,7 +17220,7 @@ function liveBegin(tool) {
     // the copied curves follow the mouse (by their middle) until a click places them
     LIVE.sel = new Set(); LIVE.clip = JSON.parse(JSON.stringify(SKCLIP.ents));
     const b = selBox(LIVE.clip); LIVE.base = P2((b[0] + b[2]) / 2, (b[1] + b[3]) / 2);
-    LIVE.step = 'adjust'; LIVE.placing = true; S.xf.dx = 0; S.xf.dy = 0;
+    LIVE.step = 'adjust'; LIVE.placing = true; LIVE.snapList = null; S.xf.dx = 0; S.xf.dy = 0;
   }
   S.sel.clear();
   liveApply();
@@ -17243,7 +17271,9 @@ function selBox(ents) {
   return b;
 }
 // Rebuild the result from the snapshot with the current picks and values.
-function liveApply() {
+// light: while the mouse is placing, only redraw the sketch; the model and the rest of the
+// UI catch up once the mouse rests (a full update per mouse move is the expensive part).
+function liveApply(light) {
   if (!LIVE.on || !S.sk) return;
   liveRestore();
   const sk = S.sk, src = sk.ents.filter(e => LIVE.sel.has(e.id)), out = [];
@@ -17281,8 +17311,34 @@ function liveApply() {
   out.forEach((e, i) => { e.id = LIVE.pool[i]; delete e.proj; });
   sk.ents.push(...out);
   LIVE.made = new Set(out.map(e => e.id));
-  touch(sk); modelChanged();
+  touch(sk);
+  clearTimeout(LIVE.lazy);
+  if (light) LIVE.lazy = setTimeout(() => { if (LIVE.on && S.sk === sk) modelChanged(); }, 180);
+  else modelChanged();
   requestDraw();
+}
+// Snap targets while placing: everything that stays put (never the curves being moved,
+// which follow the mouse), gathered once when placing starts.
+function liveSnapList() {
+  const moving = new Set([...LIVE.made, ...(S.xf.copy && LIVE.tool !== 'spaste' ? [] : LIVE.sel)]);
+  const list = keyPoints(S.sk).filter(k => !k.es.some(e => moving.has(e.id)));
+  return list.concat(projectedPoints(S.sk), S.snapOther ? otherSketchPoints(S.sk) : []);
+}
+function liveSnap(raw) {
+  const tol = tolUV(10), b = LIVE.base;
+  S.guides = [];
+  if (S.osnap) {
+    if (!LIVE.snapList || LIVE.snapCopy !== S.xf.copy) { LIVE.snapList = liveSnapList(); LIVE.snapCopy = S.xf.copy; }
+    let best = null;
+    for (const k of LIVE.snapList) { const d = dst2(raw, k.p); if (d < tol && (!best || d < best.d)) best = { p: k.p, k: k.k, d }; }
+    if (best) return { p: cp2(best.p), k: best.k };
+  }
+  const p = cp2(raw);
+  let k = null;
+  if (b && Math.abs(p.y - b.y) < tol * 0.7) { p.y = b.y; k = 'h'; S.guides.push({ a: b, b: p }); }
+  else if (b && Math.abs(p.x - b.x) < tol * 0.7) { p.x = b.x; k = 'v'; S.guides.push({ a: b, b: p }); }
+  if (S.gridSnap && !k) { const g = gridStep(); p.x = Math.round(p.x / g) * g; p.y = Math.round(p.y / g) * g; k = 'grid'; }
+  return { p, k };
 }
 // ── Pointer ────────────────────────────────────────────────────────
 const liveNeedsPoint = () => LIVE.step === 'base';
@@ -17291,12 +17347,12 @@ function liveMove(raw, x, y) {
   if (LIVE.step === 'line') { const e = hitEnt(raw, 8); S.hoverEnt = e && e.type === 'line' && !LIVE.made.has(e.id) ? e : null; S.cur = raw; ov.className = S.hoverEnt ? 'pointer' : 'default'; requestDraw(); return; }
   if (liveNeedsPoint()) { const s = snapPoint(raw, null); S.cur = s.p; S.snapK = s.k || null; S.hoverEnt = null; requestDraw(); return; }
   if (LIVE.placing) {
-    const s = snapPoint(raw, LIVE.base), p = s.p, X = S.xf, b = LIVE.base;
+    const s = liveSnap(raw), p = s.p, X = S.xf, b = LIVE.base;
     S.cur = p; S.snapK = s.k || null;
     if (LIVE.tool === 'smove' || LIVE.tool === 'spaste') { X.dx = +(p.x - b.x).toFixed(6); X.dy = +(p.y - b.y).toFixed(6); }
     if (LIVE.tool === 'srot' && LIVE.ref) { const a = Math.atan2(p.y - b.y, p.x - b.x) - Math.atan2(LIVE.ref.y - b.y, LIVE.ref.x - b.x); X.ang = Math.round(wrapPI(a) * 180 / Math.PI); }
     if (LIVE.tool === 'sscale' && LIVE.ref) { const r0 = dst2(LIVE.ref, b); if (r0 > 1e-9) X.f = Math.max(0.01, +(dst2(p, b) / r0).toFixed(3)); }
-    liveApply(); livePanelValues(); return;
+    liveApply(true); livePanelValues(); return;
   }
   S.hoverEnt = hitEnt(raw, 8);
   if (S.hoverEnt && LIVE.made.has(S.hoverEnt.id)) S.hoverEnt = null;
@@ -17317,7 +17373,7 @@ function liveDown(raw, x, y, ev) {
       // then follow the mouse until a click sets the move / turn / size
       const src = S.sk.ents.filter(e => LIVE.sel.has(e.id)), b = selBox(src), mid = P2((b[0] + b[2]) / 2, (b[1] + b[3]) / 2);
       LIVE.ref = dst2(mid, LIVE.base) > 1e-6 ? mid : P2(b[2], b[3]);
-      LIVE.step = 'adjust'; LIVE.placing = true;
+      LIVE.step = 'adjust'; LIVE.placing = true; LIVE.snapList = null;
       if (LIVE.tool === 'srot') S.xf.ang = 0;
       if (LIVE.tool === 'sscale') S.xf.f = 1;
       if (LIVE.tool === 'smove') { S.xf.dx = 0; S.xf.dy = 0; }
@@ -17342,7 +17398,7 @@ function liveNext() {
 function livePanel() {
   const t = LIVE.tool, A = S.arr, X = S.xf, n = LIVE.sel.size, u = uName(), st = isIn() ? 0.05 : 1;
   const inp = (obj, k, lab, len, stp) => `<label class="field"><span>${lab}${len ? ` (${u})` : ''}</span><input type="number" data-live="1" data-lv="${obj}:${k}" ${len ? 'data-len="1"' : ''} step="${stp || (len ? st : 1)}" value="${len ? uval((obj === 'a' ? A : X)[k]) : (obj === 'a' ? A : X)[k]}"></label>`;
-  const pickName = t === 'array' ? 'center' : t === 'srot' ? 'center of rotation' : 'base point';
+  const pickName = t === 'array' ? 'center' : t === 'srot' ? 'center of rotation' : t === 'smove' ? 'from point (anchor)' : 'base point';
   let h = '';
   if (t === 'array') h += `<div class="seg"><button data-lk="rect" class="${A.kind === 'rect' ? 'on' : ''}">Rectangular</button><button data-lk="circ" class="${A.kind === 'circ' ? 'on' : ''}">Circular</button></div>`;
   if (t !== 'spaste') h += `<div class="pick ${n ? '' : 'empty'} ${LIVE.step === 'select' ? 'act' : ''}"><span>${n ? 'Curves (click to add / remove, or click a face)' : 'Click curves or a closed face'}</span><span class="n">${n || ''}</span></div>`;
@@ -17352,19 +17408,25 @@ function livePanel() {
   if (needBase) h += `<button class="btn ${LIVE.step === 'select' && n && !LIVE.base ? 'primary' : ''} ${LIVE.step === 'base' ? 'on' : ''}" data-ldo="next" ${n ? '' : 'disabled'}>${LIVE.step === 'base' ? `Click the ${pickName}…` : LIVE.base ? `Pick the ${pickName} again` : `Pick ${pickName} ▸`}</button>`;
   if (t === 'array' && A.kind === 'rect') h += `<div class="row2">${inp('a', 'nx', 'Count X')}${inp('a', 'dx', 'Spacing X', 1)}${inp('a', 'ny', 'Count Y')}${inp('a', 'dy', 'Spacing Y', 1)}</div>`;
   if (t === 'array' && A.kind === 'circ') h += `<div class="row2">${inp('a', 'n', 'Count')}${inp('a', 'ang', 'Angle °', 0, 15)}</div>`;
-  if (t === 'smove' || t === 'spaste') h += `<div class="row2">${inp('x', 'dx', 'Move X', 1)}${inp('x', 'dy', 'Move Y', 1)}</div>`;
+  if (t === 'smove' && LIVE.base) {
+    // from → to: the anchor, and where it goes (type it, or click a point); the move is the difference
+    const to = k => `<label class="field"><span>To ${k.toUpperCase()} (${u})</span><input type="number" data-live="1" data-lv="to:${k}" data-len="1" step="${st}" value="${uval(LIVE.base[k] + X['d' + k])}"></label>`;
+    h += `<div class="row2">${to('x')}${to('y')}</div><button class="btn ${LIVE.placing ? 'on' : ''}" data-ldo="topick">${LIVE.placing ? 'Click the point to move to…' : 'Pick the to point again'}</button>`;
+  }
+  if (t === 'smove' || t === 'spaste') h += `<div class="row2">${inp('x', 'dx', 'Move by X', 1)}${inp('x', 'dy', 'Move by Y', 1)}</div>`;
   if (t === 'spaste') h += '<button class="btn" data-ldo="inplace">Paste in place</button>';
   if (t === 'srot') h += inp('x', 'ang', 'Angle °', 0, 15);
   if (t === 'sscale') h += inp('x', 'f', 'Scale factor ×', 0, 0.1);
   if (t !== 'array' && t !== 'spaste') h += `<label class="chk"><input type="checkbox" data-lcopy ${X.copy ? 'checked' : ''}> Keep the original (copy)</label>`;
-  if (LIVE.base && t !== 'spaste') h += `<dl class="kv"><dt>${t === 'array' || t === 'srot' ? 'Center' : 'Base point'}</dt><dd>${fmtLs(LIVE.base.x)}, ${fmtLs(LIVE.base.y)}</dd></dl>`;
+  if (LIVE.base && t !== 'spaste') h += `<dl class="kv"><dt>${t === 'array' || t === 'srot' ? 'Center' : t === 'smove' ? 'From (anchor)' : 'Base point'}</dt><dd>${fmtLs(LIVE.base.x)}, ${fmtLs(LIVE.base.y)}</dd></dl>`;
   h += `<p class="note">The sketch updates as you go. <b>OK</b> (Enter) keeps it; <b>Cancel</b> (Esc) puts everything back.</p>`;
   h += `<div class="btns"><button class="btn" data-ldo="cancel">Cancel</button><button class="btn primary" data-ldo="ok">OK</button></div>`;
   return h;
 }
 function livePanelValues() {                        // numbers that follow the mouse
   const X = S.xf;
-  for (const [k, v] of [['x:dx', uval(X.dx)], ['x:dy', uval(X.dy)], ['x:ang', X.ang], ['x:f', X.f]]) { const el = panel.querySelector(`[data-lv="${k}"]`); if (el && document.activeElement !== el) el.value = v; }
+  const b = LIVE.base || P2(0, 0);
+  for (const [k, v] of [['x:dx', uval(X.dx)], ['x:dy', uval(X.dy)], ['x:ang', X.ang], ['x:f', X.f], ['to:x', uval(b.x + X.dx)], ['to:y', uval(b.y + X.dy)]]) { const el = panel.querySelector(`[data-lv="${k}"]`); if (el && document.activeElement !== el) el.value = v; }
 }
 function bindLivePanel() {
   panel.querySelectorAll('[data-lv]').forEach(inp => {
@@ -17373,7 +17435,8 @@ function bindLivePanel() {
       const [o, k] = inp.dataset.lv.split(':');
       if (inp.dataset.len) v = fromU(v);
       if (['nx', 'ny', 'n'].includes(k)) v = Math.max(1, Math.round(v));
-      (o === 'a' ? S.arr : S.xf)[k] = v;
+      if (o === 'to') { if (!LIVE.base) return; S.xf['d' + k] = v - LIVE.base[k]; }
+      else (o === 'a' ? S.arr : S.xf)[k] = v;
       LIVE.placing = false;
       liveApply(); updateHint();
     });
@@ -17385,6 +17448,7 @@ function bindLivePanel() {
     const a = b.dataset.ldo;
     if (a === 'next') liveNext();
     if (a === 'axx' || a === 'axy') { LIVE.line = a === 'axx' ? { a: P2(0, 0), b: P2(1, 0) } : { a: P2(0, 0), b: P2(0, 1) }; LIVE.lineId = null; LIVE.step = 'adjust'; liveApply(); refreshPanel(); updateHint(); }
+    if (a === 'topick') { LIVE.placing = true; LIVE.snapList = null; refreshPanel(); updateHint(); requestDraw(); }
     if (a === 'inplace') { S.xf.dx = 0; S.xf.dy = 0; LIVE.placing = false; liveApply(); refreshPanel(); updateHint(); }
     if (a === 'ok') { liveOK(); setTool('select'); }
     if (a === 'cancel') { liveCancel(); setTool('select'); }
@@ -17394,10 +17458,10 @@ function liveHint() {
   const t = LIVE.tool, n = LIVE.sel.size;
   if (t === 'spaste') return LIVE.placing ? 'move the copy into place and click (or type X / Y, or Paste in place)' : 'adjust X / Y, then OK (Enter) or Cancel (Esc)';
   if (t === 'mirror') return LIVE.step === 'line' ? 'click the line to mirror across' : !n ? 'click the curves to mirror, or click inside a closed face' : !LIVE.line ? `${n} picked — Pick mirror line, or mirror across the sketch X / Y axis` : 'OK (Enter) keeps it, Cancel (Esc) puts it back';
-  if (LIVE.step === 'base') return `click the ${t === 'array' ? 'center of the pattern' : t === 'srot' ? 'center of rotation' : 'base point'}`;
-  if (LIVE.placing) return t === 'smove' ? 'move the mouse to place the curves, click to set (or type X / Y)' : t === 'srot' ? 'turn with the mouse, click to set (or type the angle)' : 'drag to size, click to set (or type the factor)';
+  if (LIVE.step === 'base') return `click the ${t === 'array' ? 'center of the pattern' : t === 'srot' ? 'center of rotation' : t === 'smove' ? 'point to move from (the anchor) — it snaps to ends, centers and midpoints' : 'base point'}`;
+  if (LIVE.placing) return t === 'smove' ? 'click the point to move the anchor to (it snaps to what stays put), or type To X / Y' : t === 'srot' ? 'turn with the mouse, click to set (or type the angle)' : 'drag to size, click to set (or type the factor)';
   if (!n) return 'click the curves to change, or click inside a closed face';
-  if ((t !== 'array' || S.arr.kind === 'circ') && !LIVE.base) return `${n} picked — now “Pick ${t === 'array' || t === 'srot' ? 'center' : 'base point'}” in the panel`;
+  if ((t !== 'array' || S.arr.kind === 'circ') && !LIVE.base) return `${n} picked — now “Pick ${t === 'array' || t === 'srot' ? 'center' : t === 'smove' ? 'from point' : 'base point'}” in the panel`;
   return 'adjust the values, then OK (Enter) or Cancel (Esc)';
 }
 // ── Drawing ────────────────────────────────────────────────────────
@@ -17412,7 +17476,13 @@ function liveDraw(m) {
     og.strokeStyle = COL.accent; og.lineWidth = 1.4; og.setLineDash([8, 5]); og.beginPath(); og.moveTo(p.x, p.y); og.lineTo(q.x, q.y); og.stroke(); og.setLineDash([]);
   }
   if (LIVE.step === 'base' && S.cur) mark(S.cur, COL.snap);
-  if (LIVE.base && LIVE.tool === 'smove' && (S.xf.dx || S.xf.dy)) { const a = xfPt(m, LIVE.base), b = xfPt(m, add2(LIVE.base, P2(S.xf.dx, S.xf.dy))); og.setLineDash([5, 4]); og.strokeStyle = COL.accent; og.beginPath(); og.moveTo(a.x, a.y); og.lineTo(b.x, b.y); og.stroke(); og.setLineDash([]); }
+  if (LIVE.base && LIVE.tool === 'smove') {
+    const a = xfPt(m, LIVE.base), to = add2(LIVE.base, P2(S.xf.dx, S.xf.dy)), b = xfPt(m, to);
+    if (S.xf.dx || S.xf.dy) { og.setLineDash([5, 4]); og.strokeStyle = COL.accent; og.beginPath(); og.moveTo(a.x, a.y); og.lineTo(b.x, b.y); og.stroke(); og.setLineDash([]); mark(to, COL.snap); }
+    og.restore(); og.save();
+    label('From', a.x + 10, a.y + 18);
+    if (S.xf.dx || S.xf.dy) label('To', b.x + 10, b.y + 18);
+  }
   if (LIVE.base && LIVE.tool === 'srot' && LIVE.ref) {
     const r = dst2(LIVE.ref, LIVE.base), t0 = Math.atan2(LIVE.ref.y - LIVE.base.y, LIVE.ref.x - LIVE.base.x), sw = S.xf.ang * Math.PI / 180;
     og.strokeStyle = COL.accent; og.setLineDash([5, 4]); og.beginPath();
@@ -21407,6 +21477,449 @@ buildSheetData = function () {
   D.orient = { ...D.orient, dims: { ...D.orient.dims, jaw: '' }, minAbove: { show: false, value: '' }, parallels: { on: false, count: '0' } };
   return D;
 };
+</script>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  Move a whole sketch in 3D: X / Y / Z arrows at an anchor point.
+//  The anchor (the point it moves from) starts at the middle of the
+//  sketch and can be snapped to any of its ends, centers or midpoints;
+//  the point it moves to can be clicked (body vertices, edge midpoints,
+//  hole and face centers, other sketches), typed, or dragged along an
+//  arrow. The sketch's curves never change — only where its plane sits
+//  (sketch.mv, added to the plane's origin) — so it is cheap: the drag
+//  just redraws the sketch, and the model rebuilds once, on release.
+// ═══════════════════════════════════════════════════════════════════
+const SKMV = { on: false };
+const skmvPlane = () => { const P = SKMV.pl0, d = u2w(SKMV.d); return { ...P, o: add3(P.o, d) }; };
+// 3D snap points of a sketch (ends, centers, midpoints, intersections) on a plane
+const skmvPts = (f, pl) => keyPoints(f).map(k => ({ P: planeTo3(pl, k.p), k: k.k }));
+function skmvCenter(f, pl) {
+  const own = f.ents.filter(e => !e.proj);
+  if (!own.length) return planeTo3(pl, P2(0, 0));
+  const b = selBox(own);
+  return planeTo3(pl, P2((b[0] + b[2]) / 2, (b[1] + b[3]) / 2));
+}
+function skmvStart(f) {
+  if (!f || f.type !== 'sketch') return;
+  if (CMD) cancelCmd();
+  if (S.sk) finishSketch();
+  if (SKMV.on) skmvOK();
+  selProfiles.length = 0; sel3D = null; selEdges.length = 0; hover3D = null;
+  const pl0 = planeOf(f);
+  Object.assign(SKMV, { on: true, f, before: snap(), mv0: (f.mv || [0, 0, 0]).slice(), pl0, d: [0, 0, 0], from: w2u(skmvCenter(f, pl0)), fromK: 'middle of the sketch', pick: null, hover: null, drag: null, hot: null });
+  f.vis = true;
+  rebuildHighlights(); refreshPanel(); requestDraw();
+  toast(`Move ${f.name}: drag an arrow, or pick the point to move from and the point to move to`);
+}
+// the sketch shows where it will go; the model is rebuilt from it when asked
+function skmvPreview(rebuild) {
+  const f = SKMV.f;
+  f.mv = add3(SKMV.mv0, u2w(SKMV.d)).map(v => +v.toFixed(6));
+  if (f.mv.every(v => v === 0)) delete f.mv;
+  PLANES[f.id] = skmvPlane();
+  if (rebuild) { touch(f); modelChanged(); }
+  requestDraw();
+}
+function skmvEnd() { SKMV.on = false; SKMV.f = null; SKMV.drag = null; SKMV.pick = null; SKMV.hover = null; ov.className = 'default'; }
+function skmvOK() {
+  if (!SKMV.on) return;
+  const f = SKMV.f, moved = SKMV.d.some(v => Math.abs(v) > 1e-9);
+  skmvPreview(false);
+  skmvEnd();
+  if (moved) { record('Move ' + f.name, SKMV.before); toast(`Moved ${f.name}`); }
+  PLANES = planesOnly().planes; touch(f); modelChanged(true);
+  refreshPanel();
+}
+function skmvCancel() {
+  if (!SKMV.on) return;
+  const f = SKMV.f;
+  SKMV.d = [0, 0, 0]; skmvPreview(false);
+  skmvEnd();
+  PLANES = planesOnly().planes; touch(f); modelChanged(true);
+  refreshPanel();
+}
+// what is under the mouse to snap to: the sketch's own points (for "from"),
+// or anything that stays put — bodies, other sketches, the origin (for "to")
+function skmvPickAt(x, y, which) {
+  const m = P2(x, y), px = 12;
+  let best = null;
+  const consider = (P, k, lab) => { const d = dst2(toScreen(P), m); if (d < px && (!best || d < best.d)) best = { P, k, lab, d }; };
+  const SKN = { end: 'Endpoint', mid: 'Midpoint', cen: 'Center', quad: 'Quadrant', int: 'Intersection', org: 'Sketch origin' };
+  if (which === 'from') for (const q of skmvPts(SKMV.f, skmvPlane())) consider(q.P, q.k === 'cen' ? 'center' : q.k === 'mid' ? 'edge' : 'vertex', SKN[q.k] || 'Point');
+  else {
+    consider([0, 0, 0], 'vertex', 'Origin');
+    for (const g of doc.features) if (g.type === 'sketch' && g !== SKMV.f && !g.sup && g.vis !== false) for (const q of skmvPts(g, planeOf(g))) if (q.k !== 'int' && q.k !== 'org') consider(q.P, q.k === 'cen' ? 'center' : q.k === 'mid' ? 'edge' : 'vertex', (SKN[q.k] || 'Point') + ' of ' + g.name);
+    const kp = pickKeyPoint(x, y, visibleBodies());
+    if (kp) { const d = dst2(toScreen(kp.P), m); if (!best || d <= best.d + 2) best = { P: kp.P, k: kp.k, lab: KP_LABEL[kp.k], d }; }
+  }
+  return best;
+}
+// ── the arrows ──
+function skmvGeom() {
+  const Pu = add3(SKMV.from, SKMV.d), Pw = u2w(Pu), c = toScreen(Pw), L = 88 / ppu();
+  return { Pu, Pw, c, L, ax: GZ_AX.map((e, i) => ({ i, end: toScreen(add3(Pw, mul3(u2w(e), L))) })) };
+}
+function skmvHit(x, y) {
+  const g = skmvGeom(), m = P2(x, y);
+  let best = null;
+  for (const a of g.ax) { if (dst2(a.end, g.c) < 6) continue; const d = segDist(m, g.c, a.end); if (d < 8 && dst2(m, g.c) > 10 && (!best || d < best.d)) best = { d, i: a.i }; }
+  return best;
+}
+function skmvDraw() {
+  if (!SKMV.on) return;
+  const g = skmvGeom(), hot = SKMV.drag ? SKMV.drag.i : SKMV.hot ? SKMV.hot.i : -1;
+  og.save(); og.lineCap = 'round';
+  // from → to
+  const a = toScreen(u2w(SKMV.from));
+  if (SKMV.d.some(v => Math.abs(v) > 1e-9)) {
+    og.setLineDash([5, 4]); og.strokeStyle = COL.accent; og.lineWidth = 1.4; og.beginPath(); og.moveTo(a.x, a.y); og.lineTo(g.c.x, g.c.y); og.stroke(); og.setLineDash([]);
+    og.fillStyle = COL.accent; og.beginPath(); og.arc(a.x, a.y, 3.5, 0, TAU); og.fill();
+  }
+  for (const x of g.ax) {
+    const dir = nrm2(sub2(x.end, g.c)), len = dst2(x.end, g.c); if (len < 6) continue;
+    og.strokeStyle = og.fillStyle = GZ_COL[x.i]; og.lineWidth = hot === x.i ? 4 : 2.4;
+    og.beginPath(); og.moveTo(g.c.x + dir.x * 10, g.c.y + dir.y * 10); og.lineTo(x.end.x, x.end.y); og.stroke();
+    const nx = -dir.y, ny = dir.x;
+    og.beginPath(); og.moveTo(x.end.x + dir.x * 12, x.end.y + dir.y * 12); og.lineTo(x.end.x + nx * 5.5, x.end.y + ny * 5.5); og.lineTo(x.end.x - nx * 5.5, x.end.y - ny * 5.5); og.closePath(); og.fill();
+    og.font = '600 11px Inter, system-ui, sans-serif'; og.fillText('XYZ'[x.i], x.end.x + dir.x * 22 - 3.5, x.end.y + dir.y * 22 + 4);
+  }
+  og.lineWidth = 1.6; og.strokeStyle = COL.ink; og.fillStyle = '#fff';
+  og.beginPath(); og.moveTo(g.c.x, g.c.y - 6); og.lineTo(g.c.x + 6, g.c.y); og.lineTo(g.c.x, g.c.y + 6); og.lineTo(g.c.x - 6, g.c.y); og.closePath(); og.fill(); og.stroke();
+  if (SKMV.drag && SKMV.drag.txt) { og.fillStyle = COL.ink; og.font = '600 12px Inter, system-ui, sans-serif'; og.fillText(SKMV.drag.txt, g.c.x + 14, g.c.y + 22); }
+  og.restore();
+  if (SKMV.pick) {
+    // every point that can be picked, faintly; the one under the mouse, bold
+    if (SKMV.pick === 'from') for (const q of skmvPts(SKMV.f, skmvPlane())) if (q.k !== 'int') kpGlyph(q.P, q.k === 'cen' ? 'center' : q.k === 'mid' ? 'edge' : 'vertex', COL.snap, false);
+    if (SKMV.hover) { kpGlyph(SKMV.hover.P, SKMV.hover.k, COL.accent, true); const s = toScreen(SKMV.hover.P); label(SKMV.hover.lab, s.x + 12, s.y - 10); }
+  }
+}
+const drawOverlaySk0 = drawOverlay;
+drawOverlay = function () { drawOverlaySk0(); if (SKMV.on && !S.sk && UIX.ws === 'design') skmvDraw(); };
+const skmvLive = () => SKMV.on && !S.sk && !CMD && UIX.ws === 'design';
+ov.addEventListener('pointerdown', e => {
+  if (!skmvLive() || e.button !== 0 || e.altKey) return;
+  const { x, y } = local(e);
+  if (SKMV.pick) {
+    const h = skmvPickAt(x, y, SKMV.pick);
+    e.stopImmediatePropagation();
+    if (!h) { toast(SKMV.pick === 'from' ? 'Click an end, center or midpoint of the sketch' : 'Click a vertex, edge midpoint, hole or face center, or a point of another sketch'); return; }
+    const Pu = w2u(h.P);
+    if (SKMV.pick === 'from') { SKMV.from = sub3(Pu, SKMV.d); SKMV.fromK = h.lab.toLowerCase(); SKMV.pick = 'to'; toast(`From the ${h.lab.toLowerCase()} — now click the point to move it to`); }
+    else { SKMV.d = sub3(Pu, SKMV.from); SKMV.pick = null; skmvPreview(true); toast(`Moved to the ${h.lab.toLowerCase()}`); }
+    SKMV.hover = null; refreshPanel(); requestDraw();
+    return;
+  }
+  const h = skmvHit(x, y); if (!h) return;
+  e.stopImmediatePropagation(); try { ov.setPointerCapture(e.pointerId); } catch (x2) { /* synthetic pointer */ }
+  SKMV.drag = { i: h.i, x0: x, y0: y, g0: skmvGeom(), d0: SKMV.d.slice() };
+  requestDraw();
+}, true);
+ov.addEventListener('pointermove', e => {
+  if (!skmvLive()) return;
+  const { x, y } = local(e);
+  const D = SKMV.drag;
+  if (D) {
+    e.stopImmediatePropagation();
+    const a = D.g0.ax[D.i], sd = sub2(a.end, D.g0.c), len = Math.hypot(sd.x, sd.y) || 1, m = P2(x - D.x0, y - D.y0);
+    let v = dot2(m, sd) / len * D.g0.L / len;
+    if (!e.shiftKey) { const st = gzStep(); v = fromU(Math.round(toU(v) / st) * st); }
+    SKMV.d = D.d0.slice(); SKMV.d[D.i] += v;
+    D.txt = `${'XYZ'[D.i]} ${v >= 0 ? '+' : ''}${fmtLs(v)}`;
+    skmvPreview(false); return;
+  }
+  if (SKMV.pick) { SKMV.hover = skmvPickAt(x, y, SKMV.pick); ov.className = SKMV.hover ? 'pointer' : 'default'; requestDraw(); if (!(e.buttons & 7)) e.stopImmediatePropagation(); return; }
+  if (e.buttons) return;
+  const h = skmvHit(x, y);
+  if ((h && h.i) !== (SKMV.hot && SKMV.hot.i)) { SKMV.hot = h; requestDraw(); }
+  if (h) { e.stopImmediatePropagation(); ov.className = 'pointer'; if (hover3D) setHover3D(null); }
+}, true);
+ov.addEventListener('pointerup', e => {
+  if (!SKMV.drag) return;
+  e.stopImmediatePropagation();
+  SKMV.drag = null; ptr = { down: false };
+  skmvPreview(true); refreshPanel();
+}, true);
+addEventListener('keydown', e => {
+  if (!skmvLive()) return;
+  const t = e.target; if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+  if ((e.ctrlKey || e.metaKey) && /^[zy]$/i.test(e.key)) { e.preventDefault(); e.stopImmediatePropagation(); skmvCancel(); toast('Move cancelled'); return; }
+  if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); if (SKMV.pick) { SKMV.pick = null; SKMV.hover = null; refreshPanel(); requestDraw(); } else skmvCancel(); }
+  else if (e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); skmvOK(); }
+}, true);
+// while moving a sketch, clicks in the view don't select other things
+const solidClickSk0 = solidClick;
+solidClick = function (x, y, ev) { if (skmvLive()) return; solidClickSk0(x, y, ev); };
+
+// ── panel ──
+function skmvPanel() {
+  const f = SKMV.f, U = uName(), st = isIn() ? 0.05 : 1, to = add3(SKMV.from, SKMV.d);
+  const row = (key, v, lab) => `<div class="row3">${[0, 1, 2].map(i => `<input type="number" data-skmv="${key}${i}" step="${st}" value="${uval(v[i])}" title="${lab} ${'XYZ'[i]}" aria-label="${lab} ${'XYZ'[i]}">`).join('')}</div>`;
+  const pk = SKMV.pick;
+  return `<div class="pn-head"><h2>Move ${xmlEsc(f.name)}</h2><span class="tag">3D</span></div><div class="pn-body">
+    <p class="note">Drag the <b style="color:${GZ_COL[0]}">X</b>, <b style="color:${GZ_COL[1]}">Y</b> or <b style="color:${GZ_COL[2]}">Z</b> arrow, or pick the point to move from and the point to move it to. Shift: no snapping steps.</p>
+    <div class="field"><span>From — anchor on the sketch (${U})</span>${row('f', SKMV.from, 'From')}</div>
+    <div class="btns"><button class="btn ${pk === 'from' ? 'primary' : ''}" data-skmvdo="from" title="Snap the anchor to an end, center or midpoint of the sketch">${pk === 'from' ? 'Click a point on the sketch…' : 'Pick from point…'}</button><button class="btn" data-skmvdo="center" title="Put the anchor back in the middle of the sketch">Center</button></div>
+    <div class="field"><span>To (${U})</span>${row('t', to, 'To')}</div>
+    <div class="btns"><button class="btn ${pk === 'to' ? 'primary' : ''}" data-skmvdo="to" title="Click a vertex, edge midpoint, hole or face center, another sketch's point, or the origin">${pk === 'to' ? 'Click where it goes…' : 'Pick to point…'}</button></div>
+    <div class="field"><span>Move by (${U})</span>${row('d', SKMV.d, 'Move by')}</div>
+    <p class="note">The anchor is ${xmlEsc(SKMV.fromK)}. Features built on the sketch follow it.</p>
+    <div class="btns"><button class="btn" data-skmvdo="cancel">Cancel</button><button class="btn primary" data-skmvdo="ok">OK</button></div>
+  </div>`;
+}
+function skmvBindPanel() {
+  panel.querySelectorAll('[data-skmv]').forEach(inp => {
+    inp.addEventListener('change', () => {
+      const v = parseFloat(inp.value); if (!Number.isFinite(v)) return;
+      const k = inp.dataset.skmv[0], i = +inp.dataset.skmv[1], mm = fromU(v);
+      if (k === 'f') { const to = add3(SKMV.from, SKMV.d); SKMV.from[i] = mm; SKMV.fromK = 'a typed point'; SKMV.d = sub3(to, SKMV.from); }
+      else if (k === 't') SKMV.d[i] = mm - SKMV.from[i];
+      else SKMV.d[i] = mm;
+      skmvPreview(true); refreshPanel();
+    });
+    inp.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter') { ev.preventDefault(); inp.dispatchEvent(new Event('change')); skmvOK(); } if (ev.key === 'Escape') { ev.preventDefault(); skmvCancel(); } });
+  });
+  panel.querySelectorAll('[data-skmvdo]').forEach(b => b.addEventListener('click', () => {
+    const d = b.dataset.skmvdo;
+    if (d === 'ok') skmvOK();
+    else if (d === 'cancel') skmvCancel();
+    else if (d === 'center') { SKMV.from = sub3(w2u(skmvCenter(SKMV.f, skmvPlane())), SKMV.d); SKMV.fromK = 'the middle of the sketch'; refreshPanel(); requestDraw(); }
+    else { SKMV.pick = SKMV.pick === d ? null : d; SKMV.hover = null; refreshPanel(); requestDraw(); }
+  }));
+}
+const idlePanelSk0 = idlePanel;
+idlePanel = function () { return skmvLive() ? skmvPanel() : idlePanelSk0(); };
+const refreshPanelSk0 = refreshPanel;
+refreshPanel = function () {
+  // anything else starting (a sketch, a command, the other workspace) keeps the move as it is
+  if (SKMV.on && !doc.features.includes(SKMV.f)) skmvEnd();                // a different document was opened
+  if (SKMV.on && !SKMV.drag && (S.sk || CMD || UIX.ws !== 'design')) skmvOK();
+  refreshPanelSk0();
+  if (skmvLive()) skmvBindPanel();
+};
+// "Move sketch…" (the timeline menu, a selected profile's panel) moves it in 3D;
+// Rotate and Scale stay in the sketch's plane
+const sketchXformSk0 = sketchXform;
+sketchXform = function (f, tool) { if (tool === 'smove') skmvStart(f); else sketchXformSk0(f, tool); };
+</script>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  Machine-tool samples: a Bridgeport Series I knee mill, a Haas VF-1
+//  vertical machining center and a 13 × 40 geared-head engine lathe.
+//  Published specs (table, T-slots, travels, throat, spindle-to-table,
+//  swing, centers, bed width, overall size) are used as given; castings
+//  the makers don't dimension are proportioned from those. Every part is
+//  its own body (no booleans between parts), so they build fast and
+//  Explode pulls them apart.
+//  Axes as everywhere: X right, Y back, Z up. Mill spindles sit on X = Y = 0.
+// ═══════════════════════════════════════════════════════════════════
+function machineKit(unit) {
+  const K = modelKit(), u = v => v * unit;
+  const poly = pts => pts.map((p, i) => { const q = pts[(i + 1) % pts.length]; return K.L(u(p[0]), u(p[1]), u(q[0]), u(q[1])); });
+  const tint = (f, c) => { if (c) K.color(f, c); return f; };
+  // a block from x0..x1, y0..y1, z0..z1 (corner radius r on the vertical edges)
+  const box = (x0, x1, y0, y1, z0, z1, c, r = 0) => tint(K.extrude(K.sketch(K.GROUND(u(z0)), r > 0 ? K.rpoly([[u(x0), u(y0)], [u(x1), u(y0)], [u(x1), u(y1)], [u(x0), u(y1)]], u(r)) : K.rect(u(x0), u(y0), u(x1), u(y1))), [P2(u((x0 + x1) / 2), u((y0 + y1) / 2))], u(z1 - z0), 'new'), c);
+  // an outline in plan (x, y) raised from z0 to z1
+  const prism = (pts, z0, z1, c, r = 0) => { const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length, cy = pts.reduce((s, p) => s + p[1], 0) / pts.length; return tint(K.extrude(K.sketch(K.GROUND(u(z0)), r > 0 ? K.rpoly(pts.map(p => [u(p[0]), u(p[1])]), u(r)) : poly(pts)), [P2(u(cx), u(cy))], u(z1 - z0), 'new'), c); };
+  // cylinders along Z, X and Y
+  const cylZ = (x, y, r, z0, z1, c) => tint(K.extrude(K.sketch(K.GROUND(u(z0)), [K.C(u(x), u(y), u(r))]), [P2(u(x), u(y))], u(z1 - z0), 'new'), c);
+  const cylX = (x0, x1, y, z, r, c) => tint(K.extrude(K.sketch(K.RIGHT(u(x0)), [K.C(u(y), u(z), u(r))]), [P2(u(y), u(z))], u(x1 - x0), 'new'), c);
+  const cylY = (y0, y1, x, z, r, c) => tint(K.extrude(K.sketch(K.FRONT(-u(y1)), [K.C(u(x), u(z), u(r))]), [P2(u(x), u(z))], u(y1 - y0), 'new'), c);
+  // a profile in the side view (y, z) run along X from x0 to x1
+  const sideX = (pts, x0, x1, c) => { const cy = pts.reduce((s, p) => s + p[0], 0) / pts.length, cz = pts.reduce((s, p) => s + p[1], 0) / pts.length; return tint(K.extrude(K.sketch(K.RIGHT(u(x0)), poly(pts)), [P2(u(cy), u(cz))], u(x1 - x0), 'new'), c); };
+  // a profile in the front view (x, z) run from y0 back to y1
+  const frontY = (pts, y0, y1, c) => { const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length, cz = pts.reduce((s, p) => s + p[1], 0) / pts.length; return tint(K.extrude(K.sketch(K.FRONT(-u(y0)), poly(pts)), [P2(u(cx), u(cz))], -u(y1 - y0), 'new'), c); };
+  // a handwheel: a dished disc with three windows, and a crank handle, facing along ±axis
+  function wheel(axis, at, R, t, c, knob) {
+    const [x, y, z] = at, s = t >= 0 ? 1 : -1, T = Math.abs(t), win = [0, 1, 2].map(k => { const a = k * TAU / 3 + Math.PI / 6; return [Math.cos(a) * R * 0.55, Math.sin(a) * R * 0.55]; });
+    const ring = (a, b) => [K.C(u(a), u(b), u(R)), ...win.map(([p, q]) => K.C(u(a + p), u(b + q), u(R * 0.26)))], pt = (a, b) => P2(u(a), u(b + R * 0.85));
+    let f, h;
+    if (axis === 'x') { f = K.extrude(K.sketch(K.RIGHT(u(x)), ring(y, z)), [pt(y, z)], u(s * T), 'new'); h = cylX(s > 0 ? x + T : x - T - R * 0.45, s > 0 ? x + T + R * 0.45 : x - T, y, z + R * 0.78, R * 0.07, knob); }
+    else if (axis === 'y') { f = K.extrude(K.sketch(K.FRONT(-u(y)), ring(x, z)), [pt(x, z)], u(s * T), 'new'); h = cylY(s > 0 ? y - T - R * 0.45 : y + T, s > 0 ? y - T : y + T + R * 0.45, x, z + R * 0.78, R * 0.07, knob); }
+    else { f = K.extrude(K.sketch(K.GROUND(u(z)), ring(x, y)), [pt(x, y)], u(s * T), 'new'); h = null; }
+    tint(f, c);
+    return [f, h];
+  }
+  return { K, u, poly, box, prism, cylZ, cylX, cylY, sideX, frontY, wheel };
+}
+
+// ── Bridgeport Series I (9" × 42" table, J / 2J head), in inches ──
+// Published: table 9 × 42, 3 T-slots 5/8" on 2-1/2" centers; travels 30 (X), 12 (Y),
+// 16 (knee), quill 5, ram 12; throat 6-3/4 … 18-3/4; spindle nose to table 2-1/2 … 18-1/4;
+// R8 spindle; about 87" tall. The ram is shown mid-travel (12-3/4" throat), the knee
+// with the nose 8" over the table.
+function sBridgeport() {
+  const M = machineKit(25.4), { K, box, prism, cylZ, cylX, cylY, sideX, frontY, wheel } = M;
+  const CAST = '#7f8b8c', DARK = '#5d6769', STEEL = '#b9c0c6', CHROME = '#dde1e5', BLACK = '#2a2d31', WAY = '#9aa3a8';
+  const throat = 12.75, nose = 52, tableTop = nose - 8;
+  // base and column: one casting on the floor, the column's front face carries the knee ways
+  K.name(box(-13, 13, -16, 30, 0, 5, CAST, 1.5), 'Base');
+  K.name(box(-9, 9, throat, throat + 17, 5, 66, CAST, 2), 'Column');
+  box(-5.5, 5.5, throat - 0.6, throat, 12, 58, WAY);                                    // knee dovetail ways
+  // knee, with its elevating screw down to the base
+  const kz0 = tableTop - 2.5 - 5 - 14.5, kz1 = tableTop - 2.5 - 5;
+  K.name(prism([[-8, throat - 0.6], [8, throat - 0.6], [8, -15], [6.5, -17], [-6.5, -17], [-8, -15]], kz0, kz1, CAST), 'Knee');
+  cylZ(0, -6, 1.1, 5, kz0, CHROME);                                                     // elevating screw
+  cylZ(0, -6, 2.4, 5, 7, DARK);
+  // saddle (12" cross travel) and the table on it
+  K.name(box(-10, 10, -13, 9, kz1, kz1 + 5, CAST), 'Saddle');
+  const tb = box(-21, 21, -4.5, 4.5, tableTop - 2.5, tableTop, STEEL); K.name(tb, 'Table');
+  const slot = c => [[c - 0.3125, tableTop + 0.1], [c + 0.3125, tableTop + 0.1], [c + 0.3125, tableTop - 0.5], [c + 0.5, tableTop - 0.5], [c + 0.5, tableTop - 0.94], [c - 0.5, tableTop - 0.94], [c - 0.5, tableTop - 0.5], [c - 0.3125, tableTop - 0.5]];
+  const ts = K.sketch(K.RIGHT(M.u(21.1)), [-2.5, 0, 2.5].flatMap(c => M.poly(slot(c))));
+  K.name(K.extrude(ts, [-2.5, 0, 2.5].map(c => P2(M.u(c), M.u(tableTop - 0.7))), -M.u(42.2), 'cut'), 'T-slots');
+  // table cranks at both ends, the saddle crank on the knee front, the knee crank beside it
+  cylX(-23, -21, 0, tableTop - 1.3, 0.6, CHROME); cylX(21, 23, 0, tableTop - 1.3, 0.6, CHROME);
+  wheel('x', [-23, 0, tableTop - 1.3], 3.2, -0.7, CHROME, BLACK); wheel('x', [23, 0, tableTop - 1.3], 3.2, 0.7, CHROME, BLACK);
+  cylY(-19, -17, 0, kz1 - 3, 0.6, CHROME); wheel('y', [0, -19, kz1 - 3], 3.4, 0.7, CHROME, BLACK);
+  cylY(-19.5, -17, -5.5, kz0 + 4, 0.5, CHROME); cylY(-21.5, -19.5, -5.5, kz0 + 4, 0.35, CHROME); cylX(-5.5, -1.5, -21.5, kz0 + 4, 0.3, CHROME);
+  // turret on the column, the ram on the turret (12" of travel), the head adapter on its nose
+  K.name(cylZ(0, throat + 8.5, 8.5, 66, 69, CAST), 'Turret');
+  K.name(sideX([[throat - 6, 69], [throat + 30, 69], [throat + 30, 75], [throat + 27, 77], [throat - 3, 77], [throat - 6, 74]], -5, 5, CAST), 'Ram');
+  cylY(throat - 8, throat - 6, 0, 73, 4.2, DARK);                                        // head adapter (tilt about Y)
+  // the head: quill housing, belt housing, motor; spindle nose on X = Y = 0
+  const hb = throat - 8;
+  K.name(prism([[-4.5, hb], [4.5, hb], [4.5, -2], [3, -4.2], [-3, -4.2], [-4.5, -2]], nose + 3, 66, CAST), 'Quill housing');
+  K.name(box(-6.5, 6.5, -6, hb, 66, 71.5, CAST, 3), 'Belt housing');
+  K.name(cylZ(0, 1.5, 4.4, 71.5, 82, DARK), 'Motor');
+  cylZ(0, 1.5, 3.2, 82, 83.5, DARK);
+  cylZ(0, 0, 0.6, 83.5, 86.8, CHROME);                                                  // drawbar
+  K.name(cylZ(0, 0, 1.6875, nose, nose + 3, STEEL), 'Quill');                            // 3-3/8" quill
+  cylZ(0, 0, 0.62, nose - 0.9, nose, CHROME);                                           // R8 collet nose
+  cylZ(0, 0, 0.25, nose - 3.2, nose - 0.9, CHROME);                                     // a 1/2" end mill
+  // quill feed: the hub and its three levers on the right, fine-feed handwheel on the left
+  const hy = -1, hz = nose + 7;
+  K.name(cylX(4.5, 6.4, hy, hz, 1.3, DARK), 'Quill feed hub');
+  for (let k = 0; k < 3; k++) {
+    const a = Math.PI / 2 + k * TAU / 3, c = Math.cos(a), sn = Math.sin(a), w = 0.22, p = (r, o) => [hy + c * r - sn * o, hz + sn * r + c * o];
+    sideX([p(1.2, -w), p(6.5, -w), p(6.5, w), p(1.2, w)], 5.2, 5.7, CHROME);
+    cylX(5.7, 7, p(6.5, 0)[0], p(6.5, 0)[1], 0.4, BLACK);
+  }
+  wheel('x', [-4.5, -1, nose + 7], 2.2, -0.5, CHROME, BLACK);
+  // speed dial and motor switch
+  cylY(-6.6, -6, 0, 68.8, 1.6, BLACK); box(5.5, 7.5, 0, 3, 72, 75, BLACK);
+  return K.doc();
+}
+
+// ── Haas VF-1 vertical machining center, in millimeters ──
+// Published: table 660 × 356 (26 × 14"), 3 T-slots 16 mm (5/8") wide; travels 508 × 406 × 508
+// (20 × 16 × 20"); spindle nose to table 102 … 610; CAT 40 spindle; 20-pocket carousel changer;
+// enclosure 2301 wide, 2732 tall. Axes at mid-travel, the nose 350 over the table; the front
+// doors are slid open to show the inside.
+function sHaasVF1() {
+  const M = machineKit(1), { K, box, prism, cylZ, cylX, cylY, sideX } = M;
+  const SHEET = '#e4e7ea', DOOR = '#cfd4d9', GLASS = '#3a4552', CAST = '#8b949c', RAIL = '#c4cad0', BLACK = '#26292e', STEEL = '#b7bec5', DARK = '#4a5058';
+  const tableTop = 920, nose = tableTop + 350, col = 478;              // spindle center to column face
+  // base casting, Y guides, saddle, X guides, table
+  K.name(box(-700, 700, -650, 1150, 0, 700, CAST, 40), 'Base');
+  for (const x of [-300, 300]) box(x - 22, x + 22, -600, 620, 700, 738, RAIL);
+  K.name(box(-430, 430, -310, 310, 738, 820, CAST, 20), 'Saddle');
+  for (const y of [-120, 120]) box(-520, 520, y - 20, y + 20, 820, 850, RAIL);
+  K.name(box(-330, 330, -178, 178, 850, tableTop, STEEL), 'Table');
+  const tz = tableTop, slot = c => [[c - 8, tz + 2], [c + 8, tz + 2], [c + 8, tz - 14], [c + 14, tz - 14], [c + 14, tz - 26], [c - 14, tz - 26], [c - 14, tz - 14], [c - 8, tz - 14]];
+  K.name(K.extrude(K.sketch(K.RIGHT(332), [-110, 0, 110].flatMap(c => M.poly(slot(c)))), [-110, 0, 110].map(c => P2(c, tz - 20)), -664, 'cut'), 'T-slots');
+  // column with its Z guides, the spindle head riding on them
+  K.name(box(-380, 380, col, 1100, 700, 2450, CAST, 30), 'Column');
+  for (const x of [-220, 220]) box(x - 24, x + 24, col - 30, col, 900, 2380, RAIL);
+  K.name(prism([[-250, col - 30], [250, col - 30], [250, -150], [180, -240], [-180, -240], [-250, -150]], 1400, 1960, CAST), 'Spindle head');
+  K.name(cylZ(0, 0, 105, nose + 20, 1400, DARK), 'Spindle');
+  cylZ(0, 0, 60, nose, nose + 20, STEEL);                                 // nose
+  cylZ(0, 0, 31.75, nose - 22, nose, BLACK);                            // CAT 40 flange
+  cylZ(0, 0, 22, nose - 70, nose - 22, STEEL);                          // collet chuck
+  cylZ(0, 0, 6.35, nose - 125, nose - 70, STEEL);                       // 1/2" end mill
+  K.name(cylZ(0, 200, 140, 1960, 2290, DARK), 'Spindle motor');
+  K.name(box(-300, 300, 500, 1060, 2450, 2732, SHEET, 20), 'Column cover');
+  // 20-pocket umbrella tool changer on the left of the column
+  const tc = [-640, 260], pk = [];
+  for (let k = 0; k < 20; k++) { const a = k * TAU / 20; pk.push([tc[0] + Math.cos(a) * 235, tc[1] + Math.sin(a) * 235]); }
+  K.name(K.extrude(K.sketch(K.GROUND(1640), pk.map(([x, y]) => K.C(x, y, 24))), pk.map(([x, y]) => P2(x, y)), 170, 'new'), 'Tool holders');
+  K.name(cylZ(tc[0], tc[1], 290, 1810, 1850, DARK), 'Carousel');
+  K.name(cylZ(tc[0], tc[1], 300, 1850, 1990, SHEET), 'Carousel cover');
+  box(-400, tc[0] + 200, 700, 780, 1850, 1930, CAST);                   // carousel slide arm
+  // sheet-metal enclosure: side and back walls, front panels round the door opening, a roof over the front
+  const X = 1150, F = -900, B = 1150, T = 20, H = 2300;
+  K.name(box(-X, -X + T, F, B, 0, H, SHEET), 'Left wall');
+  K.name(box(X - T, X, F, B, 0, H, SHEET), 'Right wall');
+  K.name(box(-X, X, B - T, B, 0, H, SHEET), 'Back wall');
+  box(-X, X, F, F + T, 0, 780, SHEET); box(-X, -600, F, F + T, 780, H, SHEET); box(600, X, F, F + T, 780, H, SHEET); box(-600, 600, F, F + T, 2120, H, SHEET);
+  K.name(box(-X, X, F, 420, H, H + T, SHEET), 'Roof');
+  // two sliding doors with windows, slid open to each side
+  for (const s of [-1, 1]) {
+    const x0 = s < 0 ? -1180 : 560, x1 = s < 0 ? -560 : 1180;
+    K.name(box(x0, x1, F - 40, F - 20, 760, 2140, DOOR), s < 0 ? 'Left door' : 'Right door');
+    box(x0 + 80, x1 - 80, F - 46, F - 40, 1080, 2000, GLASS);
+    box(s < 0 ? x1 - 60 : x0 + 30, s < 0 ? x1 - 30 : x0 + 60, F - 90, F - 40, 1300, 1700, BLACK);   // handle
+  }
+  // control pendant on the right front, on its swing arm
+  box(X - 60, X + 280, F - 60, F, 1860, 1920, DARK);
+  K.name(box(X + 20, X + 470, F - 200, F - 60, 1250, 1920, SHEET, 20), 'Control pendant');
+  box(X + 75, X + 415, F - 206, F - 200, 1560, 1860, GLASS);            // screen
+  box(X + 75, X + 415, F - 204, F - 200, 1300, 1530, DARK);             // keypad
+  // coolant tank drawer under the doors
+  K.name(box(-520, 520, F - 30, F, 80, 400, DARK, 10), 'Coolant tank');
+  return K.doc();
+}
+
+// ── 13 × 40 geared-head engine lathe (JET GH-1340A class), in inches ──
+// Published: 13" swing over the bed (6-1/2" center height), 7-25/32" over the cross slide,
+// 43" between centers, 7-3/8" bed, 1-3/8" spindle bore, D1-4 nose, cross slide 6-5/16",
+// compound 2-11/16", tailstock quill 3-3/4"; about 72" long. On its cabinet stand the
+// spindle is 42" off the floor. An 8" three-jaw chuck holds a 1-1/2" bar.
+function sLathe() {
+  const M = machineKit(25.4), { K, u, box, cylX, cylY, sideX, wheel } = M;
+  const CAST = '#c9cec8', BED = '#8f9897', DARK = '#4b5256', CHROME = '#dde1e5', STEEL = '#b7bec5', BLACK = '#26292e', BAR = '#a9b1b8';
+  const cz = 42, bedTop = cz - 6.5, bw = 7.375 / 2;
+  // stand: two cabinets, the chip pan across them, the splash guard behind
+  K.name(box(-34, -17, -10, 10, 0, 25, DARK, 0.5), 'Headstock cabinet');
+  K.name(box(17, 34, -10, 10, 0, 25, DARK, 0.5), 'Tailstock cabinet');
+  K.name(box(-35, 35, -13, 11, 25, 27, STEEL), 'Chip pan');
+  K.name(box(-35, 35, 10, 11, 27, 48, STEEL), 'Splash guard');
+  // bed with its rack; headstock; quick-change gearbox under it
+  K.name(box(-35, 33, -bw, bw, 27, bedTop, BED), 'Bed');
+  box(-26, 30, -bw - 0.5, -bw, 32.5, 33.5, STEEL);                       // rack
+  K.name(box(-36, -20, -7.5, 7, bedTop, 51, CAST, 1), 'Headstock');
+  for (const [x, z] of [[-31, 47.5], [-26, 47.5], [-31, 43], [-26, 43]]) { cylY(-9, -7.5, x, z, 0.3, CHROME); cylY(-9.8, -9, x, z, 0.55, BLACK); }
+  K.name(box(-34, -21, -8, -bw, 28.5, bedTop - 0.5, CAST, 0.5), 'Gearbox');
+  for (const x of [-31, -27.5, -24]) { cylY(-8.8, -8, x, 32, 0.8, CHROME); cylY(-9.6, -8.8, x, 32, 0.35, BLACK); }
+  // spindle nose, 8" three-jaw chuck (bored through 1-3/8"), jaws, the bar it holds
+  K.name(cylX(-20, -18.8, 0, cz, 2.6, STEEL), 'Spindle nose');
+  K.name(cylX(-18.8, -15.3, 0, cz, 4, DARK), 'Chuck');
+  K.extrude(K.sketch(K.RIGHT(u(-15.2)), [K.C(0, u(cz), u(0.6875))]), [P2(0, u(cz))], -u(5), 'cut');
+  for (let k = 0; k < 3; k++) {
+    const a = Math.PI / 2 + k * TAU / 3, c = Math.cos(a), s = Math.sin(a), p = (r, o) => [c * r - s * o, cz + s * r + c * o];
+    sideX([p(0.75, -0.45), p(3.6, -0.45), p(3.6, 0.45), p(0.75, 0.45)], -15.3, -14.2, STEEL);
+  }
+  K.name(cylX(-15.3, -7, 0, cz, 0.75, BAR), 'Workpiece');
+  // carriage: saddle across the bed, apron in front with its handwheel, cross slide, compound, tool post
+  K.name(box(-13, -1, -6, 6, bedTop, bedTop + 2, CAST), 'Saddle');
+  K.name(box(-13, -1, -7.2, -bw - 0.5, 28.5, bedTop + 2, CAST, 0.5), 'Apron');
+  cylY(-8.4, -7.2, -9.5, 32.5, 0.5, CHROME); wheel('y', [-9.5, -8.4, 32.5], 3.6, 0.6, CHROME, BLACK);
+  cylX(-4.5, -3, -7.8, 34.5, 0.3, CHROME);                               // half-nut lever
+  K.name(box(-10.5, -3.5, -8.5, 5, bedTop + 2, bedTop + 3.5, CAST), 'Cross slide');
+  cylY(-10, -8.5, -7, bedTop + 2.75, 0.4, CHROME); wheel('y', [-7, -10, bedTop + 2.75], 2.2, 0.5, CHROME, BLACK);
+  K.name(box(-9.5, -5, -5.5, 0.5, bedTop + 3.5, bedTop + 5.2, CAST), 'Compound');
+  K.name(box(-8.5, -6, -4.3, -1.8, bedTop + 5.2, cz + 1.2, DARK), 'Tool post');
+  box(-7.5, -7, -1.8, -0.75, cz - 0.25, cz + 0.25, CHROME);              // the tool bit, on center height
+  cylX(-7.25, -6.75, -3.05, cz + 1.2, 0.5, CHROME); cylX(-7.1, -6.9, -3.05, cz + 1.8, 0.12, CHROME);
+  // lead screw and feed rod along the bed front
+  K.name(cylX(-21, 33, -bw - 1, 31.2, 0.5, CHROME), 'Lead screw');
+  K.name(cylX(-21, 33, -bw - 1, 29.8, 0.4, CHROME), 'Feed rod');
+  // tailstock: base, body, quill, dead center, handwheel
+  K.name(box(14, 21, -4.5, 4.5, bedTop, bedTop + 2, CAST), 'Tailstock base');
+  K.name(box(14, 20, -3.5, 3.5, bedTop + 2, cz + 2.5, CAST, 0.5), 'Tailstock');
+  K.name(cylX(10.25, 14, 0, cz, 1, STEEL), 'Tailstock quill');
+  const cs = K.sketch(K.FRONT(0), [...M.poly([[9.1, cz], [10.25, cz], [10.25, cz + 0.55]])]), ax = K.cons(K.L(u(8), u(cz), u(11), u(cz))); cs.ents.push(ax);
+  const dc = K.revolve(cs, [P2(u(10), u(cz + 0.15))], ax, 'new'); K.name(dc, 'Dead center'); K.color(dc, CHROME);
+  cylX(20, 22, 0, cz, 0.5, CHROME); wheel('x', [22, 0, cz], 3, 0.6, CHROME, BLACK);
+  cylY(-5, -3.5, 17, cz + 1.5, 0.3, CHROME);                             // quill lock
+  return K.doc();
+}
+
+SAMPLES.unshift(
+  { axes: 'model', name: 'Bridgeport knee mill', make: sBridgeport, desc: 'Series I, 9 × 42" table with three 5/8" T-slots, knee, saddle, turret and ram, J-head with quill, motor and handwheels — at the published travels and throat.' },
+  { axes: 'model', name: 'Haas VF-1 machining center', make: sHaasVF1, desc: '26 × 14" table on its saddle and linear guides, column and spindle head, CAT 40 tool, 20-pocket umbrella changer, enclosure with the doors slid open and the pendant.' },
+  { axes: 'model', name: 'Engine lathe 13 × 40', make: sLathe, desc: 'Geared-head lathe on its cabinet stand: 13" swing, 7-3/8" bed, 8" three-jaw chuck holding a bar, carriage with cross slide, compound and tool post, tailstock with dead center.' }
+);
 </script>
 
 <script>boot();</script>
