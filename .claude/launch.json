@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "datum", "runtimeExecutable": "node", "runtimeArgs": [".claude/serve.js"], "port": 8765, "autoPort": true }
+  ]
+}
