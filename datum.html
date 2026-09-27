@@ -21703,6 +21703,225 @@ const sketchXformSk0 = sketchXform;
 sketchXform = function (f, tool) { if (tool === 'smove') skmvStart(f); else sketchXformSk0(f, tool); };
 </script>
 
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  Machine-tool samples: a Bridgeport Series I knee mill, a Haas VF-1
+//  vertical machining center and a 13 × 40 geared-head engine lathe.
+//  Published specs (table, T-slots, travels, throat, spindle-to-table,
+//  swing, centers, bed width, overall size) are used as given; castings
+//  the makers don't dimension are proportioned from those. Every part is
+//  its own body (no booleans between parts), so they build fast and
+//  Explode pulls them apart.
+//  Axes as everywhere: X right, Y back, Z up. Mill spindles sit on X = Y = 0.
+// ═══════════════════════════════════════════════════════════════════
+function machineKit(unit) {
+  const K = modelKit(), u = v => v * unit;
+  const poly = pts => pts.map((p, i) => { const q = pts[(i + 1) % pts.length]; return K.L(u(p[0]), u(p[1]), u(q[0]), u(q[1])); });
+  const tint = (f, c) => { if (c) K.color(f, c); return f; };
+  // a block from x0..x1, y0..y1, z0..z1 (corner radius r on the vertical edges)
+  const box = (x0, x1, y0, y1, z0, z1, c, r = 0) => tint(K.extrude(K.sketch(K.GROUND(u(z0)), r > 0 ? K.rpoly([[u(x0), u(y0)], [u(x1), u(y0)], [u(x1), u(y1)], [u(x0), u(y1)]], u(r)) : K.rect(u(x0), u(y0), u(x1), u(y1))), [P2(u((x0 + x1) / 2), u((y0 + y1) / 2))], u(z1 - z0), 'new'), c);
+  // an outline in plan (x, y) raised from z0 to z1
+  const prism = (pts, z0, z1, c, r = 0) => { const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length, cy = pts.reduce((s, p) => s + p[1], 0) / pts.length; return tint(K.extrude(K.sketch(K.GROUND(u(z0)), r > 0 ? K.rpoly(pts.map(p => [u(p[0]), u(p[1])]), u(r)) : poly(pts)), [P2(u(cx), u(cy))], u(z1 - z0), 'new'), c); };
+  // cylinders along Z, X and Y
+  const cylZ = (x, y, r, z0, z1, c) => tint(K.extrude(K.sketch(K.GROUND(u(z0)), [K.C(u(x), u(y), u(r))]), [P2(u(x), u(y))], u(z1 - z0), 'new'), c);
+  const cylX = (x0, x1, y, z, r, c) => tint(K.extrude(K.sketch(K.RIGHT(u(x0)), [K.C(u(y), u(z), u(r))]), [P2(u(y), u(z))], u(x1 - x0), 'new'), c);
+  const cylY = (y0, y1, x, z, r, c) => tint(K.extrude(K.sketch(K.FRONT(-u(y1)), [K.C(u(x), u(z), u(r))]), [P2(u(x), u(z))], u(y1 - y0), 'new'), c);
+  // a profile in the side view (y, z) run along X from x0 to x1
+  const sideX = (pts, x0, x1, c) => { const cy = pts.reduce((s, p) => s + p[0], 0) / pts.length, cz = pts.reduce((s, p) => s + p[1], 0) / pts.length; return tint(K.extrude(K.sketch(K.RIGHT(u(x0)), poly(pts)), [P2(u(cy), u(cz))], u(x1 - x0), 'new'), c); };
+  // a profile in the front view (x, z) run from y0 back to y1
+  const frontY = (pts, y0, y1, c) => { const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length, cz = pts.reduce((s, p) => s + p[1], 0) / pts.length; return tint(K.extrude(K.sketch(K.FRONT(-u(y0)), poly(pts)), [P2(u(cx), u(cz))], -u(y1 - y0), 'new'), c); };
+  // a handwheel: a dished disc with three windows, and a crank handle, facing along ±axis
+  function wheel(axis, at, R, t, c, knob) {
+    const [x, y, z] = at, s = t >= 0 ? 1 : -1, T = Math.abs(t), win = [0, 1, 2].map(k => { const a = k * TAU / 3 + Math.PI / 6; return [Math.cos(a) * R * 0.55, Math.sin(a) * R * 0.55]; });
+    const ring = (a, b) => [K.C(u(a), u(b), u(R)), ...win.map(([p, q]) => K.C(u(a + p), u(b + q), u(R * 0.26)))], pt = (a, b) => P2(u(a), u(b + R * 0.85));
+    let f, h;
+    if (axis === 'x') { f = K.extrude(K.sketch(K.RIGHT(u(x)), ring(y, z)), [pt(y, z)], u(s * T), 'new'); h = cylX(s > 0 ? x + T : x - T - R * 0.45, s > 0 ? x + T + R * 0.45 : x - T, y, z + R * 0.78, R * 0.07, knob); }
+    else if (axis === 'y') { f = K.extrude(K.sketch(K.FRONT(-u(y)), ring(x, z)), [pt(x, z)], u(s * T), 'new'); h = cylY(s > 0 ? y - T - R * 0.45 : y + T, s > 0 ? y - T : y + T + R * 0.45, x, z + R * 0.78, R * 0.07, knob); }
+    else { f = K.extrude(K.sketch(K.GROUND(u(z)), ring(x, y)), [pt(x, y)], u(s * T), 'new'); h = null; }
+    tint(f, c);
+    return [f, h];
+  }
+  return { K, u, poly, box, prism, cylZ, cylX, cylY, sideX, frontY, wheel };
+}
+
+// ── Bridgeport Series I (9" × 42" table, J / 2J head), in inches ──
+// Published: table 9 × 42, 3 T-slots 5/8" on 2-1/2" centers; travels 30 (X), 12 (Y),
+// 16 (knee), quill 5, ram 12; throat 6-3/4 … 18-3/4; spindle nose to table 2-1/2 … 18-1/4;
+// R8 spindle; about 87" tall. The ram is shown mid-travel (12-3/4" throat), the knee
+// with the nose 8" over the table.
+function sBridgeport() {
+  const M = machineKit(25.4), { K, box, prism, cylZ, cylX, cylY, sideX, frontY, wheel } = M;
+  const CAST = '#7f8b8c', DARK = '#5d6769', STEEL = '#b9c0c6', CHROME = '#dde1e5', BLACK = '#2a2d31', WAY = '#9aa3a8';
+  const throat = 12.75, nose = 52, tableTop = nose - 8;
+  // base and column: one casting on the floor, the column's front face carries the knee ways
+  K.name(box(-13, 13, -16, 30, 0, 5, CAST, 1.5), 'Base');
+  K.name(box(-9, 9, throat, throat + 17, 5, 66, CAST, 2), 'Column');
+  box(-5.5, 5.5, throat - 0.6, throat, 12, 58, WAY);                                    // knee dovetail ways
+  // knee, with its elevating screw down to the base
+  const kz0 = tableTop - 2.5 - 5 - 14.5, kz1 = tableTop - 2.5 - 5;
+  K.name(prism([[-8, throat - 0.6], [8, throat - 0.6], [8, -15], [6.5, -17], [-6.5, -17], [-8, -15]], kz0, kz1, CAST), 'Knee');
+  cylZ(0, -6, 1.1, 5, kz0, CHROME);                                                     // elevating screw
+  cylZ(0, -6, 2.4, 5, 7, DARK);
+  // saddle (12" cross travel) and the table on it
+  K.name(box(-10, 10, -13, 9, kz1, kz1 + 5, CAST), 'Saddle');
+  const tb = box(-21, 21, -4.5, 4.5, tableTop - 2.5, tableTop, STEEL); K.name(tb, 'Table');
+  const slot = c => [[c - 0.3125, tableTop + 0.1], [c + 0.3125, tableTop + 0.1], [c + 0.3125, tableTop - 0.5], [c + 0.5, tableTop - 0.5], [c + 0.5, tableTop - 0.94], [c - 0.5, tableTop - 0.94], [c - 0.5, tableTop - 0.5], [c - 0.3125, tableTop - 0.5]];
+  const ts = K.sketch(K.RIGHT(M.u(21.1)), [-2.5, 0, 2.5].flatMap(c => M.poly(slot(c))));
+  K.name(K.extrude(ts, [-2.5, 0, 2.5].map(c => P2(M.u(c), M.u(tableTop - 0.7))), -M.u(42.2), 'cut'), 'T-slots');
+  // table cranks at both ends, the saddle crank on the knee front, the knee crank beside it
+  cylX(-23, -21, 0, tableTop - 1.3, 0.6, CHROME); cylX(21, 23, 0, tableTop - 1.3, 0.6, CHROME);
+  wheel('x', [-23, 0, tableTop - 1.3], 3.2, -0.7, CHROME, BLACK); wheel('x', [23, 0, tableTop - 1.3], 3.2, 0.7, CHROME, BLACK);
+  cylY(-19, -17, 0, kz1 - 3, 0.6, CHROME); wheel('y', [0, -19, kz1 - 3], 3.4, 0.7, CHROME, BLACK);
+  cylY(-19.5, -17, -5.5, kz0 + 4, 0.5, CHROME); cylY(-21.5, -19.5, -5.5, kz0 + 4, 0.35, CHROME); cylX(-5.5, -1.5, -21.5, kz0 + 4, 0.3, CHROME);
+  // turret on the column, the ram on the turret (12" of travel), the head adapter on its nose
+  K.name(cylZ(0, throat + 8.5, 8.5, 66, 69, CAST), 'Turret');
+  K.name(sideX([[throat - 6, 69], [throat + 30, 69], [throat + 30, 75], [throat + 27, 77], [throat - 3, 77], [throat - 6, 74]], -5, 5, CAST), 'Ram');
+  cylY(throat - 8, throat - 6, 0, 73, 4.2, DARK);                                        // head adapter (tilt about Y)
+  // the head: quill housing, belt housing, motor; spindle nose on X = Y = 0
+  const hb = throat - 8;
+  K.name(prism([[-4.5, hb], [4.5, hb], [4.5, -2], [3, -4.2], [-3, -4.2], [-4.5, -2]], nose + 3, 66, CAST), 'Quill housing');
+  K.name(box(-6.5, 6.5, -6, hb, 66, 71.5, CAST, 3), 'Belt housing');
+  K.name(cylZ(0, 1.5, 4.4, 71.5, 82, DARK), 'Motor');
+  cylZ(0, 1.5, 3.2, 82, 83.5, DARK);
+  cylZ(0, 0, 0.6, 83.5, 86.8, CHROME);                                                  // drawbar
+  K.name(cylZ(0, 0, 1.6875, nose, nose + 3, STEEL), 'Quill');                            // 3-3/8" quill
+  cylZ(0, 0, 0.62, nose - 0.9, nose, CHROME);                                           // R8 collet nose
+  cylZ(0, 0, 0.25, nose - 3.2, nose - 0.9, CHROME);                                     // a 1/2" end mill
+  // quill feed: the hub and its three levers on the right, fine-feed handwheel on the left
+  const hy = -1, hz = nose + 7;
+  K.name(cylX(4.5, 6.4, hy, hz, 1.3, DARK), 'Quill feed hub');
+  for (let k = 0; k < 3; k++) {
+    const a = Math.PI / 2 + k * TAU / 3, c = Math.cos(a), sn = Math.sin(a), w = 0.22, p = (r, o) => [hy + c * r - sn * o, hz + sn * r + c * o];
+    sideX([p(1.2, -w), p(6.5, -w), p(6.5, w), p(1.2, w)], 5.2, 5.7, CHROME);
+    cylX(5.7, 7, p(6.5, 0)[0], p(6.5, 0)[1], 0.4, BLACK);
+  }
+  wheel('x', [-4.5, -1, nose + 7], 2.2, -0.5, CHROME, BLACK);
+  // speed dial and motor switch
+  cylY(-6.6, -6, 0, 68.8, 1.6, BLACK); box(5.5, 7.5, 0, 3, 72, 75, BLACK);
+  return K.doc();
+}
+
+// ── Haas VF-1 vertical machining center, in millimeters ──
+// Published: table 660 × 356 (26 × 14"), 3 T-slots 16 mm (5/8") wide; travels 508 × 406 × 508
+// (20 × 16 × 20"); spindle nose to table 102 … 610; CAT 40 spindle; 20-pocket carousel changer;
+// enclosure 2301 wide, 2732 tall. Axes at mid-travel, the nose 350 over the table; the front
+// doors are slid open to show the inside.
+function sHaasVF1() {
+  const M = machineKit(1), { K, box, prism, cylZ, cylX, cylY, sideX } = M;
+  const SHEET = '#e4e7ea', DOOR = '#cfd4d9', GLASS = '#3a4552', CAST = '#8b949c', RAIL = '#c4cad0', BLACK = '#26292e', STEEL = '#b7bec5', DARK = '#4a5058';
+  const tableTop = 920, nose = tableTop + 350, col = 478;              // spindle center to column face
+  // base casting, Y guides, saddle, X guides, table
+  K.name(box(-700, 700, -650, 1150, 0, 700, CAST, 40), 'Base');
+  for (const x of [-300, 300]) box(x - 22, x + 22, -600, 620, 700, 738, RAIL);
+  K.name(box(-430, 430, -310, 310, 738, 820, CAST, 20), 'Saddle');
+  for (const y of [-120, 120]) box(-520, 520, y - 20, y + 20, 820, 850, RAIL);
+  K.name(box(-330, 330, -178, 178, 850, tableTop, STEEL), 'Table');
+  const tz = tableTop, slot = c => [[c - 8, tz + 2], [c + 8, tz + 2], [c + 8, tz - 14], [c + 14, tz - 14], [c + 14, tz - 26], [c - 14, tz - 26], [c - 14, tz - 14], [c - 8, tz - 14]];
+  K.name(K.extrude(K.sketch(K.RIGHT(332), [-110, 0, 110].flatMap(c => M.poly(slot(c)))), [-110, 0, 110].map(c => P2(c, tz - 20)), -664, 'cut'), 'T-slots');
+  // column with its Z guides, the spindle head riding on them
+  K.name(box(-380, 380, col, 1100, 700, 2450, CAST, 30), 'Column');
+  for (const x of [-220, 220]) box(x - 24, x + 24, col - 30, col, 900, 2380, RAIL);
+  K.name(prism([[-250, col - 30], [250, col - 30], [250, -150], [180, -240], [-180, -240], [-250, -150]], 1400, 1960, CAST), 'Spindle head');
+  K.name(cylZ(0, 0, 105, nose + 20, 1400, DARK), 'Spindle');
+  cylZ(0, 0, 60, nose, nose + 20, STEEL);                                 // nose
+  cylZ(0, 0, 31.75, nose - 22, nose, BLACK);                            // CAT 40 flange
+  cylZ(0, 0, 22, nose - 70, nose - 22, STEEL);                          // collet chuck
+  cylZ(0, 0, 6.35, nose - 125, nose - 70, STEEL);                       // 1/2" end mill
+  K.name(cylZ(0, 200, 140, 1960, 2290, DARK), 'Spindle motor');
+  K.name(box(-300, 300, 500, 1060, 2450, 2732, SHEET, 20), 'Column cover');
+  // 20-pocket umbrella tool changer on the left of the column
+  const tc = [-640, 260], pk = [];
+  for (let k = 0; k < 20; k++) { const a = k * TAU / 20; pk.push([tc[0] + Math.cos(a) * 235, tc[1] + Math.sin(a) * 235]); }
+  K.name(K.extrude(K.sketch(K.GROUND(1640), pk.map(([x, y]) => K.C(x, y, 24))), pk.map(([x, y]) => P2(x, y)), 170, 'new'), 'Tool holders');
+  K.name(cylZ(tc[0], tc[1], 290, 1810, 1850, DARK), 'Carousel');
+  K.name(cylZ(tc[0], tc[1], 300, 1850, 1990, SHEET), 'Carousel cover');
+  box(-400, tc[0] + 200, 700, 780, 1850, 1930, CAST);                   // carousel slide arm
+  // sheet-metal enclosure: side and back walls, front panels round the door opening, a roof over the front
+  const X = 1150, F = -900, B = 1150, T = 20, H = 2300;
+  K.name(box(-X, -X + T, F, B, 0, H, SHEET), 'Left wall');
+  K.name(box(X - T, X, F, B, 0, H, SHEET), 'Right wall');
+  K.name(box(-X, X, B - T, B, 0, H, SHEET), 'Back wall');
+  box(-X, X, F, F + T, 0, 780, SHEET); box(-X, -600, F, F + T, 780, H, SHEET); box(600, X, F, F + T, 780, H, SHEET); box(-600, 600, F, F + T, 2120, H, SHEET);
+  K.name(box(-X, X, F, 420, H, H + T, SHEET), 'Roof');
+  // two sliding doors with windows, slid open to each side
+  for (const s of [-1, 1]) {
+    const x0 = s < 0 ? -1180 : 560, x1 = s < 0 ? -560 : 1180;
+    K.name(box(x0, x1, F - 40, F - 20, 760, 2140, DOOR), s < 0 ? 'Left door' : 'Right door');
+    box(x0 + 80, x1 - 80, F - 46, F - 40, 1080, 2000, GLASS);
+    box(s < 0 ? x1 - 60 : x0 + 30, s < 0 ? x1 - 30 : x0 + 60, F - 90, F - 40, 1300, 1700, BLACK);   // handle
+  }
+  // control pendant on the right front, on its swing arm
+  box(X - 60, X + 280, F - 60, F, 1860, 1920, DARK);
+  K.name(box(X + 20, X + 470, F - 200, F - 60, 1250, 1920, SHEET, 20), 'Control pendant');
+  box(X + 75, X + 415, F - 206, F - 200, 1560, 1860, GLASS);            // screen
+  box(X + 75, X + 415, F - 204, F - 200, 1300, 1530, DARK);             // keypad
+  // coolant tank drawer under the doors
+  K.name(box(-520, 520, F - 30, F, 80, 400, DARK, 10), 'Coolant tank');
+  return K.doc();
+}
+
+// ── 13 × 40 geared-head engine lathe (JET GH-1340A class), in inches ──
+// Published: 13" swing over the bed (6-1/2" center height), 7-25/32" over the cross slide,
+// 43" between centers, 7-3/8" bed, 1-3/8" spindle bore, D1-4 nose, cross slide 6-5/16",
+// compound 2-11/16", tailstock quill 3-3/4"; about 72" long. On its cabinet stand the
+// spindle is 42" off the floor. An 8" three-jaw chuck holds a 1-1/2" bar.
+function sLathe() {
+  const M = machineKit(25.4), { K, u, box, cylX, cylY, sideX, wheel } = M;
+  const CAST = '#c9cec8', BED = '#8f9897', DARK = '#4b5256', CHROME = '#dde1e5', STEEL = '#b7bec5', BLACK = '#26292e', BAR = '#a9b1b8';
+  const cz = 42, bedTop = cz - 6.5, bw = 7.375 / 2;
+  // stand: two cabinets, the chip pan across them, the splash guard behind
+  K.name(box(-34, -17, -10, 10, 0, 25, DARK, 0.5), 'Headstock cabinet');
+  K.name(box(17, 34, -10, 10, 0, 25, DARK, 0.5), 'Tailstock cabinet');
+  K.name(box(-35, 35, -13, 11, 25, 27, STEEL), 'Chip pan');
+  K.name(box(-35, 35, 10, 11, 27, 48, STEEL), 'Splash guard');
+  // bed with its rack; headstock; quick-change gearbox under it
+  K.name(box(-35, 33, -bw, bw, 27, bedTop, BED), 'Bed');
+  box(-26, 30, -bw - 0.5, -bw, 32.5, 33.5, STEEL);                       // rack
+  K.name(box(-36, -20, -7.5, 7, bedTop, 51, CAST, 1), 'Headstock');
+  for (const [x, z] of [[-31, 47.5], [-26, 47.5], [-31, 43], [-26, 43]]) { cylY(-9, -7.5, x, z, 0.3, CHROME); cylY(-9.8, -9, x, z, 0.55, BLACK); }
+  K.name(box(-34, -21, -8, -bw, 28.5, bedTop - 0.5, CAST, 0.5), 'Gearbox');
+  for (const x of [-31, -27.5, -24]) { cylY(-8.8, -8, x, 32, 0.8, CHROME); cylY(-9.6, -8.8, x, 32, 0.35, BLACK); }
+  // spindle nose, 8" three-jaw chuck (bored through 1-3/8"), jaws, the bar it holds
+  K.name(cylX(-20, -18.8, 0, cz, 2.6, STEEL), 'Spindle nose');
+  K.name(cylX(-18.8, -15.3, 0, cz, 4, DARK), 'Chuck');
+  K.extrude(K.sketch(K.RIGHT(u(-15.2)), [K.C(0, u(cz), u(0.6875))]), [P2(0, u(cz))], -u(5), 'cut');
+  for (let k = 0; k < 3; k++) {
+    const a = Math.PI / 2 + k * TAU / 3, c = Math.cos(a), s = Math.sin(a), p = (r, o) => [c * r - s * o, cz + s * r + c * o];
+    sideX([p(0.75, -0.45), p(3.6, -0.45), p(3.6, 0.45), p(0.75, 0.45)], -15.3, -14.2, STEEL);
+  }
+  K.name(cylX(-15.3, -7, 0, cz, 0.75, BAR), 'Workpiece');
+  // carriage: saddle across the bed, apron in front with its handwheel, cross slide, compound, tool post
+  K.name(box(-13, -1, -6, 6, bedTop, bedTop + 2, CAST), 'Saddle');
+  K.name(box(-13, -1, -7.2, -bw - 0.5, 28.5, bedTop + 2, CAST, 0.5), 'Apron');
+  cylY(-8.4, -7.2, -9.5, 32.5, 0.5, CHROME); wheel('y', [-9.5, -8.4, 32.5], 3.6, 0.6, CHROME, BLACK);
+  cylX(-4.5, -3, -7.8, 34.5, 0.3, CHROME);                               // half-nut lever
+  K.name(box(-10.5, -3.5, -8.5, 5, bedTop + 2, bedTop + 3.5, CAST), 'Cross slide');
+  cylY(-10, -8.5, -7, bedTop + 2.75, 0.4, CHROME); wheel('y', [-7, -10, bedTop + 2.75], 2.2, 0.5, CHROME, BLACK);
+  K.name(box(-9.5, -5, -5.5, 0.5, bedTop + 3.5, bedTop + 5.2, CAST), 'Compound');
+  K.name(box(-8.5, -6, -4.3, -1.8, bedTop + 5.2, cz + 1.2, DARK), 'Tool post');
+  box(-7.5, -7, -1.8, -0.75, cz - 0.25, cz + 0.25, CHROME);              // the tool bit, on center height
+  cylX(-7.25, -6.75, -3.05, cz + 1.2, 0.5, CHROME); cylX(-7.1, -6.9, -3.05, cz + 1.8, 0.12, CHROME);
+  // lead screw and feed rod along the bed front
+  K.name(cylX(-21, 33, -bw - 1, 31.2, 0.5, CHROME), 'Lead screw');
+  K.name(cylX(-21, 33, -bw - 1, 29.8, 0.4, CHROME), 'Feed rod');
+  // tailstock: base, body, quill, dead center, handwheel
+  K.name(box(14, 21, -4.5, 4.5, bedTop, bedTop + 2, CAST), 'Tailstock base');
+  K.name(box(14, 20, -3.5, 3.5, bedTop + 2, cz + 2.5, CAST, 0.5), 'Tailstock');
+  K.name(cylX(10.25, 14, 0, cz, 1, STEEL), 'Tailstock quill');
+  const cs = K.sketch(K.FRONT(0), [...M.poly([[9.1, cz], [10.25, cz], [10.25, cz + 0.55]])]), ax = K.cons(K.L(u(8), u(cz), u(11), u(cz))); cs.ents.push(ax);
+  const dc = K.revolve(cs, [P2(u(10), u(cz + 0.15))], ax, 'new'); K.name(dc, 'Dead center'); K.color(dc, CHROME);
+  cylX(20, 22, 0, cz, 0.5, CHROME); wheel('x', [22, 0, cz], 3, 0.6, CHROME, BLACK);
+  cylY(-5, -3.5, 17, cz + 1.5, 0.3, CHROME);                             // quill lock
+  return K.doc();
+}
+
+SAMPLES.unshift(
+  { axes: 'model', name: 'Bridgeport knee mill', make: sBridgeport, desc: 'Series I, 9 × 42" table with three 5/8" T-slots, knee, saddle, turret and ram, J-head with quill, motor and handwheels — at the published travels and throat.' },
+  { axes: 'model', name: 'Haas VF-1 machining center', make: sHaasVF1, desc: '26 × 14" table on its saddle and linear guides, column and spindle head, CAT 40 tool, 20-pocket umbrella changer, enclosure with the doors slid open and the pendant.' },
+  { axes: 'model', name: 'Engine lathe 13 × 40', make: sLathe, desc: 'Geared-head lathe on its cabinet stand: 13" swing, 7-3/8" bed, 8" three-jaw chuck holding a bar, carriage with cross slide, compound and tool post, tailstock with dead center.' }
+);
+</script>
+
 <script>boot();</script>
 </body>
 </html>
