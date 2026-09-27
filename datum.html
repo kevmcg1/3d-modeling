@@ -5281,14 +5281,16 @@ function linearCornerTool(E0, E1, t1, t2, kind, size, tol, meta) {
 // ── Circular-edge corner tool: the same profile revolved about an axis ─
 // ax: {p, dir, e1, e2}; edge at radius R, height h0; t1/t2 are 2D (ρ,h)
 // unit directions along each face; angular range th0..th1 (full = TAU).
-function revolvedCornerTool(ax, R, h0, t1, t2, kind, size, th0, th1, tol, meta) {
+// brk: optional ascending angles th0..th1 to put facet columns on — the
+// angles of the body's own facets along the edge, so the tool meets them
+// vertex for vertex and the tangent seam cuts clean instead of zig-zagging.
+function revolvedCornerTool(ax, R, h0, t1, t2, kind, size, th0, th1, tol, meta, brk) {
   const T1 = [t1[0], t1[1], 0], T2 = [t2[0], t2[1], 0];
   const pr = cornerProfile(T1, T2, kind, size, tol);
   if (!pr) return null;
   const prof = pr.pts.map(p => [R + p[0], h0 + p[1]]);
   if (prof.some(p => p[0] < -1e-9)) return null;
   const full = th1 - th0 >= TAU - 1e-9, rMax = Math.max(...prof.map(p => p[0]));
-  const N = Math.max(8, Math.ceil(circleN(rMax, tol) * (th1 - th0) / TAU));
   const at = (p, th) => add3(add3(ax.p, mul3(ax.dir, p[1])), add3(mul3(ax.e1, p[0] * Math.cos(th)), mul3(ax.e2, p[0] * Math.sin(th))));
   // make profile CCW in (ρ,h)
   let area = 0;
@@ -5307,12 +5309,27 @@ function revolvedCornerTool(ax, R, h0, t1, t2, kind, size, th0, th1, tol, meta) 
     if (pr.face && Math.min(i, j) === pr.face[0] && Math.max(i, j) === pr.face[1]) Surf.addMeta(f, meta);
     return f;
   };
-  const ths = []; for (let k = 0; k <= N; k++) ths.push(th0 + (th1 - th0) * k / N);
+  const ths = [], chord = [];
+  if (brk && brk.length >= 2) {
+    // split each span evenly only where the widest radius of the profile needs it; points
+    // added on the edge's own radius stay on the body's flat facet (its chord), not the circle
+    const step = TAU / circleN(rMax, tol);
+    for (let i = 0; i + 1 < brk.length; i++) {
+      const a = brk[i], b = brk[i + 1], n = Math.max(1, Math.ceil((b - a) / step - 1e-9)), hw = (b - a) / 2;
+      for (let k = 0; k < n; k++) { const th = a + (b - a) * k / n; ths.push(th); chord.push(Math.cos(hw) / Math.cos(th - a - hw)); }
+    }
+    ths.push(brk[brk.length - 1]); chord.push(1);
+  } else { const N = Math.max(8, Math.ceil(circleN(rMax, tol) * (th1 - th0) / TAU)); for (let k = 0; k <= N; k++) { ths.push(th0 + (th1 - th0) * k / N); chord.push(1); } }
+  const N = ths.length - 1;
+  const atK = (p, k) => at(Math.abs(p[0] - R) < 1e-9 ? [p[0] * chord[k], p[1]] : p, ths[k]);
   for (let e = 0; e < m; e++) {
     const i = order[e], j = order[(e + 1) % m], a = prof[i], b = prof[j];
+    // a face from the edge's radius to another one is bent where the edge row sits on a chord: two triangles
+    const bentRow = (Math.abs(a[0] - R) < 1e-9) !== (Math.abs(b[0] - R) < 1e-9);
     for (let k = 0; k < N; k++) {
-      const q = [at(a, ths[k]), at(a, ths[k + 1]), at(b, ths[k + 1]), at(b, ths[k])].filter((v, x, arr) => dist3(v, arr[(x + 1) % arr.length]) > 1e-12);
-      if (q.length < 3) continue;
+      const q4 = [atK(a, k), atK(a, k + 1), atK(b, k + 1), atK(b, k)].filter((v, x, arr) => dist3(v, arr[(x + 1) % arr.length]) > 1e-12);
+      if (q4.length < 3) continue;
+      for (const q of q4.length === 4 && bentRow && (chord[k] !== 1 || chord[k + 1] !== 1) ? [[q4[0], q4[1], q4[2]], [q4[0], q4[2], q4[3]]] : [q4]) {
       const p = CSG.poly(q, 0);
       let f = surfFor(i, j);
       if (f === null) f = Surf.plane(p.n, p.w);
@@ -5322,6 +5339,7 @@ function revolvedCornerTool(ax, R, h0, t1, t2, kind, size, th0, th1, tol, meta) 
         if (dot3(want, p.n) < 0) f = Surf.flip(f);
       }
       polys.push(CSG.poly(q, f, p.n, p.w));
+      }
     }
   }
   if (!full) for (const [th, s] of [[th0, -1], [th1, 1]]) {
@@ -5510,22 +5528,31 @@ function edgeTool(body, mesh, ch, kind, size, tol, meta) {
     const hh = v => dot3(sub3(v, ax.p), ax.dir);
     const planeC = Surf.list[ch.fa].t === 'P' ? cA : cB, cylC = Surf.list[ch.fa].t === 'P' ? cB : cA;
     const t1 = [Math.sign(rho(planeC) - g.r) || -1, 0], t2 = [0, Math.sign(hh(cylC) - g.h0) || -1];
-    let th0 = 0, th1 = TAU;
     const ang = v => { const w = sub3(v, ax.p); return mod(Math.atan2(dot3(w, ax.e2), dot3(w, ax.e1)), TAU); };
-    if (!g.full) {
-      const as = ch.pts.map(ang).sort((a, b) => a - b);
+    // the edge's own vertices, in order around the axis: the tool's facet columns go on them
+    const as = [];
+    for (const a of ch.pts.map(ang).sort((a, b) => a - b)) if (!as.length || a - as[as.length - 1] > 1e-9) as.push(a);
+    if (g.full && as.length > 1 && as[0] + TAU - as[as.length - 1] < 1e-9) as.pop();
+    let brk;
+    if (g.full) brk = as.length >= 3 ? [...as, as[0] + TAU] : null;
+    else {
       let gap = as[0] + TAU - as[as.length - 1], gi = as.length - 1;
       for (let i = 0; i + 1 < as.length; i++) if (as[i + 1] - as[i] > gap) { gap = as[i + 1] - as[i]; gi = i; }
-      th0 = as[(gi + 1) % as.length]; th1 = as[gi]; if (th1 <= th0) th1 += TAU;
+      brk = as.slice(gi + 1).concat(as.slice(0, gi + 1).map(a => (gi + 1 < as.length ? a + TAU : a)));
     }
+    if (!brk || brk.length < 2) brk = [0, TAU];
+    const th0 = brk[0], th1 = brk[brk.length - 1];
 
     const pn = Surf.list[ch.fa].t === 'P' ? Surf.list[ch.fa].n : Surf.list[ch.fb].n;
     const convex = dot3(pn, g.dir) * t2[1] < 0;
     // A full ring is the worst case for BSP booleans (every facet plane
     // slices the far side of the ring), so revolve in ≤45° sectors.
-    const ns = Math.max(1, Math.ceil((th1 - th0) / (Math.PI / 4))), pieces = [];
+    // Sector ends land on edge vertices, so every sector keeps the body's facet angles.
+    const ns = Math.min(brk.length - 1, Math.max(1, Math.ceil((th1 - th0) / (Math.PI / 4) - 1e-9))), pieces = [];
+    const cut = k => Math.round(k * (brk.length - 1) / ns);
     for (let k = 0; k < ns; k++) {
-      const polys = revolvedCornerTool(ax, g.r, g.h0, t1, t2, kind, size, th0 + (th1 - th0) * k / ns, th0 + (th1 - th0) * (k + 1) / ns, tol, meta);
+      const b = brk.slice(cut(k), cut(k + 1) + 1);
+      const polys = revolvedCornerTool(ax, g.r, g.h0, t1, t2, kind, size, b[0], b[b.length - 1], tol, meta, b);
       if (!polys) return { err: 'Size is larger than the edge allows' };
       pieces.push(polys);
     }
