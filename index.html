@@ -23659,6 +23659,251 @@ function cmdSuggest(v) {
 })();
 </script>
 
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  More samples: a futuristic home, furniture, electronics. Built from
+//  machineKit blocks, cylinders and profiles (millimeters, X right,
+//  Y back, Z up); every piece is an ordinary, editable feature.
+// ═══════════════════════════════════════════════════════════════════
+// a wire: round segments between points (each move along one axis), with a joint at every bend
+function kitWire(M, pts, r, c) {
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const [a, b] = [pts[i], pts[i + 1]];
+    if (a[0] !== b[0]) M.cylX(Math.min(a[0], b[0]), Math.max(a[0], b[0]), a[1], a[2], r, c);
+    else if (a[1] !== b[1]) M.cylY(Math.min(a[1], b[1]), Math.max(a[1], b[1]), a[0], a[2], r, c);
+    else if (a[2] !== b[2]) M.cylZ(a[0], a[1], r, Math.min(a[2], b[2]), Math.max(a[2], b[2]), c);
+    if (i > 0) M.cylZ(a[0], a[1], r * 1.02, a[2] - r, a[2] + r, c);           // the bend
+  }
+}
+// a turned part: a profile about a vertical axis at (x, y). Items are [radius, z] points joined
+// by straight lines, or { arc: [rc, zc, R, a0, a1] }: a true arc (one smooth face when turned)
+// from the point before it to the point after it.
+function kitTurn(M, x, y, prof, c) {
+  const { K } = M, ents = [], n = prof.length, poly = [];
+  for (let i = 0; i < n; i++) {
+    const a = prof[i];
+    if (a.arc) {
+      const [rc, zc, R, a0, a1] = a.arc; ents.push(K.Ar(x + rc, zc, R, a0, a1));
+      for (let k = 0; k <= 16; k++) { const t = a0 + (a1 - a0) * k / 16; poly.push([rc + R * Math.cos(t), zc + R * Math.sin(t)]); }
+      continue;
+    }
+    poly.push(a);
+    const b = prof[(i + 1) % n];
+    if (!b.arc && Math.hypot(a[0] - b[0], a[1] - b[1]) > 1e-9) ents.push(K.L(x + a[0], a[1], x + b[0], b[1]));
+  }
+  const z0 = Math.min(...poly.map(p => p[1])), z1 = Math.max(...poly.map(p => p[1]));
+  const axis = K.cons(K.L(x, z0 - 1, x, z1 + 1)); ents.push(axis);
+  // a point inside: halfway out at the middle height
+  const zm = (z0 + z1) / 2, m = poly.length; let rm = 0;
+  for (let i = 0; i < m; i++) { const p = poly[i], q = poly[(i + 1) % m]; if ((p[1] - zm) * (q[1] - zm) <= 0 && p[1] !== q[1]) rm = Math.max(rm, p[0] + (q[0] - p[0]) * (zm - p[1]) / (q[1] - p[1])); }
+  const f = K.revolve(K.sketch(K.FRONT(-y), ents), [P2(x + rm / 2, zm)], axis, 'new');
+  if (c) K.color(f, c);
+  return f;
+}
+// ── Futuristic home ──
+function sFutureHome() {
+  const M = machineKit(1), { K, box, prism, cylZ } = M;
+  const WHITE = '#eef1f4', CONC = '#c8ccd1', GLASS = '#8fc3e8', DARK = '#2c3440', WOOD = '#a0703f', WATER = '#4aa3df', GREEN = '#5aa05a', STEEL = '#aeb6bf';
+  // ground slab and lawn
+  K.name(box(-9000, 9000, -7000, 7000, -300, 0, GREEN), 'Lawn');
+  K.name(box(-6000, 4000, -3500, 4500, 0, 250, CONC), 'Plinth');
+  // ground floor: a glass box between two white walls
+  K.name(box(-5800, -5500, -3000, 4200, 250, 3400, WHITE), 'West wall');
+  K.name(box(3500, 3800, -3000, 4200, 250, 3400, WHITE), 'East wall');
+  K.name(box(-5500, 3500, 3900, 4200, 250, 3400, WHITE), 'Back wall');
+  K.name(box(-5500, 3500, -3000, -2960, 250, 3400, GLASS), 'Glass front');
+  for (const x of [-3300, -1100, 1100]) box(x, x + 80, -3040, -2940, 250, 3400, DARK);      // mullions
+  // cantilevered upper floor, rounded, reaching out over the pool
+  K.name(prism([[-6500, -1000], [6800, -1000], [6800, 4500], [-6500, 4500]], 3400, 3800, WHITE, 900), 'Upper slab');
+  K.name(prism([[-6200, -700], [6500, -700], [6500, 4200], [-6200, 4200]], 3800, 6600, GLASS, 700), 'Upper glass');
+  K.name(prism([[-6500, -1000], [6800, -1000], [6800, 4500], [-6500, 4500]], 6600, 6900, WHITE, 900), 'Roof');
+  // roof deck: solar panels tilted in rows, a glass lantern
+  for (let x = -5600; x <= 3600; x += 1600) K.name(box(x, x + 1400, 1200, 3800, 6900, 7020, DARK), 'Solar panel');
+  K.name(cylZ(4900, 1800, 900, 6900, 8200, GLASS), 'Lantern');
+  K.name(cylZ(4900, 1800, 1000, 8200, 8350, WHITE), 'Lantern cap');
+  // a round stair tower
+  K.name(cylZ(-7300, 2500, 1300, 0, 7600, WHITE), 'Stair tower');
+  for (let z = 1000; z < 7000; z += 1400) cylZ(-7300, 2500, 1310, z, z + 500, GLASS);
+  // pool and deck in front, under the cantilever
+  K.name(box(4000, 8500, -5500, 1500, -200, 250, WOOD), 'Deck');
+  K.name(box(4500, 8000, -5000, 0, 0, 260, WATER), 'Pool');
+  // pilotis under the cantilever
+  for (const [x, y] of [[6200, -500], [6200, 4000]]) cylZ(x, y, 160, 250, 3400, STEEL);
+  // front door and a floating stair to it
+  K.name(box(-800, 800, -3080, -3000, 250, 2600, DARK), 'Door');
+  for (let k = 0; k < 3; k++) box(-1200, 1200, -3600 - k * 350, -3250 - k * 350, 250 - (k + 1) * 80, 330 - (k + 1) * 80, CONC);
+  // a car-port canopy on a single column
+  K.name(prism([[-9000, -6500], [-6300, -6500], [-6300, -3600], [-9000, -3600]], 2900, 3050, WHITE, 400), 'Canopy');
+  cylZ(-7650, -5050, 150, 0, 2900, STEEL);
+  return M.K.doc();
+}
+// ── Furniture: a dining set and a living room ──
+function sDiningSet() {
+  const M = machineKit(1), { K, box, cylZ, prism } = M;
+  const OAK = '#b98a55', WALNUT = '#6b4a32', FABRIC = '#4f6d8f', STEEL = '#2f3339';
+  // table: a rounded top on four tapered legs and aprons
+  K.name(prism([[-900, -450], [900, -450], [900, 450], [-900, 450]], 720, 750, OAK, 60), 'Table top');
+  for (const [x, y] of [[-820, -370], [820, -370], [820, 370], [-820, 370]]) K.name(prism([[x - 30, y - 30], [x + 30, y - 30], [x + 20, y + 20], [x - 20, y + 20]].map(([a, b]) => [a, b]), 0, 720, OAK, 4), 'Leg');
+  box(-790, 790, -380, -360, 640, 720, OAK); box(-790, 790, 360, 380, 640, 720, OAK); box(-810, -790, -360, 360, 640, 720, OAK); box(790, 810, -360, 360, 640, 720, OAK);
+  // six chairs: seat, back rest, steel legs
+  const chair = (cx, cy, face) => {
+    const s = face, bx = cx, by = cy + s * 190;
+    K.name(prism([[cx - 220, cy - 210], [cx + 220, cy - 210], [cx + 220, cy + 210], [cx - 220, cy + 210]], 440, 480, FABRIC, 40), 'Seat');
+    K.name(box(cx - 210, cx + 210, by - 12 * s - 10, by + 10, 480, 900, WALNUT, 8), 'Back');
+    for (const [dx, dy] of [[-190, -180], [190, -180], [190, 180], [-190, 180]]) cylZ(cx + dx, cy + dy, 14, 0, 440, STEEL);
+    void bx;
+  };
+  for (const x of [-500, 0, 500]) { chair(x, -720, -1); chair(x, 720, 1); }
+  // a sideboard
+  K.name(box(-1000, 1000, 1500, 1950, 150, 900, WALNUT, 15), 'Sideboard');
+  for (const x of [-500, 0, 500]) box(x - 5, x + 5, 1490, 1500, 200, 850, OAK);
+  for (const x of [-900, 900]) for (const y of [1560, 1890]) cylZ(x, y, 15, 0, 150, STEEL);
+  // a pendant lamp over the table
+  K.name(cylZ(0, 0, 4, 1500, 2600, STEEL), 'Cord');
+  kitTurn(M, 0, 0, [[0, 1350], [260, 1350], [140, 1500], [0, 1500]], '#e8c547');
+  return K.doc();
+}
+function sLivingRoom() {
+  const M = machineKit(1), { K, box, cylZ, prism } = M;
+  const FABRIC = '#8a9aa8', CUSHION = '#b7c3cc', WOOD = '#9a6b43', BLACK = '#23272d', RUG = '#c9b79c', GLASS = '#a7d1ea', PLANT = '#4f8a4f', POT = '#d9d4cc';
+  K.name(prism([[-1600, -1200], [1600, -1200], [1600, 1200], [-1600, 1200]], 0, 12, RUG, 200), 'Rug');
+  // three-seat sofa: base, arms, back, cushions
+  K.name(box(-1100, 1100, 450, 1350, 120, 420, FABRIC, 40), 'Sofa base');
+  K.name(box(-1100, -920, 450, 1350, 420, 650, FABRIC, 60), 'Left arm');
+  K.name(box(920, 1100, 450, 1350, 420, 650, FABRIC, 60), 'Right arm');
+  K.name(box(-920, 920, 1100, 1350, 420, 850, FABRIC, 60), 'Back');
+  for (const x of [-610, 0, 610]) { box(x - 300, x + 300, 480, 1090, 420, 540, CUSHION, 50); box(x - 290, x + 290, 950, 1090, 540, 800, CUSHION, 50); }
+  for (const x of [-1050, 1050]) for (const y of [500, 1300]) cylZ(x, y, 22, 12, 120, BLACK);
+  // coffee table: glass on a wooden frame
+  K.name(box(-600, 600, -350, 50, 380, 400, GLASS, 30), 'Glass top');
+  box(-560, 560, -310, 10, 60, 90, WOOD, 10);
+  for (const x of [-560, 520]) for (const y of [-310, -30]) box(x, x + 40, y, y + 40, 12, 380, WOOD);
+  // TV console and a TV on the wall side
+  K.name(box(-1000, 1000, -2100, -1700, 0, 450, WOOD, 10), 'Console');
+  K.name(box(-800, 800, -1960, -1920, 700, 1600, BLACK, 20), 'TV');
+  box(-80, 80, -1960, -1900, 450, 700, BLACK);
+  // armchair
+  K.name(box(1500, 2300, -500, 300, 120, 420, FABRIC, 50), 'Armchair');
+  box(1500, 1640, -500, 300, 420, 620, FABRIC, 50); box(2160, 2300, -500, 300, 420, 620, FABRIC, 50); box(1640, 2160, 150, 300, 420, 850, FABRIC, 50);
+  // floor lamp and a plant
+  cylZ(-1500, 1300, 160, 0, 25, BLACK); cylZ(-1500, 1300, 12, 25, 1600, BLACK);
+  kitTurn(M, -1500, 1300, [[0, 1550], [220, 1550], [150, 1800], [0, 1800]], '#f2e6c4');
+  kitTurn(M, 1500, 1100, [[0, 0], [200, 0], [240, 420], [0, 420]], POT);
+  for (const [dx, dy, h] of [[0, 0, 1300], [-80, 40, 1100], [70, -50, 1000], [30, 90, 900]]) cylZ(1500 + dx, 1100 + dy, 90, 420, 420 + h, PLANT);
+  return K.doc();
+}
+// ── Electronics ──
+function sCircuitBoard() {
+  const M = machineKit(1), { K, box, cylZ } = M;
+  const PCB = '#1f6b3a', CU = '#c98a3a', SOLDER = '#d4d8dc', BLACK = '#1d1f23', TAN = '#d2b48c', BLUE = '#2f5fb3', SILVER = '#b8bec5';
+  const T = 1.6;
+  K.name(box(-50, 50, -35, 35, 0, T, PCB, 3), 'Board');
+  for (const [x, y] of [[-46, -31], [46, -31], [46, 31], [-46, 31]]) K.name(K.extrude(K.sketch(K.GROUND(-1), [K.C(x, y, 1.6)]), [P2(x, y)], T + 2, 'cut'), 'Mounting hole');
+  // copper traces on top (thin strips between the parts)
+  const trace = (pts, w = 0.8) => { for (let i = 0; i + 1 < pts.length; i++) { const [a, b] = [pts[i], pts[i + 1]]; box(Math.min(a[0], b[0]) - w / 2, Math.max(a[0], b[0]) + w / 2, Math.min(a[1], b[1]) - w / 2, Math.max(a[1], b[1]) + w / 2, T, T + 0.05, CU); } };
+  trace([[-38, 20], [-20, 20], [-20, 6]]); trace([[-38, 10], [-28, 10], [-28, -2], [-14, -2]]); trace([[14, 4], [30, 4], [30, 20], [40, 20]]);
+  trace([[14, -4], [24, -4], [24, -20], [36, -20]]); trace([[-14, -8], [-24, -8], [-24, -24], [-36, -24]]); trace([[0, 13], [0, 26], [12, 26]]);
+  trace([[-6, -13], [-6, -26], [8, -26]]);
+  // a DIP-16 microcontroller in the middle, its legs down to the board
+  K.name(box(-12, 12, -9, 9, T + 1.2, T + 4.6, BLACK, 0.5), 'IC (DIP-16)');
+  for (let k = 0; k < 8; k++) { const x = -8.9 + k * 2.54; box(x - 0.3, x + 0.3, -10.2, -9, T, T + 2.2, SILVER); box(x - 0.3, x + 0.3, 9, 10.2, T, T + 2.2, SILVER); }
+  cylZ(-9.5, -6.5, 0.8, T + 4.6, T + 4.65, '#555');                                               // pin-1 mark
+  // resistors (tan bodies with leads), capacitors, LEDs
+  const resistor = (x, y) => { K.name(M.cylX(x - 3, x + 3, y, T + 2, 1.2, TAN), 'Resistor'); M.cylX(x - 5, x - 3, y, T + 2, 0.3, SILVER); M.cylX(x + 3, x + 5, y, T + 2, 0.3, SILVER); for (const s of [-5, 5]) cylZ(x + s, y, 0.3, T, T + 2, SILVER); for (const [b, c] of [[-1.5, '#8b4513'], [0, BLACK], [1.5, '#d9443a']]) M.cylX(x + b - 0.3, x + b + 0.3, y, T + 2, 1.25, c); };
+  resistor(-30, 20); resistor(-30, 10); resistor(32, 12); resistor(30, -12);
+  const cap = (x, y, r, h) => { K.name(cylZ(x, y, r, T, T + h, BLUE), 'Capacitor'); cylZ(x, y, r * 0.98, T + h, T + h + 0.2, SILVER); };
+  cap(-20, -24, 3, 9); cap(20, -26, 2.5, 7); cap(38, 26, 4, 11);
+  const led = (x, y, c) => { K.name(cylZ(x, y, 2.5, T + 1, T + 5, c), 'LED'); kitTurn(M, x, y, [[0, T + 5], [2.5, T + 5], { arc: [0, T + 5, 2.5, 0, Math.PI / 2] }, [0, T + 7.5]], c); cylZ(x, y, 2.8, T + 1, T + 1.6, c); };
+  led(12, 26, '#e53935'); led(8, -26, '#43a047'); led(40, 20, '#fdd835');
+  // a crystal and a 2×6 pin header, solder pads round the edge connector
+  K.name(box(14, 22, 12, 16, T, T + 3.5, SILVER, 1.2), 'Crystal');
+  K.name(box(-45, -39, -18, 18, T, T + 2.5, BLACK), 'Header');
+  for (let k = 0; k < 6; k++) for (const x of [-43.7, -40.3]) box(x - 0.32, x + 0.32, -12.7 + k * 5.08 - 0.32, -12.7 + k * 5.08 + 0.32, T + 2.5, T + 8.5, '#d4af37');
+  for (let k = 0; k < 8; k++) cylZ(-33 + k * 4, -31, 1.1, T, T + 0.1, SOLDER);
+  return K.doc();
+}
+function sMotherboard() {
+  const M = machineKit(1), { K, box, cylZ } = M;
+  const PCB = '#1c3b2a', BLACK = '#1d1f23', SLOT = '#2a2d33', HS = '#8c96a0', GOLD = '#d4af37', WHITE = '#e8ebee', BLUE = '#2f5fb3', RED = '#b33a3a', SILVER = '#b8bec5';
+  const T = 1.6;
+  // ATX: 305 × 244 mm
+  K.name(box(-152.5, 152.5, -122, 122, 0, T, PCB, 2), 'ATX board');
+  for (const [x, y] of [[-146, -116], [-146, 0], [-146, 116], [10, 116], [10, 0], [146, 116], [146, -116]]) K.name(K.extrude(K.sketch(K.GROUND(-1), [K.C(x, y, 2)]), [P2(x, y)], T + 2, 'cut'), 'Mounting hole');
+  // CPU socket with its lever and a tower cooler's base plate
+  K.name(box(-72, -22, 18, 68, T, T + 6, SILVER, 2), 'CPU socket');
+  box(-66, -28, 24, 62, T + 6, T + 7, GOLD);
+  M.cylY(20, 70, -18, T + 3, 1, SILVER);
+  // four DIMM slots to the right of the socket
+  for (let k = 0; k < 4; k++) { const x = 5 + k * 9; K.name(box(x, x + 6, -10, 124 - 10, T, T + 9, k % 2 ? BLACK : SLOT), 'DIMM slot'); box(x + 0.5, x + 5.5, -14, -10, T, T + 11, WHITE); box(x + 0.5, x + 5.5, 114, 118, T, T + 11, WHITE); }
+  // VRM heatsinks round the socket
+  K.name(box(-110, -80, 5, 85, T, T + 25, HS, 2), 'VRM heatsink');
+  K.name(box(-72, -10, 80, 100, T, T + 22, HS, 2), 'VRM heatsink');
+  for (let k = 0; k < 7; k++) box(-110 + k * 4.5, -108 + k * 4.5, 5, 85, T + 25, T + 30, HS);
+  // chipset heatsink and M.2 shield
+  K.name(box(40, 90, -80, -30, T, T + 12, HS, 4), 'Chipset heatsink');
+  K.name(box(-60, 20, -48, -40, T, T + 3, HS, 1), 'M.2 shield');
+  // PCIe slots: one x16 (reinforced), two x1
+  K.name(box(-140, -51, -64, -57, T, T + 11, SILVER), 'PCIe x16');
+  box(-139, -52, -63, -58, T + 11, T + 11.5, BLACK);
+  for (const y of [-84, -104]) K.name(box(-140, -115, y, y + 7, T, T + 11, SLOT), 'PCIe x1');
+  // power: 24-pin ATX, 8-pin CPU, SATA ports, rear I/O
+  K.name(box(128, 139, -8, 60, T, T + 13, BLACK), '24-pin power');
+  K.name(box(-100, -78, 110, 120, T, T + 13, BLACK), '8-pin CPU power');
+  for (let k = 0; k < 4; k++) K.name(box(138, 150, -110 + k * 11, -102 + k * 11, T, T + 9, k < 2 ? BLUE : SLOT), 'SATA port');
+  K.name(box(-152, -120, -40, 110, T, T + 44, SILVER, 1), 'Rear I/O');
+  for (let k = 0; k < 4; k++) box(-153, -150, -30 + k * 12, -22 + k * 12, T + 6, T + 20, BLUE);
+  // capacitors round the VRM, the CMOS battery, a fan header
+  for (let k = 0; k < 8; k++) cylZ(-104 + k * 9, 95, 3.2, T, T + 10, BLACK);
+  for (let k = 0; k < 5; k++) cylZ(-75, -2 - k * 8, 3.2, T, T + 10, BLACK);
+  K.name(cylZ(100, -100, 10, T, T + 3.2, SILVER), 'CMOS battery');
+  K.name(box(100, 110, 100, 105, T, T + 7, WHITE), 'Fan header');
+  for (let k = 0; k < 3; k++) box(101 + k * 3, 102.5 + k * 3, 100.5, 104.5, T + 7, T + 7.5, GOLD);
+  K.name(box(60, 75, 60, 75, T, T + 1.5, RED), 'Debug LED');
+  return K.doc();
+}
+// ── A battery, a switch and a light bulb, wired in a loop ──
+function sBulbCircuit() {
+  const M = machineKit(1), { K, box, cylZ, cylX } = M;
+  const WOOD = '#b98a55', RED = '#d9443a', BLACK = '#23272d', BRASS = '#c9a24a', GLASS = '#fff3b0', STEEL = '#b7bec5', BLUE = '#2f5fb3', COPPER = '#c07040';
+  K.name(box(-160, 160, -90, 90, 0, 18, WOOD, 8), 'Base board');
+  const Z = 18;
+  // a D-cell battery lying in its holder
+  K.name(box(-140, -40, -70, -30, Z, Z + 6, BLACK, 2), 'Battery holder');
+  box(-140, -134, -70, -30, Z, Z + 32, BLACK); box(-46, -40, -70, -30, Z, Z + 32, BLACK);
+  K.name(cylX(-133, -52, -50, Z + 20, 16.5, BLUE), 'Battery (D cell)');
+  K.name(cylX(-52, -48, -50, Z + 20, 5, STEEL), 'Battery + terminal');
+  cylX(-137, -133, -50, Z + 20, 12, STEEL);
+  // a knife switch: base, two posts, the blade raised a little
+  K.name(box(-10, 70, -75, -25, Z, Z + 8, '#3b3f46', 2), 'Switch base');
+  cylZ(0, -50, 5, Z + 8, Z + 22, BRASS); cylZ(60, -50, 5, Z + 8, Z + 22, BRASS);
+  K.name(box(0, 62, -52, -48, Z + 16, Z + 20, COPPER), 'Switch blade');
+  kitTurn(M, 64, -50, [[0, Z + 18], [3, Z + 18], [3, Z + 40], [6, Z + 44], [0, Z + 48]], RED);
+  // the bulb in its porcelain holder: screw base, neck, glass globe, a filament inside the top
+  K.name(kitTurn(M, 90, 40, [[0, Z], [34, Z], [34, Z + 14], [22, Z + 20], [0, Z + 20]], '#eef0f2'), 'Lamp holder');
+  kitTurn(M, 90, 40, [[0, Z + 20], [14, Z + 20], [15, Z + 24], [14, Z + 28], [15, Z + 32], [14, Z + 36], [15, Z + 40], [0, Z + 40]], BRASS);
+  // the globe: from the neck (Ø24 at 12 above the base) round a sphere of R 30 to the top
+  const R = 30, zc = Z + 52 + Math.sqrt(R * R - 144), a0 = Math.asin((Z + 52 - zc) / R);
+  const glob = [[0, Z + 40], [12, Z + 40], [12, Z + 52], { arc: [0, zc, R, a0, Math.PI / 2] }, [0, zc + R]];
+  K.name(kitTurn(M, 90, 40, glob, GLASS), 'Glass bulb');
+  // wires: battery + → switch, switch → bulb, bulb → battery −
+  const r = 1.6, w = Z + 2 * r;
+  kitWire(M, [[-48, -50, Z + 20], [-30, -50, Z + 20], [-30, -50, w], [-30, -90 + 20, w], [0, -70, w], [0, -50, w]], r, RED);
+  kitWire(M, [[60, -50, w], [60, -20, w], [90, -20, w], [90, 6, w]], r, RED);
+  kitWire(M, [[90, 74, w], [90, 80, w], [-150, 80, w], [-150, -50, w], [-150, -50, Z + 20], [-137, -50, Z + 20]], r, BLACK);
+  // terminal screws where the wires land
+  for (const [x, y] of [[-30, -50], [0, -50], [60, -50], [90, 6], [90, 74], [-150, 80]]) cylZ(x, y, 3.5, Z, Z + 2.5, STEEL);
+  return K.doc();
+}
+SAMPLES.push(
+  { axes: 'model', name: 'Futuristic home', make: sFutureHome, desc: 'Glass pavilion under a cantilevered, rounded upper floor, stair tower, roof solar array and lantern, pool deck and carport canopy — full size, in millimeters.' },
+  { axes: 'model', name: 'Dining set', make: sDiningSet, desc: 'Rounded oak table on tapered legs, six upholstered chairs on steel legs, a walnut sideboard and a pendant lamp.' },
+  { axes: 'model', name: 'Living room', make: sLivingRoom, desc: 'Three-seat sofa with cushions, glass coffee table, TV console, armchair, floor lamp and a potted plant on a rug.' },
+  { axes: 'model', name: 'Circuit board', make: sCircuitBoard, desc: '100 × 70 mm PCB: DIP-16 chip with legs, resistors with color bands, capacitors, LEDs, crystal, pin header and copper traces.' },
+  { axes: 'model', name: 'Motherboard (ATX)', make: sMotherboard, desc: '305 × 244 mm ATX board: CPU socket, four DIMM slots, VRM and chipset heatsinks, PCIe x16 / x1, 24-pin and 8-pin power, SATA, rear I/O.' },
+  { axes: 'model', name: 'Light bulb circuit', make: sBulbCircuit, desc: 'A D-cell battery, a knife switch and a light bulb in its holder, wired in one loop on a wooden board.' },
+);
+</script>
+
 <script>boot();</script>
 </body>
 </html>
