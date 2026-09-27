@@ -3789,6 +3789,10 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .chk { display: flex; align-items: center; gap: 8px; font-size: 12.5px; cursor: pointer; }
 .chk input { accent-color: var(--accent); }
 .note { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.hint { display: block; font-size: 11.5px; color: var(--muted); line-height: 1.45; margin: 2px 0 10px; }
+.hint b { color: var(--ink-2); font-weight: 600; }
+.hfield > .row2, .hfield > .field { margin-bottom: 0; }
+.cyc-note { margin-top: -2px; }
 .note b { color: var(--ink-2); font-weight: 500; }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; font-size: 12px; }
 .kv dt { color: var(--muted); }
@@ -3852,6 +3856,76 @@ body.ws-cam #timeline, body.ws-cam #brSplit { display: none; }
 .sb-speed button:hover { color: var(--ink); }
 .sb-speed button.on { background: var(--accent); color: var(--accent-ink); }
 body.sim-on #status { display: none; }
+.sb-code { display: flex; align-items: center; gap: 5px; border: 1px solid var(--rule); background: var(--panel-2); color: var(--ink-2); border-radius: 9px; padding: 5px 10px; font: 600 11.5px var(--font); cursor: pointer; }
+.sb-code svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.sb-code:hover { color: var(--ink); }
+.sb-code.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+#simcode { position: absolute; left: 14px; top: 14px; bottom: 150px; width: min(400px, calc(100% - 28px)); z-index: 6; display: flex; flex-direction: column;
+  background: var(--code-bg); border: 1px solid var(--rule); border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; }
+#simcode[hidden] { display: none; }
+body.sim-code #hint { display: none; }
+#jawsui { position: absolute; inset: 0; z-index: 5; cursor: grab; touch-action: none; }
+#cmdbar { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); width: min(520px, calc(100% - 28px)); z-index: 4; display: flex; flex-direction: column; gap: 6px; }
+body.sim-on #cmdbar, body.jaws-on #cmdbar { display: none; }
+body #mouseLegend { bottom: 64px; }
+.cmd-in { display: flex; align-items: center; gap: 8px; padding: 0 10px; height: 38px; border: 1px solid var(--rule); border-radius: 12px; background: color-mix(in srgb, var(--panel) 94%, transparent); backdrop-filter: blur(8px); box-shadow: var(--shadow); transition: border-color .2s ease, box-shadow .25s ease; }
+.cmd-in:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent), var(--shadow); }
+.cmd-in svg { width: 16px; height: 16px; stroke: var(--accent); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.cmd-in input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; font: 13px var(--mono); color: var(--ink); }
+.cmd-in input::placeholder { color: var(--muted); font-family: var(--font); }
+.cmd-key { font: 600 11px var(--mono); color: var(--muted); border: 1px solid var(--rule); border-radius: 5px; padding: 1px 6px; }
+#cmdSug { order: -1; max-height: 46vh; overflow: auto; border: 1px solid var(--rule); border-radius: 12px; background: var(--panel); box-shadow: var(--shadow); padding: 4px; animation: menu-in .14s var(--ease) both; }
+#cmdSug[hidden] { display: none; }
+.cs-title { font-size: 11px; color: var(--muted); padding: 6px 8px 4px; }
+.cs-row { display: flex; flex-direction: column; gap: 1px; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
+.cs-row code { font: 600 12px var(--mono); color: var(--accent); }
+.cs-row span { font-size: 11.5px; color: var(--ink-2); line-height: 1.4; }
+.cs-row:hover, .cs-row.on { background: var(--accent-soft); }
+#cmdMsg { order: 2; align-self: center; font-size: 12px; padding: 4px 10px; border-radius: 8px; background: var(--panel); border: 1px solid var(--rule); color: var(--ink); opacity: 0; transform: translateY(-4px); transition: opacity .2s ease, transform .25s ease; pointer-events: none; position: absolute; bottom: 46px; }
+#cmdMsg.show { opacity: 1; transform: none; }
+#cmdMsg.bad { color: var(--danger); }
+#jawsui[hidden] { display: none; }
+body.jaws-on #viewtools, body.jaws-on #hint, body.jaws-on #mouseLegend, body.jaws-on #status, body.jaws-on #dimbox { display: none !important; }
+.jw-split { position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: var(--rule); box-shadow: 0 0 0 1px color-mix(in srgb, var(--panel) 60%, transparent); pointer-events: none; }
+.jw-lab { position: absolute; top: 12px; font-size: 12px; color: var(--ink-2); background: color-mix(in srgb, var(--panel) 90%, transparent); border: 1px solid var(--rule); border-radius: 8px; padding: 5px 9px; pointer-events: none; max-width: calc(50% - 30px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jw-lab b { color: var(--ink); }
+.jw-lab.l { left: 12px; } .jw-lab.r { left: calc(50% + 12px); }
+.jaw-row { display: flex; align-items: center; gap: 8px; }
+.jaw-row input[type=number] { width: 84px; flex: none; }
+.jaw-rng { flex: 1; min-width: 0; accent-color: var(--accent); }
+.jaw-pct { font: 600 11px var(--mono); color: var(--muted); width: 36px; text-align: right; }
+.jaw-faces button { padding-left: 4px; padding-right: 4px; }
+.jaw-fit { border-radius: 9px; padding: 8px 10px; font-size: 12px; line-height: 1.45; margin: 4px 0 8px; }
+.jaw-fit.ok { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ink); }
+.jaw-fit.bad { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--ink); }
+.jaw-panel .btn svg { width: 14px; height: 14px; margin-right: 5px; vertical-align: -2px; }
+.sc-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--code-rule); color: var(--code-ink); font-size: 12.5px; }
+.sc-head b { font-weight: 600; }
+.sc-sub { flex: 1; min-width: 0; font: 11px var(--mono); color: var(--code-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sc-btn, .sc-follow, .sc-x { border: 1px solid var(--code-rule); background: transparent; color: var(--code-dim); border-radius: 7px; padding: 3px 7px; font: 600 11px var(--font); cursor: pointer; }
+.sc-btn:hover, .sc-follow:hover, .sc-x:hover { color: var(--code-ink); }
+.sc-follow.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.sc-x { font-size: 14px; line-height: 1; padding: 2px 7px; }
+.sc-now { padding: 6px 10px; border-bottom: 1px solid var(--code-rule); font: 11.5px/1.45 var(--font); color: var(--code-dim); min-height: 34px; }
+.sc-now b { color: var(--code-ink); font-weight: 600; }
+.sc-list { position: relative; flex: 1; overflow: auto; outline: none; font: 12px/19px var(--mono); }
+.sc-pad { width: 1px; }
+.sc-rows { position: absolute; left: 0; right: 0; top: 0; }
+.sc-row { height: 19px; display: flex; white-space: pre; cursor: pointer; color: var(--code-ink); }
+.sc-row:hover { background: var(--code-hover); }
+.sc-row.cur { background: var(--code-cur); box-shadow: inset 3px 0 0 var(--accent); }
+.sc-row.done .sc-ln { color: var(--code-done); }
+.sc-ln { width: 52px; flex: none; text-align: right; padding-right: 10px; color: var(--code-dim); user-select: none; font-variant-numeric: tabular-nums; }
+.sc-tx { flex: 1; padding-right: 10px; }
+.gc-cm { color: var(--gc-cm); font-style: italic; } .gc-g { color: var(--gc-g); font-weight: 600; } .gc-g0 { color: var(--gc-g0); font-weight: 600; }
+.gc-m { color: var(--gc-m); font-weight: 600; } .gc-t { color: var(--gc-t); font-weight: 600; } .gc-x { color: var(--gc-x); } .gc-y { color: var(--gc-y); } .gc-z { color: var(--gc-z); }
+.gc-arc { color: var(--gc-arc); } .gc-f { color: var(--gc-f); } .gc-o { color: var(--gc-o); font-weight: 600; } .gc-n { color: var(--code-dim); } .gc-cyc { color: var(--gc-cyc); }
+:root { --code-bg: #fbfcfe; --code-ink: #27303b; --code-dim: #8a94a3; --code-done: #b5bcc6; --code-rule: #e3e7ec; --code-hover: #eef2f8; --code-cur: #dfe9fb;
+  --gc-cm: #7b8594; --gc-g: #1f5fd6; --gc-g0: #c0521b; --gc-m: #8c3fc2; --gc-t: #c77c00; --gc-x: #c8312f; --gc-y: #1f8a46; --gc-z: #1a64c4; --gc-arc: #9a6a00; --gc-f: #0f8a8a; --gc-o: #b0287a; --gc-cyc: #a8581a; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --code-bg: #1b1e24; --code-ink: #d9dee6; --code-dim: #6f7886; --code-done: #4d5561; --code-rule: #2e333b; --code-hover: #242932; --code-cur: #233553;
+  --gc-cm: #7d8796; --gc-g: #6fa3ff; --gc-g0: #f0915a; --gc-m: #c792ea; --gc-t: #ffcb6b; --gc-x: #ff7b72; --gc-y: #7ee787; --gc-z: #79c0ff; --gc-arc: #e3b341; --gc-f: #56d4c8; --gc-o: #f778ba; --gc-cyc: #ffa657; } }
+:root[data-theme="dark"] { --code-bg: #1b1e24; --code-ink: #d9dee6; --code-dim: #6f7886; --code-done: #4d5561; --code-rule: #2e333b; --code-hover: #242932; --code-cur: #233553;
+  --gc-cm: #7d8796; --gc-g: #6fa3ff; --gc-g0: #f0915a; --gc-m: #c792ea; --gc-t: #ffcb6b; --gc-x: #ff7b72; --gc-y: #7ee787; --gc-z: #79c0ff; --gc-arc: #e3b341; --gc-f: #56d4c8; --gc-o: #f778ba; --gc-cyc: #ffa657; }
 #status { position: absolute; left: 12px; bottom: 12px; font: 11px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; }
 
 #ctxmenu {
@@ -3980,6 +4054,15 @@ button:active:not(:disabled), .chip:active, .tl:active { transform: scale(.96); 
   transition: background-color .18s var(--ease), color .18s var(--ease), border-color .18s var(--ease), opacity .18s var(--ease), transform .18s var(--ease), box-shadow .18s var(--ease);
 }
 .tb:active, .btn:active, .vbtn:active { transform: scale(.96); }
+/* every button: eased hover, the icon lifts, a press sinks it, a ripple spreads from the pointer */
+button, .btn, .rb-btn, .tb, .vbtn, .chip, .seg button, .sb-code, .sc-btn, .sc-follow { transition: background-color .22s cubic-bezier(.2,.7,.2,1), color .22s cubic-bezier(.2,.7,.2,1), border-color .22s cubic-bezier(.2,.7,.2,1), box-shadow .25s cubic-bezier(.2,.7,.2,1), transform .18s cubic-bezier(.2,.7,.2,1), opacity .22s ease; }
+button svg, .rb-btn svg, .tb svg, .btn svg { transition: transform .22s cubic-bezier(.2,.7,.2,1); }
+.rb-btn:hover svg, .tb:hover svg, .vbtn:hover svg { transform: translateY(-1px) scale(1.08); }
+.btn:hover:not(:disabled), .vbtn:hover, .sb-code:hover { box-shadow: 0 2px 8px color-mix(in srgb, var(--ink) 12%, transparent); transform: translateY(-1px); }
+.btn:active:not(:disabled), .vbtn:active, .sb-code:active, .rb-btn:active, .tb:active { transform: translateY(0) scale(.96); box-shadow: none; transition-duration: .08s; }
+.rip-wrap { position: absolute; inset: 0; border-radius: inherit; overflow: hidden; pointer-events: none; }
+.rip { position: absolute; border-radius: 50%; background: currentColor; opacity: .18; transform: scale(0); animation: rip .5s cubic-bezier(.2,.7,.2,1) forwards; }
+@keyframes rip { to { transform: scale(1); opacity: 0; } }
 #panel .pn-body, #panel .pn-head { animation: panel-in .28s var(--ease) both; }
 #panel .pn-body { animation-delay: .03s; }
 @keyframes panel-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
@@ -4166,7 +4249,15 @@ table.meas tr.bad td { color: var(--danger); }
           <button data-sb="end" data-tip="Jump to end (End)"><svg viewBox="0 0 20 20"><path d="M15 4v12"/><path d="M5 4l8 6-8 6z"/></svg></button>
         </div>
         <div class="sb-speed" id="sbSpeed" aria-label="Playback speed"></div>
+        <button class="sb-code" data-sb="code" id="sbCode" data-tip="Show the G-code, line by line, as it runs (C)"><svg viewBox="0 0 20 20"><path d="M7 5l-5 5 5 5M13 5l5 5-5 5"/></svg>Code</button>
       </div>
+    </div>
+    <div id="simcode" hidden>
+      <div class="sc-head"><b>G-code</b><span class="sc-sub" id="scSub"></span>
+        <button class="sc-btn" data-sc="prev" data-tip="Back one line">▲</button><button class="sc-btn" data-sc="next" data-tip="Forward one line">▼</button>
+        <button class="sc-follow on" data-sc="follow" data-tip="Keep the running line in view">Follow</button><button class="sc-x" data-sc="close" data-tip="Hide the code">×</button></div>
+      <div class="sc-now" id="scNow"></div>
+      <div class="sc-list" id="scList" tabindex="0"><div class="sc-pad" id="scPad"></div><div class="sc-rows" id="scRows"></div></div>
     </div>
     <div id="help" hidden><div class="card" id="helpCard"></div></div>
   </div>
@@ -6580,7 +6671,7 @@ function evalLoft(f, ctx, tol) {
   const Nc = span.length;
   let spacing = 0; for (const S of secs) spacing += S.tot / Nc; spacing /= K;
   const smooth = f.smooth !== false && K > 2;
-  const rows = [], rowSec = [];
+  const rows = [], rowSec = [], rowAt = [];
   const P = k => rowsAt[Math.max(0, Math.min(K - 1, k))];
   const ext = (k, j) => k < 0 ? sub3(mul3(rowsAt[0][j], 2), rowsAt[1][j]) : k >= K ? sub3(mul3(rowsAt[K - 1][j], 2), rowsAt[K - 2][j]) : rowsAt[k][j];
   for (let k = 0; k + 1 < K; k++) {
@@ -6592,10 +6683,25 @@ function evalLoft(f, ctx, tol) {
         const p0 = ext(k - 1, j), p1 = ext(k, j), p2 = ext(k + 1, j), p3 = ext(k + 2, j), t2 = t * t, t3 = t2 * t;
         row.push([0, 1, 2].map(a => 0.5 * (2 * p1[a] + (p2[a] - p0[a]) * t + (2 * p0[a] - 5 * p1[a] + 4 * p2[a] - p3[a]) * t2 + (-p0[a] + 3 * p1[a] - 3 * p2[a] + p3[a]) * t3)));
       }
-      rows.push(row); rowSec.push(k);
+      rows.push(row); rowSec.push(k); rowAt.push(k + t);
     }
   }
-  rows.push(rowsAt[K - 1]);
+  rows.push(rowsAt[K - 1]); rowAt.push(K - 1);
+  // Rotation: the profiles turn about their own centers, the last by f.twist degrees and the
+  // rest in proportion to how far along the loft they are; every row between turns smoothly
+  // with them (about its own center, square to the profiles there).
+  const tw = (f.twist || 0) * Math.PI / 180;
+  if (Math.abs(tw) > 1e-9) {
+    const along = []; let acc = 0; along.push(0);
+    for (let k = 1; k < K; k++) { acc += dist3(C[k], C[k - 1]); along.push(acc); }
+    const tot = acc || 1, rot = (p, c, n, a) => { const v = sub3(p, c), ca = Math.cos(a), sa = Math.sin(a); return add3(c, add3(add3(mul3(v, ca), mul3(crs3(n, v), sa)), mul3(n, dot3(n, v) * (1 - ca)))); };
+    const nAt = k => mul3(secs[k].pl.n, secs[k].dir);
+    for (let r = 0; r < rows.length; r++) {
+      const u = rowAt[r], k = Math.min(K - 2, Math.floor(u)), t = u - k, c = lerp3(C[k], C[k + 1], t), n = nrm3(lerp3(nAt(k), nAt(k + 1), t)), a = tw * (along[k] + (along[k + 1] - along[k]) * t) / tot;
+      rows[r] = rows[r].map(p => rot(p, c, n, a));
+    }
+    rowsAt[0] = rows[0]; rowsAt[K - 1] = rows[rows.length - 1];
+  }
   const faces = [];
   for (let r = 0; r + 1 < rows.length; r++) for (let j = 0; j < Nc; j++) {
     const j2 = (j + 1) % Nc;
@@ -7871,13 +7977,13 @@ function snapPoint(raw, from, exclude) {
   if (from) {
     // a line: along the line it starts from, or 0 / 45 / 90° steps (the Angle snap toggle)
     const v = sub2(p, from), L = len2(v), along = u => { const t = dot2(v, u); p.x = from.x + u.x * t; p.y = from.y + u.y * t; };
-    if (S.tool === 'line' && S.angSnap === 'inc') {
+    if ((S.tool === 'line' || S.tool === 'polyline') && S.angSnap === 'inc') {
       if (L > tol) {
         const q = Math.round(Math.atan2(v.y, v.x) / (Math.PI / 4)) * Math.PI / 4, u = P2(Math.cos(q), Math.sin(q));
         if (Math.abs(crs2(u, v)) < tol * 0.7) { along(u); k = Math.abs(u.y) < 1e-9 ? 'h' : Math.abs(u.x) < 1e-9 ? 'v' : 'ang'; S.snapAng = Math.round(mod(q * 180 / Math.PI, 360)); S.guides.push({ a: from, b: p }); }
       }
     } else {
-      if (S.tool === 'line' && L > tol) for (const u of detectedDirs(from)) if (Math.abs(crs2(u, v)) < tol * 0.7) { along(u); k = 'par'; S.guides.push({ a: from, b: p }); break; }
+      if ((S.tool === 'line' || S.tool === 'polyline') && L > tol) for (const u of detectedDirs(from)) if (Math.abs(crs2(u, v)) < tol * 0.7) { along(u); k = 'par'; S.guides.push({ a: from, b: p }); break; }
       if (!k && Math.abs(p.y - from.y) < tol * 0.7) { p.y = from.y; k = 'h'; S.guides.push({ a: from, b: p }); }
       else if (!k && Math.abs(p.x - from.x) < tol * 0.7) { p.x = from.x; k = 'v'; S.guides.push({ a: from, b: p }); }
     }
@@ -7921,7 +8027,7 @@ function lineEndsAt(P, skip) {
 // ── Typed dimensions ───────────────────────────────────────────────
 function dimSpec() {
   const t = S.tool, n = S.pts.length;
-  if (t === 'line' && n === 1) return ['Length', 'Angle°'];
+  if ((t === 'line' || t === 'polyline') && n === 1) return ['Length', 'Angle°'];
   if ((t === 'rect' || t === 'crect') && n === 1) return ['Width', 'Height'];
   if (t === 'circle' && n === 1) return ['Diameter'];
   if ((t === 'poly' || t === 'carc') && n === 1) return ['Radius'];
@@ -7964,7 +8070,7 @@ function applyDims(p) {
   if (!S.dim || !S.pts.length) return p;
   const a = S.pts[0], v0 = dimVal(0), v1 = dimVal(1);
   switch (S.tool) {
-    case 'line': {
+    case 'line': case 'polyline': {
       const d = sub2(p, a); let L = len2(d), th = Math.atan2(d.y, d.x);
       if (v1 !== null) { th = v1 * Math.PI / 180; L = Math.max(0, dot2(d, P2(Math.cos(th), Math.sin(th)))); }
       if (v0 !== null) L = Math.abs(v0);
@@ -7992,6 +8098,8 @@ function commitDim() {
 // ── Tools ──────────────────────────────────────────────────────────
 function setTool(t) {
   if (!S.sk) return;
+  if (S.poly && S.poly.length > 1 && t !== 'polyline') polyFinish();
+  S.poly = null;
   if (LIVE.on) liveOK();
   const preSel = new Set(S.sel);
   S.tool = t; S.pts = []; S.chainStart = null; S.offset = null; S.offsetPrev = null; S.trimPrev = null; S.extPrev = null; S.corner = null;
@@ -8003,8 +8111,31 @@ function setTool(t) {
   resetDim(); hover3D = null; clearHover3D();
   refreshToolbar(); refreshPanel(); updateHint(); requestDraw();
 }
+// ── Polyline: one connected chain of straight segments, kept as one step ──
+// S.poly holds the corners placed so far; S.pts the last one (where the next segment starts,
+// so snapping, typed lengths and angles work as they do for a line).
+function polyClick(p) {
+  if (!S.poly || !S.poly.length) { S.poly = [p]; S.pts = [p]; resetDim(); return; }
+  const last = S.poly[S.poly.length - 1];
+  if (dst2(last, p) < 1e-9) return;
+  // on the first corner again: close the shape
+  if (S.poly.length >= 3 && dst2(p, S.poly[0]) < tolUV(9)) { S.poly.push(cp2(S.poly[0])); polyFinish(); return; }
+  S.poly.push(p); S.pts = [p]; resetDim(); requestDraw();
+}
+function polyFinish() {
+  const pts = S.poly || [];
+  S.poly = null; S.pts = []; S.chainStart = null;
+  if (pts.length >= 2) {
+    pushUndo('Polyline');
+    const ents = [];
+    for (let i = 0; i + 1 < pts.length; i++) if (dst2(pts[i], pts[i + 1]) > 1e-9) ents.push({ type: 'line', a: cp2(pts[i]), b: cp2(pts[i + 1]) });
+    addEnts(ents);
+  }
+  resetDim(); updateHint(); requestDraw();
+}
 function toolClick(p, typed) {
   const t = S.tool, sk = S.sk;
+  if (t === 'polyline') { polyClick(p); return; }
   if (t === 'line') {
     if (!S.pts.length) { S.pts = [p]; S.chainStart = p; resetDim(); return; }
     const a = S.pts[0];
@@ -8444,6 +8575,7 @@ function sketchUp(x, y, ev) {
   }
 }
 function sketchCancel() {
+  if (S.tool === 'polyline' && S.poly && S.poly.length > 1) { polyFinish(); return true; }
   if (LIVE.on) { liveCancel(); setTool('select'); return true; }
   if (S.dim) { resetDim(); }
   if (S.tool === 'offset' && S.offset) { S.offset = null; S.offsetPrev = null; refreshPanel(); updateHint(); requestDraw(); return true; }
@@ -8768,7 +8900,8 @@ function drawToolPreview() {
   if (LIVE.on) liveDraw(m);
   if (c && S.pts.length) {
     const p0 = S.pts[0];
-    if (t === 'line') { pv({ type: 'line', a: p0, b: c }); const d = sub2(c, p0); label(`${fmtL(len2(d))}  ${fmt(mod(Math.atan2(d.y, d.x) * 180 / Math.PI, 360), 1)}°`, mouse.x + 16, mouse.y - 12); }
+    if (t === 'polyline' && S.poly) for (let i = 0; i + 1 < S.poly.length; i++) pv({ type: 'line', a: S.poly[i], b: S.poly[i + 1] });
+    if (t === 'line' || t === 'polyline') { pv({ type: 'line', a: p0, b: c }); const d = sub2(c, p0); label(`${fmtL(len2(d))}  ${fmt(mod(Math.atan2(d.y, d.x) * 180 / Math.PI, 360), 1)}°`, mouse.x + 16, mouse.y - 12); }
     if (t === 'rect' || t === 'crect') {
       let a = p0, b = c; if (t === 'crect') { const h = sub2(c, p0); a = sub2(p0, h); b = add2(p0, h); }
       const q = [a, P2(b.x, a.y), b, P2(a.x, b.y)];
@@ -9409,6 +9542,7 @@ function removeFeatureObj(f) {
 const IC = {
   select: '<path d="M5 3l10 6-4.5 1.2L13 16l-2 1-2.5-5.8L5 14z"/>',
   line: '<path d="M4 16L16 4"/><rect x="2.5" y="14.5" width="3" height="3"/><rect x="14.5" y="2.5" width="3" height="3"/>',
+  polyline: '<path d="M3 16L7 6l5 7 5-9"/><circle cx="3" cy="16" r="1.4"/><circle cx="7" cy="6" r="1.4"/><circle cx="12" cy="13" r="1.4"/><circle cx="17" cy="4" r="1.4"/>',
   rect: '<rect x="3.5" y="5" width="13" height="10"/>',
   crect: '<rect x="3.5" y="5" width="13" height="10"/><path d="M8.5 10h3M10 8.5v3"/>',
   circle: '<circle cx="10" cy="10" r="6.5"/><path d="M9 10h2M10 9v2"/>',
@@ -9462,7 +9596,7 @@ const svg = (k, cls = '') => `<svg class="${cls}" viewBox="0 0 20 20">${IC[k] ||
 const SKETCH_XF = [['spaste', 'Paste', 'Ctrl+V'], ['array', 'Pattern', 'P'], ['smove', 'Move', ''], ['srot', 'Rotate', ''], ['sscale', 'Scale', '']];
 const skToolName = t => ([...SKETCH_TOOLS.flat(), ...SKETCH_XF].find(x => x[0] === t) || [0, t])[1];
 const SKETCH_TOOLS = [
-  [['select', 'Select', 'S'], ['dim', 'Dimension', 'D'], ['line', 'Line', 'L'], ['rect', 'Rectangle', 'R'], ['crect', 'Center Rect', ''], ['circle', 'Circle', 'C'], ['arc3', '3-Pt Arc', 'A'], ['carc', 'Center Arc', ''], ['poly', 'Polygon', 'G']],
+  [['select', 'Select', 'S'], ['dim', 'Dimension', 'D'], ['line', 'Line', 'L'], ['polyline', 'Polyline', 'Y'], ['rect', 'Rectangle', 'R'], ['crect', 'Center Rect', ''], ['circle', 'Circle', 'C'], ['arc3', '3-Pt Arc', 'A'], ['carc', 'Center Arc', ''], ['poly', 'Polygon', 'G']],
   [['fillet', 'Fillet', 'I'], ['chamfer', 'Chamfer', ''], ['trim', 'Trim', 'T'], ['extend', 'Extend', 'W'], ['offset', 'Offset', 'O'], ['mirror', 'Mirror', 'M'], ['project', 'Project', 'J'], ['origin', 'Set Origin', 'Z']],
 ];
 const FEAT_IC = { sketch: 'sketch', extrude: 'extrude', plane: 'plane', fillet: 'fillet3', chamfer: 'chamfer3', thread: 'thread', point: 'point', import: 'import' };
@@ -10074,6 +10208,7 @@ function offsetPanel() {
 const TOOL_HELP = {
   select: 'Click curves to select (Shift adds). Drag endpoints, centers, circle edges or whole lines to edit — connected lines stay attached. Drag empty space to box-select.',
   line: 'Click to place points; the line chains until you close it, right-click, or press Esc. Type a length, Tab for angle.',
+  polyline: 'Polyline: click corner after corner. Click the first point to close it; double-click, Enter, Esc or right-click to finish an open one. Type a length, Tab for angle.',
   rect: 'Click two opposite corners. Type width, Tab, height.',
   crect: 'Click the center, then a corner. Type width, Tab, height.',
   circle: 'Click the center, then a point on the circle. Type a diameter.',
@@ -10243,6 +10378,7 @@ function updateHint() {
     const t = S.tool, n = S.pts.length;
     const steps = {
       line: n ? `click the next point · type ${k('123')} for length, ${k('Tab')} angle · right-click to stop` : 'click the start point',
+      polyline: S.poly && S.poly.length ? `click the next corner · click the first corner to close · ${k('Enter')} or double-click to finish` : 'click the first corner',
       rect: n ? 'click the opposite corner' : 'click the first corner', crect: n ? 'click a corner' : 'click the center',
       circle: n ? 'click a point on the circle, or type a diameter' : 'click the center', poly: n ? 'click a vertex' : 'click the center',
       arc3: n === 0 ? 'click the start point' : n === 1 ? 'click the end point' : 'click a point on the arc',
@@ -10407,7 +10543,7 @@ ov.addEventListener('pointerup', e => {
 });
 ov.addEventListener('dblclick', e => {
   if (S.sk) { const q = local(e), d = dimLabelAt(q.x, q.y); if (d) { dimOpenEditor(d); return; } }
-  if (S.sk || CMD || UIX.ws === 'cam') { if (S.sk && S.tool === 'line' && S.pts.length) { S.pts = []; S.chainStart = null; requestDraw(); } return; }
+  if (S.sk || CMD || UIX.ws === 'cam') { if (S.sk && S.tool === 'line' && S.pts.length) { S.pts = []; S.chainStart = null; requestDraw(); } if (S.sk && S.tool === 'polyline' && S.poly) polyFinish(); return; }
   const { x, y } = local(e);
   const h = pick3D(x, y, { profiles: true, faces: true, planes: true });
   if (!h || h.kind === 'blocked') return;
@@ -10493,7 +10629,7 @@ window.addEventListener('keydown', e => {
   if (!document.getElementById('modal').hidden) { if (e.key === 'Escape') closeModal(); return; }
   if (typing) return;
   if (SIM.on && UIX.ws === 'cam') {
-    const sk = { ' ': () => simToggle(), ArrowLeft: () => e.shiftKey ? simOpJump(-1) : simStep(-1), ArrowRight: () => e.shiftKey ? simOpJump(1) : simStep(1), Home: () => { SIM.playing = false; simSeek(0); }, End: () => { SIM.playing = false; simSeek(SIM.total); } }[e.key];
+    const sk = { ' ': () => simToggle(), ArrowLeft: () => e.shiftKey ? simOpJump(-1) : simStep(-1), ArrowRight: () => e.shiftKey ? simOpJump(1) : simStep(1), Home: () => { SIM.playing = false; simSeek(0); }, End: () => { SIM.playing = false; simSeek(SIM.total); }, c: () => simCodeToggle(), C: () => simCodeToggle(), ArrowUp: SCODE.open ? () => simCodeStep(-1) : null, ArrowDown: SCODE.open ? () => simCodeStep(1) : null }[e.key];
     if (sk) { e.preventDefault(); sk(); return; }
   }
   if (!document.getElementById('help').hidden) { if (e.key === 'Escape' || e.key === '?') document.getElementById('help').hidden = true; return; }
@@ -10501,6 +10637,7 @@ window.addEventListener('keydown', e => {
   if (S.sk && dimSpec() && e.key === 'Tab') { e.preventDefault(); showDim(dimSpec().length > 1 ? 1 : 0); return; }
   const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (key === 'Escape') { if (S.sk) sketchCancel(); else if (CMD) cancelCmd(); else if (UIX.ws === 'cam') { if (SIM.on) simStop(); CAMUI.view = 'overview'; camRefresh(); } else { selProfiles.length = 0; selEdges.length = 0; sel3D = null; rebuildHighlights(); refreshPanel(); requestDraw(); } return; }
+  if (key === 'Enter' && S.sk && S.tool === 'polyline' && S.poly && S.poly.length > 1) { e.preventDefault(); polyFinish(); return; }
   if (key === 'Enter') {
     if (CMD && CMD.type === 'extrude') extrudeOK();
     else if (CMD && CMD.type === 'offset') offsetOK();
@@ -10526,7 +10663,7 @@ window.addEventListener('keydown', e => {
   if (key === 'e') { action('extrude'); return; }
   if (UIX.ws === 'cam') return;
   if (S.sk) {
-    const map = { s: 'select', l: 'line', r: 'rect', c: 'circle', a: 'arc3', g: 'poly', i: 'fillet', t: 'trim', w: 'extend', o: 'offset', m: 'mirror', j: 'project', z: 'origin', p: 'array', d: 'dim' };
+    const map = { s: 'select', l: 'line', y: 'polyline', r: 'rect', c: 'circle', a: 'arc3', g: 'poly', i: 'fillet', t: 'trim', w: 'extend', o: 'offset', m: 'mirror', j: 'project', z: 'origin', p: 'array', d: 'dim' };
     if (map[key]) { setTool(map[key]); return; }
     if (key === 'x') { action('cons'); return; }
   } else {
@@ -10771,10 +10908,10 @@ function addBuilderTools(list, label) {
   toast(`Added ${added.join(', ')}`);
 }
 const OP_INFO = {
-  face: { name: 'Face', icon: 'camface', tip: 'Flattens the top of the stock down to the top of the part.' },
+  face: { name: 'Face', icon: 'camface', tip: 'Flattens the top of the stock down to the top of the part: one straight stroke right across the part at each stepover, starting and ending off the stock.' },
   contour: { name: '2D Contour', icon: 'camcontour', tip: 'Cuts around the part outline (or chosen faces) with cutter compensation, in step-downs.' },
-  pocket: { name: '2D Pocket', icon: 'campocket', tip: 'Clears material down to the flat faces you pick, working outward in rings and leaving islands (like bosses) alone.' },
-  drill: { name: 'Drill', icon: 'camdrill', tip: 'Drills every vertical hole of the chosen diameters, with peck cycles.' },
+  pocket: { name: '2D Pocket', icon: 'campocket', tip: 'Clears material down to the flat faces you pick. At every depth it goes down in the middle and works outward in rings toward the walls, leaving a little on the walls; a finishing pass then takes the walls to size. Islands (like bosses) are left alone.' },
+  drill: { name: 'Drill', icon: 'camdrill', tip: 'Drills every vertical hole of the chosen diameters with a Haas canned cycle: drill, spot, deep peck, chip-break peck, ream or rigid tap.' },
   parallel: { name: '3D Parallel', icon: 'camparallel', tip: 'Finishing raster over the whole part with a drop-cutter, following fillets and chamfers.' },
   chamfer: { name: '2D Chamfer', icon: 'camchamfer', tip: 'Runs a 90° chamfer mill along 45° chamfers: the tip just below the chamfer’s edge, the cone lying on the chamfer face.' },
 };
@@ -11328,45 +11465,181 @@ function contourRest(op, tool, st, P, region, loops, bottom) {
   }
   P.info = `Rest pass: only where the Ø${fmtD(op.restD)} could not reach`;
 }
+// ── Drilling cycles, as a Haas runs them ───────────────────────────
+// G81 drill · G82 spot (dwell) · G83 deep peck (full retract) · G73 chip-break peck ·
+// G85 ream / bore (feed out) · G84 rigid tap. The moves generated here are the moves the
+// control makes for the posted canned cycle, so the simulation shows what the machine does.
+const DRILL_CYCLES = {
+  drill: { g: 'G81', name: 'Drill', what: 'Straight down to depth and straight back out. For shallow holes, up to about 3× the drill diameter.' },
+  spot: { g: 'G82', name: 'Spot / dwell', what: 'Like G81, but pauses at the bottom so the tip cleans up the floor: spot drills, counterbores, countersinks.' },
+  peck: { g: 'G83', name: 'Deep peck', what: 'Drills a bit, pulls all the way out to the R plane to clear the chips, rapids back down to just above where it stopped, and repeats. For deep holes (over about 3–4× diameter).' },
+  chip: { g: 'G73', name: 'Chip-break peck', what: 'Drills a bit, backs off only a hair to snap the chip, and keeps going — much faster than G83. For medium-deep holes and stringy materials; chips stay in the hole, so not for very deep holes.' },
+  ream: { g: 'G85', name: 'Ream / bore', what: 'Feeds in and feeds back out at the same rate, so the tool never drags up the finished wall at rapid. For reamers and boring bars.' },
+  tap: { g: 'G84', name: 'Rigid tap', what: 'Feeds in at exactly one thread pitch per turn (feed = RPM × pitch), reverses the spindle at the bottom and feeds back out.' },
+};
+// The op's cycle and its numbers, all in mm and seconds. Missing values take the Haas defaults.
+function drillSpec(op, tool) {
+  const tap = tool.type === 'tap', mode = tap ? 'tap' : DRILL_CYCLES[op.mode] && op.mode !== 'tap' ? op.mode : 'drill';
+  const pecking = mode === 'peck' || mode === 'chip';
+  return {
+    mode, g: DRILL_CYCLES[mode].g,
+    q: pecking ? Math.max(0.1, op.peck || 2) : 0,                   // Q: every peck
+    i: pecking ? Math.max(0, op.peckFirst || 0) : 0,                // I: first peck (0: use Q)
+    j: pecking ? Math.max(0, op.peckReduce || 0) : 0,               // J: take this off each later peck
+    k: pecking ? Math.max(0, op.peckMin || 0) : 0,                  // K: never peck less than this
+    p: mode === 'spot' || mode === 'peck' ? Math.max(0, op.dwell || 0) : 0,     // P: dwell at the bottom, seconds
+    ret: op.retPlane === 'r' ? 'G99' : 'G98',
+    rpl: op.rPlane == null ? cam().retract : Math.max(0.2, op.rPlane),           // R plane above the stock
+    s22: op.chipBack == null ? 1.27 : Math.max(0.01, op.chipBack),             // Setting 22 (0.050")
+    s52: mode === 'peck' ? Math.max(0, op.s52 || 0) : 0,                       // Setting 52
+    tapJ: tap ? clamp(op.tapJ || 1, 1, 4) : 1,                                 // J on G84: retract speed ×
+  };
+}
+// Depths of successive pecks (Q, or I then −J each down to K).
+function peckSizes(cy) {
+  if (cy.i > 0) { let d = cy.i; const min = cy.k > 0 ? cy.k : Math.min(cy.i, cy.q || cy.i); return n => { const v = Math.max(min, d - cy.j * n); return v; }; }
+  return () => cy.q;
+}
+// The moves of one hole's canned cycle. pt(h) is the point at height h along the hole's
+// axis; the tool is already at the R plane R above the hole. init is the start height G98
+// returns to. Heights measure up along the axis.
+function drillCycleMoves(P, cy, pt, R, bottom, init, tool, tap) {
+  const go = (fn, h, f) => { const q = pt(h); fn.call(P, q[0], q[1], q[2], f); };
+  const dwell = sec => { if (sec > 0) { const q = pt(bottom); P.m.push({ x: q[0], y: q[1], z: q[2], r: 0, f: tool.plunge, dw: sec }); } };
+  const out = () => { if (cy.ret === 'G98') go(P.rapid, init); else go(P.rapid, R); };
+  if (tap) { go(P.feed, bottom, P.tap.feed); go(P.feed, R, P.tap.feed * cy.tapJ); if (cy.ret === 'G98') go(P.rapid, init); return; }
+  if (cy.mode === 'ream') { go(P.feed, bottom, tool.plunge); go(P.feed, R, tool.plunge); if (cy.ret === 'G98') go(P.rapid, init); return; }
+  if (cy.mode === 'peck' || cy.mode === 'chip') {
+    // pecks count from the R plane, as the control counts them
+    const size = peckSizes(cy);
+    let at = R;
+    for (let n = 0; n < 10000; n++) {
+      const to = Math.max(bottom, at - size(n));
+      go(P.feed, to, tool.plunge);
+      if (to <= bottom + 1e-9) break;
+      if (cy.mode === 'peck') { go(P.rapid, R + cy.s52); go(P.rapid, to + cy.s22); }     // out to clear the chips, back to just above
+      else go(P.rapid, to + cy.s22);                                                   // back off a hair to break the chip
+      at = to;
+    }
+    dwell(cy.p); out(); return;
+  }
+  go(P.feed, bottom, tool.plunge);
+  dwell(cy.p);
+  out();
+}
+// Stock the pocket's roughing leaves on the walls for the finishing pass.
+const pocketFinishStock = op => op.finishStock == null ? 0.25 : Math.max(0, op.finishStock);
+// Finishing pass round a pocket's walls (and its islands) at their final size: the
+// roughing left pocketFinishStock(op) there. Each wall loop is run climb-cut, entered
+// and left on a small tangent arc from the roughed-out middle so no mark is left where
+// the tool meets the wall. Full depth in one pass when the flutes are long enough, else
+// in even steps. A rest op finishes only the stretches its roughing reached.
+function pocketFinish(op, tool, st, P, area, floor, restArea) {
+  const r = tool.d / 2, lw = op.leaveWall || 0, fs = pocketFinishStock(op), ret = st.z1 + cam().retract;
+  const allowed = cOffset(area, -(r + lw) + 0.002), cleared = cOffset(area, -(r + lw + fs) + 0.002);
+  const loc = (toolParams(tool).loc || 2 * tool.d) * 0.9, zs = st.z1 - floor <= loc ? [floor] : levels(st.z1, floor, loc);
+  const outside = p => p.x < st.x0 - r * 0.5 || p.x > st.x1 + r * 0.5 || p.y < st.y0 - r * 0.5 || p.y > st.y1 + r * 0.5;
+  let loops = cOffset(area, -(r + lw)).map(L => ClipperLib.Clipper.CleanPolygon(L, 0.003 * CS)).filter(L => L.length >= 3).map(uP).filter(L => !L.every(outside));
+  let passes = 0;
+  if (restArea) {
+    // a rest pass: only the stretches of wall near what the bigger tool left, back and forth
+    const near = cOffset(restArea, r + 1), runs = [];
+    for (const pts of loops) {
+      const inn = pts.map(p => inPaths(p, near));
+      if (inn.every(Boolean)) { runs.push(pts.concat([pts[0]])); continue; }
+      if (!inn.some(Boolean)) continue;
+      const k0 = inn.indexOf(false), q = startAt(pts, k0), qi = startAt(inn, k0);
+      let cur = null;
+      for (let i = 0; i <= q.length; i++) {
+        const j = i % q.length, on = i < q.length && qi[j];
+        if (on && !cur) cur = [q[(j - 1 + q.length) % q.length], q[j]];
+        else if (on) cur.push(q[j]);
+        else if (cur) { cur.push(q[j]); runs.push(cur); cur = null; }
+      }
+    }
+    for (const run of runs) {
+      // down a little way off the wall (the bigger tool finished it there), then in to it
+      const s = run[0], t = nrm2(sub2(run[1], s)), E = add2(s, mul2(P2(-t.y, t.x), 0.3)), off = inPaths(E, allowed);
+      P.rapid(P.cur ? P.cur[0] : s.x, P.cur ? P.cur[1] : s.y, ret); P.rapid(E.x, E.y, ret);
+      if (off) P.rapid(E.x, E.y, zs[0] + 0.5);
+      let fwd = true;
+      for (const z of zs) {
+        const seq = fwd ? run : run.slice().reverse();
+        if (fwd && Math.hypot(P.cur[0] - E.x, P.cur[1] - E.y) < 1e-9) P.feed(E.x, E.y, z, tool.plunge);
+        P.feed(seq[0].x, seq[0].y, z, tool.plunge);
+        for (let i = 1; i < seq.length; i++) P.feed(seq[i].x, seq[i].y, z);
+        fwd = !fwd;
+      }
+      P.rapid(P.cur[0], P.cur[1], ret);
+      passes++;
+    }
+    if (passes) P.finish = passes;
+    return;
+  }
+  for (const loop0 of loops) {
+    // begin on the loop's longest straight stretch, away from corners
+    const pts = rotateToLongest(loop0), p0 = pts[0], t = nrm2(sub2(pts[1], p0)), left = P2(-t.y, t.x);
+    // the air side is on the left of every loop (outer walls counterclockwise, islands clockwise)
+    let rho = clamp(0.5 * r, fs + 0.3, 4), arc = null;
+    for (let k = 0; k < 4 && !arc; k++, rho *= 0.6) {
+      const C = add2(p0, mul2(left, rho)), at = phi => sub2(C, mul2(add2(mul2(t, Math.cos(phi)), mul2(left, Math.sin(phi))), rho));
+      if ([0, 1, 2, 3, 4, 5, 6, 7, 8].every(k8 => { const q = at(Math.PI * k8 / 8); return inPaths(q, allowed); }) && inPaths(at(0), cleared) && inPaths(at(Math.PI), cleared)) arc = at;
+    }
+    // no room for the arc: straight in from just clear of the finishing stock (or down on the wall line, slowly)
+    const S = arc ? arc(0) : [add2(p0, mul2(left, fs + 0.3))].find(q => inPaths(q, cleared)) || p0, open = S !== p0;
+    for (const z of zs) {
+      P.rapid(P.cur ? P.cur[0] : S.x, P.cur ? P.cur[1] : S.y, ret); P.rapid(S.x, S.y, ret);
+      if (open) P.rapid(S.x, S.y, z + 0.5);
+      P.feed(S.x, S.y, z, tool.plunge);
+      if (!arc && open) P.feed(p0.x, p0.y, z);
+      if (arc) for (let k = 1; k <= 8; k++) { const q = arc(Math.PI / 2 * k / 8); P.feed(q.x, q.y, z); }
+      for (let i = 1; i < pts.length; i++) P.feed(pts[i].x, pts[i].y, z);
+      P.feed(p0.x, p0.y, z);
+      if (arc) for (let k = 9; k <= 16; k++) { const q = arc(Math.PI / 2 * k / 8); P.feed(q.x, q.y, z); }
+      P.rapid(P.cur[0], P.cur[1], ret);
+    }
+    passes++;
+  }
+  if (passes) P.finish = (P.finish || 0) + passes;
+}
 const GEN = {
   face(op, tool, st, part, P) {
-    // Concentric closed rings from just inside the stock edge to the middle, staying
-    // down between rings; each level starts and ends outside the stock (in the air).
-    const r = tool.d / 2, so = Math.max(0.05, op.stepover) * tool.d, zs = levels(st.z1, part.z1 + (op.leave || 0), op.stepdown);
+    // Straight passes, one stroke right across the stock at each stepover (radial
+    // width of cut). Every pass starts and ends clear of the stock, in the air, and
+    // the passes are spread evenly so each one takes the same bite; the first and
+    // last overhang the stock edges so no ridge is left there.
+    const r = tool.d / 2, so = clamp(op.stepover || 0.7, 0.05, 0.95) * tool.d, zs = levels(st.z1, part.z1 + (op.leave || 0), op.stepdown);
     if (st.z1 - part.z1 < 1e-6) P.warn.push('The stock top is already level with the part.');
-    const rect = [cP([P2(st.x0, st.y0), P2(st.x1, st.y0), P2(st.x1, st.y1), P2(st.x0, st.y1)])], live = ps => ps.filter(p => cArea(p) > 1e-6);
-    const rings = [];
-    let o = r * 0.25;
-    for (let k = 0; k < 2000; k++) {
-      const ring = live(cOffset(rect, -o));
-      if (!ring.length) break;
-      rings.push(ring.map(p => uP(p)));
-      if (!cOffset(rect, -(o + r - 0.01)).some(p => Math.abs(cArea(p)) > 0.01)) break;       // the middle is covered
-      const next = o + so;
-      if (!live(cOffset(rect, -next)).length) {
-        // no room for a whole step: one last ring as far in as still exists
-        let lo = o, hi = next;
-        for (let i = 0; i < 24; i++) { const m = (lo + hi) / 2; if (live(cOffset(rect, -m)).length) lo = m; else hi = m; }
-        if (lo - o > 1e-3) rings.push(live(cOffset(rect, -lo)).map(p => uP(p)));
-        break;
-      }
-      o = next;
-    }
-    if (!rings.length) { P.warn.push('Nothing to face.'); return; }
-    const first = rings[0][0], s0 = first[0], s1 = first[1], t = nrm2(sub2(s1, s0));
-    const out = add2(s0, mul2(P2(t.y, -t.x), r + 2));               // off the stock, square to the first edge
-    const E = inPaths(out, rect) ? add2(s0, mul2(P2(-t.y, t.x), r + 2)) : out;
-    const safe = st.z1 + cam().safe, ret = st.z1 + cam().retract;
-    P.rapid(E.x, E.y, safe); P.rapid(E.x, E.y, ret);
+    const W = st.x1 - st.x0, H = st.y1 - st.y0;
+    // along the stock's long side (fewer, longer strokes) unless told otherwise
+    const alongX = op.dir === 'x' ? true : op.dir === 'y' ? false : W >= H;
+    const a0 = alongX ? st.x0 : st.y0, a1 = alongX ? st.x1 : st.y1, c0 = alongX ? st.y0 : st.x0, c1 = alongX ? st.y1 : st.x1;
+    const over = Math.min(0.15 * tool.d, 2) + 0.05, span = c1 - c0 + 2 * over;              // overhang past each edge
+    const n = span <= 2 * r ? 1 : Math.ceil((span - 2 * r) / so - 1e-9) + 1;
+    const step = n > 1 ? (span - 2 * r) / (n - 1) : 0;
+    const cs = n > 1 ? Array.from({ length: n }, (_, k) => c0 - over + r + k * step) : [(c0 + c1) / 2];
+    const lead = r + 2, sA = a0 - lead, sB = a1 + lead;                                     // start / end clear of the stock
+    const pt = (a, c) => alongX ? P2(a, c) : P2(c, a);
+    const safe = st.z1 + cam().safe, ret = st.z1 + cam().retract, oneWay = op.pattern === 'oneway';
+    P.info = `${n} pass${n > 1 ? 'es' : ''} along ${alongX ? 'X' : 'Y'} · ${fmtLs(step || 0)} apart (${Math.round(100 * (n > 1 ? step : Math.min(span, tool.d)) / tool.d)}% of Ø)${zs.length > 1 ? ` · ${zs.length} depths` : ''}`;
+    let first = true, fwdLevel = true;
     zs.forEach((z, li) => {
-      if (li) { P.rapid(P.cur[0], P.cur[1], zs[li - 1] + 0.3); P.rapid(E.x, E.y, zs[li - 1] + 0.3); }   // back out over the faced level
-      P.plunge(E.x, E.y, z);
-      for (const ring of rings) for (const loop of ring) {
-        const i = nearestIdx(loop, P2(P.cur[0], P.cur[1])), pts = startAt(loop, i);
-        P.feed(pts[0].x, pts[0].y, z);
-        for (let j = 1; j < pts.length; j++) P.feed(pts[j].x, pts[j].y, z);
-        P.feed(pts[0].x, pts[0].y, z);
-      }
+      const zUp = (li ? zs[li - 1] : st.z1) + 1;                                          // clear of the stock still to face
+      // each depth runs the passes in the opposite order of the one before: it starts where that one ended
+      const order = fwdLevel ? cs : cs.slice().reverse();
+      order.forEach(c => {
+        // zig-zag: each stroke starts at the end the tool is already at; one way: always the same direction
+        const here = P.cur ? (alongX ? P.cur[0] : P.cur[1]) : sA, back = !oneWay && Math.abs(here - sB) < Math.abs(here - sA);
+        const A = pt(back ? sB : sA, c), B = pt(back ? sA : sB, c);
+        if (first) { P.rapid(A.x, A.y, safe); P.rapid(A.x, A.y, ret); P.plunge(A.x, A.y, z); first = false; }
+        else if (oneWay) {
+          // lift clear, come back to the start side, go down in the air off the stock
+          P.rapid(P.cur[0], P.cur[1], zUp); P.rapid(A.x, A.y, zUp); P.feed(A.x, A.y, z, tool.plunge);
+        } else if (Math.abs(P.cur[2] - z) > 1e-9) P.feed(P.cur[0], P.cur[1], z, tool.plunge);   // next depth: down in the air off the end
+        if (Math.hypot(P.cur[0] - A.x, P.cur[1] - A.y) > 1e-9) P.feed(A.x, A.y, z);               // step over, out in the air
+        P.feed(B.x, B.y, z);
+      });
+      fwdLevel = !fwdLevel;
     });
     P.rapid(P.cur[0], P.cur[1], safe);
   },
@@ -11506,12 +11779,14 @@ const GEN = {
         let area = closed ? [orient(cP(rg.outer), true)] : cDiff(cOffset(rect, r + 1), silhouetteAbove(f.z));
         const islands = rg.holes.filter(h => loopRises(h, f.z, false));
         if (islands.length) area = cDiff(area, islands.map(h => orient(cP(h), true)));
-        const tArea = cOffset(area, -(r + (op.leaveWall || 0)));
+        // roughing stays off the walls by the finishing stock; the finish pass takes it off
+        const lw = op.leaveWall || 0, fs = pocketFinishStock(op), tArea = cOffset(area, -(r + lw + fs));
         if (!tArea.length) { if (op.rough) { P.skipped = (P.skipped || 0) + 1; continue; } P.warn.push(`The tool (Ø${tool.d}) does not fit this pocket.`); continue; }
-        let ringArea = tArea;
+        let ringArea = tArea, restArea = null;
         if (op.restD > tool.d + 1e-6) {
           // only the material the bigger tool left: its centers, grown to reach it
-          const left = restLeft(area, op.restD + 2 * (op.leaveWall || 0));
+          const left = restLeft(area, op.restD + 2 * lw);
+          restArea = left;
           if (!left.length) { P.restNone = (P.restNone || 0) + 1; continue; }
           ringArea = cInter(tArea, cOffset(left, r + 0.3));
           if (!ringArea.length) continue;
@@ -11519,17 +11794,16 @@ const GEN = {
         }
         const rings = [];
         for (let k = 0; k < 400; k++) { const cur = k ? cOffset(ringArea, -so * k) : ringArea; if (!cur.length) break; rings.push(ClipperLib.Clipper.CleanPolygons(cur, 0.005 * CS).filter(p => p.length >= 3)); }
-        // Rings as a nesting tree, cut inside-out; every other depth runs the same
-        // order backwards, so each depth starts on the ring the last one ended on
-        // and the tool stays down from the first ring of the pocket to the last.
+        // Rings as a nesting tree, cut inside-out at every depth: the tool goes down in
+        // the middle, then works out ring by ring toward the walls. Between depths it
+        // goes back to the middle at depth (over floor it has just cut) and down again.
         const zs = levels(st.z1, floor, op.stepdown), linkRegion = cOffset(tArea, 0.002);
         let down = false;
         // each connected piece all the way down before the next (they are apart: that needs a retract)
         for (const seqIn of ringTree(rings)) {
-        const seqOut = seqIn.slice().reverse();
         if (down) { P.rapid(P.cur[0], P.cur[1], ret); down = false; }
         zs.forEach((z, li) => {
-          const seq = (li + (closed ? 0 : 1)) % 2 ? seqOut : seqIn, cut = [];
+          const seq = seqIn, cut = [];
           seq.forEach((nd, q) => {
             const rho = Math.min(0.35 * r, so * nd.k);                  // room for a helix around this ring
             const here = P.cur ? P2(P.cur[0], P.cur[1]) : null;
@@ -11538,7 +11812,7 @@ const GEN = {
             let descend = false;
             if (q === 0) {
               // a new depth: from where the tool is (on this same ring) straight down, or from above
-              if (down && linkAtDepth(P, s, P.cur[2], linkRegion, seq === seqIn ? seqOut.map(n => n.pts) : seqIn.map(n => n.pts), ml)) descend = true;
+              if (down && linkAtDepth(P, s, P.cur[2], linkRegion, seqIn.map(n => n.pts), ml)) descend = true;
               else { if (down) P.rapid(P.cur[0], P.cur[1], ret); else P.rapid(s.x, s.y, safe); P.rapid(s.x, s.y, ret); P.rapid(s.x, s.y, zPrev + (li ? 0.5 : 0)); descend = true; }
             } else if (!linkAtDepth(P, s, z, linkRegion, cut, ml)) {
               P.rapid(P.cur[0], P.cur[1], ret); P.rapid(s.x, s.y, ret); P.rapid(s.x, s.y, zPrev + 0.5); descend = true;
@@ -11554,6 +11828,9 @@ const GEN = {
           });
         });
         }
+        if (P.cur) P.rapid(P.cur[0], P.cur[1], ret);
+        // the finishing pass: round every wall once more at its final size, at full depth
+        if (op.finish !== false && fs > 1e-4) pocketFinish(op, tool, st, P, area, floor, restArea);
         // the next region may be anywhere: leave this one upward
         if (P.cur) P.rapid(P.cur[0], P.cur[1], safe);
         down = false;
@@ -11561,6 +11838,9 @@ const GEN = {
     }
     if (op.restD > tool.d + 1e-6) P.info = P.restDone ? `Rest pass: only where the Ø${fmtD(op.restD)} could not reach` : 'Nothing left for this tool after the Ø' + fmtD(op.restD);
     else if (P.skipped) P.info = `${P.skipped} narrow area${P.skipped > 1 ? 's' : ''} left for the smaller tool`;
+    const fs = pocketFinishStock(op), fin = op.finish !== false && fs > 1e-4;
+    const how = `Center out · roughing leaves ${fmtLs(fs, 4)} on the walls${fin ? (P.finish ? `, then a finish pass (${P.finish} wall${P.finish > 1 ? 's' : ''})` : '') : ' for a finishing op'}`;
+    P.info = P.info ? P.info + ' · ' + how : how;
   },
   drill(op, tool, st, part, P) {
     if (opAxis(op)) { drillIndexed(op, tool, st, part, P); return; }
@@ -11577,25 +11857,22 @@ const GEN = {
     const safe = st.z1 + cam().safe, tip = tool.type === 'drill' ? 0.3 * tool.d : tool.type === 'spot' ? 0 : 0;
     const tap = tool.type === 'tap', pitch = tap ? toolParams(tool).pitch || isoPitch(tool.d) : 0;
     if (tap) P.tap = { pitch, feed: tool.rpm * pitch };
+    const cy = drillSpec(op, tool);
+    P.cycle = cy;
+    // one R plane for the whole cycle (the control keeps it modal), above the stock top
+    const R = Math.max(...ordered.map(h => h.top + 2), st.z1 + cy.rpl);
     P.holes = [];
     for (const h of ordered) {
       const through = holeThrough(h, part);
       let bottom = through ? h.bot - (op.through == null ? 1 : op.through) - tip : h.bot;
       if (tap && !through) bottom = h.bot + 2 * pitch;          // leave room for the tap's lead
       if (op.depth > 0) bottom = Math.max(bottom, h.top - op.depth);           // depth into the hole, from its top
-      // R plane above the stock top: safe whatever order operations run in
-      const R = Math.max(h.top + 2, st.z1 + cam().retract), q = op.mode === 'peck' && !tap ? Math.max(0.2, op.peck || 2) : Infinity;
-      P.holes.push({ x: h.x, y: h.y, z: bottom, r: R, q: op.mode === 'peck' && !tap ? q : 0 });
-      P.rapid(h.x, h.y, safe); P.rapid(h.x, h.y, R);
-      if (tap) { P.feed(h.x, h.y, bottom, P.tap.feed); P.feed(h.x, h.y, R, P.tap.feed); continue; }
-      // peck from the stock top: material above the hole may not be cut yet
-      for (let z = Math.max(h.top, st.z1) - q; ; z -= q) {
-        const zz = Math.max(z, bottom);
-        P.feed(h.x, h.y, zz, tool.plunge);
-        if (zz <= bottom + 1e-9) break;
-        P.rapid(h.x, h.y, R); P.rapid(h.x, h.y, zz + 0.3);
-      }
+      P.holes.push({ x: h.x, y: h.y, z: bottom, r: R, q: cy.q, mi: P.m.length });
+      // G98 goes back to the start height between holes; G99 stays at the R plane
+      if (!P.cur || cy.ret !== 'G99') P.rapid(h.x, h.y, safe);
+      if (cy.ret === 'G99' && P.cur && P.cur[2] > R + 1e-9 && P.m.length > 1) P.rapid(P.cur[0], P.cur[1], R);
       P.rapid(h.x, h.y, R);
+      drillCycleMoves(P, cy, d => [h.x, h.y, d], R, bottom, safe, tool, tap);
     }
     P.rapid(P.cur[0], P.cur[1], safe);
   },
@@ -11674,14 +11951,14 @@ function drillIndexed(op, tool, st, part, P) {
   }
   let top = -Infinity;
   for (const x of [st.x0, st.x1]) for (const y of [st.y0, st.y1]) for (const z of [st.z0, st.z1]) top = Math.max(top, dot3([x, y, z], w));
-  const H = top + cam().safe, Rh = top + cam().retract, at = (p, hh) => add3(p, mul3(w, hh - dot3(p, w)));
+  const H = top + cam().safe, Rh = top + drillSpec(op, tool).rpl, at = (p, hh) => add3(p, mul3(w, hh - dot3(p, w)));
   const ordered = [];
   let cur = holes[0].p; holes = holes.slice();
   while (holes.length) { let bi = 0; holes.forEach((hh, i) => { if (dist3(hh.p, cur) < dist3(holes[bi].p, cur)) bi = i; }); const hh = holes.splice(bi, 1)[0]; ordered.push(hh); cur = hh.p; }
   const tip = tool.type === 'drill' ? 0.3 * tool.d : 0, tap = tool.type === 'tap', pitch = tap ? toolParams(tool).pitch || isoPitch(tool.d) : 0;
   if (tap) P.tap = { pitch, feed: tool.rpm * pitch };
-  const q = op.mode === 'peck' && !tap ? Math.max(0.2, op.peck || 2) : Infinity;
-  P.holes = []; P.axis = w;
+  const cy = drillSpec(op, tool);
+  P.cycle = cy; P.holes = []; P.axis = w;
   const go = (f, X, feed) => f.call(P, X[0], X[1], X[2], feed);
   for (const hh of ordered) {
     const mouth = dot3(hh.p, w);
@@ -11689,17 +11966,10 @@ function drillIndexed(op, tool, st, part, P) {
     if (tap && !hh.through) depth = Math.max(0.5, hh.depth - 2 * pitch);
     if (op.depth > 0) depth = Math.min(depth, op.depth);
     const bot = mouth - depth, S0 = at(hh.p, H), R0 = at(hh.p, Rh), B = at(hh.p, bot);
-    P.holes.push({ p: hh.p, bottom: B, r: R0, q: op.mode === 'peck' && !tap ? q : 0 });
+    P.holes.push({ p: hh.p, bottom: B, r: R0, q: cy.q, mi: P.m.length });
+    // indexed holes always go back to the start height (G98): the part turns between them
     go(P.rapid, S0); go(P.rapid, R0);
-    if (tap) { go(P.feed, B, P.tap.feed); go(P.feed, R0, P.tap.feed); go(P.rapid, S0); continue; }
-    // peck from the stock's face along this axis: the side stock may still be there
-    for (let d = top - q; ; d -= q) {
-      const dd = Math.max(d, bot);
-      go(P.feed, at(hh.p, dd), tool.plunge);
-      if (dd <= bot + 1e-9) break;
-      go(P.rapid, R0); go(P.rapid, at(hh.p, dd + 0.3));
-    }
-    go(P.rapid, R0); go(P.rapid, S0);
+    drillCycleMoves(P, { ...cy, ret: 'G98' }, d => at(hh.p, d), Rh, bot, H, tool, tap);
   }
 }
 // A 45° chamfer facing up (planar or conical): the edge where it meets the wall below,
@@ -11828,7 +12098,7 @@ function safeRapids(m, zs) {
 function pathStats(P) {
   let feedLen = 0, rapidLen = 0, t = 0, prev = null;
   for (const m of P.m) {
-    if (prev) { const L = Math.hypot(m.x - prev.x, m.y - prev.y, m.z - prev.z); if (m.r) { rapidLen += L; t += L / RAPID; } else { feedLen += L; t += L / m.f; } }
+    if (prev) { const L = Math.hypot(m.x - prev.x, m.y - prev.y, m.z - prev.z); if (m.r) { rapidLen += L; t += L / RAPID; } else { feedLen += L; t += L / m.f + (m.dw || 0) / 60; } }
     prev = m;
   }
   return { feedLen, rapidLen, min: t };
@@ -11910,8 +12180,8 @@ function simProgram() {
     const P = toolpath(op);
     if (!P || P.pending) continue;
     for (let i = 1; i < P.m.length; i++) {
-      const a = P.m[i - 1], b = P.m[i], L = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z), dt = L / (b.r ? RAPID : b.f);
-      out.push({ a, b, r: b.r, tool: P.tool, t0: t, t1: t + dt, op: op.id, fin: op.type === 'parallel', ax: opAxis(op) });
+      const a = P.m[i - 1], b = P.m[i], L = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z), dt = L / (b.r ? RAPID : b.f) + (b.dw || 0) / 60;
+      out.push({ a, b, r: b.r, tool: P.tool, t0: t, t1: t + dt, op: op.id, mi: i, fin: op.type === 'parallel', ax: opAxis(op) });
       t += dt;
     }
   }
@@ -12647,8 +12917,8 @@ function fitArcs(pts, tol) {
       if (!ok || Math.abs(sweep) > TAU - 0.05) break;
       best = { j, c, ccw: sgn > 0 };
     }
-    if (best) { out.push({ arc: true, p: pts[best.j], c: best.c, from: pts[i], ccw: best.ccw }); i = best.j; }
-    else { out.push({ arc: false, p: pts[i + 1] }); i++; }
+    if (best) { out.push({ arc: true, p: pts[best.j], c: best.c, from: pts[i], ccw: best.ccw, k: best.j }); i = best.j; }
+    else { out.push({ arc: false, p: pts[i + 1], k: i + 1 }); i++; }
   }
   return out;
 }
@@ -12669,7 +12939,11 @@ function postGcode() {
   const inch = isIn(), k = inch ? 1 / 25.4 : 1, dp = inch ? 4 : 3;
   const N = v => { v *= k; const s = (Math.abs(v) < 0.5 * Math.pow(10, -dp) ? 0 : v).toFixed(dp).replace(/0+$/, '').replace(/\.$/, '.'); return s === '-0.' ? '0.' : s; };
   const F = f => (inch ? (f * k).toFixed(1).replace(/\.0$/, '') : String(Math.round(f)));
-  const L = [];
+  // every line remembers the move it comes from (operation id, index in its path), for
+  // following the program in the simulation
+  const L = [], MAP = [];
+  let SRC = null;
+  L.push = (...xs) => { for (const x of xs) { Array.prototype.push.call(L, x); MAP.push(SRC); } return L.length; };
   const st = { g: null, x: null, y: null, z: null, f: null };
   const move = (g, x, y, z, f) => {
     const w = [], nx = x == null ? null : N(x), ny = y == null ? null : N(y), nz = z == null ? null : N(z);
@@ -12699,6 +12973,7 @@ function postGcode() {
     totalMin += pathStats(P).min;
     const fr = ax ? tiltFrame(ax, multi, o) : null;
     const t = P.tool, rel = fr ? m => fr.loc([m.x - o[0], m.y - o[1], m.z - o[2]]) : m => [m.x - o[0], m.y - o[1], m.z - o[2]];
+    SRC = { op: op.id, mi: 0 };
     L.push(`(${op.name} — ${toolName(t)})`);
     if (grbl && P.tap) L.push('(WARNING: GRBL has no synchronized tapping cycle - use a floating tap holder)');
     if (lastTool !== t.n) {
@@ -12715,18 +12990,23 @@ function postGcode() {
     if (!grbl) { L.push(`G43 H${t.n} Z${N(m0[2])}`); st.z = N(m0[2]); } else move('G0', null, null, m0[2]);
     if (op.type === 'drill' && P.holes && !grbl && fr) {
       // canned cycles in the turned / tilted frame: every point of a hole shares its X Y there
-      const lc = v => fr.loc([v[0] - o[0], v[1] - o[1], v[2] - o[2]]), cyc = P.tap ? 'G84' : P.holes[0].q ? 'G83' : 'G81';
-      if (P.tap) L.push(`M29 S${Math.round(t.rpm)} (rigid tap · pitch ${P.tap.pitch})`);
-      P.holes.forEach((hh, k) => { const B = lc(hh.bottom), Rr = lc(hh.r); L.push(k ? `X${N(B[0])} Y${N(B[1])} Z${N(B[2])} R${N(Rr[2])}` : `G98 ${cyc} X${N(B[0])} Y${N(B[1])} Z${N(B[2])} R${N(Rr[2])}${hh.q ? ' Q' + N(hh.q) : ''} F${P.tap ? N(P.tap.feed) : F(t.plunge)}`); });
+      const lc = v => fr.loc([v[0] - o[0], v[1] - o[1], v[2] - o[2]]), cy = P.cycle || drillSpec(op, t);
+      L.push(...cycleNotes(cy, P, N));
+      P.holes.forEach((hh, k) => { SRC = { op: op.id, mi: (P.holes[k + 1] ? P.holes[k + 1].mi : P.m.length) - 1 }; const B = lc(hh.bottom), Rr = lc(hh.r); L.push(k ? `X${N(B[0])} Y${N(B[1])} Z${N(B[2])} R${N(Rr[2])}` : `G98 ${cy.g} X${N(B[0])} Y${N(B[1])} Z${N(B[2])} R${N(Rr[2])}${cycleWords(cy, N)} F${P.tap ? N(P.tap.feed) : F(t.plunge)}${cy.tapJ > 1 ? ' J' + cy.tapJ : ''}`); });
+      SRC = { op: op.id, mi: P.m.length - 1 };
       L.push('G80');
       endFrame();
       continue;
     }
     if (op.type === 'drill' && P.holes && !grbl) {
-      const hs = P.holes, first = hs[0], rr = N(Math.max(...hs.map(h => h.r)) - o[2]);
-      if (P.tap) L.push(`M29 S${Math.round(t.rpm)} (rigid tap · pitch ${P.tap.pitch})`);
-      L.push(`G98 ${P.tap ? 'G84' : first.q ? 'G83' : 'G81'} X${N(first.x - o[0])} Y${N(first.y - o[1])} Z${N(first.z - o[2])} R${rr}${first.q ? ' Q' + N(first.q) : ''} F${P.tap ? N(P.tap.feed) : F(t.plunge)}`);
-      for (const h of hs.slice(1)) L.push(`X${N(h.x - o[0])} Y${N(h.y - o[1])}${N(h.z - o[2]) !== N(first.z - o[2]) ? ' Z' + N(h.z - o[2]) : ''}`);
+      const hs = P.holes, first = hs[0], rr = N(Math.max(...hs.map(h => h.r)) - o[2]), cy = P.cycle || drillSpec(op, t);
+      L.push(...cycleNotes(cy, P, N));
+      const holeEnd = k => (hs[k + 1] ? hs[k + 1].mi : P.m.length) - 1;       // a hole's line covers every move of its cycle
+      SRC = { op: op.id, mi: holeEnd(0) };
+      L.push(`${cy.ret} ${cy.g} X${N(first.x - o[0])} Y${N(first.y - o[1])} Z${N(first.z - o[2])} R${rr}${cycleWords(cy, N)} F${P.tap ? N(P.tap.feed) : F(t.plunge)}${cy.tapJ > 1 ? ' J' + cy.tapJ : ''}`);
+      let zPrev = N(first.z - o[2]);
+      for (const [k, h] of hs.entries()) { if (!k) continue; SRC = { op: op.id, mi: holeEnd(k) }; const zz = N(h.z - o[2]); L.push(`X${N(h.x - o[0])} Y${N(h.y - o[1])}${zz !== zPrev ? ' Z' + zz : ''}`); zPrev = zz; }
+      SRC = { op: op.id, mi: P.m.length - 1 };
       L.push('G80');
       const last = P.m[P.m.length - 1];
       L.push(`G0 Z${N(last.z - o[2])}`); st.g = 'G0'; st.z = N(last.z - o[2]);
@@ -12736,12 +13016,14 @@ function postGcode() {
     let i = 1;
     while (i < P.m.length) {
       const m = P.m[i];
+      SRC = { op: op.id, mi: i };
       if (m.r) { const p = rel(m); move('G0', p[0], p[1], p[2]); i++; continue; }
       let j = i;
       while (j + 1 < P.m.length && !P.m[j + 1].r && Math.abs(P.m[j + 1].z - m.z) < 1e-9 && P.m[j + 1].f === m.f && Math.abs(P.m[i - 1].z - m.z) < 1e-9) j++;
       if (pf.arcs && !fr && j - i >= 3) {
         const pts = [P.m[i - 1], ...P.m.slice(i, j + 1)].map(q => P2(q.x - o[0], q.y - o[1]));
         for (const s of fitArcs(pts, 0.003)) {
+          SRC = { op: op.id, mi: i - 1 + s.k };
           if (!s.arc) { move('G1', s.p.x, s.p.y, m.z - o[2], m.f); continue; }
           const g = s.ccw ? 'G3' : 'G2', w = [];
           if (g !== st.g) w.push(g);
@@ -12755,11 +13037,27 @@ function postGcode() {
     }
     endFrame();
   }
+  SRC = null;
   if (pf.coolant) L.push('M9');
   L.push('M5');
   L.push(grbl ? 'G0 Z' + N(camStock().z1 + C.safe - o[2]) : 'G28 G91 Z0.', grbl ? 'M2' : 'G90');
   if (!grbl) L.push('M30', '%');
-  return { text: L.join('\n'), lines: L.length, min: totalMin + (ops.length ? 0.15 * new Set(ops.map(x => x.tool)).size : 0), part };
+  return { text: L.join('\n'), lines: L.length, min: totalMin + (ops.length ? 0.15 * new Set(ops.map(x => x.tool)).size : 0), part, map: MAP };
+}
+// The words that shape a canned cycle: Q (or I J K) for pecking, P for a dwell (seconds).
+function cycleWords(cy, N) {
+  let w = '';
+  if (cy.mode === 'peck' || cy.mode === 'chip') w += cy.i > 0 ? ` I${N(cy.i)} J${N(cy.j)} K${N(cy.k > 0 ? cy.k : Math.min(cy.i, cy.q))}` : ` Q${N(cy.q)}`;
+  if (cy.p > 0) { const v = +cy.p.toFixed(3); w += ` P${Number.isInteger(v) ? v + '.' : v}`; }
+  return w;
+}
+// Comments for what the cycle relies on that lives on the control, not in the program.
+function cycleNotes(cy, P, N) {
+  const u = isIn() ? ' IN' : ' MM', out = [];
+  if (cy.mode === 'tap') out.push(`(RIGID TAP G84 - PITCH ${fmtLs(P.tap.pitch, 4)}, F = RPM X PITCH${cy.tapJ > 1 ? `, J${cy.tapJ} RETRACTS ${cy.tapJ}X FASTER` : ''})`);
+  if (cy.mode === 'chip') out.push(`(G73 BACKS OFF SETTING 22 = ${N(cy.s22)}${u} BETWEEN PECKS - CHECK SETTING 22)`);
+  if (cy.mode === 'peck') out.push(`(G83 STOPS ITS RAPID SETTING 22 = ${N(cy.s22)}${u} ABOVE THE LAST PECK${cy.s52 > 0 ? `, RETRACTS SETTING 52 = ${N(cy.s52)}${u} ABOVE R` : ''} - CHECK THE SETTINGS)`);
+  return out;
 }
 function downloadGcode() {
   const g = postGcode();
@@ -12776,9 +13074,9 @@ function camAddOp(type) {
   const n = C.ops.filter(o => o.type === type).length + 1;
   const base = { id: C.next++, type, name: OP_INFO[type].name + (n > 1 ? ' ' + n : '') };
   const defs = {
-    face: { tool: pick('face'), stepover: 0.7, stepdown: 1, leave: 0 },
+    face: { tool: pick('face'), stepover: 0.7, stepdown: 1, leave: 0, pattern: 'zigzag', dir: 'auto' },
     contour: { tool: pick('flat'), side: 'outside', stepdown: 2, leave: 0, through: 0.5, faces: [] },
-    pocket: { tool: pick('flat'), stepover: 0.45, stepdown: 1.5, leaveWall: 0, leaveFloor: 0, faces: [] },
+    pocket: { tool: pick('flat'), stepover: 0.45, stepdown: 1.5, leaveWall: 0, leaveFloor: 0, finishStock: isIn() ? 0.254 : 0.25, finish: true, faces: [] },
     drill: { tool: pick('drill'), mode: 'peck', peck: 3, through: 1, diams: [] },
     parallel: { tool: pick('ball'), stepover: 0.5, leave: 0, angle: 0, overrun: true },
     chamfer: { tool: pick('chamfer'), through: 0.3, leave: 0, faces: [] },
@@ -12942,10 +13240,40 @@ function camOpMenu(op, x, y) {
 }
 // ── Right panel views ──────────────────────────────────────────────
 // Length fields show display units; setN converts them back to mm.
-const CAM_LEN = new Set(['stSide', 'stTop', 'stBot', 'camSafe', 'camRet', 'opSd', 'opLeave', 'opThrough', 'opLw', 'opLf', 'opPeck', 'opSoL', 'opRest']);
+const CAM_LEN = new Set(['stSide', 'stTop', 'stBot', 'camSafe', 'camRet', 'opSd', 'opLeave', 'opThrough', 'opLw', 'opLf', 'opPeck', 'opSoL', 'opRest', 'opFs', 'opPkI', 'opPkJ', 'opPkK', 'opRpl', 'opS22', 'opS52', 'opDepth']);
 const num = (id, v, lab, step = 'any', extra = '') => CAM_LEN.has(id)
   ? `<label class="field"><span>${lab} (${uName()})</span><input type="number" id="${id}" data-cam-input="1" data-len="1" step="any" value="${uval(+v)}" ${extra}></label>`
   : `<label class="field"><span>${lab}</span><input type="number" id="${id}" data-cam-input="1" step="${step}" value="${+(+v).toFixed(4)}" ${extra}></label>`;
+// The drilling cycle's settings, each with what it does in plain English.
+function drillCycleFields(op) {
+  const t = toolOf(op.tool), cy = drillSpec(op, t), m = cy.mode, pecking = m === 'peck' || m === 'chip';
+  const hint = txt => `<small class="hint">${txt}</small>`;
+  const fld = (html, txt) => `<div class="hfield">${html}${hint(txt)}</div>`;
+  const cycles = Object.entries(DRILL_CYCLES).filter(([k]) => k !== 'tap');
+  let h = t.type === 'tap'
+    ? `<div class="field"><span>Cycle</span><div class="pick"><span>G84 · Rigid tap (a tap is loaded)</span></div></div>`
+    : `<div class="field"><span>Cycle</span><select id="opCycle">${cycles.map(([k, c]) => `<option value="${k}" ${m === k ? 'selected' : ''}>${c.g} · ${c.name}</option>`).join('')}</select></div>`;
+  h += `<p class="note cyc-note"><b>${cy.g}:</b> ${DRILL_CYCLES[m].what}</p>`;
+  if (pecking) {
+    h += fld(`<div class="row2">${num('opPeck', cy.q, 'Peck (Q)', 0.5, 'min="0.1"')}${num('opPkI', op.peckFirst || 0, 'First peck (I)', 0.5, 'min="0"')}</div>`,
+      '<b>Q</b> is how far the drill goes in each time before it backs out. Smaller pecks clear chips better but take longer. <b>I</b> (optional, 0 = off) makes the first peck a different size — usually deeper, since the chips clear easily near the top. Setting I switches the cycle to I / J / K pecking.');
+    if (cy.i > 0) h += fld(`<div class="row2">${num('opPkJ', op.peckReduce || 0, 'Shorten by (J)', 0.1, 'min="0"')}${num('opPkK', op.peckMin || 0, 'Min peck (K)', 0.1, 'min="0"')}</div>`,
+      '<b>J</b> takes this much off every peck after the first, because chips pack harder the deeper the hole gets. <b>K</b> is the floor: pecks never get shorter than this.');
+  }
+  if (m === 'spot' || m === 'peck') h += fld(`<div class="row2"><label class="field"><span>Dwell (P, seconds)</span><input type="number" id="opDwell" data-cam-input="1" step="0.1" min="0" value="${+(op.dwell || 0).toFixed(3)}"></label></div>`,
+    '<b>P</b> pauses the drill at the bottom for this many seconds so the point cleans up the floor (spot drills, counterbores). 0 = no pause.');
+  h += fld(`<div class="row2">${num('opRpl', cy.rpl, 'R plane (R)', 0.5, 'min="0.2"')}<div class="field"><span>Between holes</span><div class="seg"><button data-opset="retPlane:init" class="${cy.ret === 'G98' ? 'on' : ''}" title="G98">Start height</button><button data-opset="retPlane:r" class="${cy.ret === 'G99' ? 'on' : ''}" title="G99">R plane</button></div></div></div>`,
+    '<b>R</b> is where the rapid stops and the feed starts, this far above the stock top (pecks count from here). <b>G98</b> (start height) lifts back to the clearance height between holes — safe over clamps. <b>G99</b> (R plane) only lifts to R — faster, but only if nothing sticks up between the holes.');
+  if (pecking) h += fld(`<div class="row2">${num('opS22', cy.s22, 'Setting 22', 0.1, 'min="0.01"')}${m === 'peck' ? num('opS52', cy.s52, 'Setting 52', 0.1, 'min="0"') : '<span></span>'}</div>`,
+    m === 'chip' ? '<b>Setting 22</b> is how far G73 backs up between pecks to snap the chip (Haas default 0.050"). It is set on the control, not in the program — the program notes the value you choose here.'
+      : '<b>Setting 22</b>: after pulling out, G83 rapids back down and stops this far above the last peck before feeding again (Haas default 0.050"). <b>Setting 52</b> lifts this much above R on each pull-out so chips can fly clear. Both are set on the control, not in the program — the program notes them.');
+  if (m === 'tap') h += fld(`<div class="row2"><label class="field"><span>Retract speed (J)</span><input type="number" id="opTapJ" data-cam-input="1" step="1" min="1" max="4" value="${cy.tapJ}"></label></div>`,
+    '<b>J</b> backs the tap out this many times faster than it went in (1 = same speed). Faster saves time; keep 1 for small or fragile taps. Setting 130 caps it.');
+  h += fld(`<div class="row2">${num('opThrough', op.through == null ? 1 : op.through, 'Breakthrough', 0.1, 'min="0"')}${num('opDepth', op.depth || 0, 'Depth (0 = full)', 0.5, 'min="0"')}</div>`,
+    '<b>Breakthrough</b>: how far past the bottom of a through hole the full diameter goes, so no burr or skin is left. <b>Depth</b> stops short of the hole’s bottom, measured from its top (spot drilling); 0 drills the whole hole.');
+  h += `<small class="hint">Feed (F) and speed (S) come from the tool: plunge ${fmtRate(t.plunge)} at ${t.rpm.toLocaleString()} RPM.</small>`;
+  return h;
+}
 function camPanel() {
   const C = cam(), v = CAMUI.view, st = camStock();
   if (!st) return `<div class="pn-head"><h2>Manufacture</h2></div><div class="pn-body"><p class="note">There is no body to machine yet. Switch to <b>Design</b> and extrude something, or open a sample part.</p><div class="btns"><button class="btn" data-do="samples">Sample parts…</button></div></div>`;
@@ -12992,7 +13320,9 @@ function camPanel() {
     const tools = C.tools.map(t => `<option value="${t.n}" ${op.tool === t.n ? 'selected' : ''}>${toolName(t)}</option>`).join('');
     let f = `<div class="field"><span>Tool</span><select id="opTool">${tools}</select></div>`;
     const faces = (op.faces || []).length;
-    if (op.type === 'face') f += `<div class="row3">${num('opSo', op.stepover, 'Stepover ×Ø', 0.05)}${num('opSd', op.stepdown, 'Stepdown', 0.1)}${num('opLeave', op.leave, 'Leave', 0.05)}</div>`;
+    if (op.type === 'face') f += `<div class="row3">${num('opSo', op.stepover, 'Stepover ×Ø', 0.05)}${num('opSd', op.stepdown, 'Stepdown', 0.1)}${num('opLeave', op.leave, 'Leave', 0.05)}</div>
+      <div class="field"><span>Passes</span><div class="seg"><button data-opset="pattern:zigzag" class="${op.pattern !== 'oneway' ? 'on' : ''}" title="Across, step over off the end of the stock, and straight back: the tool never lifts">Zig-zag</button><button data-opset="pattern:oneway" class="${op.pattern === 'oneway' ? 'on' : ''}" title="Every stroke cuts the same direction; the tool lifts and comes back between strokes (a more even finish)">One way</button></div></div>
+      <div class="field"><span>Strokes run along</span><div class="seg">${[['auto', 'Long side'], ['x', 'X'], ['y', 'Y']].map(([k, l]) => `<button data-opset="dir:${k}" class="${(op.dir || 'auto') === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>`;
     if (op.type === 'contour') f += `<div class="field"><span>Cut</span><div class="seg"><button data-opbool="holes:0" class="${!op.holes ? 'on' : ''}">Outline / faces</button><button data-opbool="holes:1" class="${op.holes ? 'on' : ''}">Through cut-outs</button></div></div>`;
     if (op.type === 'contour' && !op.holes) f += `<div class="field"><span>Side</span><div class="seg"><button data-opset="side:outside" class="${op.side !== 'inside' ? 'on' : ''}">Outside</button><button data-opset="side:inside" class="${op.side === 'inside' ? 'on' : ''}">Inside</button></div></div>
       <div class="field"><span>Boundary</span><div class="pick ${faces ? '' : 'empty'}"><span>${faces ? 'Chosen faces · click to add/remove' : 'Part outline · or click flat faces'}</span><span class="n">${faces || 'auto'}</span></div></div>
@@ -13001,14 +13331,15 @@ function camPanel() {
     if (op.type === 'contour' && op.holes) f += `<div class="field"><span>Faces holding the cut-outs</span><div class="pick ${faces ? '' : 'empty'}"><span>${faces ? 'Click a face again to remove it' : 'Click the flat faces the openings are in'}</span><span class="n">${faces}</span></div></div>
       <div class="row3">${num('opSd', op.stepdown, 'Stepdown', 0.1)}${num('opLeave', op.leave, 'Leave', 0.05)}${num('opThrough', op.through, 'Below bottom', 0.1)}</div>`;
     if (op.type === 'pocket') f += `<div class="field"><span>Floors</span><div class="pick ${faces ? '' : 'empty'}"><span>${faces ? 'Click a face again to remove it' : 'Click flat floor faces'}</span><span class="n">${faces}</span></div></div>
-      <div class="row2">${num('opSo', op.stepover, 'Stepover ×Ø', 0.05)}${num('opSd', op.stepdown, 'Stepdown', 0.1)}</div><div class="row2">${num('opLw', op.leaveWall, 'Leave on walls', 0.05)}${num('opLf', op.leaveFloor, 'Leave on floor', 0.05)}</div><div class="row2">${num('opRest', op.restD || 0, 'Rest after tool Ø (0 = off)', 1)}</div>`;
+      <div class="row2">${num('opSo', op.stepover, 'Stepover ×Ø', 0.05)}${num('opSd', op.stepdown, 'Stepdown', 0.1)}</div><div class="row2">${num('opFs', pocketFinishStock(op), 'Leave for finishing', 0.05, 'min="0" title="How far the roughing rings stay off the walls. The finish pass (or a later finishing op) takes this off."')}${num('opRest', op.restD || 0, 'Rest after tool Ø (0 = off)', 1)}</div>
+      <label class="chk"><input type="checkbox" id="opFinish" ${op.finish !== false ? 'checked' : ''}> Finish pass: take the walls to size at full depth</label>
+      <div class="row2">${num('opLw', op.leaveWall, 'Leave on walls (final)', 0.05)}${num('opLf', op.leaveFloor, 'Leave on floor', 0.05)}</div>`;
     if (op.type === 'drill') {
       const hl = opAxis(op) ? op.pts || [] : camHoles(), ax = opAxis(op);
       if (ax) { const pz = poseForOp(op), S = camSetup(); f += `<p class="note"><b>Indexed:</b> holes from ${dirName([ax[0], ax[2], -ax[1]])} · ${hl.length} hole${hl.length === 1 ? '' : 's'}. The part turns on the ${S ? S.name : 'rotary'} to <b>${pz ? pz.label : '—'}</b> so the spindle comes straight down (shown in the view).</p>`; }
       const ds = [...new Set(hl.map(h => +h.d.toFixed(2)))].sort((a, b) => a - b);
       f += `<div class="field"><span>Hole diameters (click holes in the view too)</span><div class="chips">${ds.map(d => { const n = hl.filter(h => Math.abs(h.d - d) < 0.02).length, on = op.diams.some(x => Math.abs(x - d) < 0.02); return `<button class="chip ${on ? 'on' : ''}" data-dia="${d}">${fmtDia(d)} <small>×${n}</small></button>`; }).join('') || '<span class="note">No vertical holes found.</span>'}</div></div>
-        <div class="field"><span>Cycle</span><div class="seg"><button data-opset="mode:peck" class="${op.mode === 'peck' ? 'on' : ''}">Peck (G83)</button><button data-opset="mode:drill" class="${op.mode !== 'peck' ? 'on' : ''}">Drill (G81)</button></div></div>
-        <div class="row2">${num('opPeck', op.peck, 'Peck depth', 0.5)}${num('opThrough', op.through, 'Breakthrough', 0.1)}</div>`;
+        ${drillCycleFields(op)}`;
     }
     if (op.type === 'chamfer') { const faces = (op.faces || []).length; f += `<div class="field"><span>Chamfer faces</span><div class="pick ${faces ? '' : 'empty'}"><span>${faces ? 'Click a face again to remove it' : 'Click 45° chamfer faces'}</span><span class="n">${faces}</span></div></div>
       <div class="row2">${num('opThrough', op.through, 'Tip below edge', 0.05)}${num('opLeave', op.leave, 'Leave', 0.05)}</div>`; }
@@ -13115,8 +13446,14 @@ function bindCamPanel() {
   const op = CAMUI.view === 'op' && opById(CAMUI.op);
   if (op) {
     const ot = document.getElementById('opTool'); if (ot) ot.addEventListener('change', () => camEdit(op, 'tool', +ot.value));
-    const map = { opSo: 'stepover', opSoL: 'stepover', opSd: 'stepdown', opLeave: 'leave', opThrough: 'through', opLw: 'leaveWall', opLf: 'leaveFloor', opPeck: 'peck', opRest: 'restD' };
-    for (const [id, k] of Object.entries(map)) setN(id, v => camEdit(op, k, k === 'leave' || k === 'leaveWall' || k === 'leaveFloor' || k === 'through' || k === 'restD' ? Math.max(0, v) : Math.max(0.01, v)));
+    const map = { opSo: 'stepover', opSoL: 'stepover', opSd: 'stepdown', opLeave: 'leave', opThrough: 'through', opLw: 'leaveWall', opLf: 'leaveFloor', opPeck: 'peck', opRest: 'restD', opFs: 'finishStock' };
+    for (const [id, k] of Object.entries(map)) setN(id, v => camEdit(op, k, k === 'leave' || k === 'leaveWall' || k === 'leaveFloor' || k === 'through' || k === 'restD' || k === 'finishStock' ? Math.max(0, v) : Math.max(0.01, v)));
+    ck('opFinish', v => camEdit(op, 'finish', v));
+    const cyc = document.getElementById('opCycle'); if (cyc) cyc.addEventListener('change', () => camEdit(op, 'mode', cyc.value));
+    const drillMap = { opPkI: 'peckFirst', opPkJ: 'peckReduce', opPkK: 'peckMin', opRpl: 'rPlane', opS22: 'chipBack', opS52: 's52', opDepth: 'depth' };
+    for (const [id, k] of Object.entries(drillMap)) setN(id, v => camEdit(op, k, Math.max(k === 'rPlane' ? 0.2 : k === 'chipBack' ? 0.01 : 0, v)));
+    setN('opDwell', v => camEdit(op, 'dwell', Math.max(0, v)));
+    setN('opTapJ', v => camEdit(op, 'tapJ', clamp(Math.round(v), 1, 4)));
     panel.querySelectorAll('[data-opset]').forEach(b => b.addEventListener('click', () => { const [k, v] = b.dataset.opset.split(':'); camEdit(op, k, k === 'angle' ? +v : v); }));
     panel.querySelectorAll('[data-opbool]').forEach(b => b.addEventListener('click', () => { const [k, v] = b.dataset.opbool.split(':'); camEdit(op, k, v === '1'); }));
     panel.querySelectorAll('[data-dia]').forEach(b => b.addEventListener('click', () => { const d = +b.dataset.dia, ds = op.diams.slice(), i = ds.findIndex(x => Math.abs(x - d) < 0.02); if (i >= 0) ds.splice(i, 1); else ds.push(d); camEdit(op, 'diams', ds); }));
@@ -13845,8 +14182,8 @@ async function runExport(key) {
 //  an ordinary parametric history (sketches on planes + extrudes), so it
 //  can be edited, rolled back and machined like anything you model.
 // ═══════════════════════════════════════════════════════════════════
-function sampleKit() {
-  let id = 1;
+function sampleKit(start = 1) {
+  let id = start;
   const features = [], counts = {};
   const nm = t => { counts[t] = (counts[t] || 0) + 1; return FEAT_BASE[t] + counts[t]; };
   const L = (ax, ay, bx, by) => ({ id: id++, type: 'line', a: P2(ax, ay), b: P2(bx, by) });
@@ -15719,7 +16056,7 @@ FEATS.sweep = {
 // ── Loft ───────────────────────────────────────────────────────────
 FEATS.loft = {
   label: 'Loft', need: 'Pick at least two profiles, in order.',
-  init: () => ({ secs: [], smooth: true, op: opDefault() }),
+  init: () => ({ secs: [], smooth: true, twist: 0, op: opDefault() }),
   ready: f => f.secs.length >= 2,
   start(c) { c.f.secs = selProfiles.map(s => ({ sketch: s.sketch, pt: cp2(s.pt) })); },
   showSketch: (f, id) => !!byId(id),
@@ -15734,8 +16071,9 @@ FEATS.loft = {
   },
   panel: f => pf.pick('Profiles, in order', f.secs.length ? f.secs.map((s, i) => `${i + 1}. ${(byId(s.sketch) || {}).name}`).join(' · ') : 'Click profiles on different planes', f.secs.length || '')
     + (f.secs.length ? '<div class="btns"><button class="btn" data-fdo="reverse">Reverse order</button><button class="btn" data-fdo="clear">Clear</button></div>' : '')
-    + pf.seg('Transition', 'smooth', [[true, 'Smooth'], [false, 'Ruled']]) + pf.op(f)
-    + pf.note('Corners are matched between profiles, so a square lofts cleanly into a circle. Smooth passes through every profile with a continuous curve; ruled uses straight lines between them.'),
+    + pf.seg('Transition', 'smooth', [[true, 'Smooth'], [false, 'Ruled']])
+    + `<div class="row2">${pf.num('Rotation (°)', 'twist', { step: 15 })}<span></span></div>` + pf.op(f)
+    + pf.note('Corners are matched between profiles, so a square lofts cleanly into a circle. Smooth passes through every profile with a continuous curve; ruled uses straight lines between them. <b>Rotation</b> turns the last profile by that angle about its center, and everything before it in proportion — a twisted loft.'),
   act: { reverse() { CMD.f.secs.reverse(); featSync(); }, clear() { CMD.f.secs = []; featSync(); } },
   draw() {
     CMD.f.secs.forEach((s, i) => { const sk = byId(s.sketch); if (!sk) return; const p = toScreen(planeTo3(planeOf(sk), s.pt)); og.fillStyle = COL.accent; og.beginPath(); og.arc(p.x, p.y, 9, 0, TAU); og.fill(); og.fillStyle = '#fff'; og.font = '600 11px Inter, system-ui, sans-serif'; og.textAlign = 'center'; og.fillText(String(i + 1), p.x, p.y + 4); og.textAlign = 'left'; });
@@ -17636,8 +17974,8 @@ function setBodyColor(id, hex, live) {
 }
 
 // ── Modeling kit for the product samples ───────────────────────────
-function modelKit() {
-  const k = sampleKit(), F = k.features, colors = {};
+function modelKit(start) {
+  const k = sampleKit(start), F = k.features, colors = {};
   const pl = (o, u, v) => { u = nrm3(u); v = nrm3(v); return { o, u, v, n: crs3(u, v) }; };
   const GROUND = y => pl([0, y, 0], [1, 0, 0], [0, 0, -1]);      // top-view sketch at height y: sketch x → X, sketch y → back
   const FRONT = z => pl([0, 0, z], [1, 0, 0], [0, 1, 0]);        // front-view sketch, normal toward the viewer
@@ -22069,7 +22407,7 @@ function sketchRibbonHTML() {
   const t = a => S.tool === a, T = (a, l, k, ic) => [a, l, k, ic || a, t(a)];
   const np = dimsPending(S.sk).length;
   return rbPanel('Select', [T('select', 'Select', 'S')])
-    + rbPanel('Create', [T('line', 'Line', 'L'), T('rect', 'Rectangle', 'R'), T('circle', 'Circle', 'C'), T('crect', 'Center Rect', ''), T('arc3', '3-Point Arc', 'A'), T('carc', 'Center Arc', ''), T('poly', 'Polygon', 'G')], 3)
+    + rbPanel('Create', [T('line', 'Line', 'L'), T('polyline', 'Polyline', 'Y'), T('rect', 'Rectangle', 'R'), T('circle', 'Circle', 'C'), T('crect', 'Center Rect', ''), T('arc3', '3-Point Arc', 'A'), T('carc', 'Center Arc', ''), T('poly', 'Polygon', 'G')], 3)
     + rbPanel('Modify', [T('trim', 'Trim', 'T'), T('fillet', 'Fillet', 'I'), T('chamfer', 'Chamfer', ''), T('extend', 'Extend', 'W'), T('offset', 'Offset', 'O'), T('origin', 'Set Origin', 'Z', 'origin2')], 1)
     + rbPanel('Transform', [T('mirror', 'Mirror', 'M'), T('array', 'Pattern', 'P'), T('smove', 'Move', ''), T('srot', 'Rotate', ''), T('sscale', 'Scale', ''), ['sk:copy', 'Copy', 'Ctrl+C', 'skcopy'], ['sk:cut', 'Cut', 'Ctrl+X', 'skcut'], T('spaste', 'Paste', 'Ctrl+V')], 0)
     + rbPanel('Constrain', [T('dim', 'Dimension', 'D'), T('project', 'Project', 'J'), ['cons', 'Construction', 'X', 'cons'], ['del', 'Delete', 'Del', 'del']], 1)
@@ -22164,6 +22502,1161 @@ function sSharp1640L() {
   return K.doc();
 }
 SAMPLES.unshift({ axes: 'model', name: 'Sharp 1640L lathe', make: sSharp1640L, desc: '16 × 40" precision engine lathe: 16" swing, 24-3/8" over the gap, 11-3/4" bed, D1-8 nose with a 10" three-jaw chuck, carriage, 4-1/2" compound, tailstock with a 2-1/4" quill.' });
+</script>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  The program, line by line, while it simulates. The posted G-code is
+//  shown syntax-colored beside the view; the line the tool is running is
+//  highlighted and kept in view. Click a line to put the tool there, or
+//  step through it a line at a time (↑ ↓ with the code open).
+// ═══════════════════════════════════════════════════════════════════
+const SCODE = { open: false, want: false, follow: true, lines: [], map: [], byOp: new Map(), cur: -1, key: '', rowH: 19, drawn: '' };
+function simCodeBuild() {
+  const g = postGcode();
+  SCODE.lines = g.text.split('\n'); SCODE.map = g.map || [];
+  SCODE.byOp = new Map();
+  SCODE.map.forEach((m, i) => { if (!m) return; let a = SCODE.byOp.get(m.op); if (!a) SCODE.byOp.set(m.op, a = []); a.push({ mi: m.mi, line: i }); });
+  for (const a of SCODE.byOp.values()) a.sort((x, y) => x.mi - y.mi || x.line - y.line);
+  SCODE.cur = -1; SCODE.drawn = '';
+  const sub = document.getElementById('scSub'); if (sub) sub.textContent = `${SCODE.lines.length.toLocaleString()} lines · ${isIn() ? 'inch' : 'mm'}`;
+  const pad = document.getElementById('scPad'); if (pad) pad.style.height = SCODE.lines.length * SCODE.rowH + 'px';
+}
+// The line that is running for segment sg: the first line of its operation that ends at or after its move.
+function simCodeLineOf(sg) {
+  if (!sg) return -1;
+  const a = SCODE.byOp.get(sg.op);
+  if (!a || !a.length) return -1;
+  let lo = 0, hi = a.length - 1;
+  if (a[hi].mi < sg.mi) return a[hi].line;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (a[m].mi >= sg.mi) hi = m; else lo = m + 1; }
+  return a[lo].line;
+}
+// G-code words, colored by what they do.
+const gcEsc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+function gcColor(line) {
+  let out = '', i = 0;
+  while (i < line.length) {
+    const c = line[i];
+    if (c === '(') { const j = line.indexOf(')', i); const e = j < 0 ? line.length : j + 1; out += `<span class="gc-cm">${gcEsc(line.slice(i, e))}</span>`; i = e; continue; }
+    if (c === ';') { out += `<span class="gc-cm">${gcEsc(line.slice(i))}</span>`; break; }
+    const m = /^([A-Za-z])(\s*[-+]?[0-9]*\.?[0-9]*)/.exec(line.slice(i));
+    if (m && m[0].length > 1) {
+      const L = m[1].toUpperCase(), v = parseFloat(m[2]), w = gcEsc(m[0]);
+      const cls = L === 'G' ? (v === 0 ? 'gc-g0' : [73, 81, 82, 83, 84, 85, 86, 89, 80, 98, 99].includes(v) ? 'gc-cyc' : 'gc-g') : L === 'M' ? 'gc-m' : L === 'T' || L === 'H' || L === 'D' ? 'gc-t'
+        : L === 'X' ? 'gc-x' : L === 'Y' ? 'gc-y' : L === 'Z' ? 'gc-z' : 'IJKRQP'.includes(L) ? 'gc-arc' : L === 'F' || L === 'S' ? 'gc-f' : L === 'O' ? 'gc-o' : L === 'N' ? 'gc-n' : '';
+      out += cls ? `<span class="${cls}">${w}</span>` : w; i += m[0].length; continue;
+    }
+    out += c === '%' ? '<span class="gc-o">%</span>' : gcEsc(c); i++;
+  }
+  return out;
+}
+// What a line does, in words, for the strip above the code.
+function gcSay(line) {
+  const t = line.replace(/\([^)]*\)/g, ' ').toUpperCase(), cm = (/\(([^)]*)\)/.exec(line) || [])[1];
+  const has = re => re.test(t), say = [];
+  const g = [...t.matchAll(/G\s*(\d+(?:\.\d+)?)/g)].map(m => +m[1]), mm = [...t.matchAll(/M\s*(\d+)/g)].map(m => +m[1]);
+  const W = { 0: 'Rapid move', 1: 'Straight cut', 2: 'Clockwise arc', 3: 'Counterclockwise arc', 17: 'XY plane', 20: 'Inches', 21: 'Millimeters', 28: 'Go to machine home', 40: 'Cutter comp off', 43: 'Tool length offset on', 49: 'Length offset off', 53.1: 'Swing the rotaries to the tilted plane', 54: 'Work offset G54', 68.2: 'Tilted work plane', 69: 'Tilted plane off', 73: 'Chip-break peck drilling', 80: 'Cancel the drilling cycle', 81: 'Drill', 82: 'Spot drill with a dwell', 83: 'Deep peck drilling', 84: 'Rigid tap', 85: 'Ream: feed in and out', 90: 'Absolute positions', 91: 'Incremental positions', 94: 'Feed per minute', 98: 'return to start height', 99: 'return to the R plane' };
+  const M = { 0: 'Stop', 1: 'Optional stop', 3: 'Spindle on clockwise', 5: 'Spindle off', 6: 'Tool change', 8: 'Coolant on', 9: 'Coolant off', 30: 'End of program, rewind' };
+  for (const v of g) if (W[v]) say.push(W[v]);
+  for (const v of mm) if (M[v]) say.push(M[v]);
+  const T = /T\s*(\d+)/.exec(t); if (T) say.push('tool ' + T[1]);
+  const S = /S\s*([\d.]+)/.exec(t); if (S) say.push(`${(+S[1]).toLocaleString()} RPM`);
+  const F = /F\s*([\d.]+)/.exec(t); if (F) say.push(`feed ${F[1]} ${isIn() ? 'in' : 'mm'}/min`);
+  const Q = /Q\s*([\d.]+)/.exec(t); if (Q) say.push(`${Q[1]} per peck`);
+  const P = /P\s*([\d.]+)/.exec(t); if (P && g.some(v => v >= 73 && v <= 89)) say.push(`dwell ${P[1]} s`);
+  if (!say.length && has(/[XYZ]/)) say.push(t.trim().startsWith('X') || t.trim().startsWith('Y') || t.trim().startsWith('Z') ? 'Same motion, next point' : 'Move');
+  if (!say.length && cm) say.push(cm);
+  return say.join(' · ');
+}
+function simCodeRender(force) {
+  const list = document.getElementById('scList'), rows = document.getElementById('scRows');
+  if (!list || !rows || !SCODE.open) return;
+  const H = SCODE.rowH, first = Math.max(0, Math.floor(list.scrollTop / H) - 10), last = Math.min(SCODE.lines.length, Math.ceil((list.scrollTop + list.clientHeight) / H) + 10);
+  const key = first + ':' + last + ':' + SCODE.cur;
+  if (!force && key === SCODE.drawn) return;
+  SCODE.drawn = key;
+  let h = '';
+  for (let i = first; i < last; i++) h += `<div class="sc-row${i === SCODE.cur ? ' cur' : i < SCODE.cur ? ' done' : ''}" data-ln="${i}"><span class="sc-ln">${i + 1}</span><span class="sc-tx">${gcColor(SCODE.lines[i]) || ' '}</span></div>`;
+  rows.style.top = first * H + 'px';
+  rows.innerHTML = h;
+}
+function simCodeUpdate() {
+  if (!SCODE.open || !SIM.on) return;
+  const ln = simCodeLineOf(SIM.curSeg);
+  if (ln !== SCODE.cur) {
+    SCODE.cur = ln;
+    const now = document.getElementById('scNow');
+    if (now) now.innerHTML = ln >= 0 ? `<b>Line ${ln + 1}:</b> ${gcEsc(gcSay(SCODE.lines[ln]) || '—')}` : 'Not running a line yet';
+    if (SCODE.follow && ln >= 0) {
+      const list = document.getElementById('scList'), H = SCODE.rowH, y = ln * H;
+      if (list && (y < list.scrollTop + H * 2 || y > list.scrollTop + list.clientHeight - H * 3)) { SCODE.auto = true; list.scrollTop = Math.max(0, y - list.clientHeight / 2); }
+    }
+    simCodeRender(true);
+  }
+}
+function simCodeToggle(open = !SCODE.open) {
+  if (!SIM.on) return;
+  SCODE.open = SCODE.want = open;
+  document.body.classList.toggle('sim-code', open);
+  document.getElementById('simcode').hidden = !open;
+  document.getElementById('sbCode').classList.toggle('on', open);
+  if (open) { simCodeBuild(); SCODE.follow = true; document.querySelector('[data-sc="follow"]').classList.add('on'); simCodeUpdate(); simCodeRender(true); }
+}
+// Seek to where a line starts (its first move), or, for steps, to where it ends.
+function simCodeSeek(ln, atEnd) {
+  const m = SCODE.map[ln];
+  if (!m) { const k = SCODE.map.findIndex((x, i) => i > ln && x); if (k < 0) return; return simCodeSeek(k, false); }
+  const a = SCODE.byOp.get(m.op), j = a.findIndex(x => x.line === ln), prevMi = j > 0 ? a[j - 1].mi : 0;
+  const segs = SIM.prog.filter(sg => sg.op === m.op && sg.mi > prevMi && sg.mi <= m.mi);
+  if (!segs.length) { const sg = SIM.prog.find(x => x.op === m.op && x.mi >= m.mi); if (sg) { SIM.playing = false; simSeek(sg.t0); } return; }
+  SIM.playing = false;
+  // just inside the line's last move: at its end point, still on this line
+  const e = segs[segs.length - 1];
+  simSeek(atEnd ? Math.max(e.t0 + (e.t1 - e.t0) * 0.5, e.t1 - 1e-7) : segs[0].t0 + 1e-9);
+  SCODE.follow = true; document.querySelector('[data-sc="follow"]').classList.add('on');
+}
+function simCodeStep(dir) {
+  if (!SCODE.open) return;
+  let ln = SCODE.cur;
+  // the next line that moves the tool (lines without moves have nothing to show)
+  for (let k = ln + dir; k >= 0 && k < SCODE.lines.length; k += dir) {
+    const m = SCODE.map[k];
+    if (m && SIM.prog.some(sg => sg.op === m.op && sg.mi === m.mi)) { ln = k; break; }
+  }
+  if (ln === SCODE.cur && dir < 0) { SIM.playing = false; simSeek(0); return; }
+  if (ln >= 0) simCodeSeek(ln, true);
+}
+(() => {
+  const box = document.getElementById('simcode'), list = document.getElementById('scList');
+  list.addEventListener('scroll', () => { if (SCODE.auto) SCODE.auto = false; else if (SCODE.follow) { SCODE.follow = false; box.querySelector('[data-sc="follow"]').classList.remove('on'); } simCodeRender(); });
+  list.addEventListener('click', e => { const r = e.target.closest('[data-ln]'); if (r) simCodeSeek(+r.dataset.ln, false); });
+  box.addEventListener('click', e => {
+    const b = e.target.closest('[data-sc]'); if (!b) return;
+    const a = b.dataset.sc;
+    if (a === 'close') simCodeToggle(false);
+    if (a === 'follow') { SCODE.follow = !SCODE.follow; b.classList.toggle('on', SCODE.follow); if (SCODE.follow) { SCODE.cur = -2; simCodeUpdate(); } }
+    if (a === 'prev') simCodeStep(-1);
+    if (a === 'next') simCodeStep(1);
+  });
+  document.getElementById('simbar').addEventListener('click', e => { if (e.target.closest('[data-sb="code"]')) simCodeToggle(); });
+  window.addEventListener('resize', () => simCodeRender(true));
+})();
+const simPanelUpdateC = simPanelUpdate;
+simPanelUpdate = function () { simPanelUpdateC(); simCodeUpdate(); };
+const simStartC = simStart;
+simStart = function () { simStartC(); if (SCODE.want && SIM.on) simCodeToggle(true); };
+const simStopC = simStop;
+simStop = function () { simStopC(); const b = document.getElementById('simcode'); if (b) b.hidden = true; const c = document.getElementById('sbCode'); if (c) c.classList.remove('on'); SCODE.open = false; document.body.classList.remove('sim-code'); };   // SCODE.want: it opens again with the next run
+</script>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  Manufacture → Soft Jaws. Custom vise jaws for the second operation:
+//  the part is turned over (the face you choose goes down) and dropped
+//  into a pocket machined across a pair of soft jaws, which then clamp
+//  it. The view splits in two: on the left the part as it is modeled,
+//  with the plane that says how deep the jaws hold it and the jaws'
+//  outline around it; on the right the jaws that come out, with the part
+//  flipped and sitting in them.
+//
+//  Jaw frame (machine axes): the jaws clamp along Y, the fixed jaw at the
+//  back (+Y), the moving jaw at the front; X runs along the jaws; the jaw
+//  bottom is Z = 0, their top Z = height. The pocket at each height is the
+//  outline of all of the part below that height, seen from above: what the
+//  part sweeps as it is lowered in, so it always drops straight in (and the
+//  pocket can be milled from the top). Each jaw is a stack of exact 2D
+//  slabs, drawn with the simulation's machined-metal look.
+// ═══════════════════════════════════════════════════════════════════
+const JAW = { on: false, geo: null, res: null, anim: null, hover: null, drag: null, pick: false, fit: null, cams: null, busy: 0 };
+const JAW_DEF = () => ({ face: null, spin: 0, depth: null, mode: 'follow', offset: isIn() ? 0.0508 : 0.05, L: null, W: null, H: null, gap: isIn() ? 3.175 : 3, secOn: false, secAxis: 'x', secPos: 0, showPart: true, ghost: true });
+const jawPrm = () => { const C = cam(); if (!C.jaws) C.jaws = JAW_DEF(); else for (const [k, v] of Object.entries(JAW_DEF())) if (!(k in C.jaws)) C.jaws[k] = v; return C.jaws; };
+// rotation (3×3, rows) taking unit vector a onto unit vector b
+function jawRotTo(a, b) {
+  const c = dot3(a, b);
+  if (c > 1 - 1e-9) return [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  if (c < -1 + 1e-9) {                                                  // half turn about an axis square to a (X when a is vertical)
+    let ax = Math.abs(a[0]) < 0.9 ? nrm3(crs3(a, [1, 0, 0])) : nrm3(crs3(a, [0, 1, 0]));
+    if (Math.abs(a[2]) > 0.9) ax = [1, 0, 0];
+    const [x, y, z] = ax;
+    return [[2 * x * x - 1, 2 * x * y, 2 * x * z], [2 * x * y, 2 * y * y - 1, 2 * y * z], [2 * x * z, 2 * y * z, 2 * z * z - 1]];
+  }
+  const v = crs3(a, b), k = 1 / (1 + c), [x, y, z] = v;
+  return [[c + x * x * k, x * y * k - z, x * z * k + y], [x * y * k + z, c + y * y * k, y * z * k - x], [x * z * k - y, y * z * k + x, c + z * z * k]];
+}
+const jawMul = (M, p) => [M[0][0] * p[0] + M[0][1] * p[1] + M[0][2] * p[2], M[1][0] * p[0] + M[1][1] * p[1] + M[1][2] * p[2], M[2][0] * p[0] + M[2][1] * p[1] + M[2][2] * p[2]];
+const jawMM = (A, B) => A.map(r => [0, 1, 2].map(j => r[0] * B[0][j] + r[1] * B[1][j] + r[2] * B[2][j]));
+const jawT = M => [0, 1, 2].map(i => [M[0][i], M[1][i], M[2][i]]);
+// The part's triangles (machine frame) and its default face: the top.
+function jawSource() {
+  const g = camGeom(), G = g.fineG || g.G;
+  if (!G || !G.T.length) return null;
+  let z1 = -Infinity; for (const T of G.T) z1 = Math.max(z1, T.a[2], T.b[2], T.c[2]);
+  return { T: G.T, top: { n: [0, 0, 1], d: z1 } };
+}
+// The held face: its normal (out of the part) and plane (n·p = d).
+function jawFace(src) { const f = jawPrm().face; return f && f.n ? f : src.top; }
+// Coplanar triangles of the face, and its area.
+function jawFaceTris(src, f) {
+  const out = []; let area = 0;
+  for (const T of src.T) if (dot3(T.n, f.n) > 1 - 1e-4 && Math.abs(dot3(T.a, f.n) - f.d) < 5e-3) { out.push(T); area += len3(crs3(sub3(T.b, T.a), sub3(T.c, T.a))) / 2; }
+  return { tris: out, area };
+}
+// Everything that follows from the settings: the part in the jaw frame and the jaws.
+function jawBuild() {
+  const src = jawSource();
+  if (!src) return null;
+  const p = jawPrm(), f = jawFace(src);
+  // turn the held face down, spin it in the jaws, center it
+  const R1 = jawRotTo(nrm3(f.n), [0, 0, -1]), a = (p.spin || 0) * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
+  const R = jawMM([[ca, -sa, 0], [sa, ca, 0], [0, 0, 1]], R1);
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, zmin = Infinity, zmax = -Infinity;
+  const Tr = src.T.map(T => { const A = jawMul(R, T.a), B = jawMul(R, T.b), C = jawMul(R, T.c); for (const q of [A, B, C]) { x0 = Math.min(x0, q[0]); x1 = Math.max(x1, q[0]); y0 = Math.min(y0, q[1]); y1 = Math.max(y1, q[1]); zmin = Math.min(zmin, q[2]); zmax = Math.max(zmax, q[2]); } return { a: A, b: B, c: C, n: jawMul(R, T.n) }; });
+  const zFace = -f.d;                                                   // the face after turning (n·p = d → z = −d)
+  const height = zmax - zFace;                                          // part height above the face
+  const ex = x1 - x0, ey = y1 - y0, r6 = v => Math.ceil(v / 6.35 - 1e-9) * 6.35;
+  // defaults sized to the part: hold the top half, 6" jaws or longer, room behind the pocket
+  const q = isIn() ? 0.508 : 0.5;
+  if (!(p.depth > 0)) p.depth = Math.max(q, Math.round(height * 0.5 / q) * q);
+  if (!(p.gap >= 0)) p.gap = 3;
+  if (!(p.L > 0)) p.L = Math.max(152.4, Math.ceil((ex + 25.4) / 12.7 - 1e-9) * 12.7);
+  if (!(p.W > 0)) p.W = Math.max(38.1, r6(ey / 2 - p.gap / 2 + 12.7));
+  if (!(p.H > 0)) p.H = Math.max(38.1, r6(p.depth + 12.7));
+  const depth = clamp(p.depth, 0.1, Math.max(0.1, height)), H = p.H;
+  // the face sits depth below the jaw top; center the part over the jaws
+  const t = [-(x0 + x1) / 2, -(y0 + y1) / 2, H - depth - zFace];
+  const M = { R, t };                                                   // part (machine) → jaw frame: R·p + t
+  const tris = Tr.map(T => ({ a: add3(T.a, t), b: add3(T.b, t), c: add3(T.c, t), n: T.n }));
+  const lo = zmin + t[2], top = zmax + t[2], face = H - depth;
+  return { src, f, M, tris, lo, top, face, depth, height, H, L: p.L, W: p.W, gap: p.gap, ex, ey, p };
+}
+// Outline, seen from above, of all the part below height Z: the union of the part's
+// downward-facing triangles, each cut off at Z (the lowest skin of every column).
+function jawCavities(g, levels) {
+  const down = g.tris.filter(T => T.n[2] < -1e-6).map(T => ({ T, lo: Math.min(T.a[2], T.b[2], T.c[2]), hi: Math.max(T.a[2], T.b[2], T.c[2]) })).sort((a, b) => a.lo - b.lo);
+  const out = [];
+  let acc = [], prevZ = -Infinity;
+  for (const Z0 of levels) {
+    const add = [], Z = Z0 + 1e-5;                                      // (levels are rounded to the micrometer)
+    for (const d of down) {
+      if (d.lo > Z) break;                                       // (a face lying at Z counts: it is below Z)
+      if (d.hi <= prevZ - 1e-5) continue;                               // already whole in the outline below
+      const vs = [d.T.a, d.T.b, d.T.c], pts = [];
+      for (let k = 0; k < 3; k++) {
+        const A = vs[k], B = vs[(k + 1) % 3], da = Z - A[2], db = Z - B[2];
+        if (da >= 0) pts.push(P2(A[0], A[1]));
+        if ((da >= 0) !== (db >= 0)) { const s = da / (da - db); pts.push(P2(A[0] + (B[0] - A[0]) * s, A[1] + (B[1] - A[1]) * s)); }
+      }
+      if (pts.length >= 3) { const c = cP(pts); if (Math.abs(ClipperLib.Clipper.Area(c)) > 1) add.push(orient(c, true)); }
+    }
+    // (the outline so far keeps its holes: union it whole with the new pieces, never split)
+    if (add.length) acc = cBool(ClipperLib.ClipType.ctUnion, acc, unionAll(add));
+    out.push(acc);
+    prevZ = Z0;
+  }
+  return out;
+}
+// The jaws: slab heights, the pocket at each, and each jaw's material.
+function jawSolve(g) {
+  const p = g.p, H = g.H, qz = z => Math.round(z * 1000) / 1000;
+  const lv = new Set([0, H]);
+  if (g.lo > 0 && g.lo < H) lv.add(qz(g.lo));
+  if (p.mode !== 'projected') {
+    // every height where the part's lower skin changes, and fine steps up its slopes and curves
+    const sl = [];
+    for (const T of g.tris) {
+      if (!(T.n[2] < -1e-6)) continue;
+      const zs = [T.a[2], T.b[2], T.c[2]];
+      for (const z of zs) if (z > 0 && z < H) lv.add(qz(z));
+      if (T.n[2] > -0.999) { const a = Math.max(0, Math.min(...zs)), b = Math.min(H, Math.max(...zs)); if (b > a + 1e-3) sl.push([a, b]); }
+    }
+    if (sl.length) {
+      const step = clamp(g.depth / 60, 0.08, 0.6);
+      sl.sort((a, b) => a[0] - b[0]);
+      let cur = null;
+      for (const s of sl) { if (cur && s[0] <= cur[1]) cur[1] = Math.max(cur[1], s[1]); else { if (cur) for (let z = cur[0] + step; z < cur[1]; z += step) lv.add(qz(z)); cur = s.slice(); } }
+      if (cur) for (let z = cur[0] + step; z < cur[1]; z += step) lv.add(qz(z));
+    }
+  }
+  let L = [...lv].sort((a, b) => a - b), keep = [L[0]];
+  for (const z of L.slice(1)) if (z - keep[keep.length - 1] > 0.004) keep.push(z);
+  if (keep.length > 240) { const every = Math.ceil(keep.length / 200); keep = keep.filter((z, i) => i % every === 0 || i === keep.length - 1 || Math.abs(z - g.lo) < 1e-6); }
+  L = keep;
+  // the pocket at each slab: the outline at the slab's top (on a slope the step clears the part)
+  const tops = L.slice(1), full = p.mode === 'projected' ? jawCavities(g, [H])[0] : null;
+  const cav = p.mode === 'projected' ? tops.map(Z => (Z > g.lo + 1e-6 ? full : [])) : jawCavities(g, tops);
+  const off = p.offset || 0;
+  const pocket = cav.map(c => (c.length && Math.abs(off) > 1e-6 ? cOffset(c, off) : c));
+  const jaws = [-1, 1].map(side => {
+    const yIn = side * g.gap / 2, yOut = side * (g.gap / 2 + g.W);
+    const st = { x0: -g.L / 2, x1: g.L / 2, y0: Math.min(yIn, yOut), y1: Math.max(yIn, yOut), z0: 0, z1: H };
+    const rect = [cP([P2(st.x0, st.y0), P2(st.x1, st.y0), P2(st.x1, st.y1), P2(st.x0, st.y1)])];
+    const m = new StockModel(st, L);
+    m.P = pocket.map(pk => (pk.length ? cDiff(rect, pk) : rect.map(q => q.map(v => ({ X: v.X, Y: v.Y })))));
+    // each slab inside the one below (the pocket only ever widens going up)
+    for (let i = 1; i < m.n; i++) m.P[i] = cBool(ClipperLib.ClipType.ctIntersection, m.P[i], m.P[i - 1]);
+    m.dirty = new Set(m.P.keys());
+    return { side, st, model: m, name: side < 0 ? 'Front jaw (moving)' : 'Back jaw (fixed)' };
+  });
+  return { L, cav, pocket, jaws };
+}
+// ── Checking the fit: the part, turned over and dropped in, against the jaws as built ──
+// Every vertex, edge midpoint and face center of the part is tested against the jaw
+// material at its height; anything inside a jaw by more than 5 µm is an interference.
+function jawFitCheck(g, res) {
+  const pts = [], seen = new Set(), push = q => { const k = q.map(v => Math.round(v * 200)).join(','); if (!seen.has(k)) { seen.add(k); pts.push(q); } };
+  for (const T of g.tris) { push(T.a); push(T.b); push(T.c); push([(T.a[0] + T.b[0] + T.c[0]) / 3, (T.a[1] + T.b[1] + T.c[1]) / 3, (T.a[2] + T.b[2] + T.c[2]) / 3]); for (const [A, B] of [[T.a, T.b], [T.b, T.c], [T.c, T.a]]) push([(A[0] + B[0]) / 2, (A[1] + B[1]) / 2, (A[2] + B[2]) / 2]); }
+  const L = res.L, slab = z => { let lo = 0, hi = L.length - 2; if (z < L[0] || z > L[L.length - 1]) return -1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (L[m] <= z) lo = m; else hi = m - 1; } return lo; };
+  const edgeDist = (q, P) => { let best = Infinity; for (const poly of P) for (let i = 0; i < poly.length; i++) { const A = poly[i], B = poly[(i + 1) % poly.length], ax = A.X / CS, ay = A.Y / CS, bx = B.X / CS, by = B.Y / CS, dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy, s = l2 ? clamp(((q[0] - ax) * dx + (q[1] - ay) * dy) / l2, 0, 1) : 0; best = Math.min(best, Math.hypot(q[0] - ax - s * dx, q[1] - ay - s * dy)); } return best; };
+  let bad = 0, worst = 0, below = 0, checked = 0;
+  const hits = [];
+  for (const q of pts) {
+    if (q[2] < -1e-6) { below++; continue; }
+    // a point exactly on a slab boundary belongs to the slab above it (the one it rests in)
+    const i = slab(q[2] + 1e-5);
+    if (i < 0 || i >= L.length - 1) continue;
+    checked++;
+    for (const J of res.jaws) {
+      const st = J.st;
+      if (q[0] < st.x0 || q[0] > st.x1 || q[1] < st.y0 || q[1] > st.y1) continue;
+      if (!inPaths(P2(q[0], q[1]), J.model.P[i])) continue;
+      const d = edgeDist(q, J.model.P[i]);
+      if (d > 0.005) { bad++; worst = Math.max(worst, d); if (hits.length < 400) hits.push(q); }
+    }
+  }
+  // clearance and grip: the pocket wall against the part, facing each way the jaws push
+  const grip = res.jaws.map(J => {
+    let area = 0;
+    for (let i = 0; i < L.length - 1; i++) {
+      const h = L[i + 1] - L[i];
+      if (h <= 0 || !res.pocket[i].length) continue;
+      for (const poly of J.model.P[i]) for (let k = 0; k < poly.length; k++) {
+        const A = poly[k], B = poly[(k + 1) % poly.length], ax = A.X / CS, ay = A.Y / CS, bx = B.X / CS, by = B.Y / CS, len = Math.hypot(bx - ax, by - ay);
+        if (len < 1e-6) continue;
+        // wall on the pocket (not the jaw's own sides), its normal toward the part along the clamping direction
+        const mx = (ax + bx) / 2, my = (ay + by) / 2;
+        if (Math.abs(mx - J.st.x0) < 1e-3 || Math.abs(mx - J.st.x1) < 1e-3 || Math.abs(my - J.st.y0) < 1e-3 || Math.abs(my - J.st.y1) < 1e-3) continue;
+        const ny = -(bx - ax) / len;                                    // outward normal of the material (left-hand material)
+        if (ny * -J.side > 0.3) area += len * Math.abs(ny) * h;
+      }
+    }
+    return area;
+  });
+  return { n: pts.length, checked, bad, worst, below, grip, hits, stick: g.top - g.H, fits: bad === 0 && below === 0 };
+}
+// ── Scenes ─────────────────────────────────────────────────────────
+function jawMats() {
+  if (JAW.mats) return JAW.mats;
+  const env = ToolLook.env();
+  JAW.mats = {
+    part: new THREE.MeshStandardMaterial({ color: 0x9aa6b4, metalness: 0.25, roughness: 0.5, envMap: env, envMapIntensity: 0.6, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 }),
+    held: new THREE.MeshBasicMaterial({ color: 0x2f7be8, transparent: true, opacity: 0.32, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }),
+    face: new THREE.MeshBasicMaterial({ color: 0xf29b1d, transparent: true, opacity: 0.75, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+    plane: new THREE.MeshBasicMaterial({ color: 0x2f7be8, transparent: true, opacity: 0.13, depthWrite: false, side: THREE.DoubleSide }),
+    planeEdge: new THREE.LineBasicMaterial({ color: 0x2f7be8 }),
+    ghost: new THREE.MeshBasicMaterial({ color: 0x8a93a0, transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide }),
+    ghostEdge: new THREE.LineBasicMaterial({ color: 0x5d6673, transparent: true, opacity: 0.8 }),
+    vise: new THREE.MeshStandardMaterial({ color: 0x3c4450, metalness: 0.5, roughness: 0.45, envMap: env, envMapIntensity: 0.4 }),
+    capPart: new THREE.MeshBasicMaterial({ color: 0xd9534f, side: THREE.DoubleSide }),
+    capJaw: new THREE.MeshBasicMaterial({ color: 0x6f9fd8, side: THREE.DoubleSide }),
+    hit: new THREE.PointsMaterial({ color: 0xff2d2d, size: 5, sizeAttenuation: false, depthTest: false }),
+    edge: new THREE.LineBasicMaterial({ color: 0x1c232d, transparent: true, opacity: 0.35 }),
+  };
+  return JAW.mats;
+}
+// The part as the modeler draws it: its exact display mesh (true surface normals, so faces
+// shade smooth and seamless) and only its real edges — never the triangles inside a face.
+// pt / dir map machine points / directions (into the jaw frame); none: as modeled.
+function jawPartMesh(pt, dir) {
+  const P = [], N = [], E = [], m2 = (a, i) => [a[i], -a[i + 2], a[i + 1]];            // world (Y up) → machine
+  for (const b of visibleBodies()) {
+    const m = bodyMesh(b);
+    for (let i = 0; i < m.pos.length; i += 3) { const q = m2(m.pos, i), n = m2(m.nor, i), a = pt ? pt(q) : q, d = dir ? dir(n) : n; P.push(...toW(a[0], a[1], a[2])); N.push(...toW(d[0], d[1], d[2])); }
+    for (let i = 0; i < m.edgePos.length; i += 3) { const q = m2(m.edgePos, i), a = pt ? pt(q) : q; E.push(...toW(a[0], a[1], a[2])); }
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(N, 3));
+  const eg = new THREE.BufferGeometry(); eg.setAttribute('position', new THREE.Float32BufferAttribute(E, 3));
+  return { g, eg };
+}
+function jawTriGeom(tris, xf) {
+  const pos = new Float32Array(tris.length * 9);
+  let o = 0;
+  for (const T of tris) for (const v of [T.a, T.b, T.c]) { const q = xf ? xf(v) : v, w = toW(q[0], q[1], q[2]); pos[o++] = w[0]; pos[o++] = w[1]; pos[o++] = w[2]; }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.computeVertexNormals();
+  return g;
+}
+const jawDispose = grp => { if (!grp) return; grp.traverse(o => { if (o.geometry) o.geometry.dispose(); for (const m of [].concat(o.material || [])) if (m.userData && m.userData.jawClone) m.dispose(); }); if (grp.parent) grp.parent.remove(grp); };
+// Box (jaw frame) as a mesh + edges, mapped by xf (a jaw-frame point → machine point).
+function jawBox(st, xf, mesh, edge) {
+  const c = [[st.x0, st.y0, st.z0], [st.x1, st.y0, st.z0], [st.x1, st.y1, st.z0], [st.x0, st.y1, st.z0], [st.x0, st.y0, st.z1], [st.x1, st.y0, st.z1], [st.x1, st.y1, st.z1], [st.x0, st.y1, st.z1]].map(p => { const q = xf ? xf(p) : p; return toW(q[0], q[1], q[2]); });
+  const F = [[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4], [1, 2, 6], [1, 6, 5], [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]];
+  const pos = []; for (const f of F) for (const k of f) pos.push(...c[k]);
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.computeVertexNormals();
+  const grp = new THREE.Group(); if (mesh) grp.add(new THREE.Mesh(g, mesh));
+  const E = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]], ep = [];
+  for (const [a, b] of E) ep.push(...c[a], ...c[b]);
+  const eg = new THREE.BufferGeometry(); eg.setAttribute('position', new THREE.Float32BufferAttribute(ep, 3));
+  grp.add(new THREE.LineSegments(eg, edge));
+  return grp;
+}
+function jawScenes() {
+  if (JAW.sc) return JAW.sc;
+  const mk = () => {
+    const s = new THREE.Scene(), cam = new THREE.PerspectiveCamera(32, 1, 1, 20000);
+    s.add(cam);
+    const key = new THREE.DirectionalLight(0xffffff, 0.75); key.position.set(0.4, 0.7, 1); cam.add(key); cam.add(key.target); key.target.position.set(0, 0, -1);
+    s.add(new THREE.HemisphereLight(0xffffff, 0x7d8594, 0.6));
+    const root = new THREE.Group(); s.add(root);
+    return { s, cam, root, orb: { yaw: -0.65, pitch: 0.55, dist: 300, tgt: new THREE.Vector3() } };
+  };
+  JAW.sc = { left: mk(), right: mk() };
+  return JAW.sc;
+}
+// Section: a cut square to X or Y through the jaws, everything past it hidden, the cut faces filled.
+function jawSectionPlane(p, g) {
+  if (!p.secOn) return null;
+  const ax = p.secAxis === 'y' ? 1 : 0, half = ax ? g.gap / 2 + g.W : g.L / 2, s = clamp(p.secPos || 0, -1, 1) * half;
+  // the far side is kept (machine x ≥ s, or y ≥ s), so the cut faces the default view
+  // (world frame: machine x → world x; machine y → world −z)
+  const plane = ax ? new THREE.Plane(new THREE.Vector3(0, 0, -1), -s) : new THREE.Plane(new THREE.Vector3(1, 0, 0), -s);
+  return { ax, s, plane };
+}
+// Filled cut faces: the jaws from their slabs (exact), the part from its triangles cut by the plane.
+function jawSectionCaps(g, res, sec) {
+  const grp = new THREE.Group(), M = jawMats(), eps = 0.02;
+  const quads = [];
+  for (const J of res.jaws) for (let i = 0; i < res.L.length - 1; i++) {
+    const z0 = res.L[i], z1 = res.L[i + 1];
+    for (const [a, b] of jawCutIntervals(J.model.P[i], sec.ax, sec.s)) quads.push([a, b, z0, z1]);
+  }
+  const pos = [];
+  const at = (u, z) => sec.ax ? toW(u, sec.s + eps, z) : toW(sec.s + eps, u, z);
+  for (const [a, b, z0, z1] of quads) { const A = at(a, z0), B = at(b, z0), C = at(b, z1), D = at(a, z1); pos.push(...A, ...B, ...C, ...A, ...C, ...D); }
+  if (pos.length) { const gg = new THREE.BufferGeometry(); gg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); grp.add(new THREE.Mesh(gg, M.capJaw)); }
+  // the part: its triangles cut by the plane, chained into loops, filled even-odd
+  if (jawPrm().showPart) {
+    const segs = [];
+    const c = v => (sec.ax ? v[1] : v[0]) - sec.s;
+    for (const T of g.tris) {
+      const vs = [T.a, T.b, T.c], d = vs.map(c), pts = [];
+      for (let k = 0; k < 3; k++) { const A = vs[k], B = vs[(k + 1) % 3], da = d[k], db = d[(k + 1) % 3]; if ((da > 0) !== (db > 0)) { const s = da / (da - db); pts.push([A[0] + (B[0] - A[0]) * s, A[1] + (B[1] - A[1]) * s, A[2] + (B[2] - A[2]) * s]); } }
+      if (pts.length === 2) segs.push(pts.map(q => P2(sec.ax ? q[0] : q[1], q[2])));
+    }
+    const loops = jawChain(segs);
+    if (loops.length) {
+      const tree = new ClipperLib.PolyTree(), cl = new ClipperLib.Clipper();
+      cl.AddPaths(loops.map(l => cP(l)), ClipperLib.PolyType.ptSubject, true);
+      cl.Execute(ClipperLib.ClipType.ctUnion, tree, ClipperLib.PolyFillType.pftEvenOdd, ClipperLib.PolyFillType.pftEvenOdd);
+      const pp = [], walk = node => { for (const ch of node.Childs()) { const outer = ch.Contour().map(q => new THREE.Vector2(q.X / CS, q.Y / CS)), holes = ch.Childs().map(h => h.Contour().map(q => new THREE.Vector2(q.X / CS, q.Y / CS))); if (outer.length >= 3) { const all = outer.concat(...holes); for (const t of THREE.ShapeUtils.triangulateShape(outer, holes)) for (const k of t) { const q = all[k]; pp.push(...(sec.ax ? toW(q.x, sec.s + eps * 2, q.y) : toW(sec.s + eps * 2, q.x, q.y))); } } for (const h of ch.Childs()) walk(h); } };
+      walk(tree);
+      if (pp.length) { const gg = new THREE.BufferGeometry(); gg.setAttribute('position', new THREE.Float32BufferAttribute(pp, 3)); const m = new THREE.Mesh(gg, M.capPart); m.userData.partCap = true; grp.add(m); }
+    }
+  }
+  return grp;
+}
+// Where the line x = s (ax 0) or y = s (ax 1) crosses a slab's polygons: [from, to] runs inside them.
+function jawCutIntervals(P, ax, s) {
+  const xs = [];
+  for (const poly of P) for (let k = 0; k < poly.length; k++) {
+    const A = poly[k], B = poly[(k + 1) % poly.length], a = (ax ? A.Y : A.X) / CS - s, b = (ax ? B.Y : B.X) / CS - s;
+    if ((a > 0) !== (b > 0)) { const t = a / (a - b), u = ((ax ? A.X : A.Y) + ((ax ? B.X : B.Y) - (ax ? A.X : A.Y)) * t) / CS; xs.push(u); }
+  }
+  xs.sort((a, b) => a - b);
+  const out = [];
+  for (let i = 0; i + 1 < xs.length; i += 2) { const m = (xs[i] + xs[i + 1]) / 2; if (inPaths(ax ? P2(m, s) : P2(s, m), P)) out.push([xs[i], xs[i + 1]]); }
+  return out;
+}
+// Chain 2D segments into closed loops (endpoints matched to a micrometer grid).
+function jawChain(segs) {
+  const key = p => Math.round(p.x * 500) + ',' + Math.round(p.y * 500), ends = new Map(), used = new Uint8Array(segs.length), loops = [];
+  segs.forEach((s, i) => { for (const e of [0, 1]) { const k = key(s[e]); let l = ends.get(k); if (!l) ends.set(k, l = []); l.push([i, e]); } });
+  for (let i = 0; i < segs.length; i++) {
+    if (used[i]) continue;
+    used[i] = 1;
+    const loop = [segs[i][0], segs[i][1]];
+    let cur = segs[i][1], guard = 0;
+    while (guard++ < 200000) {
+      const l = ends.get(key(cur)); let nx = null;
+      if (l) for (const [j, e] of l) if (!used[j]) { nx = [j, e]; break; }
+      if (!nx) break;
+      used[nx[0]] = 1; cur = segs[nx[0]][1 - nx[1]];
+      if (key(cur) === key(loop[0])) break;
+      loop.push(cur);
+    }
+    if (loop.length >= 3) loops.push(loop);
+  }
+  return loops;
+}
+// Build both views from the current settings.
+function jawRefresh() {
+  if (!JAW.on) return;
+  const t0 = performance.now();
+  const g = jawBuild();
+  JAW.geo = g;
+  const sc = jawScenes(), M = jawMats();
+  jawDispose(JAW.leftObj); jawDispose(JAW.rightObj); JAW.leftObj = JAW.rightObj = null;
+  if (!g) { requestDraw(); return; }
+  const res = jawSolve(g);
+  JAW.res = res;
+  const p = g.p, sec = jawSectionPlane(p, g), clip = sec ? [sec.plane] : [];
+  // ── left: the part as modeled, the plane the jaws hold it to, the jaws around it
+  const L = new THREE.Group();
+  const inv = jawT(g.M.R), toPart = q => jawMul(inv, sub3(q, g.M.t));             // jaw frame → machine
+  const pm = jawPartMesh(), pg = pm.g;
+  const partMesh = new THREE.Mesh(pg, M.part); partMesh.userData.pick = true; L.add(partMesh);
+  L.add(new THREE.LineSegments(pm.eg, M.edge));
+  // the part held in the jaws: within depth of the face
+  const nW = new THREE.Vector3(...toW(...g.f.n)), heldPlane = new THREE.Plane(nW.clone(), -(g.f.d - g.depth));
+  const held = M.held.clone(); held.clippingPlanes = [heldPlane]; held.userData.jawClone = true;
+  L.add(new THREE.Mesh(pg, held));
+  const ft = jawFaceTris(g.src, g.f);
+  if (ft.tris.length) L.add(new THREE.Mesh(jawTriGeom(ft.tris), M.face));
+  // the parting plane: parallel to the face, depth into the part (the jaw top)
+  const S = Math.max(g.L, 2 * (g.gap / 2 + g.W)) * 0.62, corners = [[-S, -S], [S, -S], [S, S], [-S, S]].map(([x, y]) => toPart([x, y, g.H]));
+  const plq = []; for (const k of [0, 1, 2, 0, 2, 3]) plq.push(...toW(...corners[k]));
+  const plg = new THREE.BufferGeometry(); plg.setAttribute('position', new THREE.Float32BufferAttribute(plq, 3));
+  const plane = new THREE.Mesh(plg, M.plane); plane.userData.depthPlane = true; L.add(plane);
+  const ple = []; for (let k = 0; k < 4; k++) ple.push(...toW(...corners[k]), ...toW(...corners[(k + 1) % 4]));
+  const pleg = new THREE.BufferGeometry(); pleg.setAttribute('position', new THREE.Float32BufferAttribute(ple, 3)); L.add(new THREE.LineSegments(pleg, M.planeEdge));
+  if (p.ghost) for (const J of res.jaws) L.add(jawBox(J.st, toPart, M.ghost, M.ghostEdge));
+  sc.left.root.add(L); JAW.leftObj = L;
+  // ── right: the jaws as they come out, the part turned over in them
+  const R = new THREE.Group();
+  // jaws in smooth aluminum (no texture lines across a face)
+  for (const J of res.jaws) {
+    const view = new StockView(J.model); view.update(); J.view = view;
+    view.group.traverse(o => { if (o.isMesh) { o.material = (Array.isArray(o.material) ? o.material : [o.material]).map(m => { const c = m.clone(); c.map = null; c.color.set(0xc3cad2); c.roughness = 0.38; c.metalness = 0.55; c.clippingPlanes = clip; c.side = THREE.DoubleSide; c.userData.jawClone = true; return c; }); if (o.material.length === 1) o.material = o.material[0]; } });
+    R.add(view.group);
+  }
+  // the vise under the jaws, and the part
+  R.add(jawBox({ x0: -g.L / 2 - 4, x1: g.L / 2 + 4, y0: -g.gap / 2 - g.W - 4, y1: g.gap / 2 + g.W + 4, z0: -18, z1: -0.05 }, null, M.vise, M.edge));
+  if (p.showPart) {
+    const pm = jawPartMesh(q => add3(jawMul(g.M.R, q), g.M.t), d => jawMul(g.M.R, d)), mat = M.part.clone(); mat.clippingPlanes = clip; mat.userData.jawClone = true;
+    const part = new THREE.Group();
+    part.add(new THREE.Mesh(pm.g, mat));
+    const em = M.edge.clone(); em.clippingPlanes = clip; em.userData.jawClone = true; part.add(new THREE.LineSegments(pm.eg, em));
+    part.userData.part = true; R.add(part); JAW.partObj = part;
+  }
+  if (sec) R.add(jawSectionCaps(g, res, sec));
+  if (JAW.fit && JAW.fit.hits && JAW.fit.hits.length && JAW.fit.key === jawKey()) {
+    const hp = []; for (const q of JAW.fit.hits) hp.push(...toW(q[0], q[1], q[2]));
+    const hg = new THREE.BufferGeometry(); hg.setAttribute('position', new THREE.Float32BufferAttribute(hp, 3)); R.add(new THREE.Points(hg, M.hit));
+  }
+  sc.right.root.add(R); JAW.rightObj = R;
+  JAW.ms = performance.now() - t0;
+  if (!JAW.framed) { jawHome(); JAW.framed = true; }
+  requestDraw();
+}
+// what the jaws depend on (not how they are shown)
+const jawKey = () => { const p = jawPrm(); return JSON.stringify([p.face, p.spin, p.depth, p.mode, p.offset, p.L, p.W, p.H, p.gap]) + '|' + camModelKey(); };
+function jawHome() {
+  const g = JAW.geo; if (!g) return;
+  // fit a sphere round the jaws (and the part standing over them) in each half, portrait or landscape
+  const sc = jawScenes(), R = 0.5 * Math.hypot(g.L, 2 * (g.gap / 2 + g.W), Math.max(g.H, g.top) + 25);
+  const asp = Math.max(0.2, (W / 2) / Math.max(1, H)), vh = 16 * Math.PI / 180, hh = Math.atan(Math.tan(vh) * asp);
+  const setO = (o, c) => { o.tgt.set(...c); o.dist = R / Math.sin(Math.min(vh, hh)) * 1.05; o.yaw = -0.65; o.pitch = 0.5; };
+  const pc = camPart();
+  setO(sc.left.orb, pc ? toW((pc.x0 + pc.x1) / 2, (pc.y0 + pc.y1) / 2, (pc.z0 + pc.z1) / 2) : [0, 0, 0]);
+  setO(sc.right.orb, toW(0, 0, Math.max(g.H, g.top) * 0.45));
+  requestDraw();
+}
+function jawPlaceCam(v, w, h) {
+  const o = v.orb, c = v.cam;
+  c.aspect = w / Math.max(1, h); c.near = Math.max(0.5, o.dist / 200); c.far = o.dist * 20; c.updateProjectionMatrix();
+  const cp = Math.cos(o.pitch), dir = new THREE.Vector3(Math.sin(o.yaw) * cp, Math.sin(o.pitch), Math.cos(o.yaw) * cp);
+  c.position.copy(o.tgt).addScaledVector(dir, o.dist); c.up.set(0, 1, 0); c.lookAt(o.tgt); c.updateMatrixWorld();
+}
+// Draw both halves into the main canvas (same WebGL context: the metal's environment map works).
+function jawFrame(now) {
+  drawPending = false;
+  if (!booted) return;
+  const sc = jawScenes(), half = Math.floor(W / 2);
+  if (JAW.anim) jawAnimStep(now);
+  renderer.localClippingEnabled = true;
+  renderer.setScissorTest(true);
+  for (const [v, x, w] of [[sc.left, 0, half], [sc.right, half, W - half]]) {
+    jawPlaceCam(v, w, H);
+    renderer.setViewport(x, 0, w, H); renderer.setScissor(x, 0, w, H);
+    renderer.clear();
+    renderer.render(v.s, v.cam);
+  }
+  renderer.setScissorTest(false);
+  og.setTransform(DPR, 0, 0, DPR, 0, 0); og.clearRect(0, 0, W, H);
+  if (JAW.anim) requestDraw();
+}
+// ── Test fit: the part rises off the table, turns over, and drops into the open jaws; the jaw closes ──
+function jawTestFit() {
+  const g = JAW.geo; if (!g) return;
+  if (!jawPrm().showPart) { jawPrm().showPart = true; jawRefresh(); }
+  JAW.anim = { t0: performance.now(), dur: 2600 };
+  JAW.fit = null; refreshPanel();
+  requestDraw();
+}
+function jawAnimStep(now) {
+  const A = JAW.anim, g = JAW.geo, part = JAW.partObj;
+  const u = clamp((now - A.t0) / A.dur, 0, 1), ease = x => x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2;
+  const open = 12;
+  const front = JAW.res && JAW.res.jaws.find(J => J.side < 0);
+  // 0–0.55: lift and turn over, high over the open jaws; 0.55–0.8: drop in; 0.8–1: the moving jaw closes
+  const lift = g.height + g.H * 0.8 + 20;
+  if (part) {
+    const k1 = ease(clamp(u / 0.55, 0, 1)), k2 = ease(clamp((u - 0.55) / 0.25, 0, 1));
+    // the flip: from the part as modeled (identity) to its place in the jaws, about the part's center
+    const qA = new THREE.Quaternion(), R = g.M.R, m4 = new THREE.Matrix4();
+    // machine-frame rotation R expressed in the world (Y-up) frame: W·R·W⁻¹ with W = toW
+    const Wm = new THREE.Matrix4().set(1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1), Rm = new THREE.Matrix4().set(R[0][0], R[0][1], R[0][2], 0, R[1][0], R[1][1], R[1][2], 0, R[2][0], R[2][1], R[2][2], 0, 0, 0, 0, 1);
+    m4.copy(Wm).multiply(Rm).multiply(new THREE.Matrix4().copy(Wm).invert());
+    const qR = new THREE.Quaternion().setFromRotationMatrix(m4), q = qA.slerp(qR, k1);
+    // the part's center in the jaws, and the same point as modeled
+    const cJ = [0, 0, (g.face + g.top) / 2], cM = jawMul(jawT(R), sub3(cJ, g.M.t));
+    const cJw = new THREE.Vector3(...toW(...cJ)), cMw = new THREE.Vector3(...toW(...cM));
+    // part geometry sits in the jaw frame: undo its placement (inverse), then rotate by q about the center
+    const qInv = new THREE.Quaternion().setFromRotationMatrix(m4).invert();
+    const rot = new THREE.Quaternion().copy(q).multiply(qInv);
+    const start = cJw.clone().add(new THREE.Vector3(0, lift, 0)), path = start.clone().lerp(cJw, k2);
+    void cMw;
+    part.quaternion.copy(rot);
+    part.position.copy(path).sub(cJw.clone().applyQuaternion(rot));
+  }
+  if (front && front.view) {
+    const k3 = ease(clamp((u - 0.8) / 0.2, 0, 1)), dy = (1 - k3) * open;
+    front.view.group.position.set(0, 0, dy);                              // world +z is machine −y: open toward the front
+  }
+  if (u >= 1) {
+    JAW.anim = null;
+    if (part) { part.position.set(0, 0, 0); part.quaternion.identity(); }
+    if (front && front.view) front.view.group.position.set(0, 0, 0);
+    JAW.fit = jawFitCheck(g, JAW.res); JAW.fit.key = jawKey();
+    jawRefresh(); refreshPanel();
+    toast(JAW.fit.fits ? 'Fits: the part drops into the jaws with nothing in the way' : `Interference: ${JAW.fit.bad} point${JAW.fit.bad === 1 ? '' : 's'} of the part inside the jaws`);
+  }
+}
+// ── Mouse: orbit (left), pan (right / middle), zoom (wheel) on each half; drag the blue plane
+//    on the left to set the depth; click a flat face on the left to hold the part by it ──
+function jawPointer(el) {
+  const side = e => (e.clientX - el.getBoundingClientRect().left < el.clientWidth / 2 ? 'left' : 'right');
+  const ndc = (e, sd) => { const r = el.getBoundingClientRect(), half = r.width / 2, x0 = sd === 'left' ? 0 : half; return new THREE.Vector2(((e.clientX - r.left - x0) / half) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1); };
+  const cast = (e, sd) => { const sc = jawScenes()[sd], rc = new THREE.Raycaster(); rc.setFromCamera(ndc(e, sd), sc.cam); return rc.intersectObjects(sd === 'left' ? (JAW.leftObj ? JAW.leftObj.children : []) : [], false); };
+  let st = null;
+  el.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); });
+  el.addEventListener('pointerdown', e => {
+    e.stopPropagation(); e.preventDefault();
+    const sd = side(e), link = !!jawPrm().link;
+    st = { sd, x: e.clientX, y: e.clientY, btn: e.button, moved: false, link };
+    if (sd === 'left' && e.button === 0) {
+      const hit = cast(e, 'left').find(h => h.object.userData.depthPlane);
+      if (hit) {
+        // screen direction of the face normal: moving the mouse along it raises the plane toward the face
+        const g = JAW.geo, sc = jawScenes().left, nW = new THREE.Vector3(...toW(...g.f.n)), a = hit.point.clone(), b = a.clone().addScaledVector(nW, 1);
+        const pa = a.clone().project(sc.cam), pb = b.clone().project(sc.cam), r = el.getBoundingClientRect();
+        const dv = new THREE.Vector2((pb.x - pa.x) * r.width / 4, -(pb.y - pa.y) * r.height / 2);
+        st.plane = { d0: g.depth, dir: dv.clone().normalize(), pxPerMm: Math.max(1e-3, dv.length()) };
+        JAW.before = snap();
+      }
+    }
+    el.setPointerCapture(e.pointerId);
+  });
+  el.addEventListener('pointermove', e => {
+    e.stopPropagation();
+    if (!st) {
+      const hover = side(e) === 'left' && cast(e, 'left').some(h => h.object.userData.depthPlane);
+      el.style.cursor = hover ? 'ns-resize' : JAW.pick && side(e) === 'left' ? 'crosshair' : 'grab';
+      return;
+    }
+    const dx = e.clientX - st.x, dy = e.clientY - st.y;
+    if (Math.abs(dx) + Math.abs(dy) > 3) st.moved = true;
+    if (st.plane) {
+      const along = dx * st.plane.dir.x + dy * st.plane.dir.y, p = jawPrm(), g = JAW.geo;
+      p.depth = clamp(st.plane.d0 - along / st.plane.pxPerMm, isIn() ? 0.254 : 0.25, g.height);
+      jawRefreshSoon(); jawPanelLive();
+      return;
+    }
+    st.x = e.clientX; st.y = e.clientY;
+    const sc = jawScenes(), views = st.link ? [sc.left, sc.right] : [sc[st.sd]];
+    for (const v of views) {
+      const o = v.orb;
+      if (st.btn === 0) { o.yaw -= dx * 0.008; o.pitch = clamp(o.pitch + dy * 0.008, -1.5, 1.5); }
+      else {
+        const k = o.dist * 0.0012, c = v.cam, right = new THREE.Vector3().setFromMatrixColumn(c.matrixWorld, 0), up = new THREE.Vector3().setFromMatrixColumn(c.matrixWorld, 1);
+        o.tgt.addScaledVector(right, -dx * k).addScaledVector(up, dy * k);
+      }
+    }
+    requestDraw();
+  });
+  el.addEventListener('pointerup', e => {
+    e.stopPropagation();
+    if (!st) return;
+    const s0 = st; st = null;
+    if (s0.plane) { jawCommit('Soft jaws depth'); return; }
+    if (!s0.moved && s0.sd === 'left' && s0.btn === 0) {
+      // a click on the part: hold it by that flat face
+      const hit = cast(e, 'left').find(h => h.object.userData.pick);
+      if (hit && hit.face) {
+        // the face's exact normal there (world → machine) and its plane through the hit point
+        const g = JAW.geo, na = hit.object.geometry.attributes.normal, vi = hit.face.a, nw = { x: na.getX(vi), y: na.getY(vi), z: na.getZ(vi) }, T = hit.point && { n: nrm3([nw.x, -nw.z, nw.y]), a: [hit.point.x, -hit.point.z, hit.point.y] };
+        if (T) {
+          const f = { n: T.n, d: dot3(T.n, T.a) }, ft = jawFaceTris(g.src, f);
+          let total = 0; for (const t of g.src.T) total += len3(crs3(sub3(t.b, t.a), sub3(t.c, t.a))) / 2;
+          if (ft.area < total * 0.002 || Math.abs(1 - len3(f.n)) > 1e-3) { toast('Pick a flat face: the part sits on it in the jaws.'); return; }
+          const before = snap(), p = jawPrm();
+          p.face = f; p.depth = null; p.H = null; p.W = null; p.L = null; JAW.fit = null; JAW.framed = false;
+          record('Soft jaws: hold by a face', before);
+          jawRefresh(); refreshPanel();
+          toast('Holding the part by that face: it goes face down into the jaws');
+        }
+      }
+    }
+  });
+  el.addEventListener('wheel', e => {
+    e.preventDefault(); e.stopPropagation();
+    const sc = jawScenes(), views = jawPrm().link ? [sc.left, sc.right] : [sc[side(e)]], k = Math.exp(e.deltaY * 0.0012);
+    for (const v of views) v.orb.dist = clamp(v.orb.dist * k, 5, 50000);
+    requestDraw();
+  }, { passive: false });
+  el.addEventListener('dblclick', e => { e.stopPropagation(); jawHome(); });
+}
+let jawSoonT = 0;
+function jawRefreshSoon() { if (jawSoonT) return; jawSoonT = requestAnimationFrame(() => { jawSoonT = 0; jawRefresh(); }); }
+function jawCommit(label) { const before = JAW.before || snap(); JAW.before = null; record(label, before); JAW.fit = null; jawRefresh(); refreshPanel(); }
+// ── Entering and leaving ──
+function jawOpen() {
+  if (!camPart()) { toast('Model or open a part first.'); return; }
+  if (SIM.on) simStop();
+  if (CMD) cancelCmd();
+  JAW.on = true; JAW.framed = false; JAW.fit = null;
+  CAMUI.view = 'jaws';
+  document.body.classList.add('jaws-on');
+  document.getElementById('jawsui').hidden = false;
+  camFineGeom();
+  jawRefresh(); camRefresh();
+}
+function jawClose() {
+  if (!JAW.on) return;
+  JAW.on = false; JAW.anim = null;
+  jawDispose(JAW.leftObj); jawDispose(JAW.rightObj); JAW.leftObj = JAW.rightObj = null;
+  document.body.classList.remove('jaws-on');
+  document.getElementById('jawsui').hidden = true;
+  renderer.localClippingEnabled = false;
+  if (CAMUI.view === 'jaws') CAMUI.view = 'overview';
+  requestDraw();
+}
+// Both jaws as an STL (Z up, millimeters).
+function jawSaveSTL(which) {
+  if (!JAW.res) return;
+  const parts = [];
+  for (const J of JAW.res.jaws) {
+    if (which != null && J.side !== which) continue;
+    const V = [], T = [];
+    J.view.group.updateMatrixWorld(true);
+    J.view.group.traverse(o => {
+      if (!o.isMesh || !o.geometry.attributes.position) return;
+      const a = o.geometry.attributes.position, base = V.length;
+      for (let i = 0; i < a.count; i++) V.push([a.getX(i), a.getY(i), a.getZ(i)]);
+      for (let i = 0; i < a.count; i += 3) {
+        // wound so the normal StockView gave the face points out
+        const n = o.geometry.attributes.normal, A = V[base + i], B = V[base + i + 1], C = V[base + i + 2], fn = crs3(sub3(B, A), sub3(C, A));
+        const want = n ? [n.getX(i), n.getY(i), n.getZ(i)] : fn;
+        if (dot3(fn, want) >= 0) T.push(base + i, base + i + 1, base + i + 2); else T.push(base + i, base + i + 2, base + i + 1);
+      }
+    });
+    parts.push({ name: J.name, weld: { V, T } });
+  }
+  const nm = which == null ? 'soft-jaws' : which < 0 ? 'soft-jaw-front' : 'soft-jaw-back';
+  download(`${nm}.stl`, new Blob([writeSTLbin(parts)], { type: 'model/stl' }));
+  toast('Saved ' + nm + '.stl');
+}
+// ── The panel ──
+function jawPanel() {
+  const p = jawPrm(), g = JAW.geo, U = uName(), F = JAW.fit && JAW.fit.key === jawKey() ? JAW.fit : null;
+  if (!g) return `<div class="pn-head"><h2>Soft Jaws</h2></div><div class="pn-body"><p class="note">There is no part to hold yet.</p><div class="btns"><button class="btn primary" data-jaw="close">Done</button></div></div>`;
+  const n = g.f.n, dirName2 = Math.abs(n[2]) > 0.999 ? (n[2] > 0 ? 'Top' : 'Bottom') : Math.abs(n[1]) > 0.999 ? (n[1] > 0 ? 'Back' : 'Front') : Math.abs(n[0]) > 0.999 ? (n[0] > 0 ? 'Right' : 'Left') : 'Angled face';
+  const lenIn = (id, v, lab, extra = '') => `<label class="field"><span>${lab} (${U})</span><input type="number" id="${id}" data-jlen="1" step="${isIn() ? 0.01 : 0.1}" value="${uval(v)}" ${extra}></label>`;
+  const rng = (id, v, lo, hi, st) => `<input type="range" class="jaw-rng" id="${id}" min="${lo}" max="${hi}" step="${st}" value="${v}">`;
+  const pct = Math.round(100 * g.depth / Math.max(1e-6, g.height));
+  const offU = toU(p.offset || 0), offMax = isIn() ? 0.02 : 0.5, offStep = isIn() ? 0.0005 : 0.01;
+  const sum = F ? (F.fits
+    ? `<div class="jaw-fit ok"><b>✓ Fits.</b> Turned over, the part drops into the jaws: ${F.checked.toLocaleString()} points on it checked, none inside the jaws.</div>`
+    : `<div class="jaw-fit bad"><b>✗ Does not fit.</b> ${F.bad ? `${F.bad.toLocaleString()} point${F.bad === 1 ? '' : 's'} of the part inside the jaws (up to ${fmtLs(F.worst, 4)}) — marked red.` : ''}${F.below ? ` ${F.below} below the jaws’ bottom: make the jaws taller.` : ''}</div>`) +
+    `<dl class="kv"><dt>Clearance</dt><dd>${p.offset >= 0 ? fmtLs(p.offset, 4) + ' all round' : fmtLs(-p.offset, 4) + ' interference (press fit)'}</dd><dt>Grip, front jaw</dt><dd>${fmtArea(F.grip[0])}</dd><dt>Grip, back jaw</dt><dd>${fmtArea(F.grip[1])}</dd><dt>Above the jaws</dt><dd>${fmtLs(Math.max(0, F.stick))} to machine</dd></dl>`
+    + (F.grip.some(a => a < 1) ? '<p class="note err-note">A jaw has no wall pushing on the part across the clamp: turn the part 90° or hold it deeper.</p>' : '')
+    : '';
+  const warn = [];
+  if (g.lo < -1e-6) warn.push('The part reaches below the bottom of the jaws: make the jaws taller.');
+  if (g.ey / 2 > g.gap / 2 + g.W) warn.push('The part is wider than the two jaws: the pocket runs out the back. Make each jaw wider.');
+  if (g.ex > g.L) warn.push('The part is longer than the jaws: it hangs off the ends (fine if that is meant).');
+  if (g.ey <= g.gap) warn.push('The part is narrower than the gap between the jaws: they cannot close on it.');
+  if (g.H - g.depth < 3) warn.push('Less than 3 of material under the pocket: make the jaws taller.'.replace('3 of', fmtLs(3) + ' of'));
+  return `<div class="pn-head"><h2>Soft Jaws</h2><span class="tag">custom vise jaws</span></div><div class="pn-body jaw-panel">
+    <p class="note">Jaws for the second operation: the part turns over and drops into a pocket shaped like it. <b>Left:</b> the part as modeled — drag the blue plane to set how deep the jaws hold it, click a flat face to hold it by that face. <b>Right:</b> the jaws you get, with the part in them.</p>
+    <div class="field"><span>Held face (goes down into the jaws)</span><div class="seg jaw-faces">${[['Top', [0, 0, 1]], ['Bottom', [0, 0, -1]], ['Front', [0, -1, 0]], ['Back', [0, 1, 0]], ['Left', [-1, 0, 0]], ['Right', [1, 0, 0]]].map(([l, v]) => `<button data-jface="${v.join(',')}" class="${dirName2 === l ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+    ${dirName2 === 'Angled face' ? '<p class="note">Holding an angled face: the part is tipped so that face lies flat on the jaw pocket’s floor, and the jaw top is parallel to it.</p>' : ''}
+    <div class="field"><span>Turn in the jaws</span><div class="seg">${[0, 90].map(a => `<button data-jspin="${a}" class="${(p.spin || 0) % 180 === a ? 'on' : ''}">${a}°</button>`).join('')}</div></div>
+    <div class="field"><span>Depth — how far into the jaws, from the held face (${U})</span><div class="jaw-row">${rng('jDepthR', +toU(g.depth).toFixed(4), 0, +toU(g.height).toFixed(4), isIn() ? 0.005 : 0.1)}<input type="number" id="jDepth" data-jlen="1" step="${isIn() ? 0.01 : 0.1}" value="${uval(g.depth)}"></div>
+      <small class="hint"><b id="jPct">${pct}%</b> of the part’s ${fmtLs(g.height)} is held; the rest (${fmtLs(Math.max(0, g.height - g.depth))}) stands above the jaws to be machined.</small></div>
+    <div class="field"><span>Pocket shape</span><div class="seg"><button data-jmode="follow" class="${p.mode !== 'projected' ? 'on' : ''}">Follow the part</button><button data-jmode="projected" class="${p.mode === 'projected' ? 'on' : ''}">Projected plane</button></div>
+      <small class="hint">${p.mode === 'projected' ? '<b>Projected plane:</b> the part’s outline is projected square to the held face and cut straight down to a flat floor — one simple pocket, walls square to the face.' : '<b>Follow the part:</b> the pocket steps with the part’s own shape at every height (steps, bosses, chamfers), cut down from the jaw top parallel to the held face.'}</small></div>
+    <div class="field"><span>Offset — ${p.offset >= 0 ? 'outward (clearance)' : 'inward (tighter grip)'} (${U})</span><div class="jaw-row">${rng('jOffR', +offU.toFixed(4), -offMax, offMax, offStep)}<input type="number" id="jOff" data-jlen="1" step="${offStep}" value="${uval(p.offset || 0)}"></div>
+      <small class="hint">Outward (+) opens the pocket so the part drops in freely; inward (−) makes it smaller than the part so the jaws crush-grip it. 0 = exactly the part’s size.</small></div>
+    <div class="field"><span>Each jaw</span><div class="row2">${lenIn('jW', g.W, 'Width', 'min="1"')}${lenIn('jH', g.H, 'Height', 'min="1"')}</div><div class="jaw-row">${rng('jWR', +toU(g.W).toFixed(4), +toU(6).toFixed(3), +toU(Math.max(120, g.W * 2)).toFixed(3), isIn() ? 0.01 : 0.5)}</div>
+      <div class="row2">${lenIn('jL', g.L, 'Length', 'min="1"')}${lenIn('jGap', g.gap, 'Gap between jaws', 'min="0"')}</div>
+      <small class="hint"><b>Width</b> is each jaw’s thickness front to back; <b>gap</b> is the space left between the two jaws when they close on the part, so the clamping force goes into the part.</small></div>
+    <div class="field"><span>Section</span><label class="chk"><input type="checkbox" id="jSec" ${p.secOn ? 'checked' : ''}> Cut the jaws open to see the part in them</label>
+      ${p.secOn ? `<div class="seg"><button data-jsec="x" class="${p.secAxis !== 'y' ? 'on' : ''}">Across (X)</button><button data-jsec="y" class="${p.secAxis === 'y' ? 'on' : ''}">Along (Y)</button></div><div class="jaw-row">${rng('jSecR', p.secPos || 0, -1, 1, 0.01)}<span class="jaw-pct">${Math.round(50 + 50 * (p.secPos || 0))}%</span></div>` : ''}</div>
+    <label class="chk"><input type="checkbox" id="jPart" ${p.showPart ? 'checked' : ''}> Show the part in the jaws</label>
+    <label class="chk"><input type="checkbox" id="jGhost" ${p.ghost ? 'checked' : ''}> Show the jaws around the part (left)</label>
+    <label class="chk"><input type="checkbox" id="jLink" ${p.link ? 'checked' : ''}> Turn both views together</label>
+    ${warn.map(w => `<p class="note err-note">${w}</p>`).join('')}
+    ${sum}
+    <div class="btns"><button class="btn primary" data-jaw="fit">${svg('camsim')}Test fit: flip it in</button></div>
+    <div class="btns"><button class="btn" data-jaw="stl">Save jaws (.stl)</button><button class="btn" data-jaw="stlf">Front</button><button class="btn" data-jaw="stlb">Back</button></div>
+    <div class="btns"><button class="btn" data-jaw="home">Reset views</button><button class="btn primary" data-jaw="close">Done</button></div>
+    <p class="note">${JAW.res ? `${JAW.res.L.length - 1} slab${JAW.res.L.length === 2 ? '' : 's'} · ${Math.round(JAW.ms || 0)} ms` : ''}</p></div>`;
+}
+const fmtArea = a => (isIn() ? (a / 645.16).toFixed(2) + ' in²' : Math.round(a) + ' mm²');
+// Update the live labels while a slider moves (the panel is rebuilt when it lets go).
+function jawPanelLive() {
+  const g = JAW.geo; if (!g) return;
+  const d = document.getElementById('jDepth'); if (d && document.activeElement !== d) d.value = uval(jawPrm().depth);
+  const r = document.getElementById('jDepthR'); if (r && document.activeElement !== r) r.value = +toU(jawPrm().depth).toFixed(4);
+  const pc = document.getElementById('jPct'); if (pc) pc.textContent = Math.round(100 * clamp(jawPrm().depth, 0, g.height) / Math.max(1e-6, g.height)) + '%';
+}
+function bindJawPanel() {
+  const p = jawPrm(), start = () => { if (!JAW.before) JAW.before = snap(); };
+  const live = (id, fn, conv = v => fromU(v)) => {
+    const el = document.getElementById(id); if (!el) return;
+    el.addEventListener('input', () => { const v = parseFloat(el.value); if (!isFinite(v)) return; start(); fn(conv(v)); JAW.fit = null; jawRefreshSoon(); jawPanelLive(); });
+    el.addEventListener('change', () => jawCommit('Soft jaws'));
+  };
+  live('jDepthR', v => { p.depth = Math.max(0.1, v); });
+  live('jDepth', v => { p.depth = Math.max(0.1, v); });
+  live('jOffR', v => { p.offset = v; });
+  live('jOff', v => { p.offset = v; });
+  live('jWR', v => { p.W = Math.max(1, v); });
+  live('jW', v => { p.W = Math.max(1, v); });
+  live('jH', v => { p.H = Math.max(1, v); });
+  live('jL', v => { p.L = Math.max(1, v); });
+  live('jGap', v => { p.gap = Math.max(0, v); });
+  live('jSecR', v => { p.secPos = v; }, v => v);
+  const sec0 = document.getElementById('jSec'); if (sec0) sec0.addEventListener('change', () => { if (sec0.checked && !p.secPos) p.secPos = 0.3; });
+  const set = (fn, label) => { const before = snap(); fn(); record(label, before); JAW.fit = null; jawRefresh(); refreshPanel(); };
+  panel.querySelectorAll('[data-jface]').forEach(b => b.addEventListener('click', () => set(() => {
+    const n = b.dataset.jface.split(',').map(Number), src = jawSource();
+    let d = -Infinity; for (const T of src.T) for (const v of [T.a, T.b, T.c]) d = Math.max(d, dot3(n, v));
+    Object.assign(p, { face: { n, d }, depth: null, H: null, W: null, L: null }); JAW.framed = false;
+  }, 'Soft jaws: held face')));
+  panel.querySelectorAll('[data-jspin]').forEach(b => b.addEventListener('click', () => set(() => { p.spin = +b.dataset.jspin; p.W = null; p.L = null; }, 'Soft jaws: turn')));
+  panel.querySelectorAll('[data-jmode]').forEach(b => b.addEventListener('click', () => set(() => { p.mode = b.dataset.jmode; }, 'Soft jaws: pocket shape')));
+  panel.querySelectorAll('[data-jsec]').forEach(b => b.addEventListener('click', () => set(() => { p.secAxis = b.dataset.jsec; }, 'Soft jaws: section')));
+  const ck = (id, k) => { const el = document.getElementById(id); if (el) el.addEventListener('change', () => set(() => { p[k] = el.checked; }, 'Soft jaws')); };
+  ck('jSec', 'secOn'); ck('jPart', 'showPart'); ck('jGhost', 'ghost'); ck('jLink', 'link');
+  panel.querySelectorAll('[data-jaw]').forEach(b => b.addEventListener('click', () => {
+    const a = b.dataset.jaw;
+    if (a === 'close') { jawClose(); camRefresh(); }
+    if (a === 'fit') jawTestFit();
+    if (a === 'home') jawHome();
+    if (a === 'stl') jawSaveSTL(null);
+    if (a === 'stlf') jawSaveSTL(-1);
+    if (a === 'stlb') jawSaveSTL(1);
+  }));
+}
+// ── Hooks into the Manufacture workspace ──
+(() => {
+  const vp = document.getElementById('viewport'), ui = document.createElement('div');
+  ui.id = 'jawsui'; ui.hidden = true;
+  ui.innerHTML = '<div class="jw-lab l"><b>Setup</b> · the part as modeled — drag the blue plane, click a face</div><div class="jw-lab r"><b>Result</b> · soft jaws, the part turned over in them</div><div class="jw-split"></div>';
+  vp.appendChild(ui);
+  jawPointer(ui);
+})();
+const frameJ = frame;
+frame = function (now) { if (JAW.on && UIX.ws === 'cam') { jawFrame(now); return; } frameJ(now); };
+const camPanelJ = camPanel;
+camPanel = function () { if (CAMUI.view === 'jaws' && JAW.on) return jawPanel(); return camPanelJ(); };
+const bindCamPanelJ = bindCamPanel;
+bindCamPanel = function () { if (CAMUI.view === 'jaws' && JAW.on) { bindJawPanel(); return; } bindCamPanelJ(); };
+const camActionJ = camAction;
+camAction = function (a) {
+  if (a === 'jaws') { if (JAW.on) { jawClose(); camRefresh(); } else jawOpen(); return; }
+  if (JAW.on) jawClose();
+  camActionJ(a);
+};
+const camToolbarJ = camToolbar;
+camToolbar = function () {
+  let h = camToolbarJ();
+  if (typeof isWire === 'function' && isWire()) return h;
+  const P = rbPanel('Fixture', [['jaws', 'Soft Jaws', '', 'softjaws', JAW.on]], 1, 'data-cam');
+  const i = h.indexOf('<section class="rb-panel" aria-label="Actions"');
+  return i >= 0 ? h.slice(0, i) + P + h.slice(i) : h + P;
+};
+if (!IC.softjaws) IC.softjaws = '<path d="M2 16h16"/><path d="M3 16V7h4v4h2V7"/><path d="M17 16V7h-4v4h-2V7"/><rect x="7.5" y="3" width="5" height="6" rx="0.6" opacity=".6"/>';
+const setWorkspaceJ = setWorkspace;
+setWorkspace = function (ws) { if (JAW.on && ws !== 'cam') jawClose(); setWorkspaceJ(ws); };
+// a model change rebuilds the jaws
+const camModelChangedJ = camModelChanged;
+camModelChanged = function () { camModelChangedJ(); if (JAW.on) { JAW.fit = null; jawRefresh(); } };
+// undo / redo while the jaws are open: follow the restored settings
+const refreshPanelJ = refreshPanel;
+refreshPanel = function () { if (JAW.on && UIX.ws === 'cam' && CAMUI.view !== 'jaws') jawClose(); refreshPanelJ(); };
+const jumpToJ = jumpTo;
+jumpTo = function (k) { jumpToJ(k); if (JAW.on) { JAW.fit = null; jawRefresh(); refreshPanel(); } };
+</script>
+
+<script>
+// A soft ripple from where a button is pressed (every button, wherever it is).
+document.addEventListener('pointerdown', e => {
+  const b = e.target.closest && e.target.closest('button, .btn, .rb-btn, .tb, .chip');
+  if (!b || b.disabled || (typeof REDUCED === 'function' && REDUCED())) return;
+  if (getComputedStyle(b).position === 'static') b.style.position = 'relative';
+  let w = b.querySelector(':scope > .rip-wrap');
+  if (!w) { w = document.createElement('span'); w.className = 'rip-wrap'; b.appendChild(w); }
+  const r = b.getBoundingClientRect(), d = Math.hypot(r.width, r.height) * 2, s = document.createElement('span');
+  s.className = 'rip'; s.style.width = s.style.height = d + 'px'; s.style.left = (e.clientX - r.left - d / 2) + 'px'; s.style.top = (e.clientY - r.top - d / 2) + 'px';
+  w.appendChild(s); setTimeout(() => s.remove(), 550);
+}, true);
+</script>
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  The command box (bottom middle of the view): make things by typing,
+//  without sketching — "box 100 60 20", "cylinder 30 50 at 0 0 20",
+//  "hole 8 at 20 10", "fillet 2". Each command adds ordinary features to
+//  the design (sketch + extrude / revolve / …), so everything it makes
+//  can be edited afterward, and one Ctrl+Z takes a command back.
+//  Positions are X (right), Y (back), Z (up); sizes are in the display
+//  units unless a number says "mm" or "in".
+// ═══════════════════════════════════════════════════════════════════
+const CMDS = [
+  ['box', 'box W L H [at X Y Z] [round R]', 'A block W wide (X), L long (Y), H high (Z), standing on Z (its center at X Y). "round R" rounds its upright corners.'],
+  ['cylinder', 'cylinder D H [at X Y Z]', 'An upright round bar of diameter D and height H.'],
+  ['tube', 'tube OD ID H [at X Y Z]', 'An upright tube: outside diameter, inside diameter, height.'],
+  ['sphere', 'sphere D [at X Y Z]', 'A ball of diameter D (X Y Z is its center).'],
+  ['cone', 'cone D1 D2 H [at X Y Z]', 'A cone or frustum: diameter D1 at the bottom, D2 at the top.'],
+  ['plate', 'plate W L T [holes D]', 'A plate with a hole near each corner (default Ø = T).'],
+  ['hole', 'hole D [depth] at X Y', 'Drills down from the top of the part at X Y; no depth = right through.'],
+  ['pocket', 'pocket W L depth at X Y [round R]', 'Cuts a pocket down from the top of the part.'],
+  ['gear', 'gear TEETH [module M] [width W]', 'A spur gear (module 2 and 10 wide unless given).'],
+  ['fillet', 'fillet R', 'Rounds every edge of the last thing made.'],
+  ['chamfer', 'chamfer C', 'Bevels every edge of the last thing made.'],
+  ['array', 'array N SPACING [x|y]', 'Repeats the last thing made N times along X (or Y).'],
+  ['color', 'color NAME|#hex', 'Colors the last body (red, blue, green, orange, black, white, gray…).'],
+  ['cut', 'cut box … / cut cylinder …', 'Put "cut" first to take the shape away from the part instead of adding it.'],
+  ['new', 'box … new', 'Put "new" last to make a separate body instead of joining the part.'],
+  ['sample', 'sample NAME', 'Opens a sample part by name (e.g. sample heat sink).'],
+  ['clear', 'clear', 'Starts an empty design.'],
+  ['undo', 'undo / redo', 'Takes the last step back (or forward).'],
+  ['units', 'units mm|in', 'Shows and types sizes in millimeters or inches.'],
+  ['help', 'help', 'Lists every command.'],
+];
+const CMDX = { hist: [], hi: -1, sel: 0 };
+const COLOR_NAMES = { red: '#d9443a', blue: '#2f6fe0', green: '#2ea052', orange: '#f29b1d', yellow: '#e8c547', black: '#2a2f36', white: '#f2f4f7', gray: '#9aa3ad', grey: '#9aa3ad', purple: '#8c5bd8', brass: '#c9a24a', copper: '#c07040', steel: '#b7bec5', aluminum: '#c3cad2', wood: '#a0703f' };
+// "12", "12mm", "0.5in", "1/2in"
+function cmdNum(t) {
+  const m = /^(-?[\d.]+(?:\/[\d.]+)?)(mm|in|")?$/i.exec(String(t).trim());
+  if (!m) return NaN;
+  const v = m[1].includes('/') ? m[1].split('/').reduce((a, b) => +a / +b) : +m[1];
+  if (!isFinite(v)) return NaN;
+  return m[2] ? (m[2].toLowerCase() === 'mm' ? v : v * 25.4) : fromU(v);
+}
+function cmdTop() {
+  // the highest point of the design (machine Z), or 0 with nothing there
+  let top = -Infinity;
+  for (const b of (typeof visibleBodies === 'function' ? visibleBodies() : [])) top = Math.max(top, b.bb[4]);
+  return isFinite(top) ? top : 0;
+}
+// Parse and run one command. Returns a message (thrown errors are shown as they are).
+function runCommand(line) {
+  const raw = line.trim();
+  if (!raw) return '';
+  const low = raw.toLowerCase().replace(/,/g, ' ').replace(/\s+/g, ' ');
+  let words = low.split(' ');
+  const head = words[0];
+  if (head === 'help' || head === '?') { cmdShowHelp(); return 'Commands listed above'; }
+  if (head === 'undo') { undo(); return 'Undone'; }
+  if (head === 'redo') { redo(); return 'Redone'; }
+  if (head === 'clear' || head === 'new' && words.length === 1) { loadDoc({ features: [], next: 1 }, 'New design'); return 'Empty design'; }
+  if (head === 'units') { const u = words[1]; if (u !== 'mm' && u !== 'in') throw new Error('units mm or units in'); if (isIn() !== (u === 'in')) setUnits(u); return 'Units: ' + (u === 'in' ? 'inches' : 'millimeters'); }
+  if (head === 'sample') {
+    const q = raw.slice(6).trim().toLowerCase(), s = SAMPLES.find(x => x.name.toLowerCase() === q) || SAMPLES.find(x => x.name.toLowerCase().includes(q));
+    if (!s) throw new Error('No sample called "' + q + '"');
+    loadDoc(s.make(), 'Sample: ' + s.name); return 'Opened ' + s.name;
+  }
+  if (UIX.ws !== 'design') setWorkspace('design');
+  if (S.sk) finishSketch();
+  if (CMD) cancelCmd();
+  // modifiers anywhere: cut … / … new
+  let op = null;
+  if (head === 'cut') { op = 'cut'; words = words.slice(1); }
+  if (words[words.length - 1] === 'new') { op = 'new'; words.pop(); }
+  const kind = words[0], args = words.slice(1);
+  if (kind === 'color' || kind === 'colour' || kind === 'paint') {
+    const c = COLOR_NAMES[args[0]] || (/^#?[0-9a-f]{6}$/i.test(args[0] || '') ? '#' + args[0].replace('#', '') : null);
+    if (!c) throw new Error('color needs a name or #rrggbb');
+    const bs = visibleBodies(), b = bs[bs.length - 1];
+    if (!b) throw new Error('there is no body to color');
+    setBodyColor(b.id, c); return 'Colored ' + (b.name || 'the last body') + ' ' + args[0];
+  }
+  // named options: at X Y Z · round R · holes D · module M · width W · depth D
+  const opt = {}, pos = [];
+  for (let i = 0; i < args.length; i++) {
+    const w = args[i];
+    if (w === 'at') { opt.at = []; while (i + 1 < args.length && isFinite(cmdNum(args[i + 1]))) opt.at.push(cmdNum(args[++i])); continue; }
+    if (['round', 'holes', 'module', 'width', 'depth', 'thick', 'm'].includes(w)) { opt[w] = cmdNum(args[++i]); if (w === 'module' || w === 'm') opt.module = +args[i]; continue; }
+    if (w === 'x' || w === 'y') { opt.dir = w; continue; }
+    const v = cmdNum(w);
+    if (!isFinite(v)) throw new Error(`"${w}" is not a number`);
+    pos.push(v);
+  }
+  const need = (n, what) => { if (pos.length < n || pos.slice(0, n).some(v => !(v > 0))) throw new Error(`${kind} needs ${what}`); };
+  const [ax, ay, az] = [(opt.at || [])[0] || 0, (opt.at || [])[1] || 0, (opt.at || [])[2]];
+  const hasBody = visibleBodies().length > 0, joinOp = op || (hasBody ? 'join' : 'new');
+  const before = snap(), K = modelKit(doc.next);
+  let label = '', last = null;
+  const up = z => K.GROUND(z);
+  if (kind === 'box' || kind === 'block' || kind === 'cube') {
+    const [W, L, H] = kind === 'cube' && pos.length === 1 ? [pos[0], pos[0], pos[0]] : pos;
+    if (!(W > 0 && L > 0 && H > 0)) throw new Error('box needs W L H (cube needs one size)');
+    const z = az || 0, r = opt.round || 0;
+    const ents = r > 0 ? K.rrect(ax - W / 2, ay - L / 2, ax + W / 2, ay + L / 2, Math.min(r, W / 2 - 1e-3, L / 2 - 1e-3)) : K.rect(ax - W / 2, ay - L / 2, ax + W / 2, ay + L / 2);
+    last = K.extrude(K.sketch(up(z), ents), [P2(ax, ay)], H, joinOp);
+    label = `Box ${fmtLs(W)} × ${fmtLs(L)} × ${fmtLs(H)}`;
+  } else if (kind === 'cylinder' || kind === 'cyl' || kind === 'rod') {
+    need(2, 'D H');
+    last = K.extrude(K.sketch(up(az || 0), [K.C(ax, ay, pos[0] / 2)]), [P2(ax, ay)], pos[1], joinOp);
+    label = `Cylinder Ø${fmtLs(pos[0])} × ${fmtLs(pos[1])}`;
+  } else if (kind === 'tube' || kind === 'pipe') {
+    need(3, 'OD ID H');
+    if (pos[1] >= pos[0]) throw new Error('the inside diameter must be smaller than the outside');
+    last = K.extrude(K.sketch(up(az || 0), [K.C(ax, ay, pos[0] / 2), K.C(ax, ay, pos[1] / 2)]), [P2(ax + (pos[0] + pos[1]) / 4, ay)], pos[2], joinOp);
+    label = `Tube Ø${fmtLs(pos[0])} / Ø${fmtLs(pos[1])} × ${fmtLs(pos[2])}`;
+  } else if (kind === 'sphere' || kind === 'ball') {
+    need(1, 'D');
+    const r = pos[0] / 2, zc = az == null ? r : az, q = Math.PI / 2;
+    // the half disc (closed by a line on the axis), turned about a construction axis over it
+    const axis = K.cons(K.L(ax, zc - r - 1, ax, zc + r + 1));
+    const sk = K.sketch(K.FRONT(-ay), [K.Ar(ax, zc, r, -q, q), K.L(ax, zc + r, ax, zc - r), axis]);
+    last = K.revolve(sk, [P2(ax + r / 2, zc)], axis, joinOp);
+    label = `Sphere Ø${fmtLs(pos[0])}`;
+  } else if (kind === 'cone') {
+    if (pos.length < 3 || !(pos[0] >= 0 && pos[1] >= 0 && pos[2] > 0) || pos[0] + pos[1] <= 0) throw new Error('cone needs D1 D2 H');
+    const z = az || 0, r1 = pos[0] / 2, r2 = pos[1] / 2, H = pos[2];
+    const axis = K.cons(K.L(ax, z - 1, ax, z + H + 1)), ents = [axis];
+    const pts = [[ax, z], [ax + r1, z], [ax + r2, z + H], [ax, z + H]];
+    for (let i = 0; i < 4; i++) { const a = pts[i], b = pts[(i + 1) % 4]; if (Math.hypot(a[0] - b[0], a[1] - b[1]) > 1e-9) ents.push(K.L(a[0], a[1], b[0], b[1])); }
+    const sk = K.sketch(K.FRONT(-ay), ents);
+    last = K.revolve(sk, [P2(ax + Math.max(r1, r2) / 3, z + H / 3)], axis, joinOp);
+    label = `Cone Ø${fmtLs(pos[0])} → Ø${fmtLs(pos[1])} × ${fmtLs(H)}`;
+  } else if (kind === 'plate') {
+    need(3, 'W L T');
+    const [W, L, T] = pos, d = opt.holes || T, e = Math.max(d, Math.min(W, L) * 0.1), ents = K.rect(ax - W / 2, ay - L / 2, ax + W / 2, ay + L / 2);
+    for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) ents.push(K.C(ax + sx * (W / 2 - e), ay + sy * (L / 2 - e), d / 2));
+    last = K.extrude(K.sketch(up(az || 0), ents), [P2(ax, ay)], T, joinOp);
+    label = `Plate ${fmtLs(W)} × ${fmtLs(L)} × ${fmtLs(T)}`;
+  } else if (kind === 'hole' || kind === 'drill') {
+    need(1, 'D (and "at X Y")');
+    if (!hasBody) throw new Error('there is no part to drill');
+    const top = cmdTop(), depth = pos[1] > 0 ? pos[1] : top - Math.min(...visibleBodies().map(b => b.bb[1])) + 2;
+    last = K.hole(mPt(ax, ay, top), mDir(0, 0, 1), pos[0], depth);
+    label = `Hole Ø${fmtLs(pos[0])}${pos[1] > 0 ? ' × ' + fmtLs(pos[1]) : ' through'}`;
+  } else if (kind === 'pocket' || kind === 'slot') {
+    need(3, 'W L depth (and "at X Y")');
+    if (!hasBody) throw new Error('there is no part to cut');
+    const [W, L, D] = pos, r = opt.round || (kind === 'slot' ? Math.min(W, L) / 2 - 1e-3 : 0), top = cmdTop();
+    const ents = r > 0 ? K.rrect(ax - W / 2, ay - L / 2, ax + W / 2, ay + L / 2, Math.min(r, W / 2 - 1e-3, L / 2 - 1e-3)) : K.rect(ax - W / 2, ay - L / 2, ax + W / 2, ay + L / 2);
+    last = K.extrude(K.sketch(up(top), ents), [P2(ax, ay)], -D, 'cut');
+    label = `${kind === 'slot' ? 'Slot' : 'Pocket'} ${fmtLs(W)} × ${fmtLs(L)} × ${fmtLs(D)} deep`;
+  } else if (kind === 'gear') {
+    const z = Math.round(pos[0] || 0);
+    if (!(z >= 6)) throw new Error('gear needs a tooth count (6 or more)');
+    last = K.gear({ z, m: opt.module || 2, width: opt.width || opt.thick || 10, cx: ax, cy: ay, op: op === 'cut' ? 'cut' : 'new' });
+    label = `Gear ${z} teeth, module ${opt.module || 2}`;
+  } else if (kind === 'fillet' || kind === 'chamfer' || kind === 'round' || kind === 'bevel') {
+    need(1, 'a size');
+    const f = cmdLastFeature();
+    if (!f) throw new Error('make something first');
+    // only the body that holds the feature's own side walls (flat caps can share a
+    // surface with other bodies lying in the same plane)
+    const list = doc.features.slice(), saved = doc;
+    let bodies; doc = { features: list, next: 1e9 }; try { bodies = evaluate(0.25, list.length).bodies; } finally { doc = saved; }
+    const mine = ch => K.on(ch.fa, f) || K.on(ch.fb, f), wall = fid => (Surf.list[fid].metas || []).some(m => { try { const o = JSON.parse(m); return o.feat === f.id && o.ent != null; } catch (e) { return false; } });
+    const edges = [];
+    for (const b of bodies) { const chs = edgeChains(bodyMesh(b)); if (!chs.some(ch => wall(ch.fa) || wall(ch.fb))) continue; for (const ch of chs) if (mine(ch)) edges.push(edgeRef(ch)); }
+    if (!edges.length) throw new Error('no edges found on the last thing made');
+    last = (kind === 'fillet' || kind === 'round') ? K.fillet(edges, pos[0]) : K.chamfer(edges, pos[0]);
+    label = `${kind === 'fillet' || kind === 'round' ? 'Fillet' : 'Chamfer'} ${fmtLs(pos[0])} on ${edges.length} edge${edges.length > 1 ? 's' : ''}`;
+  } else if (kind === 'array' || kind === 'pattern' || kind === 'repeat') {
+    const n = Math.round(pos[0] || 0), sp = pos[1];
+    if (!(n >= 2) || !(sp > 0)) throw new Error('array needs N (2 or more) and a spacing');
+    const f = cmdLastFeature(true);
+    if (!f) throw new Error('make something first');
+    last = K.linear([f], opt.dir === 'y' ? 'Y' : 'X', n, sp);
+    label = `Array × ${n}, ${fmtLs(sp)} apart along ${opt.dir === 'y' ? 'Y' : 'X'}`;
+  } else throw new Error(`I don't know "${kind}" — type help`);
+  // add what the kit built to the design, as one undoable step
+  const add = K.features.filter(f => !doc.features.includes(f));
+  for (const f of add) { f.name = featName(f.type); insertFeature(f); }
+  doc.next = Math.max(doc.next, K.nid());
+  const col = K.doc().colors || {};
+  if (Object.keys(col).length) doc.colors = Object.assign(doc.colors || {}, col);
+  record(label, before);
+  modelChanged(true);
+  if (typeof refreshUI === 'function') refreshUI();
+  void last;
+  return label;
+}
+// The last feature that made or cut something (skipping sketches).
+function cmdLastFeature(anyTool) {
+  for (let i = doc.features.length - 1; i >= 0; i--) { const f = doc.features[i]; if (f.sup) continue; if (anyTool ? TOOL_FEATS.has(f.type) : f.type !== 'sketch' && f.type !== 'plane' && f.type !== 'point') return f; }
+  return null;
+}
+function cmdShowHelp() {
+  const box = document.getElementById('cmdSug');
+  box.innerHTML = '<div class="cs-title">Commands · sizes in ' + uName() + ' (or add mm / in) · X right, Y back, Z up</div>' + CMDS.map(([k, syn, what]) => `<div class="cs-row" data-cmd="${k}"><code>${syn}</code><span>${what}</span></div>`).join('');
+  box.hidden = false; CMDX.sel = -1;
+}
+function cmdSuggest(v) {
+  const box = document.getElementById('cmdSug'), w = v.trim().toLowerCase().split(/\s+/)[0] || '';
+  if (!v.trim()) { box.hidden = true; return; }
+  const list = CMDS.filter(([k]) => k.startsWith(w) || (w.length > 1 && k.includes(w))).slice(0, 7);
+  if (!list.length) { box.hidden = true; return; }
+  CMDX.list = list; CMDX.sel = Math.min(Math.max(0, CMDX.sel), list.length - 1);
+  box.innerHTML = list.map(([k, syn, what], i) => `<div class="cs-row ${i === CMDX.sel ? 'on' : ''}" data-cmd="${k}"><code>${syn}</code><span>${what}</span></div>`).join('');
+  box.hidden = false;
+}
+(() => {
+  const vp = document.getElementById('viewport'), bar = document.createElement('div');
+  bar.id = 'cmdbar';
+  bar.innerHTML = '<div id="cmdSug" hidden></div><div class="cmd-in"><svg viewBox="0 0 20 20"><path d="M4 6l4 4-4 4M10 15h6"/></svg><input id="cmdIn" type="text" spellcheck="false" autocomplete="off" placeholder="Type a command — box 100 60 20 · cylinder 30 50 · hole 8 at 20 10 · help"><span class="cmd-key" title="Press / to type a command">/</span></div><div id="cmdMsg"></div>';
+  vp.appendChild(bar);
+  const inp = bar.querySelector('#cmdIn'), sug = bar.querySelector('#cmdSug'), msg = bar.querySelector('#cmdMsg');
+  let msgT = 0;
+  const say = (t, bad) => { msg.textContent = t; msg.className = bad ? 'bad show' : 'show'; clearTimeout(msgT); msgT = setTimeout(() => { msg.className = ''; }, 3200); };
+  const run = () => {
+    const v = inp.value;
+    if (!v.trim()) return;
+    CMDX.hist.push(v); CMDX.hi = CMDX.hist.length;
+    try { const r = runCommand(v); if (r) say('✓ ' + r); inp.value = ''; if (!/^\s*(help|\?)\s*$/i.test(v)) sug.hidden = true; }
+    catch (e) { console.warn(e); say('✗ ' + (e.message || e), true); }
+  };
+  inp.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); run(); return; }
+    if (e.key === 'Escape') { if (!sug.hidden) sug.hidden = true; else inp.blur(); return; }
+    if (e.key === 'Tab') { e.preventDefault(); const it = CMDX.list && CMDX.list[Math.max(0, CMDX.sel)]; if (it && !sug.hidden) { inp.value = it[0] + ' '; cmdSuggest(inp.value); } return; }
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (!sug.hidden && CMDX.list && inp.value.trim().split(/\s+/).length === 1) { CMDX.sel = (CMDX.sel + (e.key === 'ArrowDown' ? 1 : -1) + CMDX.list.length) % CMDX.list.length; cmdSuggest(inp.value); return; }
+      if (!CMDX.hist.length) return;
+      CMDX.hi = clamp(CMDX.hi + (e.key === 'ArrowUp' ? -1 : 1), 0, CMDX.hist.length);
+      inp.value = CMDX.hist[CMDX.hi] || ''; sug.hidden = true;
+    }
+  });
+  inp.addEventListener('input', () => { CMDX.sel = 0; cmdSuggest(inp.value); });
+  inp.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== inp) sug.hidden = true; }, 150));
+  sug.addEventListener('mousedown', e => { const r = e.target.closest('[data-cmd]'); if (!r) return; e.preventDefault(); inp.value = r.dataset.cmd + ' '; inp.focus(); cmdSuggest(inp.value); });
+  // "/" puts the cursor in the box from anywhere
+  document.addEventListener('keydown', e => {
+    const ae = document.activeElement;
+    if (e.key === '/' && !(ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable))) { e.preventDefault(); e.stopPropagation(); inp.focus(); }
+  }, true);
+})();
 </script>
 
 <script>boot();</script>
