@@ -3638,6 +3638,12 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .rb-col { display: flex; flex-direction: column; gap: 1px; }
 .rb-sm { display: flex; align-items: center; gap: 7px; height: 22px; padding: 0 8px 0 5px; font-size: 11.5px; white-space: nowrap; text-align: left; }
 .rb-sm svg { width: 15px; height: 15px; }
+/* sections of the selected body's panel */
+.gz-sec { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 14px 0 2px; padding-top: 10px; border-top: 1px solid var(--rule); }
+.gz-sec h3 { margin: 0; font: 600 11px/1 var(--font); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); }
+.gz-sec .chip { padding: 3px 9px; font-size: 11px; }
+.row3 .seg { display: flex; }
+.row3 .seg button { flex: 1; padding: 4px 0; }
 @media (max-width: 1280px) {
   .rb-panel { padding: 0 3px; }
   .rb-big { min-width: 48px; padding: 3px 4px; font-size: 10.5px; }
@@ -20010,6 +20016,12 @@ function gzAnchorFromShown(st, Pu) {
   const v = new THREE.Vector3(Pu[0] - st.a[0] - st.t[0], Pu[1] - st.a[1] - st.t[1], Pu[2] - st.a[2] - st.t[2]).applyMatrix4(gzRotU(st.r).invert()).multiplyScalar(1 / st.s);
   return [v.x + st.a[0], v.y + st.a[1], v.z + st.a[2]];
 }
+// turn by deg about the world axis i (0 X, 1 Y, 2 Z), after the turn it already has
+function gzTurn(st, i, deg) {
+  const R = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(...GZ_AX[i]), deg * Math.PI / 180).multiply(gzRotU(st.r)), e = new THREE.Euler().setFromRotationMatrix(R, 'ZYX');
+  st.r = [e.x, e.y, e.z].map(v => { const d = v * 180 / Math.PI; return Math.abs(d - Math.round(d)) < 1e-6 ? Math.round(d) : d; });
+}
+try { GZ.always = localStorage.getItem('datum.gzAlways') === '1'; } catch (e) { GZ.always = false; }
 const gzIdentity = st => Math.hypot(...st.t) < 1e-9 && Math.hypot(...st.r) < 1e-9 && Math.abs(st.s - 1) < 1e-12;
 function gzCommit(id, st, label) {
   const before = snap();
@@ -20163,7 +20175,8 @@ solidClick = function (x, y, ev) {
   if (!CMD && !S.sk && UIX.ws === 'design' && h && h.kind === 'sbody') {
     selProfiles.length = 0; selEdges.length = 0;
     sel3D = sel3D && sel3D.kind === 'body' && sel3D.body === h.body && !(ev && (ev.shiftKey || ev.ctrlKey)) ? null : { kind: 'body', body: h.body, fid: h.fid, mesh: h.mesh, point: h.point };
-    GZ.pick = false;
+    GZ.pick = !!(sel3D && GZ.always); GZ.pickHover = null;
+    if (GZ.pick) toast('Click the anchor point: a vertex, edge midpoint, hole or face center · Esc to skip');
     rebuildHighlights(); refreshPanel(); requestDraw(); return;
   }
   solidClick0(x, y, ev);
@@ -20184,17 +20197,24 @@ idlePanel = function () {
   const P = [st.a[0] + st.t[0], st.a[1] + st.t[1], st.a[2] + st.t[2]];
   const num = (key, v, s, t) => `<input type="number" data-gz="${key}" step="${s}" value="${+(+v).toFixed(4)}" title="${t}" aria-label="${t}">`;
   const face = sel3D.fid != null && Surf.list[sel3D.fid], gear = ft && ft.type === 'gear';
+  // a section heading; its button puts that tool's handles in the view
+  const gzSec = (t, mode, lab) => `<div class="gz-sec"><h3>${t}</h3>${mode ? `<button class="chip ${GZ.mode === mode ? 'on' : ''}" data-gzm="${mode}" title="${lab} in the view">${lab} in view</button>` : ''}</div>`;
   return `<div class="pn-head"><h2>${xmlEsc(nm)}</h2><span class="tag">body</span></div><div class="pn-body">
     <p class="note">${ft ? `Made by <b>${xmlEsc(ft.name)}</b>. ` : ''}Drag the ${GZ.mode === 'rotate' ? 'rings' : GZ.mode === 'scale' ? 'handles' : 'arrows'} in the view or type values. Shift: finer steps.</p>
     <div class="field"><span>Color</span><input type="color" id="gzCol" value="${(doc.colors && doc.colors[id]) || '#b4bec9'}"></div>
-    <div class="field"><span>Tool</span><div class="seg">${[['move', 'Position'], ['rotate', 'Rotation'], ['scale', 'Scale']].map(([k, l]) => `<button data-gzm="${k}" class="${GZ.mode === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+    ${gzSec('Move', 'move', 'Arrows')}
     <div class="field"><span>Position of the anchor (${U})</span><div class="row3">${[0, 1, 2].map(i => num('p' + i, toU(P[i]), step, 'XYZ'[i])).join('')}</div></div>
+    <div class="field"><span>Move by (${U}) — type a distance, Enter</span><div class="row3">${[0, 1, 2].map(i => `<input type="number" data-gzby="${i}" step="${step}" value="0" title="Move by ${'XYZ'[i]}" aria-label="Move by ${'XYZ'[i]}">`).join('')}</div></div>
+    ${gzSec('Rotate', 'rotate', 'Rings')}
     <div class="field"><span>Rotation about the anchor (°)</span><div class="row3">${[0, 1, 2].map(i => num('r' + i, st.r[i], 15, 'About ' + 'XYZ'[i])).join('')}</div></div>
+    <div class="field"><span>Turn 90° about</span><div class="row3">${[0, 1, 2].map(i => `<div class="seg"><button data-gzturn="${i}:-90" title="−90° about ${'XYZ'[i]}">−${'XYZ'[i]}</button><button data-gzturn="${i}:90" title="+90° about ${'XYZ'[i]}">+${'XYZ'[i]}</button></div>`).join('')}</div></div>
+    ${gzSec('Scale', 'scale', 'Handles')}
     <div class="field"><span>Scale about the anchor (×)</span>${num('s', st.s, 0.1, 'Scale factor')}</div>
-    <div class="divider"></div>
+    ${gzSec('Anchor')}
     <div class="field"><span>Anchor, on the body as built (${U})</span><div class="row3">${[0, 1, 2].map(i => num('a' + i, toU(st.a[i]), step, 'Anchor ' + 'XYZ'[i])).join('')}</div></div>
-    <div class="btns"><button class="btn ${GZ.pick ? 'primary' : ''}" data-gzdo="pick" title="Snap the anchor to a vertex, edge midpoint, hole center or face center">${GZ.pick ? 'Click a point…' : 'Snap anchor…'}</button><button class="btn" data-gzdo="center" title="Put the anchor back at the body's center">Center</button></div>
-    <p class="note">The anchor is the point the body turns and scales about. Moving it never moves the body.</p>
+    <div class="btns"><button class="btn ${GZ.pick ? 'primary' : ''}" data-gzdo="pick" title="Snap the anchor to a vertex, edge midpoint, hole center or face center">${GZ.pick ? 'Click a point…' : 'Set anchor point…'}</button><button class="btn" data-gzdo="center" title="Put the anchor back at the body's center">Center</button></div>
+    <label class="chk"><input type="checkbox" id="gzAlways" ${GZ.always ? 'checked' : ''}> Always set the anchor when I select a body</label>
+    <p class="note">The anchor is the point the body moves from and turns and scales about. Moving the anchor never moves the body.</p>
     <div class="divider"></div>
     <div class="btns">${st.f ? '<button class="btn" data-gzdo="reset">Undo transform</button>' : ''}${face && face.t === 'P' ? '<button class="btn" data-gzdo="face">Select face</button>' : ''}${gear ? '<button class="btn" data-gzdo="gear">Edit gear</button>' : ''}</div>
   </div>`;
@@ -20204,6 +20224,16 @@ function gzBindPanel() {
   const id = sel3D.body;
   const col = panel.querySelector('#gzCol');
   if (col) { let before = null; col.addEventListener('click', () => { before = snap(); }); col.addEventListener('input', () => setBodyColor(id, col.value, true)); col.addEventListener('change', () => { setBodyColor(id, col.value); if (before) record('Body color', before); before = null; refreshUI(); }); }
+  const alw = panel.querySelector('#gzAlways');
+  if (alw) alw.addEventListener('change', () => { GZ.always = alw.checked; try { localStorage.setItem('datum.gzAlways', GZ.always ? '1' : '0'); } catch (e) { /* ok */ } if (GZ.always && !GZ.pick) { GZ.pick = true; GZ.pickHover = null; toast('Click a vertex, edge midpoint, hole or face center for the anchor · Esc to skip'); } refreshPanel(); requestDraw(); });
+  panel.querySelectorAll('[data-gzby]').forEach(inp => inp.addEventListener('change', () => {
+    const v = +inp.value; if (!Number.isFinite(v) || !v) return;
+    const st = gzState(id); st.t[+inp.dataset.gzby] += fromU(v); gzCommit(id, st, 'Move body');
+  }));
+  panel.querySelectorAll('[data-gzturn]').forEach(b => b.addEventListener('click', () => {
+    const [i, deg] = b.dataset.gzturn.split(':').map(Number), st = gzState(id);
+    gzTurn(st, i, deg); gzCommit(id, st, 'Rotate body');
+  }));
   panel.querySelectorAll('[data-gzm]').forEach(b => b.addEventListener('click', () => { GZ.mode = b.dataset.gzm; try { localStorage.setItem('datum.gzMode', GZ.mode); } catch (e) { /* ok */ } refreshPanel(); requestDraw(); }));
   panel.querySelectorAll('[data-gz]').forEach(inp => inp.addEventListener('change', () => {
     const k = inp.dataset.gz, v = +inp.value; if (!Number.isFinite(v)) return;
