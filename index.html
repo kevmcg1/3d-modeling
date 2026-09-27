@@ -3865,6 +3865,22 @@ body.sim-on #status { display: none; }
 #simcode[hidden] { display: none; }
 body.sim-code #hint { display: none; }
 #jawsui { position: absolute; inset: 0; z-index: 5; cursor: grab; touch-action: none; }
+#tipcard { position: fixed; z-index: 60; width: 290px; background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.18), var(--shadow); padding: 11px 12px 12px; pointer-events: none;
+  opacity: 0; transform: translateY(-4px) scale(.98); transform-origin: top center; transition: opacity .2s cubic-bezier(.2,.7,.2,1), transform .25s cubic-bezier(.2,.7,.2,1); }
+#tipcard[hidden] { display: none; }
+#tipcard.in { opacity: 1; transform: none; }
+.tip-head { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink); }
+.tip-head b { font-weight: 650; }
+.tip-what { margin: 5px 0 8px; font-size: 12px; line-height: 1.45; color: var(--ink-2); }
+.tip-pics { display: flex; align-items: center; gap: 4px; }
+.tip-pics figure { margin: 0; flex: 1; min-width: 0; }
+.tip-pics svg { display: block; width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--rule); }
+.tip-pics figcaption { font-size: 10.5px; font-weight: 600; color: var(--muted); text-align: center; margin-top: 3px; text-transform: uppercase; letter-spacing: .04em; }
+.tip-arr { color: var(--accent); font-weight: 700; font-size: 16px; margin-bottom: 14px; }
+.tip-more { max-height: 0; overflow: hidden; opacity: 0; transition: max-height .35s cubic-bezier(.2,.7,.2,1), opacity .3s ease, margin .3s ease; }
+#tipcard.more .tip-more { max-height: 220px; opacity: 1; margin-top: 9px; }
+.tip-step { font-size: 10.5px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; border-top: 1px solid var(--rule); padding-top: 8px; }
+.tip-more ol { margin: 0; padding-left: 18px; font-size: 12px; line-height: 1.5; color: var(--ink-2); }
 #cmdbar { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); width: min(520px, calc(100% - 28px)); z-index: 4; display: flex; flex-direction: column; gap: 6px; }
 body.sim-on #cmdbar, body.jaws-on #cmdbar { display: none; }
 body #mouseLegend { bottom: 64px; }
@@ -23902,6 +23918,259 @@ SAMPLES.push(
   { axes: 'model', name: 'Motherboard (ATX)', make: sMotherboard, desc: '305 × 244 mm ATX board: CPU socket, four DIMM slots, VRM and chipset heatsinks, PCIe x16 / x1, 24-pin and 8-pin power, SATA, rear I/O.' },
   { axes: 'model', name: 'Light bulb circuit', make: sBulbCircuit, desc: 'A D-cell battery, a knife switch and a light bulb in its holder, wired in one loop on a wooden board.' },
 );
+</script>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  Tool previews. Hold the pointer on any ribbon tool for a second: a
+//  card opens with a before → after picture of what the tool does. Keep
+//  holding and it grows a second step: how to use it, one line at a time
+//  (the way Fusion 360's tooltips do). The pictures are drawn here as
+//  small SVGs — isometric blocks for solids, a grid for sketches.
+// ═══════════════════════════════════════════════════════════════════
+const TipArt = (() => {
+  const C = { top: '#dfe5ec', l: '#b8c2ce', r: '#9aa6b4', line: '#44505e', acc: '#2f7be8', accT: '#8fb9f5', accL: '#5f97ee', accR: '#3f7fe0', warn: '#f29b1d', sk: '#2f7be8', grid: '#e4e9ef', hole: '#56616e', dim: '#d9443a', cut: '#ef9a3a', ok: '#2ea052', path: '#2ea052', stock: '#c9b79c', stockT: '#e3d6c0', stockR: '#b3a086' };
+  const W = 120, H = 90;
+  let OX = 60, OY = 40, S = 1;
+  const at = (ox, oy, s) => { OX = ox; OY = oy; S = s; };
+  const P = (x, y, z) => [OX + (x - y) * 0.866 * S, OY + (x + y) * 0.5 * S - z * S];
+  const pts = a => a.map(p => p.map(v => v.toFixed(1)).join(',')).join(' ');
+  const poly = (a, fill, stroke = C.line, w = 0.8, extra = '') => `<polygon points="${pts(a)}" fill="${fill}" stroke="${stroke}" stroke-width="${w}" stroke-linejoin="round" ${extra}/>`;
+  const line = (a, stroke = C.line, w = 1, extra = '') => `<polyline points="${pts(a)}" fill="none" stroke="${stroke}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" ${extra}/>`;
+  // a block from (x, y, z), w × d × h: its top and the two sides facing the viewer
+  function box(x, y, z, w, d, h, t = 'n') {
+    const [ct, cl, cr] = t === 'a' ? [C.accT, C.accL, C.accR] : t === 's' ? [C.stockT, C.stock, C.stockR] : [C.top, C.l, C.r];
+    return poly([P(x, y + d, z), P(x + w, y + d, z), P(x + w, y + d, z + h), P(x, y + d, z + h)], cl)
+      + poly([P(x + w, y, z), P(x + w, y + d, z), P(x + w, y + d, z + h), P(x + w, y, z + h)], cr)
+      + poly([P(x, y, z + h), P(x + w, y, z + h), P(x + w, y + d, z + h), P(x, y + d, z + h)], ct);
+  }
+  // an ellipse: a horizontal circle (x, y, z, r) seen in the iso view
+  const ell = (x, y, z, r, fill, stroke = C.line, w = 0.8, extra = '') => { const [cx, cy] = P(x, y, z); return `<ellipse cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" rx="${(1.2247 * r * S).toFixed(1)}" ry="${(0.7071 * r * S).toFixed(1)}" fill="${fill}" stroke="${stroke}" stroke-width="${w}" ${extra}/>`; };
+  function cyl(x, y, z, r, h, t = 'n') {
+    const [ct, cs] = t === 'a' ? [C.accT, C.accL] : t === 's' ? [C.stockT, C.stock] : [C.top, C.l];
+    const [bx, by] = P(x, y, z), [tx, ty] = P(x, y, z + h), rx = 1.2247 * r * S, ry = 0.7071 * r * S;
+    return `<path d="M${(bx - rx).toFixed(1)},${by.toFixed(1)} A${rx.toFixed(1)},${ry.toFixed(1)} 0 0 0 ${(bx + rx).toFixed(1)},${by.toFixed(1)} L${(tx + rx).toFixed(1)},${ty.toFixed(1)} L${(tx - rx).toFixed(1)},${ty.toFixed(1)} Z" fill="${cs}" stroke="${C.line}" stroke-width="0.8"/>` + ell(x, y, z + h, r, ct);
+  }
+  const arrow = (a, b, col = C.dim) => { const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1, ux = dx / L, uy = dy / L, h = 4; return line([a, b], col, 1.2) + poly([b, [b[0] - ux * h - uy * h * 0.6, b[1] - uy * h + ux * h * 0.6], [b[0] - ux * h + uy * h * 0.6, b[1] - uy * h - ux * h * 0.6]], col, col, 0.5); };
+  const dot = (p, col = C.sk, r = 2.2) => `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${r}" fill="${col}"/>`;
+  const txt = (p, s, col = C.dim, size = 8) => `<text x="${p[0].toFixed(1)}" y="${p[1].toFixed(1)}" font-size="${size}" font-family="Inter, system-ui, sans-serif" font-weight="600" fill="${col}" text-anchor="middle">${s}</text>`;
+  // 2D sketch views: a grid, and shapes in plain screen coordinates
+  const grid = () => { let g = ''; for (let x = 10; x < W; x += 12) g += `<line x1="${x}" y1="4" x2="${x}" y2="${H - 4}" stroke="${C.grid}" stroke-width="0.8"/>`; for (let y = 9; y < H; y += 12) g += `<line x1="4" y1="${y}" x2="${W - 4}" y2="${y}" stroke="${C.grid}" stroke-width="0.8"/>`; return g; };
+  const sk = (d, col = C.sk, w = 1.6, extra = '') => `<path d="${d}" fill="none" stroke="${col}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" ${extra}/>`;
+  const fillP = (d, col = 'rgba(47,123,232,.14)') => `<path d="${d}" fill="${col}" stroke="none"/>`;
+  const wrap = body => `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg"><rect width="${W}" height="${H}" rx="8" fill="#f6f8fb"/>${body}</svg>`;
+  // a sheet-like plane (parallelogram) at height z
+  const plane = (z, s = 26, col = 'rgba(47,123,232,.10)') => poly([P(-s, -s, z), P(s, -s, z), P(s, s, z), P(-s, s, z)], col, C.accL, 0.7, 'stroke-dasharray="3 2"');
+  const B = (w = 30, d = 22, h = 14) => box(-w / 2, -d / 2, 0, w, d, h);
+  return { C, W, H, at, P, poly, line, box, ell, cyl, arrow, dot, txt, grid, sk, fillP, wrap, plane, B };
+})();
+// before / after drawings for each tool (keys are the ribbon's action names)
+const TIP_ART = (() => {
+  const A = TipArt, { C, at, P, poly, line, box, ell, cyl, arrow, dot, txt, grid, sk, fillP, plane, B } = A;
+  const iso = (f, ox = 60, oy = 48, s = 1.55) => () => { at(ox, oy, s); return f(); };
+  const k2 = f => () => grid() + f();
+  const hexPts = (cx, cy, r) => Array.from({ length: 6 }, (_, i) => [cx + r * Math.cos(i * Math.PI / 3), cy + r * Math.sin(i * Math.PI / 3)]);
+  const gearPath = (cx, cy, r, n) => { let d = ''; for (let i = 0; i < n * 2; i++) { const a0 = i * Math.PI / n, a1 = (i + 1) * Math.PI / n, R = i % 2 ? r : r + 5; d += `${i ? 'L' : 'M'}${(cx + R * Math.cos(a0)).toFixed(1)},${(cy + R * Math.sin(a0)).toFixed(1)} L${(cx + R * Math.cos(a1)).toFixed(1)},${(cy + R * Math.sin(a1)).toFixed(1)} `; } return d + 'Z'; };
+  const rectD = (x, y, w, h) => `M${x},${y}h${w}v${h}h${-w}Z`;
+  const shapeL = 'M30,66 L30,24 L66,24 L66,44 L50,44 L50,66 Z';
+  const T = {
+    // ── Design ──
+    sketch: [iso(() => plane(0)), iso(() => plane(0) + line([P(-18, -14, 0), P(10, -14, 0), P(10, 12, 0), P(-18, 12, 0), P(-18, -14, 0)], C.sk, 1.6) + ell(20, 4, 0, 8, 'none', C.sk, 1.6))],
+    extrude: [iso(() => plane(0) + poly([P(-15, -11, 0), P(15, -11, 0), P(15, 11, 0), P(-15, 11, 0)], 'rgba(47,123,232,.25)', C.sk, 1.4)), iso(() => box(-15, -11, 0, 30, 22, 18, 'a') + arrow(P(0, 0, 18), P(0, 0, 30), C.acc))],
+    'f:revolve': [iso(() => line([P(0, 0, -4), P(0, 0, 34)], C.dim, 1, 'stroke-dasharray="3 2"') + poly([P(0, 0, 0), P(14, 0, 0), P(14, 0, 8), P(8, 0, 12), P(8, 0, 26), P(0, 0, 26)], 'rgba(47,123,232,.25)', C.sk, 1.4)), iso(() => cyl(0, 0, 0, 14, 8, 'a') + cyl(0, 0, 8, 8, 18, 'a'))],
+    'f:sweep': [iso(() => line([P(-20, 10, 0), P(-2, 10, 0), P(12, -4, 8), P(12, -20, 20)], C.path, 1.4, 'stroke-dasharray="3 2"') + ell(-20, 10, 0, 5, 'rgba(47,123,232,.25)', C.sk, 1.4)), iso(() => line([P(-20, 10, 0), P(-2, 10, 0), P(12, -4, 8), P(12, -20, 20)], C.accR, 9) + line([P(-20, 10, 0), P(-2, 10, 0), P(12, -4, 8), P(12, -20, 20)], C.accT, 5))],
+    'f:loft': [iso(() => poly([P(-14, -14, 0), P(14, -14, 0), P(14, 14, 0), P(-14, 14, 0)], 'rgba(47,123,232,.2)', C.sk, 1.3) + poly([P(-6, -6, 26), P(6, -6, 26), P(6, 6, 26), P(-6, 6, 26)], 'rgba(47,123,232,.2)', C.sk, 1.3)), iso(() => poly([P(-14, 14, 0), P(14, 14, 0), P(6, 6, 26), P(-6, 6, 26)], C.accL) + poly([P(14, -14, 0), P(14, 14, 0), P(6, 6, 26), P(6, -6, 26)], C.accR) + poly([P(-6, -6, 26), P(6, -6, 26), P(6, 6, 26), P(-6, 6, 26)], C.accT))],
+    'f:coil': [iso(() => cyl(0, 0, 0, 12, 30, 'n').replace(/fill="[^"]+"/g, 'fill="none"').replace(/stroke="[^"]+"/g, 'stroke="#9aa6b4" stroke-dasharray="3 2"')), iso(() => { let d = ''; for (let z = 0; z < 30; z += 6) d += ell(0, 0, z, 12, 'none', C.accR, 2.4); return d; })],
+    'f:hole': [iso(() => B()), iso(() => B() + ell(-6, -2, 14, 4, C.hole) + ell(8, 3, 14, 4, C.hole))],
+    'f:gear': [k2(() => sk('M60,45 m-24,0 a24,24 0 1,0 48,0 a24,24 0 1,0 -48,0')), k2(() => fillP(gearPath(60, 45, 22, 16)) + sk(gearPath(60, 45, 22, 16)) + sk('M60,45 m-5,0 a5,5 0 1,0 10,0 a5,5 0 1,0 -10,0'))],
+    fillet3: [iso(() => B() + line([P(15, -11, 14), P(15, 11, 14)], C.warn, 2.4)), iso(() => box(-15, -11, 0, 30, 22, 10) + poly([P(15, -11, 10), P(15, 11, 10), P(13, 11, 13), P(11, 11, 14), P(11, -11, 14), P(13, -11, 13)], C.accT, C.acc, 0.8) + poly([P(-15, -11, 10), P(11, -11, 10), P(11, 11, 10), P(-15, 11, 10), P(-15, 11, 14), P(11, 11, 14), P(11, -11, 14), P(-15, -11, 14)], C.top))],
+    chamfer3: [iso(() => B() + line([P(15, -11, 14), P(15, 11, 14)], C.warn, 2.4)), iso(() => box(-15, -11, 0, 30, 22, 9) + poly([P(-15, -11, 9), P(10, -11, 9), P(10, -11, 14), P(-15, -11, 14)], C.l) + poly([P(-15, -11, 14), P(10, -11, 14), P(10, 11, 14), P(-15, 11, 14)], C.top) + poly([P(10, -11, 14), P(15, -11, 9), P(15, 11, 9), P(10, 11, 14)], C.accT, C.acc))],
+    'f:shell': [iso(() => B(30, 24, 16)), iso(() => box(-15, -12, 0, 30, 24, 16) + poly([P(-12, -9, 16), P(12, -9, 16), P(12, 9, 16), P(-12, 9, 16)], '#7d8896') + poly([P(-12, -9, 16), P(12, -9, 16), P(12, -9, 3), P(-12, -9, 3)], C.r) + poly([P(-12, -9, 16), P(-12, 9, 16), P(-12, 9, 3), P(-12, -9, 3)], C.l) + poly([P(-12, -9, 3), P(12, -9, 3), P(12, 9, 3), P(-12, 9, 3)], C.accT))],
+    thread: [iso(() => cyl(0, 0, 0, 9, 30)), iso(() => { let d = cyl(0, 0, 0, 9, 30); for (let z = 3; z < 29; z += 4) { const a = P(-9, 9, z), b = P(9, -9, z + 2); d += line([a, b], C.accR, 1.6); } return d; })],
+    'f:combine': [iso(() => box(-16, -10, 0, 22, 20, 12) + cyl(8, 2, 0, 9, 20, 'a')), iso(() => box(-16, -10, 0, 22, 20, 12, 'a') + cyl(8, 2, 0, 9, 20, 'a'))],
+    'f:split': [iso(() => B(32, 22, 14) + poly([P(0, -18, -4), P(0, 18, -4), P(0, 18, 22), P(0, -18, 22)], 'rgba(242,155,29,.18)', C.warn, 0.8, 'stroke-dasharray="3 2"')), iso(() => box(-20, -11, 0, 16, 22, 14) + box(4, -11, 0, 16, 22, 14, 'a'))],
+    'f:move': [iso(() => box(-24, -8, 0, 16, 16, 14)), iso(() => box(-24, -8, 0, 16, 16, 14).replace(/fill="[^"]+"/g, 'fill="none"').replace(/stroke="[^"]+"/g, 'stroke="#b8c2ce" stroke-dasharray="2 2"') + box(8, -8, 0, 16, 16, 14, 'a') + arrow(P(-8, 0, 20), P(8, 0, 20), C.acc))],
+    'f:rotate': [k2(() => fillP(rectD(40, 30, 40, 30)) + sk(rectD(40, 30, 40, 30), '#9aa6b4')), k2(() => sk(rectD(40, 30, 40, 30), '#b8c2ce', 1, 'stroke-dasharray="3 2"') + `<g transform="rotate(30 60 45)">${fillP(rectD(40, 30, 40, 30), 'rgba(47,123,232,.25)') + sk(rectD(40, 30, 40, 30))}</g>` + sk('M86,30 A28,28 0 0,1 90,52', C.dim, 1.2))],
+    'f:scale': [iso(() => box(-8, -6, 0, 16, 12, 10)), iso(() => box(-16, -12, 0, 32, 24, 20, 'a'))],
+    'p:rect': [iso(() => box(-24, -18, 0, 48, 36, 4) + cyl(-15, -10, 4, 4, 10, 'a'), 60, 52, 1.2), iso(() => { let d = box(-24, -18, 0, 48, 36, 4); for (const y of [-10, 8]) for (const x of [-15, 0, 15]) d += cyl(x, y, 4, 4, 10, 'a'); return d; }, 60, 52, 1.2)],
+    'p:circ': [k2(() => sk('M60,45 m-30,0 a30,30 0 1,0 60,0 a30,30 0 1,0 -60,0', '#7d8896') + sk('M60,23 m-5,0 a5,5 0 1,0 10,0 a5,5 0 1,0 -10,0')), k2(() => sk('M60,45 m-30,0 a30,30 0 1,0 60,0 a30,30 0 1,0 -60,0', '#7d8896') + Array.from({ length: 8 }, (_, i) => { const a = -Math.PI / 2 + i * Math.PI / 4, x = 60 + 22 * Math.cos(a), y = 45 + 22 * Math.sin(a); return sk(`M${x},${y} m-5,0 a5,5 0 1,0 10,0 a5,5 0 1,0 -10,0`); }).join(''))],
+    'p:mirror': [k2(() => sk('M60,10 V80', C.dim, 1, 'stroke-dasharray="4 3"') + fillP('M60,20 L36,24 L28,44 L40,66 L60,70 Z') + sk('M60,20 L36,24 L28,44 L40,66 L60,70')), k2(() => sk('M60,10 V80', C.dim, 1, 'stroke-dasharray="4 3"') + fillP('M60,20 L36,24 L28,44 L40,66 L60,70 L80,66 L92,44 L84,24 Z') + sk('M60,20 L36,24 L28,44 L40,66 L60,70') + sk('M60,20 L84,24 L92,44 L80,66 L60,70', C.accR))],
+    plane: [iso(() => B(30, 22, 10)), iso(() => B(30, 22, 10) + plane(22, 24) + arrow(P(0, 0, 10), P(0, 0, 22), C.acc))],
+    point: [iso(() => B()), iso(() => B() + dot(P(15, 11, 14), C.dim, 3) + dot(P(0, 0, 14), C.dim, 3))],
+    measure: [iso(() => B()), iso(() => B() + arrow(P(-15, 16, 0), P(15, 16, 0)) + arrow(P(15, 16, 0), P(-15, 16, 0)) + txt(P(0, 22, 0), '30.00'))],
+    blueprint: [iso(() => B() + cyl(0, 0, 14, 5, 6)), () => grid() + sk(rectD(14, 50, 40, 24), C.line, 1.2) + sk(rectD(28, 42, 12, 8), C.line, 1.2) + sk(rectD(66, 50, 40, 24), C.line, 1.2) + sk('M86,62 m-5,0 a5,5 0 1,0 10,0 a5,5 0 1,0 -10,0', C.line, 1.2) + sk('M14,82 H54', C.dim, 0.8) + txt([34, 88], '40', C.dim, 7)],
+    import: [() => sk('M44,14 H68 L80,26 V76 H44 Z', C.line, 1.4) + txt([62, 54], 'STEP', C.acc, 10), iso(() => box(-15, -11, 0, 30, 22, 14, 'a') + cyl(0, 0, 14, 6, 8, 'a'))],
+    export: [iso(() => box(-15, -11, 0, 30, 22, 14) + cyl(0, 0, 14, 6, 8)), () => sk('M44,14 H68 L80,26 V76 H44 Z', C.line, 1.4) + txt([62, 54], 'STL', C.acc, 10)],
+    // ── Sketch ──
+    select: [k2(() => sk(rectD(24, 24, 30, 24)) + sk('M84,36 m-12,0 a12,12 0 1,0 24,0 a12,12 0 1,0 -24,0')), k2(() => sk(rectD(24, 24, 30, 24)) + sk('M84,36 m-12,0 a12,12 0 1,0 24,0 a12,12 0 1,0 -24,0', C.warn, 2.6) + sk('M88,60 l8,14 l3,-6 l6,1 Z', C.line, 1))],
+    line: [k2(() => dot([28, 64]) + dot([90, 26])), k2(() => sk('M28,64 L90,26') + dot([28, 64]) + dot([90, 26]))],
+    polyline: [k2(() => [[22, 66], [42, 26], [66, 58], [96, 22]].map(p => dot(p)).join('')), k2(() => sk('M22,66 L42,26 L66,58 L96,22') + [[22, 66], [42, 26], [66, 58], [96, 22]].map(p => dot(p)).join(''))],
+    rect: [k2(() => dot([30, 24]) + dot([90, 66])), k2(() => fillP(rectD(30, 24, 60, 42)) + sk(rectD(30, 24, 60, 42)) + dot([30, 24]) + dot([90, 66]))],
+    crect: [k2(() => dot([60, 45]) + dot([88, 64])), k2(() => fillP(rectD(32, 26, 56, 38)) + sk(rectD(32, 26, 56, 38)) + dot([60, 45], C.dim) + dot([88, 64]))],
+    circle: [k2(() => dot([60, 45]) + dot([84, 45])), k2(() => fillP('M60,45 m-24,0 a24,24 0 1,0 48,0 a24,24 0 1,0 -48,0') + sk('M60,45 m-24,0 a24,24 0 1,0 48,0 a24,24 0 1,0 -48,0') + dot([60, 45], C.dim))],
+    arc3: [k2(() => dot([28, 62]) + dot([60, 26]) + dot([92, 62])), k2(() => sk('M28,62 A34,34 0 0,1 92,62') + dot([28, 62]) + dot([60, 26]) + dot([92, 62]))],
+    carc: [k2(() => dot([60, 60], C.dim) + dot([30, 60])), k2(() => sk('M30,60 A30,30 0 0,1 90,60') + dot([60, 60], C.dim) + dot([30, 60]) + dot([90, 60]))],
+    poly: [k2(() => dot([60, 45], C.dim) + dot([86, 45])), k2(() => { const h = hexPts(60, 45, 26); return fillP('M' + h.map(p => p.join(',')).join(' L') + ' Z') + sk('M' + h.map(p => p.join(',')).join(' L') + ' Z') + dot([60, 45], C.dim); })],
+    trim: [k2(() => sk('M20,45 H100') + sk('M60,15 V75') + sk('M60,45 H100', C.warn, 2.6)), k2(() => sk('M20,45 H60') + sk('M60,15 V75'))],
+    fillet: [k2(() => sk('M28,70 V24 H92')), k2(() => sk('M28,70 V42 A18,18 0 0,1 46,24 H92') + sk('M28,42 A18,18 0 0,1 46,24', C.warn, 2.6))],
+    chamfer: [k2(() => sk('M28,70 V24 H92')), k2(() => sk('M28,70 V42 L46,24 H92') + sk('M28,42 L46,24', C.warn, 2.6))],
+    extend: [k2(() => sk('M20,45 H64') + sk('M90,15 V75')), k2(() => sk('M20,45 H64') + sk('M64,45 H90', C.warn, 2.6) + sk('M90,15 V75'))],
+    offset: [k2(() => sk(rectD(40, 32, 40, 26))), k2(() => sk(rectD(40, 32, 40, 26)) + sk('M34,26 H86 V64 H34 Z', C.warn, 1.6, 'stroke-dasharray="4 2"'))],
+    origin: [k2(() => sk(rectD(40, 30, 44, 30)) + sk('M20,80 h14 M20,80 v-14', C.dim, 1.4)), k2(() => sk(rectD(40, 30, 44, 30)) + sk('M40,60 h14 M40,60 v-14', C.dim, 1.8) + dot([40, 60], C.dim, 3))],
+    mirror: [k2(() => sk('M60,10 V80', C.dim, 1, 'stroke-dasharray="4 3"') + sk('M52,24 L30,30 L26,58 L50,66')), k2(() => sk('M60,10 V80', C.dim, 1, 'stroke-dasharray="4 3"') + sk('M52,24 L30,30 L26,58 L50,66') + sk('M68,24 L90,30 L94,58 L70,66', C.warn, 1.8))],
+    array: [k2(() => sk('M30,45 m-8,0 a8,8 0 1,0 16,0 a8,8 0 1,0 -16,0')), k2(() => [30, 50, 70, 90].map((x, i) => sk(`M${x},45 m-8,0 a8,8 0 1,0 16,0 a8,8 0 1,0 -16,0`, i ? C.warn : C.sk)).join(''))],
+    smove: [k2(() => sk(rectD(20, 30, 30, 30))), k2(() => sk(rectD(20, 30, 30, 30), '#b8c2ce', 1, 'stroke-dasharray="3 2"') + sk(rectD(70, 30, 30, 30)) + sk('M52,45 H66', C.dim, 1.4))],
+    srot: [k2(() => sk(rectD(42, 30, 36, 30))), k2(() => sk(rectD(42, 30, 36, 30), '#b8c2ce', 1, 'stroke-dasharray="3 2"') + `<g transform="rotate(35 60 45)">${sk(rectD(42, 30, 36, 30))}</g>`)],
+    sscale: [k2(() => sk(rectD(48, 36, 24, 18))), k2(() => sk(rectD(48, 36, 24, 18), '#b8c2ce', 1, 'stroke-dasharray="3 2"') + sk(rectD(30, 22, 60, 46)))],
+    'sk:copy': [k2(() => sk(rectD(30, 30, 30, 30))), k2(() => sk(rectD(30, 30, 30, 30), C.warn, 2.4) + sk('M76,24 h20 v28 h-20 Z M80,20 h20 v28', C.line, 1.2))],
+    'sk:cut': [k2(() => sk(rectD(30, 30, 30, 30))), k2(() => sk(rectD(30, 30, 30, 30), '#b8c2ce', 1, 'stroke-dasharray="3 2"') + sk('M76,24 h20 v28 h-20 Z', C.line, 1.2))],
+    spaste: [k2(() => sk(rectD(20, 30, 26, 26))), k2(() => sk(rectD(20, 30, 26, 26)) + sk(rectD(72, 30, 26, 26), C.warn, 2))],
+    dim: [k2(() => sk('M26,56 H94')), k2(() => sk('M26,56 H94') + sk('M26,40 H94 M26,36 v8 M94,36 v8', C.dim, 1) + txt([60, 34], '50.00'))],
+    project: [iso(() => B(30, 22, 14) + plane(22, 26)), iso(() => B(30, 22, 14) + plane(22, 26) + line([P(-15, -11, 22), P(15, -11, 22), P(15, 11, 22), P(-15, 11, 22), P(-15, -11, 22)], C.warn, 1.8))],
+    cons: [k2(() => sk('M24,64 L96,26')), k2(() => sk('M24,64 L96,26', '#f29b1d', 1.6, 'stroke-dasharray="6 4"'))],
+    del: [k2(() => sk(rectD(26, 30, 28, 28)) + sk('M84,44 m-14,0 a14,14 0 1,0 28,0 a14,14 0 1,0 -28,0', C.warn, 2.6)), k2(() => sk(rectD(26, 30, 28, 28)))],
+    finish: [k2(() => sk(rectD(30, 26, 60, 38))), iso(() => plane(0) + poly([P(-18, -12, 0), P(16, -12, 0), P(16, 12, 0), P(-18, 12, 0)], 'rgba(47,123,232,.25)', C.sk, 1.4) + txt([98, 82], '✓', C.ok, 16))],
+    upd: [k2(() => sk(rectD(30, 30, 40, 30)) + txt([50, 24], '40 → 60', C.warn, 8)), k2(() => sk(rectD(30, 30, 60, 30)) + txt([60, 24], '60', C.ok, 8))],
+    // ── Manufacture ──
+    setup: [iso(() => B(30, 22, 12)), iso(() => B(30, 22, 12) + box(-18, -14, 0, 36, 28, 16).replace(/fill="[^"]+"/g, 'fill="rgba(201,183,156,.25)"').replace(/stroke="[^"]+"/g, 'stroke="#b3a086" stroke-dasharray="3 2"') + line([P(0, 0, 16), P(12, 0, 16)], C.dim, 1.6) + line([P(0, 0, 16), P(0, -12, 16)], C.ok, 1.6) + line([P(0, 0, 16), P(0, 0, 28)], C.acc, 1.6))],
+    tools: [() => sk('M30,20 v50 M60,20 v50 M90,20 v50', '#b8c2ce', 6), () => `<rect x="26" y="14" width="8" height="26" fill="#9aa6b4"/><path d="M26,40 h8 v28 l-4,4 l-4,-4 Z" fill="#c9a24a"/><rect x="56" y="14" width="8" height="30" fill="#9aa6b4"/><path d="M56,44 h8 v24 a4,4 0 0,1 -8,0 Z" fill="#8fb9f5"/><rect x="86" y="14" width="8" height="30" fill="#9aa6b4"/><path d="M86,44 h8 v22 l-4,8 l-4,-8 Z" fill="#b8c2ce"/>`],
+    autoprog: [iso(() => B() + ell(0, 0, 14, 5, C.hole)), iso(() => B() + ell(0, 0, 14, 5, C.hole) + line([P(-18, -14, 20), P(18, -14, 20), P(18, 14, 20), P(-18, 14, 20), P(-18, -14, 20)], C.acc, 1.2) + line([P(0, 0, 32), P(0, 0, 14)], C.cut, 1.4, 'stroke-dasharray="3 2"') + txt([100, 84], '✓', C.ok, 16))],
+    auto: [iso(() => B() + ell(0, 0, 14, 5, C.hole)), iso(() => B().replace(C.top, '#bfe0c8') + ell(0, 0, 14, 5, C.warn) + txt([94, 16], '3-axis', C.acc, 8))],
+    verify: [iso(() => B() + line([P(-18, 0, 8), P(18, 0, 8)], C.dim, 1.6)), iso(() => B() + line([P(-18, -14, 20), P(18, -14, 20), P(18, 14, 20)], C.acc, 1.2) + txt([98, 84], '✓', C.ok, 16))],
+    'add:face': [iso(() => box(-16, -12, 0, 32, 24, 14, 's') + poly([P(-16, -12, 14), P(16, -12, 14), P(16, 12, 17), P(-16, 12, 16)], C.stockT, C.stockR)), iso(() => box(-16, -12, 0, 32, 24, 14, 's') + [-8, 0, 8].map(y => line([P(-24, y, 14.2), P(24, y, 14.2)], C.acc, 1.4)).join(''))],
+    'add:contour': [iso(() => box(-16, -12, 0, 32, 24, 12, 's')), iso(() => box(-13, -9, 0, 26, 18, 12) + line([P(-17, -13, 6), P(17, -13, 6), P(17, 13, 6), P(-17, 13, 6), P(-17, -13, 6)], C.acc, 1.6))],
+    'add:pocket': [iso(() => box(-16, -12, 0, 32, 24, 12)), iso(() => box(-16, -12, 0, 32, 24, 12) + poly([P(-9, -6, 12), P(9, -6, 12), P(9, 6, 12), P(-9, 6, 12)], '#7d8896') + [0, 3, 6].map(k => line([P(-k, -k * 0.6, 12.2), P(k, -k * 0.6, 12.2), P(k, k * 0.6, 12.2), P(-k, k * 0.6, 12.2), P(-k, -k * 0.6, 12.2)], C.acc, 1.1)).join(''))],
+    'add:drill': [iso(() => B()), iso(() => B() + ell(-7, 0, 14, 3.5, C.hole) + ell(7, 0, 14, 3.5, C.hole) + line([P(7, 0, 30), P(7, 0, 14)], C.cut, 1.4, 'stroke-dasharray="3 2"') + poly([P(6, 0, 36), P(8, 0, 36), P(8, 0, 22), P(7, 0, 19), P(6, 0, 22)], '#c9a24a', C.line, 0.6))],
+    'add:chamfer': [iso(() => B() + line([P(15, -11, 14), P(15, 11, 14)], C.warn, 2.4)), iso(() => box(-15, -11, 0, 30, 22, 11) + poly([P(-15, -11, 11), P(12, -11, 11), P(12, -11, 14), P(-15, -11, 14)], C.l) + poly([P(-15, -11, 14), P(12, -11, 14), P(12, 11, 14), P(-15, 11, 14)], C.top) + poly([P(12, -11, 14), P(15, -11, 11), P(15, 11, 11), P(12, 11, 14)], C.accT, C.acc))],
+    'add:parallel': [iso(() => box(-16, -12, 0, 32, 24, 6) + ell(0, 0, 6, 11, C.top)), iso(() => box(-16, -12, 0, 32, 24, 6) + ell(0, 0, 6, 11, C.top) + [-8, -4, 0, 4, 8].map(y => line([P(-16, y, 7), P(-8, y, 8), P(0, y, 11), P(8, y, 8), P(16, y, 7)], C.acc, 1)).join(''))],
+    'add:wire': [iso(() => box(-16, -12, 0, 32, 24, 8, 's')), iso(() => box(-16, -12, 0, 32, 24, 8, 's') + line([P(-6, -6, 8.2), P(6, -6, 8.2), P(6, 6, 8.2), P(-6, 6, 8.2), P(-6, -6, 8.2)], '#c9a24a', 1.8) + line([P(6, 6, 0), P(6, 6, 20)], '#c9a24a', 1))],
+    jaws: [iso(() => box(-10, -7, 12, 20, 14, 10, 'a'), 60, 50, 1.3), iso(() => box(-20, -14, 0, 40, 12, 16) + box(-20, 2, 0, 40, 12, 16).replace(C.top, '#dfe5ec') + box(-10, -7, 10, 20, 14, 10, 'a'), 60, 50, 1.3)],
+    sim: [iso(() => box(-16, -12, 0, 32, 24, 14, 's')), iso(() => box(-16, -12, 0, 32, 24, 14, 's') + poly([P(-9, -6, 14), P(9, -6, 14), P(9, 6, 14), P(-9, 6, 14)], '#e8eef4', C.line) + cyl(4, 2, 10, 3, 18, 'a'))],
+    post: [iso(() => B() + line([P(-18, -14, 20), P(18, -14, 20), P(18, 14, 20), P(-18, 14, 20)], C.acc, 1.2)), () => `<rect x="18" y="12" width="84" height="66" rx="5" fill="#1b1e24"/>` + ['G0 X0. Y0.', 'G1 Z-2. F300', 'G2 X10. I5.', 'M30'].map((t, i) => `<text x="26" y="${28 + i * 14}" font-size="8.5" font-family="monospace" fill="${['#f0915a', '#6fa3ff', '#6fa3ff', '#c792ea'][i]}">${t}</text>`).join('')],
+    'ws:sheet': [iso(() => B()), () => `<rect x="30" y="8" width="60" height="76" rx="3" fill="#fff" stroke="#9aa6b4"/>` + sk('M38,20 h44 M38,28 h30 M38,40 h44 M38,48 h44 M38,56 h36 M38,64 h44', '#9aa6b4', 1.2)],
+    sheetfill: [() => `<rect x="30" y="8" width="60" height="76" rx="3" fill="#fff" stroke="#9aa6b4"/>`, () => `<rect x="30" y="8" width="60" height="76" rx="3" fill="#fff" stroke="#9aa6b4"/>` + sk('M38,20 h44 M38,28 h30 M38,40 h44 M38,48 h44 M38,56 h36 M38,64 h44', C.acc, 1.2)],
+    tocam: [() => `<rect x="30" y="8" width="60" height="76" rx="3" fill="#fff" stroke="#9aa6b4"/>`, iso(() => B() + line([P(-18, -14, 20), P(18, -14, 20), P(18, 14, 20)], C.acc, 1.2))],
+  };
+
+  return T;
+})();
+// what each tool does, and how to use it (step 2)
+const TIP_TXT = {
+  sketch: ['Start a 2D drawing on a plane or a flat face.', ['Click an origin plane or a flat face of the part.', 'Draw lines, rectangles and circles on it.', 'Finish Sketch (Enter), then Extrude or Revolve a closed shape.']],
+  extrude: ['Pull a closed sketch shape into a solid.', ['Click one or more closed profiles (they shade blue).', 'Drag the arrow or type a distance; negative goes the other way.', 'Choose New body, Join or Cut, then OK (Enter).']],
+  'f:revolve': ['Spin a profile round an axis to make a turned part.', ['Pick the profile to turn.', 'Pick a straight line (or an origin axis) to turn it about.', 'Set the angle — 360° for a full part.']],
+  'f:sweep': ['Run a profile along a path.', ['Pick the profile.', 'Pick the path: lines and arcs in another sketch.', 'Twist or scale it along the way if you like.']],
+  'f:loft': ['Blend between two or more profiles on different planes.', ['Click the profiles in the order the shape passes through them.', 'Smooth or ruled transition.', 'Rotation twists the shape from the first profile to the last.']],
+  'f:coil': ['A spring or helix: a circle, square or triangle wound round an axis.', ['Set the diameter, pitch and number of turns.', 'Pick the section and its size.']],
+  'f:hole': ['Drill holes: simple, counterbored, countersunk or tapped.', ['Click points on a flat face.', 'Set the diameter and depth (or through).', 'Pick a standard size for tapped holes.']],
+  'f:gear': ['A gear from its tooth count and module (spur, helical, bevel, rack, worm…).', ['Choose the kind of gear.', 'Set teeth, module, width and bore.', 'Pair it with a second gear to mesh them.']],
+  fillet3: ['Round sharp edges.', ['Click the edges to round (they highlight).', 'Set the radius.', 'OK — the faces blend smoothly into each other.']],
+  chamfer3: ['Bevel sharp edges.', ['Click the edges to bevel.', 'Set the size.', 'OK.']],
+  'f:shell': ['Hollow a solid out, leaving walls.', ['Click the faces to leave open.', 'Set the wall thickness.']],
+  thread: ['Model a thread on a shaft or in a hole.', ['Click a cylindrical face.', 'Pick the size and pitch (metric or inch).', 'OK.']],
+  'f:combine': ['Join, cut or intersect bodies.', ['Pick the target body.', 'Pick the tool bodies.', 'Choose join, cut or intersect.']],
+  'f:split': ['Cut a body in two along a plane or face.', ['Pick the body.', 'Pick the splitting plane or face.']],
+  'f:move': ['Move or copy bodies.', ['Pick the bodies.', 'Drag the arrows or type distances.', 'Tick Copy to keep the original.']],
+  'f:rotate': ['Turn bodies about an axis.', ['Pick the bodies.', 'Pick the axis.', 'Set the angle.']],
+  'f:scale': ['Resize bodies.', ['Pick the bodies.', 'Set the scale factor (uniform or per axis).']],
+  'p:rect': ['Repeat features or bodies in rows and columns.', ['Pick what to repeat.', 'Pick the directions.', 'Set the counts and spacing.']],
+  'p:circ': ['Repeat features round an axis.', ['Pick what to repeat.', 'Pick the axis.', 'Set the count and angle.']],
+  'p:mirror': ['Mirror features or bodies across a plane.', ['Pick what to mirror.', 'Pick the mirror plane.']],
+  plane: ['A construction plane, offset from a face or plane.', ['Click a face or plane.', 'Drag or type the offset.']],
+  point: ['A construction point at a vertex, edge midpoint, hole center or face center.', ['Hover the part: points snap as you move.', 'Click to place.']],
+  measure: ['Measure distances, angles and sizes.', ['Click a first point, edge or face.', 'Click a second one: the distance shows in the view.']],
+  blueprint: ['Make a 2D drawing with views and dimensions.', ['Views are laid out for you.', 'Add or move dimensions, then print or save.']],
+  import: ['Bring in a STEP, STL or OBJ file.', ['Choose the file.', 'Check its size, units and up axis.', 'OK.']],
+  export: ['Save the part as STEP, STL, OBJ or 3MF.', ['Pick the format and quality.', 'Save.']],
+  select: ['Pick curves to move, edit or delete.', ['Click a curve, or drag a box round several.', 'Drag points or curves to change them.']],
+  line: ['Straight lines, chained end to end.', ['Click the start, then each next point.', 'Type a length (Tab for angle).', 'Right-click or Esc to stop.']],
+  polyline: ['A connected chain of straight segments, made in one go.', ['Click corner after corner.', 'Click the first corner to close the shape.', 'Double-click, Enter or Esc to finish an open one.']],
+  rect: ['A rectangle from two corners.', ['Click one corner.', 'Click the opposite corner (or type width, Tab, height).']],
+  crect: ['A rectangle from its center.', ['Click the center.', 'Click a corner (or type the sizes).']],
+  circle: ['A circle from its center.', ['Click the center.', 'Click a point on it, or type the diameter.']],
+  arc3: ['An arc through three points.', ['Click the start.', 'Click the end.', 'Click a point it passes through.']],
+  carc: ['An arc round a center.', ['Click the center.', 'Click the start.', 'Sweep round and click the end.']],
+  poly: ['A regular polygon (hexagon by default).', ['Click the center.', 'Click a corner, or type the radius.', 'Set the number of sides in the panel.']],
+  trim: ['Cut away a piece of a curve up to where it crosses another.', ['Click the piece to remove.', 'Drag across several to trim them all.']],
+  fillet: ['Round a sketch corner.', ['Set the radius in the panel.', 'Click near a corner.']],
+  chamfer: ['Bevel a sketch corner.', ['Set the size.', 'Click near a corner.']],
+  extend: ['Stretch a line to the next curve it meets.', ['Click near the end to extend.']],
+  offset: ['A copy of a chain of curves, a set distance away.', ['Click a curve.', 'Move to the side you want and click (or type the distance).']],
+  origin: ['Move the sketch origin (0, 0).', ['Click the point that should become the origin.']],
+  mirror: ['Mirror curves across a line.', ['Click the curves.', 'Choose mirror line, then click it.']],
+  array: ['Repeat curves in a row or round a center.', ['Click the curves.', 'Set the count and spacing.', 'Apply (Enter).']],
+  smove: ['Move curves.', ['Select curves.', 'Drag them or type the distances.']],
+  srot: ['Rotate curves.', ['Select curves.', 'Set the center and the angle.']],
+  sscale: ['Scale curves.', ['Select curves.', 'Set the center and the factor.']],
+  'sk:copy': ['Copy the selected curves.', ['Select curves.', 'Copy (Ctrl+C), then Paste.']],
+  'sk:cut': ['Cut the selected curves (they go to the clipboard).', ['Select curves.', 'Cut (Ctrl+X).']],
+  spaste: ['Place a copy of the copied curves.', ['Paste (Ctrl+V).', 'Click where they go.']],
+  dim: ['Set an exact size: length, distance, diameter or angle.', ['Click a line, circle or two items.', 'Click where the dimension goes.', 'Type the value.']],
+  project: ['Bring a face’s edges into the sketch.', ['Click a face of the part.', 'Its edges become sketch curves.']],
+  cons: ['Make curves construction (reference only, not part of profiles).', ['Select curves.', 'Construction (X).']],
+  del: ['Delete the selected curves.', ['Select curves.', 'Delete.']],
+  finish: ['Leave the sketch.', ['Enter, or click Finish Sketch.']],
+  upd: ['Apply the dimension changes you typed.', ['Update (Ctrl+B).']],
+  setup: ['Stock size, material and the work origin (G54).', ['Set the stock round the part.', 'Pick the material.', 'Pick the work origin.']],
+  tools: ['The cutters the program can use.', ['Add from the catalog or paste tool codes.', 'Set diameter, flutes, speed and feed.']],
+  autoprog: ['Detect, program, check and correct the whole part in one go.', ['Click it — it finds every feature, picks tools, orders the ops.', 'Every move is checked for gouges and collisions.', 'Read the report, simulate, post.']],
+  auto: ['Find every face, hole, thread, fillet and chamfer and say how many axes the part needs.', ['Review the suggested operations.', 'Accept the ones you want.']],
+  verify: ['Check every move for gouges, holder hits, rapids through stock and plunges.', ['Click it; problems are corrected where they can be and marked on the simulation track.']],
+  'add:face': ['Flatten the top of the stock: one straight stroke across the part at each stepover.', ['Pick the face mill.', 'Set the stepover and depth of cut.', 'Zig-zag or one-way strokes.']],
+  'add:contour': ['Cut round the part’s outline (or chosen faces).', ['Outside, inside or through cut-outs.', 'Set the depth steps and lead-in.']],
+  'add:pocket': ['Clear pockets and floors: down in the middle, out ring by ring, then a finish pass on the walls.', ['Click the floor faces.', 'Set stepover, stepdown and the stock left for finishing.']],
+  'add:drill': ['Drill holes with a Haas canned cycle (G81, G82, G83, G73, G85, G84).', ['Pick the hole diameters (or click holes).', 'Pick the cycle; every setting is explained in the panel.']],
+  'add:chamfer': ['Break edges with a chamfer mill along 45° chamfers.', ['Click the chamfer faces.', 'Set how far the tip goes below the edge.']],
+  'add:parallel': ['Finish curved surfaces with back-and-forth passes.', ['Pick the ball mill.', 'Set the stepover and direction.']],
+  'add:wire': ['Cut the part’s openings and outline with the EDM wire.', ['Choose what to cut and how many skims.']],
+  jaws: ['Make custom soft jaws that hold the part upside down for the second operation.', ['Pick the face that goes down and how deep it sits.', 'Set the jaw width, clearance offset and pocket shape.', 'Test fit: the part flips and drops in, every point is checked.']],
+  sim: ['Watch the stock being cut, move by move — and the G-code line by line.', ['Play, scrub or step.', 'Code shows the program with the running line highlighted.']],
+  post: ['The G-code program for the Haas mill.', ['Check the options.', 'Copy or save the .nc file.']],
+  'ws:sheet': ['The setup sheet for the operator.', ['Filled in from the program; print it.']],
+  sheetfill: ['Refill the setup sheet from the current program.', ['Click after changing operations.']],
+  tocam: ['Back to Manufacture.', ['Click to return to the program.']],
+};
+
+(() => {
+  const card = document.createElement('div');
+  card.id = 'tipcard'; card.hidden = true;
+  document.body.appendChild(card);
+  let el = null, t1 = 0, t2 = 0;
+  const keyOf = b => b.dataset.act || b.dataset.cam || b.dataset.sheet || b.dataset.tool || '';
+  const hide = () => { clearTimeout(t1); clearTimeout(t2); card.classList.remove('in', 'more'); card.hidden = true; if (el && el.dataset.tipTitle) { el.title = el.dataset.tipTitle; delete el.dataset.tipTitle; } el = null; };
+  const place = () => {
+    if (!el) return;
+    const r = el.getBoundingClientRect(), w = card.offsetWidth, h = card.offsetHeight;
+    let x = r.left + r.width / 2 - w / 2, y = r.bottom + 8;
+    if (y + h > innerHeight - 8) y = Math.max(8, r.top - h - 8);
+    card.style.left = clamp(x, 8, innerWidth - w - 8) + 'px'; card.style.top = y + 'px';
+  };
+  const show = () => {
+    const k = keyOf(el), art = TIP_ART[k], tx = TIP_TXT[k] || [];
+    const label = el.dataset.tipTitle || el.getAttribute('data-tip') || el.textContent || '', name = label.replace(/\s*\(.*\)$/, '').trim(), key = (/\(([^)]+)\)$/.exec(label) || [])[1];
+    const pic = art ? `<div class="tip-pics"><figure>${TipArt.wrap(art[0]())}<figcaption>Before</figcaption></figure><span class="tip-arr">→</span><figure>${TipArt.wrap(art[1]())}<figcaption>After</figcaption></figure></div>` : '';
+    card.innerHTML = `<div class="tip-head"><b>${name}</b>${key ? `<span class="kbd">${key}</span>` : ''}</div>${tx[0] ? `<p class="tip-what">${tx[0]}</p>` : ''}${pic}${tx[1] ? `<div class="tip-more"><div class="tip-step">How to use it</div><ol>${tx[1].map(s => `<li>${s}</li>`).join('')}</ol></div>` : ''}`;
+    card.hidden = false; place();
+    const small = document.getElementById('tip'); if (small) small.classList.remove('show');       // the card takes over from the one-line label
+    requestAnimationFrame(() => card.classList.add('in'));
+    // step 2: keep holding and it grows the how-to
+    if (tx[1]) t2 = setTimeout(() => { card.classList.add('more'); requestAnimationFrame(place); setTimeout(place, 260); }, 1800);
+  };
+  document.addEventListener('pointerover', e => {
+    const b = e.target.closest && e.target.closest('#toolbar button, #toolbar [data-act], #toolbar [data-cam]');
+    if (b === el) return;
+    hide();
+    if (!b || e.pointerType === 'touch') return;
+    el = b;
+    // the card replaces the browser's own tooltip
+    if (b.title) { b.dataset.tipTitle = b.title; b.removeAttribute('title'); }
+    t1 = setTimeout(show, 1000);
+  });
+  document.addEventListener('pointerdown', hide, true);
+  document.addEventListener('keydown', hide, true);
+  addEventListener('scroll', hide, true);
+  addEventListener('blur', hide);
+})();
 </script>
 
 <script>boot();</script>
