@@ -11162,6 +11162,46 @@ function silhouetteAbove(z, holes = false) {
   g.sil.set(key, res);
   return res;
 }
+// Leads straight off a corner, so the tool never enters or leaves on a finished wall (no
+// witness mark): in along the line of one wall from well out in the air, round the loop,
+// and out along the line of the wall before that corner. Only at a sharp outside corner
+// (the loop swings round the part's corner point at the tool radius), where those two
+// straight passes finish the corner by themselves, and only when both lines stay where
+// the tool center may go. Picks the corner with the longest walls either side.
+// Returns { k, pts: [F, S … E], S: F, G } or null. rr = tool radius + stock left.
+function cornerLeads(loop, rr, len, allowed) {
+  const n = loop.length;
+  if (n < 3) return null;
+  const segL = i => dst2(loop[i], loop[(i + 1) % n]), dir = i => nrm2(sub2(loop[(i + 1) % n], loop[i]));
+  const straight = Math.max(0.5, rr * 0.6);
+  let area = 0; for (let i = 0; i < n; i++) area += crs2(loop[i], loop[(i + 1) % n]);
+  let best = null;
+  for (let k = 0; k < n; k++) {
+    if (segL(k) < straight) continue;
+    // back over the corner's arc to the wall before it
+    let j = (k - 1 + n) % n, steps = 0;
+    while (segL(j) < straight && steps++ < n) j = (j - 1 + n) % n;
+    if (j === k || steps >= n) continue;
+    const tk = dir(k), tj = dir(j), turn = crs2(tj, tk);
+    if (!(turn * area > 0)) continue;                                   // turning away from the air is an inside corner
+    if (dot2(tj, tk) > Math.cos(25 * Math.PI / 180)) continue;           // hardly a corner
+    const S = loop[k], E = loop[(j + 1) % n];
+    // the part's corner point: rr in from S, square to the wall (on the side away from the air)
+    const nl = P2(-tk.y, tk.x), side = inPaths(add2(S, mul2(nl, rr * 0.5)), allowed) ? -1 : 1, V = add2(S, mul2(nl, side * rr));
+    const tol = Math.max(0.02, rr * 0.01);
+    let sharp = Math.abs(dst2(E, V) - rr) < tol;
+    for (let i = (j + 1) % n; sharp && i !== k; i = (i + 1) % n) if (Math.abs(dst2(loop[i], V) - rr) > tol) sharp = false;
+    if (!sharp) continue;
+    const F = sub2(S, mul2(tk, len)), G = add2(E, mul2(tj, len));
+    if (!inPaths(F, allowed) || !inPaths(G, allowed) || segHitsPaths(F, S, allowed) || segHitsPaths(E, G, allowed)) continue;
+    const score = Math.min(segL(k), segL(j));
+    if (!best || score > best.score) best = { score, k, j, F, G };
+  }
+  if (!best) return null;
+  const pts = [best.F];
+  for (let i = best.k; ; i = (i + 1) % n) { pts.push(loop[i]); if (i === (best.j + 1) % n) break; }
+  return { k: best.k, pts, S: best.F, G: best.G };
+}
 function rotateToLongest(pts) {
   let bi = 0, bl = -1;
   for (let i = 0; i < pts.length; i++) { const l = dst2(pts[i], pts[(i + 1) % pts.length]); if (l > bl) { bl = l; bi = i; } }
@@ -11402,13 +11442,17 @@ const GEN = {
     const groups = new Map();
     loops.forEach((L, i) => { const g = find(i); if (!groups.has(g)) groups.set(g, []); groups.get(g).push(L); });
     const prep = L => {
-      const pts = rotateToLongest(uP(orient(L, inside)));      // climb: CW outside, CCW inside
+      const loop = uP(orient(L, inside));                        // climb: CW outside, CCW inside
+      const corner = op.lead === 'corner' && cornerLeads(loop, r + leave, Math.max(tool.d + 2, 5), allowed);
+      if (corner) return { ...corner, full: startAt(loop, corner.k), closed: false, leadIn: z => P.feed(corner.pts[0].x, corner.pts[0].y, z), leadOut: z => P.feed(corner.G.x, corner.G.y, z) };
+      const pts = rotateToLongest(loop);
       // lead in / out on the air side of the cut: a tangent quarter arc, or a straight line
+      // (off a corner when there is none to use: the arc when it stays clear of the part, else the line)
       const t = nrm2(sub2(pts[1], pts[0])), left = P2(-t.y, t.x), rho = r * 0.6 + 1, C = add2(pts[0], mul2(left, rho));
       const arcAt = phi => sub2(C, mul2(add2(mul2(t, Math.cos(phi)), mul2(left, Math.sin(phi))), rho));
-      const arc = op.lead === 'arc', S = arc ? arcAt(0) : add2(pts[0], mul2(left, rho));
+      const arc = op.lead === 'arc' || (op.lead === 'corner' && [0, 4, 8, 12, 16].every(k => inPaths(arcAt(Math.PI / 2 * k / 8), allowed))), S = arc ? arcAt(0) : add2(pts[0], mul2(left, rho));
       return {
-        pts, S,
+        pts, S, full: pts, closed: true,
         leadIn: z => { if (arc) for (let k = 1; k <= 8; k++) { const q = arcAt(Math.PI / 2 * k / 8); P.feed(q.x, q.y, z); } else P.feed(pts[0].x, pts[0].y, z); },
         leadOut: z => { if (arc) { for (let k = 9; k <= 16; k++) { const q = arcAt(Math.PI / 2 * k / 8); P.feed(q.x, q.y, z); } P.feed(S.x, S.y, z); } else P.feed(S.x, S.y, z); },
       };
@@ -11420,7 +11464,7 @@ const GEN = {
         const cut = [];
         const zAbove = li ? zs[li - 1] : st.z1 + 0.5;
         G.forEach((L, q) => {
-          const ramp = op.entry === 'ramp' && q === 0;
+          const ramp = op.entry === 'ramp' && q === 0 && L.closed;
           const target = ramp ? L.pts[0] : L.S;
           if (q === 0) {
             // down to the next depth from where the tool already is, when it can get there at depth
@@ -11434,9 +11478,9 @@ const GEN = {
           }
           L.leadIn(z);
           for (let i = 1; i < L.pts.length; i++) P.feed(L.pts[i].x, L.pts[i].y, z);
-          P.feed(L.pts[0].x, L.pts[0].y, z);
+          if (L.closed) P.feed(L.pts[0].x, L.pts[0].y, z);
           L.leadOut(z);
-          cut.push(L.pts);
+          cut.push(L.full);
         });
       });
     }
@@ -12953,6 +12997,7 @@ function camPanel() {
     if (op.type === 'contour' && !op.holes) f += `<div class="field"><span>Side</span><div class="seg"><button data-opset="side:outside" class="${op.side !== 'inside' ? 'on' : ''}">Outside</button><button data-opset="side:inside" class="${op.side === 'inside' ? 'on' : ''}">Inside</button></div></div>
       <div class="field"><span>Boundary</span><div class="pick ${faces ? '' : 'empty'}"><span>${faces ? 'Chosen faces · click to add/remove' : 'Part outline · or click flat faces'}</span><span class="n">${faces || 'auto'}</span></div></div>
       <div class="row3">${num('opSd', op.stepdown, 'Stepdown', 0.1)}${num('opLeave', op.leave, 'Leave', 0.05)}${num('opThrough', op.through, 'Below bottom', 0.1)}</div>${op.side !== 'inside' ? `<div class="row2">${num('opRest', op.restD || 0, 'Rest after tool Ø (0 = off)', 1)}</div>` : ''}`;
+    if (op.type === 'contour') f += `<div class="field"><span>Lead in / out</span><div class="seg">${[['corner', 'Off a corner'], ['arc', 'Arc'], ['line', 'Line']].map(([k, l]) => `<button data-opset="lead:${k}" class="${(op.lead || 'line') === k ? 'on' : ''}" title="${k === 'corner' ? 'Straight in and out along the walls at a sharp outside corner, well clear of the part: no witness mark' : k === 'arc' ? 'A tangent quarter arc on the air side' : 'A short straight line square to the wall'}">${l}</button>`).join('')}</div></div>`;
     if (op.type === 'contour' && op.holes) f += `<div class="field"><span>Faces holding the cut-outs</span><div class="pick ${faces ? '' : 'empty'}"><span>${faces ? 'Click a face again to remove it' : 'Click the flat faces the openings are in'}</span><span class="n">${faces}</span></div></div>
       <div class="row3">${num('opSd', op.stepdown, 'Stepdown', 0.1)}${num('opLeave', op.leave, 'Leave', 0.05)}${num('opThrough', op.through, 'Below bottom', 0.1)}</div>`;
     if (op.type === 'pocket') f += `<div class="field"><span>Floors</span><div class="pick ${faces ? '' : 'empty'}"><span>${faces ? 'Click a face again to remove it' : 'Click flat floor faces'}</span><span class="n">${faces}</span></div></div>
@@ -14582,7 +14627,7 @@ function autoPlan(R) {
     const lib = C.tools.filter(t => t.type === 'flat' && fit(t.d)).sort((a, b) => b.d - a.d)[0];
     const tl = lib ? { n: lib.n, t: lib, isNew: false } : pick('flat', [...stdFlat()].reverse().find(fit) || 1, true);
     step({ key: 'cutout', type: 'contour', title: 'Contour the through cut-outs', why: `${R.groups.get('cutout').n} opening${R.groups.get('cutout').n > 1 ? 's' : ''} cut from the inside, down through the part.${R.groups.get('sharp') ? ' Sharp inside corners keep the tool radius.' : ''}`,
-      tool: tl, faces: R.cutoutFaces, op: { entry: 'ramp', lead: 'arc', holes: true, faces: R.cutoutFaces.map(refOf), side: 'inside', stepdown: +Math.max(0.5, Math.min(tl.t.d * 0.5, 3)).toFixed(2), leave: 0, through: 0.5 }, covered: coveredBy(o => o.type === 'contour' && o.holes) });
+      tool: tl, faces: R.cutoutFaces, op: { entry: 'ramp', lead: 'corner', holes: true, faces: R.cutoutFaces.map(refOf), side: 'inside', stepdown: +Math.max(0.5, Math.min(tl.t.d * 0.5, 3)).toFixed(2), leave: 0, through: 0.5 }, covered: coveredBy(o => o.type === 'contour' && o.holes) });
   }
   // 5 · outside profile before the 3D finish: the finishing tool then only meets the part
   if (R.st.x1 - R.part.x1 > 1e-3 || R.part.x0 - R.st.x0 > 1e-3) {
@@ -14593,7 +14638,7 @@ function autoPlan(R) {
     const leftBy = d => { const cl = cOffset(cOffset(outline, d / 2), -d / 2), lf = cDiff(cl, cOffset(outline, 0.01)); return cOffset(cOffset(lf, -0.35), 0.35).filter(p => Math.abs(cArea(p)) > 1e-3); };
     const needRest = outline.length && leftBy(dBig).length;
     const dSmall = needRest ? (sizes.find(d => d < dBig && !leftBy(d).length) || sizes[sizes.length - 1]) : dBig;
-    const cop = (d, extra) => ({ lead: 'arc', side: 'outside', stepdown: +Math.max(1, Math.min(d * 0.5, 3)).toFixed(2), leave: 0, through: 0.5, faces: [], ...extra });
+    const cop = (d, extra) => ({ lead: 'corner', side: 'outside', stepdown: +Math.max(1, Math.min(d * 0.5, 3)).toFixed(2), leave: 0, through: 0.5, faces: [], ...extra });
     const tool = pick('flat', dBig, true), wallF = R.groups.get('wall') ? R.groups.get('wall').faces : [];
     step({ key: 'contour', type: 'contour', title: `Contour the outside profile (Ø${fmtD(dBig)})`, why: `Cut around the part outline through the stock with the biggest end mill that suits it, before the 3D finish, so the ball mill never meets raw stock.`, tool, faces: wallF,
       op: cop(dBig), covered: coveredBy(o => o.type === 'contour' && !o.holes && o.side !== 'inside') });
