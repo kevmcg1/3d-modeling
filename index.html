@@ -22053,6 +22053,74 @@ const camActionRb0 = camAction;
 camAction = function (a) { if (a === 'ws:sheet') { setWorkspace('sheet'); return; } camActionRb0(a); };
 </script>
 
+<script>
+// ── Sharp 1640L precision engine lathe, in inches ──
+// Published: 16" swing over the bed (8" center height), 24-3/8" over the 9-3/4" gap, 8-3/4"
+// over the cross slide; 40" between centers; 11-3/4" bed; D1-8 camlock nose with a 3-1/16"
+// bore; 10" three-jaw chuck; cross slide travel 9-1/2"; compound 4-1/2" wide, 4.9" travel;
+// tailstock quill 2-1/4" with 5" travel; about 85 × 32" of floor. Heights of the base and
+// headstock are proportioned for a 43" spindle center line.
+function sSharp1640L() {
+  const M = machineKit(25.4), { K, u, box, cylX, cylY, cylZ, sideX, wheel } = M;
+  const CAST = '#d5d9dc', DARK = '#4d545b', BED = '#8f9899', CHROME = '#dde1e5', STEEL = '#b7bec5', BLACK = '#25282c', BAR = '#a9b1b8', BLUE = '#3f6fa8';
+  const cz = 43, bedTop = cz - 8, bw = 11.75 / 2, gapTop = cz - 24.375 / 2, face = -18, gapEnd = face + 9.75;
+  // one-piece base with its chip pan and splash guard, the foot brake bar along the front
+  K.name(box(-41, 43, -10, 10, 0, 23, DARK, 1), 'Base');
+  K.name(box(-42, 44, -15, 13, 23, 26, STEEL), 'Chip pan');
+  K.name(box(-42, 44, 12, 13, 26, 52, STEEL), 'Splash guard');
+  K.name(cylX(-38, 40, -11.2, 3.5, 0.6, CHROME), 'Foot brake bar');
+  for (const x of [-38, 40]) box(x - 0.6, x + 0.6, -11.2, -10, 2.9, 4.1, CHROME);
+  // the bed: full height under the headstock and from the gap on, lowered through the gap
+  K.name(box(-41, face, -bw, bw, 26, bedTop, BED), 'Bed (headstock end)');
+  K.name(box(face, gapEnd, -bw, bw, 26, gapTop, BED), 'Gap');
+  K.name(box(gapEnd, 42, -bw, bw, 26, bedTop, BED), 'Bed');
+  box(gapEnd, 38, -bw - 0.5, -bw, 32, 33, STEEL);                        // rack
+  // headstock with its speed levers, control panel and the electrical cabinet behind
+  K.name(box(-41, face, -9, 9, bedTop, 56, CAST, 1.5), 'Headstock');
+  for (const [x, z] of [[-36, 51], [-30, 51], [-24, 51], [-36, 45.5], [-30, 45.5]]) { cylY(-10.5, -9, x, z, 0.35, CHROME); cylY(-11.3, -10.5, x, z, 0.6, BLACK); }
+  K.name(box(-27, -19.5, -9.6, -9, 43, 47.5, BLUE), 'Control panel');
+  for (const [x, c] of [[-25.5, '#2f9e5b'], [-23.25, '#e5484d'], [-21, '#e2a13a']]) cylY(-10.1, -9.6, x, 45.25, 0.55, c);
+  K.name(box(-40, -24, 9, 12, 26, 52, DARK, 0.5), 'Electrical cabinet');
+  // quick-change gearbox under the headstock, lead screw and feed rod along the bed
+  K.name(box(-40, -22, -9.8, -bw, 26.5, bedTop - 0.5, CAST, 0.6), 'Gearbox');
+  for (const x of [-37, -33, -29, -25]) { cylY(-10.6, -9.8, x, 30.5, 1, CHROME); cylY(-11.5, -10.6, x, 30.5, 0.4, BLACK); }
+  K.name(cylX(-22, 43, -bw - 1.1, 31.5, 0.6, CHROME), 'Lead screw');
+  K.name(cylX(-22, 43, -bw - 1.1, 29.6, 0.45, CHROME), 'Feed rod');
+  K.name(cylX(-22, 43, -bw - 1.1, 27.9, 0.35, CHROME), 'Spindle control rod');
+  box(42, 44, -bw - 2, -bw, 26.5, 33, CAST);                              // end bracket
+  // D1-8 spindle nose, 10" three-jaw chuck bored 3-1/16", its jaws, and a 2-1/2" bar
+  K.name(cylX(face, face + 1.6, 0, cz, 4.1, STEEL), 'Spindle nose');
+  K.name(cylX(face + 1.6, face + 6.4, 0, cz, 5, DARK), 'Chuck');
+  K.extrude(K.sketch(K.RIGHT(u(face + 6.5)), [K.C(0, u(cz), u(3.0625 / 2))]), [P2(0, u(cz))], -u(7), 'cut');
+  for (let k = 0; k < 3; k++) {
+    const a = Math.PI / 2 + k * TAU / 3, c = Math.cos(a), s = Math.sin(a), p = (r, o) => [c * r - s * o, cz + s * r + c * o];
+    sideX([p(1.25, -0.55), p(4.6, -0.55), p(4.6, 0.55), p(1.25, 0.55)], face + 6.4, face + 7.8, STEEL);
+  }
+  K.name(cylX(face + 6.4, -2, 0, cz, 1.25, BAR), 'Workpiece');
+  // carriage: saddle, apron and its handwheel, cross slide (9-1/2" travel), compound, tool post
+  K.name(box(-10, 4, -8.5, 8.5, bedTop, bedTop + 2.5, CAST), 'Saddle');
+  K.name(box(-10, 4, -10.2, -bw - 0.5, 25.5, bedTop + 2.5, CAST, 0.6), 'Apron');
+  cylY(-11.5, -10.2, -6, 31, 0.6, CHROME); wheel('y', [-6, -11.5, 31], 4, 0.7, CHROME, BLACK);
+  cylX(1, 3, -10.8, 34, 0.35, CHROME);                                  // half-nut lever
+  K.name(box(-8.5, 1.5, -10.5, 8, bedTop + 2.5, bedTop + 4.5, CAST), 'Cross slide');
+  cylY(-12.5, -10.5, -3.5, bedTop + 3.5, 0.5, CHROME); wheel('y', [-3.5, -12.5, bedTop + 3.5], 2.8, 0.6, CHROME, BLACK);
+  K.name(box(-6.25, -1.75, -6.5, 0.5, bedTop + 4.5, bedTop + 6.4, CAST), 'Compound');
+  K.name(box(-5.5, -2.5, -4.8, -1.8, bedTop + 6.4, cz + 1.6, DARK), 'Tool post');
+  box(-4.3, -3.7, -1.8, -1.3, cz - 0.3, cz + 0.3, CHROME);               // the tool, on center
+  cylZ(-4, -3.3, 0.45, cz + 1.6, cz + 2.6, CHROME);
+  // tailstock: base, body, 2-1/4" quill, dead center, handwheel, quill lock
+  K.name(box(26, 35, -6.5, 6.5, bedTop, bedTop + 2.5, CAST), 'Tailstock base');
+  K.name(box(26, 34, -5, 5, bedTop + 2.5, cz + 3.5, CAST, 0.8), 'Tailstock');
+  K.name(cylX(21.5, 26, 0, cz, 1.125, STEEL), 'Tailstock quill');
+  const cs = K.sketch(K.FRONT(0), M.poly([[20, cz], [21.5, cz], [21.5, cz + 0.62]])), ax = K.cons(K.L(u(19), u(cz), u(23), u(cz))); cs.ents.push(ax);
+  const dc = K.revolve(cs, [P2(u(21.1), u(cz + 0.15))], ax, 'new'); K.name(dc, 'Dead center'); K.color(dc, CHROME);
+  cylX(34, 36, 0, cz, 0.6, CHROME); wheel('x', [36, 0, cz], 3.5, 0.7, CHROME, BLACK);
+  cylY(-6.5, -5, 30, cz + 2, 0.35, CHROME);
+  return K.doc();
+}
+SAMPLES.unshift({ axes: 'model', name: 'Sharp 1640L lathe', make: sSharp1640L, desc: '16 × 40" precision engine lathe: 16" swing, 24-3/8" over the gap, 11-3/4" bed, D1-8 nose with a 10" three-jaw chuck, carriage, 4-1/2" compound, tailstock with a 2-1/4" quill.' });
+</script>
+
 <script>boot();</script>
 </body>
 </html>
