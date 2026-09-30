@@ -9609,6 +9609,7 @@ const IC = {
   camcontour: '<rect x="5" y="6" width="10" height="8" rx="1.5"/><path d="M2.5 4.5h15v11h-15z" stroke-dasharray="2 1.6"/>',
   campocket: '<rect x="3" y="4" width="14" height="12" rx="1.5"/><path d="M6 7h8v6H6zM8.5 9.5h3v1h-3z" opacity=".7"/>',
   camdrill: '<path d="M10 2v11l-2 2 2 3 2-3-2-2"/><path d="M5 17h10" opacity=".5"/>',
+  camslot: '<rect x="3" y="7" width="14" height="6" rx="3"/><path d="M6.5 10h7" opacity=".55"/>',
   camcircle: '<circle cx="10" cy="10" r="7"/><circle cx="10" cy="10" r="3.2" opacity=".6"/><path d="M10 10h7" opacity=".5"/>',
   camthread: '<path d="M6 3h8M6 7h8M6 11h8M6 15h8" opacity=".6"/><path d="M4 5l12 3M4 9l12 3M4 13l12 3"/>',
   camparallel: '<path d="M3 5h14M3 9h14M3 13h14M17 5v4M3 9v4" /><path d="M3 17c3-3 11-3 14 0" opacity=".5"/>',
@@ -9741,7 +9742,8 @@ function deleteSelection() {
 }
 
 // ── Left sidebar: Model tree / History ─────────────────────────────
-const UIX = { tab: 'model', ws: 'design' };
+const UIX = { tab: 'model', ws: 'design', camAdv: false };
+try { UIX.camAdv = localStorage.getItem('datum.camAdv') === '1'; } catch (e) { /* basic by default */ }
 function refreshBrowser() {
   const el = document.getElementById('brTop');
   const tabs = `<div class="tabs" role="tablist"><button role="tab" data-tab="model" class="${UIX.tab === 'model' ? 'on' : ''}">${UIX.ws === 'cam' ? 'CAM' : 'Model'}</button><button role="tab" data-tab="history" class="${UIX.tab === 'history' ? 'on' : ''}">History <span class="count">${hist.states.length - 1}</span></button></div>`;
@@ -10397,7 +10399,7 @@ function updateHint() {
   let h;
   const k = s => `<span class="kbd">${s}</span>`;
   if (CMD && CMD.type === 'measure') h = `<b>Measure:</b> click two points — they lock onto vertices, edge midpoints, hole centers and face centers. ${k('Esc')} to finish.`;
-  else if (UIX.ws === 'cam') { const op = CAMUI.view === 'op' && opById(CAMUI.op); h = op && (op.type === 'pocket' || op.type === 'contour') ? `<b>${op.name}:</b> ${op.type === 'pocket' ? 'click a pocket floor, or the wall or round wall around it' : 'click flat faces to set the boundary'}.` : op && HOLE_OPS.has(op.type) ? `<b>${op.name}:</b> click holes to add or remove their diameter.` : CAMUI.view === 'sim' ? '<b>Simulation:</b> orbit freely while it runs. Orange is stock still to cut, red is a gouge.' : '<b>Manufacture:</b> set up stock and tools, add operations, simulate, then post G-code.'; }
+  else if (UIX.ws === 'cam') { const op = CAMUI.view === 'op' && opById(CAMUI.op); h = op && (op.type === 'pocket' || op.type === 'contour') ? `<b>${op.name}:</b> ${op.type === 'pocket' ? 'click a pocket floor, or the wall or round wall around it' : 'click flat faces to set the boundary'}.` : op && HOLE_OPS.has(op.type) ? `<b>${op.name}:</b> click holes to add or remove their diameter.` : op && op.type === 'slotmill' ? `<b>${op.name}:</b> click slots to add or remove their size.` : CAMUI.view === 'sim' ? '<b>Simulation:</b> orbit freely while it runs. Orange is stock still to cut, red is a gouge.' : '<b>Manufacture:</b> set up stock and tools, add operations, simulate, then post G-code.'; }
   else if (CMD && CMD.type === 'pickPlane') h = `<b>Create sketch:</b> click a plane or flat face. ${k('Esc')} cancels.`;
   else if (CMD && CMD.type === 'extrude') h = `<b>Extrude:</b> click profiles (or a sketch in the timeline) to add or remove them, drag the arrow, then ${k('Enter')} for OK.`;
   else if (CMD && CMD.type === 'offset') h = `<b>Offset plane:</b> click a plane or flat face, set the distance.`;
@@ -10944,6 +10946,7 @@ const OP_INFO = {
   contour: { name: '2D Contour', icon: 'camcontour', tip: 'Cuts around the part outline (or chosen faces) with cutter compensation, in step-downs.' },
   pocket: { name: '2D Pocket', icon: 'campocket', tip: 'Clears material down to the flat faces you pick. At every depth it goes down in the middle and works outward in rings toward the walls, leaving a little on the walls; a finishing pass then takes the walls to size. Islands (like bosses) are left alone.' },
   drill: { name: 'Drill', icon: 'camdrill', tip: 'Drills every vertical hole of the chosen diameters with a Haas canned cycle: drill, spot, deep peck, chip-break peck, ream or rigid tap.' },
+  slotmill: { name: 'Slot Mill', icon: 'camslot', tip: 'Mills straight slots with rounded ends: a pass along the middle (ramped in), side passes out to the walls for a tool narrower than the slot, then a finish loop round the wall. A tool as wide as the slot just runs down its middle.' },
   circlemill: { name: 'Circle Mill', icon: 'camcircle', tip: 'Mills round holes with an end mill smaller than the hole: rings clear the inside (only the ring between a pre-drilled hole and the wall if you give its Ø), then one continuous helix takes the wall to size with no witness marks. Good for bores that need to be exact, or holes with no drill of that size.' },
   threadmill: { name: 'Thread Mill', icon: 'camthread', tip: 'Cuts an internal thread with a thread mill: in on an arc to the bottom, up one pitch per turn (climb, right-hand), out on an arc. Give the thread’s major Ø and pitch, or leave them at 0 to take the tool’s pitch and a hole drilled one pitch under the major.' },
   parallel: { name: '3D Parallel', icon: 'camparallel', tip: 'Finishing raster over the whole part with a drop-cutter, following fillets and chamfers.' },
@@ -11026,7 +11029,7 @@ let camGeomCache = { model: null };
 function camGeom() {
   if (camGeomCache.model === MODEL) return camGeomCache;
   const bodies = visibleBodies(), pos = bodies.map(b => bodyMesh(b).pos);
-  camGeomCache = { model: MODEL, G: binTriangles(camTriangles(pos), 4), pos, faces: null, holes: null };
+  camGeomCache = { model: MODEL, G: binTriangles(camTriangles(pos), 4), pos, faces: null, holes: null, slots: null };
   // the exact mesh (fixed 0.02 mm chords) for heights and outlines, once it has arrived
   camGeomCache.fineG = camFine.G && camFine.key === camModelKey() ? camFine.G : null;
   if (UIX.ws === 'cam') camFineGeom();                             // fetch the exact mesh in the background
@@ -11042,7 +11045,7 @@ function camFineGeom() {
   e.p = Kernel.camMesh(CAM_TOL).then(pos => {
     e.G = binTriangles(camTriangles(pos), 4);
     // toolpaths built on the display mesh's silhouettes are rebuilt on the exact one
-    if (camFine === e) { camGeomCache.sil = null; camGeomCache.fineG = e.G; camGeomCache.holes = null; camEpoch++; if (UIX.ws === 'cam') camRefresh(); }
+    if (camFine === e) { camGeomCache.sil = null; camGeomCache.fineG = e.G; camGeomCache.holes = null; camGeomCache.slots = null; camEpoch++; if (UIX.ws === 'cam') camRefresh(); }
     return e.G;
   },
     err => { console.error(err); if (camFine === e) camFine = { key: null }; return camGeom().G; });
@@ -12048,28 +12051,183 @@ GEN.threadmill = function (op, tool, st, part, P) {
   const jobs = holeJobs(op, st, P);
   if (!jobs.length) return;
   const tp = toolParams(tool), safe = st.z1 + cam().safe, ret = st.z1 + cam().retract;
+  const hand = op.hand === 'lh' ? -1 : 1, up = op.cut !== 'conv', w = up ? hand : -hand;      // w = +1 goes counter-clockwise
+  const passes = clamp(Math.round(op.passes || 1), 1, 8) + (op.spring ? 1 : 0);
   let done = 0, info = '';
   for (const h of jobs) {
     const pitch = op.pitch > 0 ? op.pitch : tp.pitch > 0 ? tp.pitch : isoPitch(h.d * 1.2);
-    const major = op.major > 0 ? op.major : h.d + pitch, rc = (major - tool.d) / 2;
+    const major = op.major > 0 ? op.major : h.d + pitch, rc = (major - tool.d) / 2, depth = 0.6134 * pitch;   // ISO thread depth
     if (tool.d > h.d - 0.05) { warnOnce(P, `The Ø${fmtD(tool.d)} thread mill does not fit the Ø${fmtD(h.d)} hole.`); continue; }
     if (rc < 0.05) { warnOnce(P, `The Ø${fmtD(tool.d)} tool is as big as the Ø${fmtD(major)} thread.`); continue; }
     const through = holeThrough(h, part), len = op.depth > 0 ? op.depth : through ? h.top - h.bot : Math.max(pitch, h.top - h.bot - pitch);
     const zb = through && !(op.depth > 0) ? h.bot : Math.max(h.bot, h.top - len), zt = Math.max(h.top, zb + pitch);
-    const cx = h.x, cy = h.y, n = holeRingN(rc), steps = Math.max(n, Math.ceil((zt - zb) / pitch * n));
-    // right-hand internal thread, climb: from the bottom up, counter-clockwise, on and off along tangent half circles
-    if (P.cur) P.rapid(P.cur[0], P.cur[1], ret); else P.rapid(cx, cy, safe);
-    P.rapid(cx, cy, ret); P.rapid(cx, cy, zb + 0.5); P.plunge(cx, cy, zb);
-    for (let k = 1; k <= 12; k++) { const t = Math.PI * k / 12; P.feed(cx + rc / 2 * (1 - Math.cos(t)), cy - rc / 2 * Math.sin(t), zb); }
-    for (let i = 1; i <= steps; i++) { const a = TAU * i / n; P.feed(cx + rc * Math.cos(a), cy + rc * Math.sin(a), zb + (zt - zb) * i / steps); }
-    const a0 = TAU * steps / n, ca = Math.cos(a0), sa = Math.sin(a0);
-    for (let k = 1; k <= 12; k++) { const t = Math.PI * k / 12, lx = rc / 2 * (1 + Math.cos(t)), ly = rc / 2 * Math.sin(t); P.feed(cx + lx * ca - ly * sa, cy + lx * sa + ly * ca, zt); }
-    P.rapid(cx, cy, ret);
-    done++; info = `M${fmtD(major)} × ${fmtD(pitch)} · ${fmtLs(zt - zb)} long`;
+    const cx = h.x, cy = h.y;
+    const N = clamp(Math.round(op.passes || 1), 1, 8), turns = (zt - zb) / pitch;
+    for (let k = 1; k <= passes; k++) {
+      // radial passes step out to the full thread; a spring pass repeats the last one
+      const rk = Math.max(0.05, k > N ? rc : rc - depth * (N - k) / N), n = holeRingN(rk), steps = Math.max(n, Math.ceil(turns * n));
+      // a right-hand thread climbs counter-clockwise; coming down turns the other way: the helix keeps its hand
+      const zOf = i => up ? zb + (zt - zb) * i / steps : zt - (zt - zb) * i / steps, aAt = i => w * TAU * turns * i / steps, z0 = zOf(0);
+      const rot = (lx, ly, a) => P2(cx + lx * Math.cos(a) - ly * Math.sin(a), cy + lx * Math.sin(a) + ly * Math.cos(a));
+      if (P.cur) P.rapid(P.cur[0], P.cur[1], ret); else P.rapid(cx, cy, safe);
+      P.rapid(cx, cy, ret); P.rapid(cx, cy, z0 + (up ? 0.5 : 0)); P.plunge(cx, cy, z0);
+      for (let q = 1; q <= 12; q++) { const t = Math.PI * q / 12, p = rot(rk / 2 * (1 - Math.cos(t)), -w * rk / 2 * Math.sin(t), 0); P.feed(p.x, p.y, z0); }
+      for (let i = 1; i <= steps; i++) { const a = aAt(i); P.feed(cx + rk * Math.cos(a), cy + rk * Math.sin(a), zOf(i)); }
+      const aE = aAt(steps), zE = zOf(steps);
+      for (let q = 1; q <= 12; q++) { const t = Math.PI * q / 12, p = rot(rk / 2 * (1 + Math.cos(t)), w * rk / 2 * Math.sin(t), aE); P.feed(p.x, p.y, zE); }
+      P.rapid(cx, cy, ret);
+    }
+    done++; info = `${hand < 0 ? 'LH ' : ''}M${fmtD(major)} × ${fmtD(pitch)} · ${fmtLs(zt - zb)} long${passes > 1 ? ` · ${passes} passes` : ''}`;
   }
   if (!done) return;
   P.rapid(P.cur[0], P.cur[1], safe);
   P.info = done > 1 ? `${done} threads · ${info}` : info;
+};
+// ── Slot mill ──────────────────────────────────────────────────────
+// A straight slot with round ends, found from a loop: the long axis of its area, its width across, and
+// the centerline between the two end-arc centers. Anything that strays from that shape is not one.
+function slotShape(loop) {
+  if (loop.length < 6) return null;
+  let pts = loop;
+  { let a = 0; for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[(i + 1) % pts.length]; a += p.x * q.y - q.x * p.y; } if (a < 0) pts = pts.slice().reverse(); }
+  let A = 0, cx = 0, cy = 0, Ix = 0, Iy = 0, Ixy = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i], q = pts[(i + 1) % pts.length], c = p.x * q.y - q.x * p.y;
+    A += c; cx += (p.x + q.x) * c; cy += (p.y + q.y) * c;
+    Ix += (p.y * p.y + p.y * q.y + q.y * q.y) * c; Iy += (p.x * p.x + p.x * q.x + q.x * q.x) * c; Ixy += (p.x * q.y + 2 * p.x * p.y + 2 * q.x * q.y + q.x * p.y) * c;
+  }
+  A /= 2; if (A < 1e-6) return null;
+  cx /= 6 * A; cy /= 6 * A; Ix = Ix / 12 - A * cy * cy; Iy = Iy / 12 - A * cx * cx; Ixy = Ixy / 24 - A * cx * cy;
+  const th = 0.5 * Math.atan2(2 * Ixy, Iy - Ix), u = P2(Math.cos(th), Math.sin(th)), v = P2(-u.y, u.x);
+  let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+  for (const p of pts) { const a = (p.x - cx) * u.x + (p.y - cy) * u.y, b = (p.x - cx) * v.x + (p.y - cy) * v.y; u0 = Math.min(u0, a); u1 = Math.max(u1, a); v0 = Math.min(v0, b); v1 = Math.max(v1, b); }
+  const w = v1 - v0, L = u1 - u0;
+  if (w < 0.2 || L < w * 1.05) return null;                                   // too thin, or round (a hole)
+  const vm = (v0 + v1) / 2, at = (a, b) => P2(cx + u.x * a + v.x * b, cy + u.y * a + v.y * b), Pa = at(u0 + w / 2, vm), Pb = at(u1 - w / 2, vm);
+  const ob = slotLoop(Pa, Pb, w / 2, 24);                                     // the ideal slot: compare areas
+  const area = ps => ps.reduce((t, p) => t + Math.abs(cArea(p)), 0), mine = [orient(cP(pts), true)];
+  const off = area(cBool(ClipperLib.ClipType.ctXor, mine, [orient(cP(ob), true)]));
+  if (off > 0.04 * A) return null;
+  return { A: Pa, B: Pb, w, L };
+}
+// The path of the tool center round a slot wall, counter-clockwise (climb inside): down the right side,
+// round the far end, back up the left, round the near end. rad = distance from the centerline.
+function slotLoop(A, B, rad, segs = holeRingN(rad) >> 1) {
+  const d = sub2(B, A), l = Math.hypot(d.x, d.y), u = P2(d.x / l, d.y / l), v = P2(-u.y, u.x), out = [];
+  const at = (C, t) => P2(C.x + rad * (u.x * Math.cos(t) + v.x * Math.sin(t)), C.y + rad * (u.y * Math.cos(t) + v.y * Math.sin(t)));
+  for (let k = 0; k <= segs; k++) out.push(at(B, -Math.PI / 2 + Math.PI * k / segs));
+  for (let k = 0; k <= segs; k++) out.push(at(A, Math.PI / 2 + Math.PI * k / segs));
+  return out;
+}
+// Every straight slot of the part: openings in flat faces and closed pocket floors that have that shape.
+function camSlots() {
+  const g = camGeom();
+  if (g.slots) return g.slots;
+  const out = [], seen = new Set(), part = camPart();
+  const consider = (loop, z, opening) => {
+    const sh = slotShape(loop);
+    if (!sh) return;
+    const mid = lerp2(sh.A, sh.B, 0.5), key = Math.round(mid.x * 100) + ',' + Math.round(mid.y * 100) + ',' + Math.round(sh.w * 100) + ',' + Math.round(sh.L * 100);
+    if (seen.has(key)) return;
+    seen.add(key);
+    let bot = z, through = false;
+    if (opening) { const b = partTopAt(mid.x, mid.y); if (isFinite(b) && b < z - 0.01 && b > part.z0 + 1e-3) bot = b; else { through = true; bot = part.z0; } }
+    out.push({ ...sh, z, bot, through, key: sh.w.toFixed(2) + 'x' + sh.L.toFixed(2) });
+  };
+  for (const f of horizFaces()) {
+    if (!f.up) continue;
+    const rg = faceRegion(f.mesh, f.fid);
+    if (!rg) continue;
+    for (const pt of rg.parts) {
+      for (const h of pt.holes) if (!loopRises(h, f.z, false)) consider(h, f.z, true);
+      if (loopRises(pt.outer, f.z, true)) consider(pt.outer, f.z, false);
+    }
+  }
+  return (g.slots = out);
+}
+// The slot under a picked point (machine X = x, Y = -z of the model), if any.
+function slotNear(p) {
+  const x = p[0], y = -p[2];
+  let best = null, bd = Infinity;
+  for (const sl of camSlots()) {
+    const d = sub2(sl.B, sl.A), l2 = d.x * d.x + d.y * d.y, t = clamp(((x - sl.A.x) * d.x + (y - sl.A.y) * d.y) / l2, 0, 1), q = P2(sl.A.x + d.x * t, sl.A.y + d.y * t), dist = Math.hypot(x - q.x, y - q.y);
+    if (dist <= sl.w / 2 + 0.3 && p[1] >= sl.bot - 0.5 && dist < bd) { best = sl; bd = dist; }
+  }
+  return best;
+}
+function slotJobs(op, st, P) {
+  const want = op.sizes && op.sizes.length ? op.sizes : null;
+  if (!want) { P.warn.push('Choose the slot sizes below (or click slots in the view).'); return []; }
+  const list = camSlots().filter(sl => want.includes(sl.key));
+  if (!list.length) { P.warn.push('No slots of the chosen sizes.'); return []; }
+  const out = [];
+  let cur = P2(st.x0, st.y0);
+  while (list.length) { let bi = 0; list.forEach((sl, i) => { if (dst2(sl.A, cur) < dst2(list[bi].A, cur)) bi = i; }); const sl = list.splice(bi, 1)[0]; out.push(sl); cur = sl.B; }
+  return out;
+}
+// Ramp down along a→b and back from zFrom to zTo at `deg`, then on to the end of the leg it finishes on.
+function rampLine(P, a, b, zFrom, zTo, deg) {
+  const Lp = dst2(a, b), need = (zFrom - zTo) / Math.tan(deg * Math.PI / 180);
+  P.feed(a.x, a.y, zFrom);
+  if (Lp < 1e-6 || need <= 1e-9) { P.feed(a.x, a.y, zTo); return a; }
+  let acc = 0, p = a, q = b;
+  for (let g = 0; acc < need - 1e-9 && g < 400; g++) {
+    const len = Math.min(Lp, need - acc), e = lerp2(p, q, len / Lp);
+    acc += len; P.feed(e.x, e.y, zFrom - (zFrom - zTo) * acc / need);
+    if (len < Lp - 1e-9) { P.feed(q.x, q.y, zTo); return q; }
+    [p, q] = [q, p];
+  }
+  return p;
+}
+GEN.slotmill = function (op, tool, st, part, P) {
+  if (!flatBottom(tool) && tool.type !== 'ball') P.warn.push('This operation is meant for an end mill.');
+  const slots = slotJobs(op, st, P);
+  if (!slots.length) return;
+  const r = tool.d / 2, safe = st.z1 + cam().safe, ret = st.z1 + cam().retract, lw = op.leaveWall || 0;
+  const fin = op.finish !== false, fs = fin ? pocketFinishStock(op) : 0, so = Math.max(0.05, op.stepover || 0.4) * tool.d, step = Math.max(0.05, op.stepdown || 1.5);
+  const ramp = op.entry !== 'plunge', deg = clamp(op.rampAngle || 3, 0.5, 30), zTop = st.z1 + 0.5;
+  let done = 0;
+  for (const sl of slots) {
+    const wr = sl.w / 2 - r - lw;
+    if (wr < -1e-6) { warnOnce(P, `The Ø${fmtD(tool.d)} tool is wider than the ${fmtD(sl.w)} wide slot.`); continue; }
+    done++;
+    const dx = sub2(sl.B, sl.A), l = Math.hypot(dx.x, dx.y), u = P2(dx.x / l, dx.y / l), vv = P2(-u.y, u.x);
+    let bottom = sl.through ? sl.bot - (op.through == null ? 0.5 : op.through) : sl.bot + (op.leaveFloor || 0);
+    if (op.depth > 0) bottom = Math.max(bottom, st.z1 - op.depth);
+    const zs = levels(st.z1, bottom, step), half = Math.max(0, wr - fs);
+    // lateral positions of the roughing passes: the middle, then out to each side, the last exactly on `half`
+    const side = [];
+    if (half > 0.01) { for (let k = 1; k * so < half - 0.01; k++) side.push(k * so); side.push(half); }
+    const order = [0, ...side, ...side.map(o => -o)];
+    const ext = m => Math.sqrt(Math.max(0, half * half - m * m));
+    const ends = m => [add2(add2(sl.A, mul2(u, -ext(m))), mul2(vv, m)), add2(add2(sl.B, mul2(u, ext(m))), mul2(vv, m))];
+    const loop = fin && wr > 0.01 ? slotLoop(sl.A, sl.B, wr) : null;
+    const nearest = (pair, from) => dst2(pair[1], from) < dst2(pair[0], from) ? [pair[1], pair[0]] : pair;
+    zs.forEach((z, li) => {
+      const zFrom = li ? zs[li - 1] : zTop, here = P.cur ? P2(P.cur[0], P.cur[1]) : null;
+      let [s, e] = nearest(ends(0), here || sl.A);
+      if (li) P.feed(s.x, s.y, zFrom);
+      else { if (P.cur) P.rapid(P.cur[0], P.cur[1], ret); else P.rapid(s.x, s.y, safe); P.rapid(s.x, s.y, ret); P.rapid(s.x, s.y, zFrom); }
+      let at;
+      if (ramp && zFrom - z > 1e-6) {
+        at = rampLine(P, s, e, zFrom, z, deg);
+        const other = dst2(at, s) < dst2(at, e) ? e : s; P.feed(other.x, other.y, z); at = other;        // the full-depth pass back across
+      } else { P.plunge(s.x, s.y, z); P.feed(e.x, e.y, z); at = e; }
+      for (const m of order.slice(1)) {
+        const [a, b] = nearest(ends(m), at);
+        P.feed(a.x, a.y, z); P.feed(b.x, b.y, z); at = b;
+      }
+      if (loop) {
+        let k0 = 0; loop.forEach((p, k) => { if (dst2(p, at) < dst2(loop[k0], at)) k0 = k; });
+        P.feed(loop[k0].x, loop[k0].y, z);
+        for (let j = 1; j <= loop.length; j++) { const p = loop[(k0 + j) % loop.length]; P.feed(p.x, p.y, z); }
+      }
+    });
+    P.rapid(P.cur[0], P.cur[1], ret);
+  }
+  if (!done) return;
+  P.rapid(P.cur[0], P.cur[1], safe);
+  P.info = `${done} slot${done > 1 ? 's' : ''} · ${ramp ? `ramped in at ${deg}°` : 'plunged'}${fin ? ' · finish loop on the walls' : ''}`;
 };
 // Holes drilled with the part turned or tilted (3+2). Auto Detect records each hole's
 // mouth, diameter and depth; the moves are the same drill / peck / tap cycle as from the
@@ -12191,10 +12349,16 @@ let camEpoch = 0;
 function camModelChanged() { camEpoch++; camGeomCache = { model: null }; if (UIX.ws === 'cam') camRefresh(); }
 // Geometry identity for slow ops: changes only when the model does, not on zoom.
 const camModelKey = () => hashStr(doc.features.map(stable).join('|') + '|' + activeLimit() + '|' + JSON.stringify(doc.hidden || {}));
+// The op's tool with its own feed / plunge / spindle percentages applied (Advanced mode).
+function camToolFor(op) {
+  const t = toolOf(op.tool), fp = op.feedPct > 0 ? op.feedPct : 100, pp = op.plungePct > 0 ? op.plungePct : 100, rp = op.rpmPct > 0 ? op.rpmPct : 100;
+  if (!t || (fp === 100 && pp === 100 && rp === 100)) return t;
+  return { ...t, feed: Math.max(1, Math.round(t.feed * fp / 100)), plunge: Math.max(1, Math.round(t.plunge * pp / 100)), rpm: Math.max(1, Math.round(t.rpm * rp / 100)) };
+}
 function toolpath(op) {
   const st = camStock(), part = camPart();
   if (!st) return null;
-  const tool = toolOf(op.tool);
+  const tool = camToolFor(op);
   const key = camEpoch + '|' + JSON.stringify(op) + JSON.stringify(tool) + JSON.stringify(cam().stock) + cam().safe + '|' + cam().retract;
   let c = TP.get(op.id);
   if (c && c.key === key && c.path) return c.path;
@@ -13116,7 +13280,7 @@ function postGcode() {
   const multi = pf.multi === 'g682' ? 'g682' : 'setup', SU = camSetup();
   if (!grbl && SU) L.push(multi === 'g682' ? '(Indexed ops: G68.2 tilted work plane + G53.1. Check your control has tilted-plane machining enabled.)' : `(Indexed ops on the ${SU.name}: rotation center X${N(SU.c[0] - o[0])} Y${N(SU.c[1] - o[1])} Z${N(SU.c[2] - o[2])} from G54 — set it to your rotary's centerline and check its directions.)`);
   L.push(grbl ? `${inch ? 'G20' : 'G21'} G90 G94 G17` : `${inch ? 'G20' : 'G21'} G90 G94 G17 G40 G49 G80`, 'G54');
-  let lastTool = null, totalMin = 0;
+  let lastTool = null, lastRpm = null, totalMin = 0;
   const ops = C.ops.filter(op => !op.sup);
   for (const op of ops) {
     const P = toolpath(op);
@@ -13135,8 +13299,8 @@ function postGcode() {
       L.push(grbl ? `M0 (Change to ${toolName(t)})` : `T${t.n} M6`);
       L.push(`S${Math.round(t.rpm)} M3`);
       if (pf.coolant) L.push('M8');
-      lastTool = t.n; st.g = null; st.x = st.y = st.z = null; st.f = null;
-    }
+      lastTool = t.n; lastRpm = Math.round(t.rpm); st.g = null; st.x = st.y = st.z = null; st.f = null;
+    } else if (lastRpm !== Math.round(t.rpm)) { L.push(`S${Math.round(t.rpm)} M3`); lastRpm = Math.round(t.rpm); }
     if (fr) { L.push('G91 G28 Z0. (clear before turning the part)', 'G90', ...fr.code); st.g = null; st.x = st.y = st.z = null; }
     const endFrame = () => { if (fr) { L.push('G91 G28 Z0.', 'G90', ...fr.end); st.g = null; st.x = st.y = st.z = null; } };
     const m0 = rel(P.m[0]);
@@ -13239,6 +13403,7 @@ function camAddOp(type) {
     face: { tool: pick('face'), stepover: 0.7, stepdown: 1, leave: 0, pattern: 'zigzag', dir: 'auto' },
     contour: { tool: pick('flat'), side: 'outside', stepdown: 2, leave: 0, through: 0.5, faces: [] },
     pocket: { tool: pick('flat'), stepover: 0.45, stepdown: 1.5, leaveWall: 0, leaveFloor: 0, finishStock: isIn() ? 0.254 : 0.25, finish: true, faces: [] },
+    slotmill: { tool: pick('flat'), stepdown: 1.5, stepover: 0.4, leaveWall: 0, leaveFloor: 0, finishStock: isIn() ? 0.254 : 0.25, finish: true, through: 0.5, sizes: [] },
     circlemill: { tool: pick('flat'), stepdown: 1.5, stepover: 0.4, leaveWall: 0, finishStock: isIn() ? 0.254 : 0.25, finish: true, predrill: 0, through: 0.5, diams: [] },
     threadmill: { tool: pick('threadmill'), pitch: 0, major: 0, through: 0, diams: [] },
     drill: { tool: pick('drill'), mode: 'peck', peck: 3, through: 1, diams: [] },
@@ -13307,6 +13472,10 @@ function camMove(x, y) {
     const t = op.type === 'pocket' ? camPocketTarget(h) : h && h.kind === 'face' && Surf.list[h.fid].t === 'P' && Math.abs(Surf.list[h.fid].n[1]) > 0.999 ? h : null;
     setHover3D(t); ov.className = t ? 'pointer' : 'default'; return;
   }
+  if (op && op.type === 'slotmill') {
+    const h = pick3D(x, y, { faces: true }), ok = h && h.kind === 'face' && slotNear(h.point);
+    setHover3D(ok ? h : null); ov.className = ok ? 'pointer' : 'default'; return;
+  }
   if (op && HOLE_OPS.has(op.type)) {
     const h = pick3D(x, y, { faces: true });
     const ok = h && h.kind === 'face' && Surf.list[h.fid].t === 'C' && Surf.list[h.fid].sg < 0;
@@ -13319,6 +13488,13 @@ function camClick(x, y) {
   if (!op) return;
   const h = pick3D(x, y, { faces: true });
   if (!h || h.kind !== 'face') return;
+  if (op.type === 'slotmill') {
+    const sl = slotNear(h.point);
+    if (!sl) { toast('Click inside a straight slot or on its wall.'); return; }
+    const ks = (op.sizes || []).slice(), i = ks.indexOf(sl.key);
+    if (i >= 0) ks.splice(i, 1); else ks.push(sl.key);
+    camEdit(op, 'sizes', ks); return;
+  }
   if (op.type === 'pocket') {
     const t = camPocketTarget(h);
     if (t) camToggleFace(op, t);
@@ -13437,12 +13613,12 @@ function camOpMenu(op, x, y) {
 }
 // ── Right panel views ──────────────────────────────────────────────
 // Length fields show display units; setN converts them back to mm.
-const CAM_LEN = new Set(['stSide', 'stTop', 'stBot', 'camSafe', 'camRet', 'opSd', 'opLeave', 'opThrough', 'opOffD', 'opPre', 'opMajor', 'opPitch', 'opLw', 'opLf', 'opPeck', 'opSoL', 'opRest', 'opFs', 'opPkI', 'opPkJ', 'opPkK', 'opRpl', 'opS22', 'opS52', 'opDepth']);
+const CAM_LEN = new Set(['stSide', 'stTop', 'stBot', 'camSafe', 'camRet', 'opSd', 'opLeave', 'opThrough', 'opOffD', 'opPre', 'opMajor', 'opPitch', 'opMicro', 'opLw', 'opLf', 'opPeck', 'opSoL', 'opRest', 'opFs', 'opPkI', 'opPkJ', 'opPkK', 'opRpl', 'opS22', 'opS52', 'opDepth']);
 const num = (id, v, lab, step = 'any', extra = '') => CAM_LEN.has(id)
   ? `<label class="field"><span>${lab} (${uName()})</span><input type="number" id="${id}" data-cam-input="1" data-len="1" step="any" value="${uval(+v)}" ${extra}></label>`
   : `<label class="field"><span>${lab}</span><input type="number" id="${id}" data-cam-input="1" step="${step}" value="${+(+v).toFixed(4)}" ${extra}></label>`;
 // The drilling cycle's settings, each with what it does in plain English.
-function drillCycleFields(op) {
+function drillCycleFields(op, adv = true) {
   const t = toolOf(op.tool), cy = drillSpec(op, t), m = cy.mode, pecking = m === 'peck' || m === 'chip';
   const hint = txt => `<small class="hint">${txt}</small>`;
   const fld = (html, txt) => `<div class="hfield">${html}${hint(txt)}</div>`;
@@ -13452,24 +13628,31 @@ function drillCycleFields(op) {
     : `<div class="field"><span>Cycle</span><select id="opCycle">${cycles.map(([k, c]) => `<option value="${k}" ${m === k ? 'selected' : ''}>${c.g} · ${c.name}</option>`).join('')}</select></div>`;
   h += `<p class="note cyc-note"><b>${cy.g}:</b> ${DRILL_CYCLES[m].what}</p>`;
   if (pecking) {
-    h += fld(`<div class="row2">${num('opPeck', cy.q, 'Peck (Q)', 0.5, 'min="0.1"')}${num('opPkI', op.peckFirst || 0, 'First peck (I)', 0.5, 'min="0"')}</div>`,
+    h += fld(`<div class="row2">${num('opPeck', cy.q, 'Peck (Q)', 0.5, 'min="0.1"')}${adv ? num('opPkI', op.peckFirst || 0, 'First peck (I)', 0.5, 'min="0"') : ''}</div>`,
       '<b>Q</b> is how far the drill goes in each time before it backs out. Smaller pecks clear chips better but take longer. <b>I</b> (optional, 0 = off) makes the first peck a different size — usually deeper, since the chips clear easily near the top. Setting I switches the cycle to I / J / K pecking.');
-    if (cy.i > 0) h += fld(`<div class="row2">${num('opPkJ', op.peckReduce || 0, 'Shorten by (J)', 0.1, 'min="0"')}${num('opPkK', op.peckMin || 0, 'Min peck (K)', 0.1, 'min="0"')}</div>`,
+    if (adv && cy.i > 0) h += fld(`<div class="row2">${num('opPkJ', op.peckReduce || 0, 'Shorten by (J)', 0.1, 'min="0"')}${num('opPkK', op.peckMin || 0, 'Min peck (K)', 0.1, 'min="0"')}</div>`,
       '<b>J</b> takes this much off every peck after the first, because chips pack harder the deeper the hole gets. <b>K</b> is the floor: pecks never get shorter than this.');
   }
-  if (m === 'spot' || m === 'peck') h += fld(`<div class="row2"><label class="field"><span>Dwell (P, seconds)</span><input type="number" id="opDwell" data-cam-input="1" step="0.1" min="0" value="${+(op.dwell || 0).toFixed(3)}"></label></div>`,
+  if (adv && (m === 'spot' || m === 'peck')) h += fld(`<div class="row2"><label class="field"><span>Dwell (P, seconds)</span><input type="number" id="opDwell" data-cam-input="1" step="0.1" min="0" value="${+(op.dwell || 0).toFixed(3)}"></label></div>`,
     '<b>P</b> pauses the drill at the bottom for this many seconds so the point cleans up the floor (spot drills, counterbores). 0 = no pause.');
-  h += fld(`<div class="row2">${num('opRpl', cy.rpl, 'R plane (R)', 0.5, 'min="0.2"')}<div class="field"><span>Between holes</span><div class="seg"><button data-opset="retPlane:init" class="${cy.ret === 'G98' ? 'on' : ''}" title="G98">Start height</button><button data-opset="retPlane:r" class="${cy.ret === 'G99' ? 'on' : ''}" title="G99">R plane</button></div></div></div>`,
+  if (adv) h += fld(`<div class="row2">${num('opRpl', cy.rpl, 'R plane (R)', 0.5, 'min="0.2"')}<div class="field"><span>Between holes</span><div class="seg"><button data-opset="retPlane:init" class="${cy.ret === 'G98' ? 'on' : ''}" title="G98">Start height</button><button data-opset="retPlane:r" class="${cy.ret === 'G99' ? 'on' : ''}" title="G99">R plane</button></div></div></div>`,
     '<b>R</b> is where the rapid stops and the feed starts, this far above the stock top (pecks count from here). <b>G98</b> (start height) lifts back to the clearance height between holes — safe over clamps. <b>G99</b> (R plane) only lifts to R — faster, but only if nothing sticks up between the holes.');
-  if (pecking) h += fld(`<div class="row2">${num('opS22', cy.s22, 'Setting 22', 0.1, 'min="0.01"')}${m === 'peck' ? num('opS52', cy.s52, 'Setting 52', 0.1, 'min="0"') : '<span></span>'}</div>`,
+  if (adv && pecking) h += fld(`<div class="row2">${num('opS22', cy.s22, 'Setting 22', 0.1, 'min="0.01"')}${m === 'peck' ? num('opS52', cy.s52, 'Setting 52', 0.1, 'min="0"') : '<span></span>'}</div>`,
     m === 'chip' ? '<b>Setting 22</b> is how far G73 backs up between pecks to snap the chip (Haas default 0.050"). It is set on the control, not in the program — the program notes the value you choose here.'
       : '<b>Setting 22</b>: after pulling out, G83 rapids back down and stops this far above the last peck before feeding again (Haas default 0.050"). <b>Setting 52</b> lifts this much above R on each pull-out so chips can fly clear. Both are set on the control, not in the program — the program notes them.');
-  if (m === 'tap') h += fld(`<div class="row2"><label class="field"><span>Retract speed (J)</span><input type="number" id="opTapJ" data-cam-input="1" step="1" min="1" max="4" value="${cy.tapJ}"></label></div>`,
+  if (adv && m === 'tap') h += fld(`<div class="row2"><label class="field"><span>Retract speed (J)</span><input type="number" id="opTapJ" data-cam-input="1" step="1" min="1" max="4" value="${cy.tapJ}"></label></div>`,
     '<b>J</b> backs the tap out this many times faster than it went in (1 = same speed). Faster saves time; keep 1 for small or fragile taps. Setting 130 caps it.');
-  h += fld(`<div class="row2">${num('opThrough', op.through == null ? 1 : op.through, 'Breakthrough', 0.1, 'min="0"')}${num('opDepth', op.depth || 0, 'Depth (0 = full)', 0.5, 'min="0"')}</div>`,
+  h += fld(`<div class="row2">${adv ? num('opThrough', op.through == null ? 1 : op.through, 'Breakthrough', 0.1, 'min="0"') : ''}${num('opDepth', op.depth || 0, 'Depth (0 = full)', 0.5, 'min="0"')}</div>`,
     '<b>Breakthrough</b>: how far past the bottom of a through hole the full diameter goes, so no burr or skin is left. <b>Depth</b> stops short of the hole’s bottom, measured from its top (spot drilling); 0 drills the whole hole.');
   h += `<small class="hint">Feed (F) and speed (S) come from the tool: plunge ${fmtRate(t.plunge)} at ${t.rpm.toLocaleString()} RPM.</small>`;
   return h;
+}
+function threadFields(op, adv, A) {
+  return `<div class="row2">${num('opMajor', op.major || 0, 'Thread major Ø (0 = hole Ø + pitch)', 0.5)}${num('opPitch', op.pitch || 0, 'Pitch (0 = tool / ISO)', 0.05)}</div>`
+    + A(`<div class="row2">${num('opDepth', op.depth || 0, 'Thread length (0 = whole hole)', 0.5)}${num('opPasses', op.passes || 1, 'Radial passes', 1, 'min="1" max="8"')}</div>
+    <div class="field"><span>Thread hand</span><div class="seg"><button data-opset="hand:rh" class="${op.hand !== 'lh' ? 'on' : ''}">Right</button><button data-opset="hand:lh" class="${op.hand === 'lh' ? 'on' : ''}">Left</button></div></div>
+    <div class="field"><span>Milling</span><div class="seg"><button data-opset="cut:climb" class="${op.cut !== 'conv' ? 'on' : ''}" title="Bottom up">Climb</button><button data-opset="cut:conv" class="${op.cut === 'conv' ? 'on' : ''}" title="Top down">Conventional</button></div></div>
+    <label class="chk"><input type="checkbox" id="opSpring" ${op.spring ? 'checked' : ''}> Spring pass: repeat the final turn to take out tool deflection</label>`);
 }
 function camPanel() {
   const C = cam(), v = CAMUI.view, st = camStock();
@@ -13515,39 +13698,53 @@ function camPanel() {
     if (!op) { CAMUI.view = 'overview'; return camPanel(); }
     const P = toolpath(op), stats = P && !P.pending ? pathStats(P) : null;
     const tools = C.tools.map(t => `<option value="${t.n}" ${op.tool === t.n ? 'selected' : ''}>${toolName(t)}</option>`).join('');
+    const adv = !!UIX.camAdv, A = h => adv ? h : '';
     let f = `<div class="field"><span>Tool</span><select id="opTool">${tools}</select></div>`;
     const faces = (op.faces || []).length;
-    if (op.type === 'face') f += `<div class="row3">${num('opSo', op.stepover, 'Stepover ×Ø', 0.05)}${num('opSd', op.stepdown, 'Stepdown', 0.1)}${num('opLeave', op.leave, 'Leave', 0.05)}</div>
+    if (op.type === 'face') f += `<div class="row2">${num('opSo', op.stepover, 'Stepover ×Ø', 0.05)}${num('opSd', op.stepdown, 'Stepdown', 0.1)}</div>${A(`<div class="row2">${num('opLeave', op.leave, 'Leave', 0.05)}</div>`)}` + A(`
       <div class="field"><span>Passes</span><div class="seg"><button data-opset="pattern:zigzag" class="${op.pattern !== 'oneway' ? 'on' : ''}" title="Across, step over off the end of the stock, and straight back: the tool never lifts">Zig-zag</button><button data-opset="pattern:oneway" class="${op.pattern === 'oneway' ? 'on' : ''}" title="Every stroke cuts the same direction; the tool lifts and comes back between strokes (a more even finish)">One way</button></div></div>
-      <div class="field"><span>Strokes run along</span><div class="seg">${[['auto', 'Long side'], ['x', 'X'], ['y', 'Y']].map(([k, l]) => `<button data-opset="dir:${k}" class="${(op.dir || 'auto') === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>`;
+      <div class="field"><span>Strokes run along</span><div class="seg">${[['auto', 'Long side'], ['x', 'X'], ['y', 'Y']].map(([k, l]) => `<button data-opset="dir:${k}" class="${(op.dir || 'auto') === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>`);
     if (op.type === 'contour') f += `<div class="field"><span>Cut</span><div class="seg"><button data-opbool="holes:0" class="${!op.holes ? 'on' : ''}">Outline / faces</button><button data-opbool="holes:1" class="${op.holes ? 'on' : ''}">Through cut-outs</button></div></div>`;
     if (op.type === 'contour' && !op.holes) f += `<div class="field"><span>Side</span><div class="seg"><button data-opset="side:outside" class="${op.side !== 'inside' ? 'on' : ''}">Outside</button><button data-opset="side:inside" class="${op.side === 'inside' ? 'on' : ''}">Inside</button></div></div>
       <div class="field"><span>Boundary</span><div class="pick ${faces ? '' : 'empty'}"><span>${faces ? 'Chosen faces · click to add/remove' : 'Part outline · or click flat faces'}</span><span class="n">${faces || 'auto'}</span></div></div>
-      <div class="row3">${num('opSd', op.stepdown, 'Stepdown', 0.1)}${num('opLeave', op.leave, 'Leave', 0.05)}${num('opThrough', op.through, 'Below bottom', 0.1)}</div><div class="row2">${num('opOffD', op.offD || 0, 'Offset Ø (0 = tool Ø)', 0.5, 'min="0" title="The diameter the path is offset by, if not the tool\'s: a measured or worn cutter, or a wider value to leave stock. The tool itself is unchanged."')}${op.side !== 'inside' ? num('opRest', op.restD || 0, 'Rest after tool Ø (0 = off)', 1) : ''}</div>`;
-    if (op.type === 'contour') f += `<div class="field"><span>Lead in / out</span><div class="seg">${[['corner', 'Off a corner'], ['arc', 'Arc'], ['line', 'Line']].map(([k, l]) => `<button data-opset="lead:${k}" class="${(op.lead || 'line') === k ? 'on' : ''}" title="${k === 'corner' ? 'Straight in and out along the walls at a sharp outside corner, well clear of the part: no witness mark' : k === 'arc' ? 'A tangent quarter arc on the air side' : 'A short straight line square to the wall'}">${l}</button>`).join('')}</div></div>`;
+      <div class="row2">${num('opSd', op.stepdown, 'Stepdown', 0.1)}${num('opOffD', op.offD || 0, 'Offset Ø (0 = tool Ø)', 0.5, 'min="0" title="The diameter the path is offset by, if not the tool\'s: a measured or worn cutter, or a wider value to leave stock. The tool itself is unchanged."')}</div>` + A(`<div class="row2">${num('opLeave', op.leave, 'Leave', 0.05)}${num('opThrough', op.through, 'Below bottom', 0.1)}</div>${op.side !== 'inside' ? `<div class="row2">${num('opRest', op.restD || 0, 'Rest after tool Ø (0 = off)', 1)}</div>` : ''}`);
+    if (op.type === 'contour') f += adv ? `<div class="field"><span>Lead in / out</span><div class="seg">${[['corner', 'Off a corner'], ['arc', 'Arc'], ['line', 'Line']].map(([k, l]) => `<button data-opset="lead:${k}" class="${(op.lead || 'line') === k ? 'on' : ''}" title="${k === 'corner' ? 'Straight in and out along the walls at a sharp outside corner, well clear of the part: no witness mark' : k === 'arc' ? 'A tangent quarter arc on the air side' : 'A short straight line square to the wall'}">${l}</button>`).join('')}</div></div>` : '';
     if (op.type === 'contour' && op.holes) f += `<div class="field"><span>Faces holding the cut-outs</span><div class="pick ${faces ? '' : 'empty'}"><span>${faces ? 'Click a face again to remove it' : 'Click the flat faces the openings are in'}</span><span class="n">${faces}</span></div></div>
-      <div class="row3">${num('opSd', op.stepdown, 'Stepdown', 0.1)}${num('opLeave', op.leave, 'Leave', 0.05)}${num('opThrough', op.through, 'Below bottom', 0.1)}</div><div class="row2">${num('opOffD', op.offD || 0, 'Offset Ø (0 = tool Ø)', 0.5)}</div>`;
+      <div class="row2">${num('opSd', op.stepdown, 'Stepdown', 0.1)}${num('opOffD', op.offD || 0, 'Offset Ø (0 = tool Ø)', 0.5)}</div>` + A(`<div class="row2">${num('opLeave', op.leave, 'Leave', 0.05)}${num('opThrough', op.through, 'Below bottom', 0.1)}</div>`);
     if (op.type === 'pocket') f += `<div class="field"><span>Floors</span><div class="pick ${faces ? '' : 'empty'}"><span>${faces ? 'Click a floor or wall again to remove it' : 'Click a pocket floor, or any wall or round hole wall above it'}</span><span class="n">${faces}</span></div></div>
-      <div class="row2">${num('opSo', op.stepover, 'Stepover ×Ø', 0.05)}${num('opSd', op.stepdown, 'Stepdown', 0.1)}</div><div class="row2">${num('opFs', pocketFinishStock(op), 'Leave for finishing', 0.05, 'min="0" title="How far the roughing rings stay off the walls. The finish pass (or a later finishing op) takes this off."')}${num('opRest', op.restD || 0, 'Rest after tool Ø (0 = off)', 1)}</div>
-      <label class="chk"><input type="checkbox" id="opFinish" ${op.finish !== false ? 'checked' : ''}> Finish pass: take the walls to size at full depth</label>
-      <div class="row2">${num('opLw', op.leaveWall, 'Leave on walls (final)', 0.05)}${num('opLf', op.leaveFloor, 'Leave on floor', 0.05)}</div>`;
+      <div class="row2">${num('opSo', op.stepover, 'Stepover ×Ø', 0.05)}${num('opSd', op.stepdown, 'Stepdown', 0.1)}</div>
+      <label class="chk"><input type="checkbox" id="opFinish" ${op.finish !== false ? 'checked' : ''}> Finish pass: take the walls to size at full depth</label>` + A(`<div class="row2">${num('opFs', pocketFinishStock(op), 'Leave for finishing', 0.05, 'min="0" title="How far the roughing rings stay off the walls. The finish pass (or a later finishing op) takes this off."')}${num('opRest', op.restD || 0, 'Rest after tool Ø (0 = off)', 1)}</div>
+      <div class="row2">${num('opLw', op.leaveWall, 'Leave on walls (final)', 0.05)}${num('opLf', op.leaveFloor, 'Leave on floor', 0.05)}</div>`);
     if (HOLE_OPS.has(op.type)) {
       const hl = opAxis(op) ? op.pts || [] : camHoles(), ax = opAxis(op);
       if (ax) { const pz = poseForOp(op), S = camSetup(); f += `<p class="note"><b>Indexed:</b> holes from ${dirName([ax[0], ax[2], -ax[1]])} · ${hl.length} hole${hl.length === 1 ? '' : 's'}. The part turns on the ${S ? S.name : 'rotary'} to <b>${pz ? pz.label : '—'}</b> so the spindle comes straight down (shown in the view).</p>`; }
       const ds = [...new Set(hl.map(h => +h.d.toFixed(2)))].sort((a, b) => a - b);
       f += `<div class="field"><span>Hole diameters (click holes in the view too)</span><div class="chips">${ds.map(d => { const n = hl.filter(h => Math.abs(h.d - d) < 0.02).length, on = op.diams.some(x => Math.abs(x - d) < 0.02); return `<button class="chip ${on ? 'on' : ''}" data-dia="${d}">${fmtDia(d)} <small>×${n}</small></button>`; }).join('') || '<span class="note">No vertical holes found.</span>'}</div></div>
-        ${op.type === 'drill' ? drillCycleFields(op) : op.type === 'circlemill' ? `<div class="row2">${num('opSd', op.stepdown, 'Stepdown / helix pitch', 0.1)}${num('opSo', op.stepover, 'Stepover ×Ø', 0.05)}</div>
-        <div class="row2">${num('opPre', op.predrill || 0, 'Pre-drilled Ø (0 = solid)', 0.5)}${num('opFs', pocketFinishStock(op), 'Leave for finishing', 0.05)}</div>
-        <div class="row2">${num('opLw', op.leaveWall, 'Leave on wall (final)', 0.05)}${num('opThrough', op.through, 'Below through holes', 0.1)}</div><div class="row2">${num('opDepth', op.depth || 0, 'Depth (0 = to the bottom)', 0.5)}</div>
-        <label class="chk"><input type="checkbox" id="opFinish" ${op.finish !== false ? 'checked' : ''}> Finish helix: take the wall to size in one continuous turn-down</label>` : `<div class="row2">${num('opMajor', op.major || 0, 'Thread major Ø (0 = hole Ø + pitch)', 0.5)}${num('opPitch', op.pitch || 0, 'Pitch (0 = tool / ISO)', 0.05)}</div><div class="row2">${num('opDepth', op.depth || 0, 'Thread length (0 = whole hole)', 0.5)}</div>`}`;
+        ${op.type === 'drill' ? drillCycleFields(op, adv) : op.type === 'circlemill' ? `<div class="row2">${num('opPre', op.predrill || 0, 'Pre-drilled Ø (0 = solid)', 0.5)}${num('opSd', op.stepdown, 'Stepdown / helix pitch', 0.1)}</div>
+        <label class="chk"><input type="checkbox" id="opFinish" ${op.finish !== false ? 'checked' : ''}> Finish helix: take the wall to size in one continuous turn-down</label>` + A(`<div class="row2">${num('opSo', op.stepover, 'Stepover ×Ø', 0.05)}${num('opFs', pocketFinishStock(op), 'Leave for finishing', 0.05)}</div>
+        <div class="row2">${num('opLw', op.leaveWall, 'Leave on wall (final)', 0.05)}${num('opLf', op.leaveFloor, 'Leave on floor', 0.05)}</div><div class="row2">${num('opThrough', op.through, 'Below through holes', 0.1)}${num('opDepth', op.depth || 0, 'Depth (0 = to the bottom)', 0.5)}</div>`) : op.type === 'threadmill' ? threadFields(op, adv, A) : op.type === 'slotmill' ? '' : ''}`;
     }
     if (op.type === 'chamfer') { const faces = (op.faces || []).length; f += `<div class="field"><span>Chamfer faces</span><div class="pick ${faces ? '' : 'empty'}"><span>${faces ? 'Click a face again to remove it' : 'Click 45° chamfer faces'}</span><span class="n">${faces}</span></div></div>
-      <div class="row2">${num('opThrough', op.through, 'Tip below edge', 0.05)}${num('opLeave', op.leave, 'Leave', 0.05)}</div>`; }
-    if (op.type === 'parallel') f += `<div class="row3">${num('opSoL', op.stepover, 'Stepover', 0.05)}${num('opLeave', op.leave, 'Leave', 0.05)}<div class="field"><span>Direction</span><div class="seg"><button data-opset="angle:0" class="${!op.angle ? 'on' : ''}">X</button><button data-opset="angle:90" class="${op.angle === 90 ? 'on' : ''}">Y</button></div></div></div>
-      <label class="chk"><input type="checkbox" id="opOverrun" ${op.overrun ? 'checked' : ''}> Run the tool past the part edges</label>`;
+      <div class="row2">${num('opThrough', op.through, 'Tip below edge', 0.05)}${adv ? num('opLeave', op.leave, 'Leave', 0.05) : ''}</div>`; }
+    if (op.type === 'parallel') f += `<div class="row3">${num('opSoL', op.stepover, 'Stepover', 0.05)}${adv ? num('opLeave', op.leave, 'Leave', 0.05) : ''}<div class="field"><span>Direction</span><div class="seg"><button data-opset="angle:0" class="${!op.angle ? 'on' : ''}">X</button><button data-opset="angle:90" class="${op.angle === 90 ? 'on' : ''}">Y</button></div></div></div>
+      ${adv ? `<label class="chk"><input type="checkbox" id="opOverrun" ${op.overrun ? 'checked' : ''}> Run the tool past the part edges</label>` : ''}`;
+    // slot mill: pick slots by size, like holes by diameter
+    if (op.type === 'slotmill') {
+      const sl = camSlots(), keys = [...new Set(sl.map(x => x.key))];
+      f += `<div class="field"><span>Slots (width × length; click slots in the view too)</span><div class="chips">${keys.map(k => { const x = sl.find(q => q.key === k), n = sl.filter(q => q.key === k).length, on = (op.sizes || []).includes(k); return `<button class="chip ${on ? 'on' : ''}" data-slot="${k}">${fmtLs(x.w)} × ${fmtLs(x.L)} <small>×n${n}</small></button>`.replace('×n', '×'); }).join('') || '<span class="note">No straight slots found.</span>'}</div></div>
+        <div class="row2">${num('opSd', op.stepdown, 'Stepdown', 0.1)}${num('opFs', pocketFinishStock(op), 'Leave for finishing', 0.05)}</div>
+        <label class="chk"><input type="checkbox" id="opFinish" ${op.finish !== false ? 'checked' : ''}> Finish pass: take the walls to size</label>`
+        + A(`<div class="row2">${num('opSo', op.stepover, 'Stepover ×Ø', 0.05)}${num('opLw', op.leaveWall, 'Leave on walls (final)', 0.05)}</div>
+        <div class="row2">${num('opLf', op.leaveFloor, 'Leave on floor', 0.05)}${num('opThrough', op.through, 'Below through slots', 0.1)}</div><div class="row2">${num('opDepth', op.depth || 0, 'Depth from stock top (0 = to the bottom)', 0.5)}${num('opRamp', op.rampAngle || 3, 'Ramp angle °', 0.5)}</div>`);
+    }
+    // entry and linking, for the operations that clear material in levels
+    if (['contour', 'pocket', 'slotmill'].includes(op.type)) f += A(`<div class="field"><span>Entry</span><div class="seg"><button data-opset="entry:plunge" class="${op.entry !== 'ramp' && !(op.type === 'slotmill' && op.entry == null) ? 'on' : ''}" title="Straight down">Plunge</button><button data-opset="entry:ramp" class="${op.entry === 'ramp' || (op.type === 'slotmill' && op.entry == null) ? 'on' : ''}" title="A shallow ramp along the cut">Ramp</button></div></div>
+      <div class="row2">${num('opMicro', op.microlift || 0, 'Micro-lift on links', 0.05)}</div><label class="chk"><input type="checkbox" id="opSafe" ${op.safeLinks ? 'checked' : ''}> Every sideways move rises to the retract plane</label>`);
+    f += A(`<div class="sec-title">Feeds and speeds for this operation</div><div class="row3">${num('opFeedPct', op.feedPct || 100, 'Feed %', 5)}${num('opPlungePct', op.plungePct || 100, 'Plunge %', 5)}${num('opRpmPct', op.rpmPct || 100, 'Spindle %', 5)}</div><small class="hint">Percent of the tool’s own values (${fmtRate(toolOf(op.tool).feed)} feed, ${fmtRate(toolOf(op.tool).plunge)} plunge, ${toolOf(op.tool).rpm.toLocaleString()} RPM). 100 = as the tool library has them.</small>`);
     const warn = P && P.warn.length ? P.warn.map(w => `<p class="note err-note">${w}</p>`).join('') : '';
     const info = P && P.pending ? '<p class="note"><span class="spin"></span> Computing the 3D toolpath in the background…</p>' : stats ? `<dl class="kv"><dt>Cutting</dt><dd>${fmtRun(stats.feedLen)}</dd><dt>Rapids</dt><dd>${fmtRun(stats.rapidLen)}</dd><dt>Machining time</dt><dd>${fmtTime(stats.min)}</dd>${P.info ? `<dt>Detail</dt><dd>${P.info}</dd>` : ''}</dl>` : '';
     return `<div class="pn-head"><h2 id="opNameH" title="Double-click to rename">${op.name}</h2><span class="tag">${OP_INFO[op.type].name}</span></div><div class="pn-body">
+      <div class="modebar"><div class="seg" role="group" aria-label="Parameter detail"><button data-camadv="0" class="${adv ? '' : 'on'}" title="Only what the operation needs">Basic</button><button data-camadv="1" class="${adv ? 'on' : ''}" title="Every parameter">Advanced</button></div></div>
       <p class="note">${OP_INFO[op.type].tip}</p>${f}${warn}${info}
       <div class="btns"><button class="btn" data-camdo="delop">Delete</button><button class="btn primary" data-camdo="overview">Done</button></div></div>`;
   }
@@ -13649,9 +13846,14 @@ function bindCamPanel() {
   // op fields
   const op = CAMUI.view === 'op' && opById(CAMUI.op);
   if (op) {
+    panel.querySelectorAll('[data-camadv]').forEach(b => b.addEventListener('click', () => { UIX.camAdv = b.dataset.camadv === '1'; try { localStorage.setItem('datum.camAdv', UIX.camAdv ? '1' : '0'); } catch (e) { /* ignore */ } refreshPanel(); }));
+    panel.querySelectorAll('[data-slot]').forEach(b => b.addEventListener('click', () => { const k = b.dataset.slot, ks = (op.sizes || []).slice(), i = ks.indexOf(k); if (i >= 0) ks.splice(i, 1); else ks.push(k); camEdit(op, 'sizes', ks); }));
+    setN('opFeedPct', v => camEdit(op, 'feedPct', clamp(v, 10, 300))); setN('opPlungePct', v => camEdit(op, 'plungePct', clamp(v, 10, 300))); setN('opRpmPct', v => camEdit(op, 'rpmPct', clamp(v, 10, 200)));
+    setN('opPasses', v => camEdit(op, 'passes', clamp(Math.round(v), 1, 8))); setN('opRamp', v => camEdit(op, 'rampAngle', clamp(v, 0.5, 30)));
+    ck('opSpring', v => camEdit(op, 'spring', v)); ck('opSafe', v => camEdit(op, 'safeLinks', v));
     const ot = document.getElementById('opTool'); if (ot) ot.addEventListener('change', () => camEdit(op, 'tool', +ot.value));
-    const map = { opSo: 'stepover', opSoL: 'stepover', opSd: 'stepdown', opLeave: 'leave', opThrough: 'through', opLw: 'leaveWall', opLf: 'leaveFloor', opPeck: 'peck', opRest: 'restD', opFs: 'finishStock', opOffD: 'offD', opPre: 'predrill', opMajor: 'major', opPitch: 'pitch' };
-    for (const [id, k] of Object.entries(map)) setN(id, v => camEdit(op, k, k === 'leave' || k === 'leaveWall' || k === 'leaveFloor' || k === 'through' || k === 'restD' || k === 'finishStock' || k === 'offD' || k === 'predrill' || k === 'major' || k === 'pitch' ? Math.max(0, v) : Math.max(0.01, v)));
+    const map = { opSo: 'stepover', opSoL: 'stepover', opSd: 'stepdown', opLeave: 'leave', opThrough: 'through', opLw: 'leaveWall', opLf: 'leaveFloor', opPeck: 'peck', opRest: 'restD', opFs: 'finishStock', opOffD: 'offD', opPre: 'predrill', opMajor: 'major', opPitch: 'pitch', opMicro: 'microlift' };
+    for (const [id, k] of Object.entries(map)) setN(id, v => camEdit(op, k, k === 'leave' || k === 'leaveWall' || k === 'leaveFloor' || k === 'through' || k === 'restD' || k === 'finishStock' || k === 'offD' || k === 'predrill' || k === 'major' || k === 'pitch' || k === 'microlift' ? Math.max(0, v) : Math.max(0.01, v)));
     ck('opFinish', v => camEdit(op, 'finish', v));
     const cyc = document.getElementById('opCycle'); if (cyc) cyc.addEventListener('change', () => camEdit(op, 'mode', cyc.value));
     const drillMap = { opPkI: 'peckFirst', opPkJ: 'peckReduce', opPkK: 'peckMin', opRpl: 'rPlane', opS22: 'chipBack', opS52: 's52', opDepth: 'depth' };
@@ -21985,7 +22187,7 @@ const FA_MAP = {
   fillet: 'border-top-left', trim: 'scissors', extend: 'arrows-left-right-to-line', offset: 'clone', mirror: 'arrows-left-right', project: 'diagram-project', cons: 'link', del: 'trash-can',
   sketch: 'pen-ruler', extrude: 'arrow-up-from-bracket', plane: 'layer-group', finish: 'check', body: 'cube', eye: 'eye', eyeoff: 'eye-slash', origin: 'crosshairs', origin2: 'location-crosshairs',
   chamfer: 'diamond', fillet3: 'circle-half-stroke', chamfer3: 'diamond', thread: 'screwdriver', point: 'circle-dot', marker: 'flag', blueprint: 'compass-drafting', measure: 'ruler',
-  camsetup: 'sliders', camtools: 'screwdriver-wrench', camface: 'grip-lines', camcontour: 'route', campocket: 'inbox', camdrill: 'arrow-down-long', camcircle: 'circle-notch', camthread: 'screwdriver', camparallel: 'water', camsim: 'play', campost: 'file-code',
+  camsetup: 'sliders', camtools: 'screwdriver-wrench', camface: 'grip-lines', camcontour: 'route', campocket: 'inbox', camdrill: 'arrow-down-long', camcircle: 'circle-notch', camslot: 'grip-lines-vertical', camthread: 'screwdriver', camparallel: 'water', camsim: 'play', campost: 'file-code',
   import: 'file-import', auto: 'wand-magic-sparkles', export: 'file-export', autoprog: 'robot', verify: 'shield-halved', camchamfer: 'diamond', camthread: 'screwdriver',
   revolve: 'rotate', sweep: 'wave-square', loft: 'shapes', coil: 'arrows-spin', hole: 'ring', shell: 'box-open', pattern: 'table-cells', patternc: 'circle-nodes', mirror3: 'arrows-left-right',
   combine: 'object-group', move: 'up-down-left-right', rotate: 'rotate-right', scale: 'maximize', split: 'object-ungroup', create: 'plus', modify: 'pen', construct: 'ruler-combined', array: 'table-cells',
@@ -22627,7 +22829,7 @@ function sheetRibbonHTML() {
 camToolbar = function () {
   const v = CAMUI.view, wire = typeof isWire === 'function' && isWire();
   const op = k => OP_INFO[k] ? ['add:' + k, OP_INFO[k].name, '', OP_INFO[k].icon] : null;
-  const D2 = ['face', 'contour', 'pocket', 'drill', 'circlemill', 'threadmill', 'chamfer'], D3 = ['parallel'], known = new Set([...D2, ...D3, 'wire']);
+  const D2 = ['face', 'contour', 'pocket', 'slotmill', 'drill', 'circlemill', 'threadmill', 'chamfer'], D3 = ['parallel'], known = new Set([...D2, ...D3, 'wire']);
   const other = Object.keys(OP_INFO).filter(k => !known.has(k));
   const P = (title, items, big) => rbPanel(title, items, big, 'data-cam');
   return P('Setup', [['setup', 'Setup', '', 'camsetup', v === 'setup'], ['tools', 'Tool Library', '', 'camtools', v === 'tools']], 1)
