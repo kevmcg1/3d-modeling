@@ -9207,6 +9207,19 @@ function toggleExtProfile(h) {
   if (!f.pts.length && inDoc && CMD.isNew) removeFeatureObj(f);
   modelChanged();
 }
+// Extrude is running and a whole sketch is clicked in the timeline or browser: take every closed
+// profile in it (hidden sketches included); click it again to let go of them.
+function extrudePickSketch(sk) {
+  const f = CMD.f, arr = arrOf(sk);
+  if (!arr.regions.length) { toast(`${sk.name} has no closed profiles to extrude.`); return; }
+  const pts = arr.regions.map(r => interiorPoint(r));
+  const all = f.sketch === sk.id && pts.every(p => f.pts.some(q => arr.faceAt(q) === arr.faceAt(p)));
+  f.sketch = sk.id; f.pts = all ? [] : pts;
+  const inDoc = doc.features.includes(f);
+  if (f.pts.length && !inDoc) insertFeature(f);
+  if (!f.pts.length && inDoc && CMD.isNew) removeFeatureObj(f);
+  modelChanged(); refreshPanel();
+}
 function extrudeOK() {
   const f = CMD.f;
   if (!f.pts.length) { toast('Select at least one profile to extrude.'); return; }
@@ -9976,6 +9989,7 @@ function showMenu(items, x, y) {
 }
 // Select a whole sketch from the model tree or timeline: all its profiles.
 function selectSketch(f) {
+  if (CMD && CMD.type === 'extrude' && !S.sk && UIX.ws === 'design' && f && f.type === 'sketch') { extrudePickSketch(f); return; }
   if (S.sk || CMD || UIX.ws !== 'design' || !f) return;
   const arr = arrOf(f);
   selProfiles.length = 0; sel3D = null; selEdges.length = 0;
@@ -10381,9 +10395,9 @@ function updateHint() {
   let h;
   const k = s => `<span class="kbd">${s}</span>`;
   if (CMD && CMD.type === 'measure') h = `<b>Measure:</b> click two points — they lock onto vertices, edge midpoints, hole centers and face centers. ${k('Esc')} to finish.`;
-  else if (UIX.ws === 'cam') { const op = CAMUI.view === 'op' && opById(CAMUI.op); h = op && (op.type === 'pocket' || op.type === 'contour') ? `<b>${op.name}:</b> click flat faces to ${op.type === 'pocket' ? 'set the floors' : 'set the boundary'}.` : op && op.type === 'drill' ? `<b>${op.name}:</b> click holes to add or remove their diameter.` : CAMUI.view === 'sim' ? '<b>Simulation:</b> orbit freely while it runs. Orange is stock still to cut, red is a gouge.' : '<b>Manufacture:</b> set up stock and tools, add operations, simulate, then post G-code.'; }
+  else if (UIX.ws === 'cam') { const op = CAMUI.view === 'op' && opById(CAMUI.op); h = op && (op.type === 'pocket' || op.type === 'contour') ? `<b>${op.name}:</b> ${op.type === 'pocket' ? 'click a pocket floor, or the wall or round wall around it' : 'click flat faces to set the boundary'}.` : op && op.type === 'drill' ? `<b>${op.name}:</b> click holes to add or remove their diameter.` : CAMUI.view === 'sim' ? '<b>Simulation:</b> orbit freely while it runs. Orange is stock still to cut, red is a gouge.' : '<b>Manufacture:</b> set up stock and tools, add operations, simulate, then post G-code.'; }
   else if (CMD && CMD.type === 'pickPlane') h = `<b>Create sketch:</b> click a plane or flat face. ${k('Esc')} cancels.`;
-  else if (CMD && CMD.type === 'extrude') h = `<b>Extrude:</b> click profiles to add or remove them, drag the arrow, then ${k('Enter')} for OK.`;
+  else if (CMD && CMD.type === 'extrude') h = `<b>Extrude:</b> click profiles (or a sketch in the timeline) to add or remove them, drag the arrow, then ${k('Enter')} for OK.`;
   else if (CMD && CMD.type === 'offset') h = `<b>Offset plane:</b> click a plane or flat face, set the distance.`;
   else if (CMD && CMD.type === 'edge') h = `<b>${CMD.f.type === 'fillet' ? 'Fillet' : 'Chamfer'}:</b> click edges to add or remove them, set the size, then ${k('Enter')}.`;
   else if (CMD && CMD.type === 'thread') h = `<b>Thread:</b> click a cylindrical face (a shaft or a hole), then ${k('Enter')}.`;
@@ -11660,7 +11674,9 @@ const GEN = {
     P.rapid(P.cur[0], P.cur[1], safe);
   },
   contour(op, tool, st, part, P) {
-    const r = tool.d / 2, leave = op.leave || 0;
+    // The path is offset by the OFFSET diameter (like a cutter-comp D value), which need not be the tool's:
+    // wider leaves stock, narrower cuts deeper into the wall. Tool-size checks still use the real tool.
+    const r = tool.d / 2, leave = op.leave || 0, ro = op.offD > 0 ? op.offD / 2 : r;
     let region = [], bottom;
     if (op.holes) {
       // cut-outs: the through openings inside the chosen faces, cut from the inside
@@ -11693,7 +11709,7 @@ const GEN = {
     region = cUnion(region);
     if (!region.length) { P.warn.push('No outline found.'); return; }
     const inside = op.side === 'inside';
-    let loops = cOffset(region, inside ? -(r + leave) : r + leave).filter(p => cArea(p) > 0);
+    let loops = cOffset(region, inside ? -(ro + leave) : ro + leave).filter(p => cArea(p) > 0);
     if (!loops.length) { P.warn.push('The tool is too large for this boundary.'); return; }
     if (!inside && !op.holes && op.restD > tool.d + 1e-6) { contourRest(op, tool, st, P, region, loops, bottom); return; }
     if (!inside && !op.holes) {
@@ -11701,7 +11717,7 @@ const GEN = {
       // loose as slugs: clear it with wider passes first, outermost first.
       const stockR = [cP([P2(st.x0, st.y0), P2(st.x1, st.y0), P2(st.x1, st.y1), P2(st.x0, st.y1)])], so = 0.8 * tool.d, outer = [];
       for (let k = 1; k <= 30; k++) {
-        const o = r + leave + so * (k - 1);
+        const o = ro + leave + so * (k - 1);
         if (!cDiff(stockR, cOffset(region, o + r - 0.01)).some(p => Math.abs(cArea(p)) > 0.01)) break;
         outer.unshift(...cOffset(region, o + so).filter(p => cArea(p) > 0));
       }
@@ -11711,7 +11727,7 @@ const GEN = {
       // the inside too, innermost pass first, the wall pass last
       const so = 0.8 * tool.d, inner = [];
       for (let k = 1; k <= 60; k++) {
-        const o = r + leave + so * (k - 1);
+        const o = ro + leave + so * (k - 1);
         if (!cOffset(region, -(o + r - 0.01)).some(p => Math.abs(cArea(p)) > 0.01)) break;
         const L = cOffset(region, -(o + so)).filter(p => cArea(p) > 0);
         if (L.length) inner.unshift(...L);
@@ -11724,7 +11740,7 @@ const GEN = {
     }
     const zs = levels(st.z1, bottom, op.stepdown), safe = st.z1 + cam().safe, ret = st.z1 + cam().retract;
     // where the tool center may go at depth without touching the part
-    const allowed = inside ? cOffset(region, -(r + leave) + 0.01) : allowedOutside(cOffset(region, r + leave - 0.01), st, r);
+    const allowed = inside ? cOffset(region, -(ro + leave) + 0.01) : allowedOutside(cOffset(region, ro + leave - 0.01), st, r);
     // loops that nest into one another are one group: all its loops at a depth, then the next depth
     const par = loops.map((_, i) => i), find = i => { while (par[i] !== i) i = par[i] = par[par[i]]; return i; };
     loops.forEach((a, i) => loops.forEach((b, j) => { if (j > i && (inPaths(uP([b[0]])[0], [a]) || inPaths(uP([a[0]])[0], [b]))) par[find(j)] = find(i); }));
@@ -11732,7 +11748,7 @@ const GEN = {
     loops.forEach((L, i) => { const g = find(i); if (!groups.has(g)) groups.set(g, []); groups.get(g).push(L); });
     const prep = L => {
       const loop = uP(orient(L, inside));                        // climb: CW outside, CCW inside
-      const corner = op.lead === 'corner' && cornerLeads(loop, r + leave, Math.max(tool.d + 2, 5), allowed);
+      const corner = op.lead === 'corner' && cornerLeads(loop, ro + leave, Math.max(tool.d + 2, 5), allowed);
       if (corner) return { ...corner, full: startAt(loop, corner.k), closed: false, leadIn: z => P.feed(corner.pts[0].x, corner.pts[0].y, z), leadOut: z => P.feed(corner.G.x, corner.G.y, z) };
       const pts = rotateToLongest(loop);
       // lead in / out on the air side of the cut: a tangent quarter arc, or a straight line
@@ -11774,6 +11790,7 @@ const GEN = {
       });
     }
     P.rapid(P.cur[0], P.cur[1], safe);
+    if (op.offD > 0 && Math.abs(op.offD - tool.d) > 1e-6) P.info = `Path offset by a Ø${fmtD(op.offD)} cutter (tool is Ø${fmtD(tool.d)})`;
   },
   pocket(op, tool, st, part, P) {
     const r = tool.d / 2, sel = resolveCamFaces(op.faces || []);
@@ -12954,12 +12971,28 @@ function postGcode() {
   // inches (G20, 4 places) when the display is in inches, else millimeters (G21, 3 places)
   const inch = isIn(), k = inch ? 1 / 25.4 : 1, dp = inch ? 4 : 3;
   const N = v => { v *= k; const s = (Math.abs(v) < 0.5 * Math.pow(10, -dp) ? 0 : v).toFixed(dp).replace(/0+$/, '').replace(/\.$/, '.'); return s === '-0.' ? '0.' : s; };
-  const F = f => (inch ? (f * k).toFixed(1).replace(/\.0$/, '') : String(Math.round(f)));
+  // Feeds always carry a decimal point: whether a bare F20 means 20 or 0.0020 depends on Haas Setting 77
+  const F = f => { const v = inch ? +(f * k).toFixed(1) : Math.round(f); return Number.isInteger(v) ? v + '.' : String(v); };
+  // Haas reads plain ASCII only, and comments may not nest brackets: everything in (...) is upper-cased,
+  // stripped of symbols (Ø · — × ° ") and wrapped to short lines.
+  const hcClean = t => t.replace(/Ø\s*/g, 'DIA ').replace(/×/g, 'X').replace(/[·—–]/g, '-').replace(/[‘’]/g, "'").replace(/°/g, ' DEG').replace(/"/g, ' IN').replace(/%/g, ' PCT')
+    .replace(/\s*\(\s*/g, ' - ').replace(/\s*\)/g, '').normalize('NFKD').replace(/[^\x20-\x7e]/g, '').replace(/\s+/g, ' ').replace(/^[\s-]+|[\s-]+$/g, '').toUpperCase();
+  const hcLines = line => {
+    const p = line.indexOf('(');
+    if (p < 0) return [line];
+    const code = line.slice(0, p).trim(), e = line.lastIndexOf(')'), txt = hcClean(line.slice(p + 1, e > p ? e : undefined));
+    const out = [], words = txt.split(' ');
+    let cur = '';
+    for (const w of words) { if (cur && cur.length + 1 + w.length > 70) { out.push(cur); cur = w; } else cur = cur ? cur + ' ' + w : w; }
+    if (cur) out.push(cur);
+    if (code && out.length === 1 && code.length + out[0].length < 100) return [`${code} (${out[0]})`];
+    return [...(code ? [code] : []), ...out.map(c => `(${c})`)];
+  };
   // every line remembers the move it comes from (operation id, index in its path), for
   // following the program in the simulation
   const L = [], MAP = [];
   let SRC = null;
-  L.push = (...xs) => { for (const x of xs) { Array.prototype.push.call(L, x); MAP.push(SRC); } return L.length; };
+  L.push = (...xs) => { for (const x of xs) for (const y of hcLines(x)) { Array.prototype.push.call(L, y); MAP.push(SRC); } return L.length; };
   const st = { g: null, x: null, y: null, z: null, f: null };
   const move = (g, x, y, z, f) => {
     const w = [], nx = x == null ? null : N(x), ny = y == null ? null : N(y), nz = z == null ? null : N(z);
@@ -12994,6 +13027,7 @@ function postGcode() {
     if (grbl && P.tap) L.push('(WARNING: GRBL has no synchronized tapping cycle - use a floating tap holder)');
     if (lastTool !== t.n) {
       if (lastTool !== null) { if (pf.coolant) L.push('M9'); L.push('M5'); }
+      if (!grbl) L.push('G91 G28 Z0.', 'G90');                    // Z to home before the change
       L.push(grbl ? `M0 (Change to ${toolName(t)})` : `T${t.n} M6`);
       L.push(`S${Math.round(t.rpm)} M3`);
       if (pf.coolant) L.push('M8');
@@ -13056,7 +13090,8 @@ function postGcode() {
   SRC = null;
   if (pf.coolant) L.push('M9');
   L.push('M5');
-  L.push(grbl ? 'G0 Z' + N(camStock().z1 + C.safe - o[2]) : 'G28 G91 Z0.', grbl ? 'M2' : 'G90');
+  if (grbl) L.push('G0 Z' + N(camStock().z1 + C.safe - o[2]), 'M2');
+  else L.push('G91 G28 Z0.', 'G28 Y0.', 'G90');                // Z up, table out to the door, back to absolute
   if (!grbl) L.push('M30', '%');
   return { text: L.join('\n'), lines: L.length, min: totalMin + (ops.length ? 0.15 * new Set(ops.map(x => x.tool)).size : 0), part, map: MAP };
 }
@@ -13086,7 +13121,13 @@ const CAMUI = { view: 'overview', op: null };
 function camAddOp(type) {
   if (SIM.on) simStop();
   const C = cam(), before = snap();
-  const pick = t => (C.tools.find(x => x.type === t) || C.tools[0]).n;
+  // The tool an operation starts with: an exact match, else any other end mill for the flat-bottom
+  // ones (a lone bull-nose or ball mill is the one to use), else the first tool in the library.
+  const pick = t => {
+    const ts = C.tools, em = x => x.type === 'flat' || x.type === 'bull' || x.type === 'ball';
+    const hit = ts.find(x => x.type === t) || (t === 'flat' && (ts.find(x => x.type === 'bull') || ts.find(em))) || ts[0];
+    return hit && hit.n;
+  };
   const n = C.ops.filter(o => o.type === type).length + 1;
   const base = { id: C.next++, type, name: OP_INFO[type].name + (n > 1 ? ' ' + n : '') };
   const defs = {
@@ -13111,6 +13152,32 @@ function camEdit(op, key, val) {
   record(`Edit ${op.name} ${key}`, before);
   camRefresh();
 }
+// Clicking the inside of a pocket (a round wall, or any straight wall) stands for the floor it
+// stands on: the upward-facing flat face sharing the wall's bottom edge, nearest below the click.
+function camFloorBelowWall(h) {
+  const s = Surf.list[h.fid], mesh = h.mesh;
+  if (!s || !(s.t === 'C' ? s.sg < 0 && Math.abs(s.dir[1]) > 0.999 : s.t === 'P' && Math.abs(s.n[1]) < 1e-3)) return null;
+  const key = v => Math.round(v[0] * 1e3) + ',' + Math.round(v[1] * 1e3) + ',' + Math.round(v[2] * 1e3);
+  const wall = new Set();
+  for (const v of faceVerts(mesh, h.fid)) wall.add(key(v));
+  const y = h.point[1];
+  let best = null;
+  for (const fid of new Set(mesh.PL.map(p => p.f))) {
+    const f = Surf.list[fid];
+    if (f.t !== 'P' || f.n[1] < 0.999) continue;
+    const z = f.d / f.n[1];
+    if (z > y + 1e-3 || (best && z <= best.z) || !faceVerts(mesh, fid).some(v => wall.has(key(v)))) continue;
+    best = { z, fid };
+  }
+  return best && { kind: 'face', body: h.body, fid: best.fid, mesh, point: h.point };
+}
+// What a click in a pocket operation means: a flat floor as it is, or the floor under a wall.
+function camPocketTarget(h) {
+  if (!h || h.kind !== 'face') return null;
+  const s = Surf.list[h.fid];
+  if (s.t === 'P' && Math.abs(s.n[1]) > 0.999) return h;
+  return camFloorBelowWall(h);
+}
 function camToggleFace(op, h) {
   const s = Surf.list[h.fid];
   if (op.type === 'chamfer') { if (!chamferEdge(h.mesh, h.fid)) { toast('Pick a 45° chamfer face.'); return; } }
@@ -13129,8 +13196,8 @@ function camMove(x, y) {
   }
   if (op && (op.type === 'pocket' || op.type === 'contour')) {
     const h = pick3D(x, y, { faces: true });
-    const ok = h && h.kind === 'face' && Surf.list[h.fid].t === 'P' && Math.abs(Surf.list[h.fid].n[1]) > 0.999;
-    setHover3D(ok ? h : null); ov.className = ok ? 'pointer' : 'default'; return;
+    const t = op.type === 'pocket' ? camPocketTarget(h) : h && h.kind === 'face' && Surf.list[h.fid].t === 'P' && Math.abs(Surf.list[h.fid].n[1]) > 0.999 ? h : null;
+    setHover3D(t); ov.className = t ? 'pointer' : 'default'; return;
   }
   if (op && op.type === 'drill') {
     const h = pick3D(x, y, { faces: true });
@@ -13144,7 +13211,13 @@ function camClick(x, y) {
   if (!op) return;
   const h = pick3D(x, y, { faces: true });
   if (!h || h.kind !== 'face') return;
-  if (op.type === 'pocket' || op.type === 'contour' || op.type === 'chamfer') camToggleFace(op, h);
+  if (op.type === 'pocket') {
+    const t = camPocketTarget(h);
+    if (t) camToggleFace(op, t);
+    else toast(Surf.list[h.fid].t === 'C' || Math.abs(Surf.list[h.fid].n[1]) < 1e-3 ? 'That wall has no floor under it: it goes right through.' : 'Pick a pocket floor or the wall around it.');
+    return;
+  }
+  if (op.type === 'contour' || op.type === 'chamfer') camToggleFace(op, h);
   else if (op.type === 'drill') {
     const s = Surf.list[h.fid]; if (s.t !== 'C' || s.sg > 0) return;
     const d = +(2 * s.r).toFixed(2), ds = op.diams.slice(), i = ds.findIndex(x => Math.abs(x - d) < 0.02);
@@ -13256,7 +13329,7 @@ function camOpMenu(op, x, y) {
 }
 // ── Right panel views ──────────────────────────────────────────────
 // Length fields show display units; setN converts them back to mm.
-const CAM_LEN = new Set(['stSide', 'stTop', 'stBot', 'camSafe', 'camRet', 'opSd', 'opLeave', 'opThrough', 'opLw', 'opLf', 'opPeck', 'opSoL', 'opRest', 'opFs', 'opPkI', 'opPkJ', 'opPkK', 'opRpl', 'opS22', 'opS52', 'opDepth']);
+const CAM_LEN = new Set(['stSide', 'stTop', 'stBot', 'camSafe', 'camRet', 'opSd', 'opLeave', 'opThrough', 'opOffD', 'opLw', 'opLf', 'opPeck', 'opSoL', 'opRest', 'opFs', 'opPkI', 'opPkJ', 'opPkK', 'opRpl', 'opS22', 'opS52', 'opDepth']);
 const num = (id, v, lab, step = 'any', extra = '') => CAM_LEN.has(id)
   ? `<label class="field"><span>${lab} (${uName()})</span><input type="number" id="${id}" data-cam-input="1" data-len="1" step="any" value="${uval(+v)}" ${extra}></label>`
   : `<label class="field"><span>${lab}</span><input type="number" id="${id}" data-cam-input="1" step="${step}" value="${+(+v).toFixed(4)}" ${extra}></label>`;
@@ -13342,11 +13415,11 @@ function camPanel() {
     if (op.type === 'contour') f += `<div class="field"><span>Cut</span><div class="seg"><button data-opbool="holes:0" class="${!op.holes ? 'on' : ''}">Outline / faces</button><button data-opbool="holes:1" class="${op.holes ? 'on' : ''}">Through cut-outs</button></div></div>`;
     if (op.type === 'contour' && !op.holes) f += `<div class="field"><span>Side</span><div class="seg"><button data-opset="side:outside" class="${op.side !== 'inside' ? 'on' : ''}">Outside</button><button data-opset="side:inside" class="${op.side === 'inside' ? 'on' : ''}">Inside</button></div></div>
       <div class="field"><span>Boundary</span><div class="pick ${faces ? '' : 'empty'}"><span>${faces ? 'Chosen faces · click to add/remove' : 'Part outline · or click flat faces'}</span><span class="n">${faces || 'auto'}</span></div></div>
-      <div class="row3">${num('opSd', op.stepdown, 'Stepdown', 0.1)}${num('opLeave', op.leave, 'Leave', 0.05)}${num('opThrough', op.through, 'Below bottom', 0.1)}</div>${op.side !== 'inside' ? `<div class="row2">${num('opRest', op.restD || 0, 'Rest after tool Ø (0 = off)', 1)}</div>` : ''}`;
+      <div class="row3">${num('opSd', op.stepdown, 'Stepdown', 0.1)}${num('opLeave', op.leave, 'Leave', 0.05)}${num('opThrough', op.through, 'Below bottom', 0.1)}</div><div class="row2">${num('opOffD', op.offD || 0, 'Offset Ø (0 = tool Ø)', 0.5, 'min="0" title="The diameter the path is offset by, if not the tool\'s: a measured or worn cutter, or a wider value to leave stock. The tool itself is unchanged."')}${op.side !== 'inside' ? num('opRest', op.restD || 0, 'Rest after tool Ø (0 = off)', 1) : ''}</div>`;
     if (op.type === 'contour') f += `<div class="field"><span>Lead in / out</span><div class="seg">${[['corner', 'Off a corner'], ['arc', 'Arc'], ['line', 'Line']].map(([k, l]) => `<button data-opset="lead:${k}" class="${(op.lead || 'line') === k ? 'on' : ''}" title="${k === 'corner' ? 'Straight in and out along the walls at a sharp outside corner, well clear of the part: no witness mark' : k === 'arc' ? 'A tangent quarter arc on the air side' : 'A short straight line square to the wall'}">${l}</button>`).join('')}</div></div>`;
     if (op.type === 'contour' && op.holes) f += `<div class="field"><span>Faces holding the cut-outs</span><div class="pick ${faces ? '' : 'empty'}"><span>${faces ? 'Click a face again to remove it' : 'Click the flat faces the openings are in'}</span><span class="n">${faces}</span></div></div>
-      <div class="row3">${num('opSd', op.stepdown, 'Stepdown', 0.1)}${num('opLeave', op.leave, 'Leave', 0.05)}${num('opThrough', op.through, 'Below bottom', 0.1)}</div>`;
-    if (op.type === 'pocket') f += `<div class="field"><span>Floors</span><div class="pick ${faces ? '' : 'empty'}"><span>${faces ? 'Click a face again to remove it' : 'Click flat floor faces'}</span><span class="n">${faces}</span></div></div>
+      <div class="row3">${num('opSd', op.stepdown, 'Stepdown', 0.1)}${num('opLeave', op.leave, 'Leave', 0.05)}${num('opThrough', op.through, 'Below bottom', 0.1)}</div><div class="row2">${num('opOffD', op.offD || 0, 'Offset Ø (0 = tool Ø)', 0.5)}</div>`;
+    if (op.type === 'pocket') f += `<div class="field"><span>Floors</span><div class="pick ${faces ? '' : 'empty'}"><span>${faces ? 'Click a floor or wall again to remove it' : 'Click a pocket floor, or any wall or round hole wall above it'}</span><span class="n">${faces}</span></div></div>
       <div class="row2">${num('opSo', op.stepover, 'Stepover ×Ø', 0.05)}${num('opSd', op.stepdown, 'Stepdown', 0.1)}</div><div class="row2">${num('opFs', pocketFinishStock(op), 'Leave for finishing', 0.05, 'min="0" title="How far the roughing rings stay off the walls. The finish pass (or a later finishing op) takes this off."')}${num('opRest', op.restD || 0, 'Rest after tool Ø (0 = off)', 1)}</div>
       <label class="chk"><input type="checkbox" id="opFinish" ${op.finish !== false ? 'checked' : ''}> Finish pass: take the walls to size at full depth</label>
       <div class="row2">${num('opLw', op.leaveWall, 'Leave on walls (final)', 0.05)}${num('opLf', op.leaveFloor, 'Leave on floor', 0.05)}</div>`;
@@ -13438,7 +13511,11 @@ function bindCamPanel() {
   setN('stBot', setup(v => { C.stock.bottom = Math.max(0, v); }, 'Stock bottom'));
   setN('camSafe', setup(v => { C.safe = Math.max(1, v); }, 'Clearance height'));
   setN('camRet', setup(v => { C.retract = Math.max(0.5, v); }, 'Retract height'));
-  setN('postProg', setup(v => { C.post.program = Math.round(v); }, 'Program number'));
+  setN('postProg', setup(v => {
+      let n = clamp(Math.round(v), 1, 99999);
+      if (n >= 9000 && n <= 9999) { n = 10000 + n % 1000; toast('O09000-O09999 are reserved by Haas (probing, macros): using O' + n); }
+      C.post.program = n;
+    }, 'Program number'));
   const org = document.getElementById('camOrigin');
   if (org) org.addEventListener('change', setup(() => { const v = org.value; C.origin = /^\d+$/.test(v) ? +v : v; }, 'Work origin'));
   const ck = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('change', () => fn(el.checked)); };
@@ -13462,8 +13539,8 @@ function bindCamPanel() {
   const op = CAMUI.view === 'op' && opById(CAMUI.op);
   if (op) {
     const ot = document.getElementById('opTool'); if (ot) ot.addEventListener('change', () => camEdit(op, 'tool', +ot.value));
-    const map = { opSo: 'stepover', opSoL: 'stepover', opSd: 'stepdown', opLeave: 'leave', opThrough: 'through', opLw: 'leaveWall', opLf: 'leaveFloor', opPeck: 'peck', opRest: 'restD', opFs: 'finishStock' };
-    for (const [id, k] of Object.entries(map)) setN(id, v => camEdit(op, k, k === 'leave' || k === 'leaveWall' || k === 'leaveFloor' || k === 'through' || k === 'restD' || k === 'finishStock' ? Math.max(0, v) : Math.max(0.01, v)));
+    const map = { opSo: 'stepover', opSoL: 'stepover', opSd: 'stepdown', opLeave: 'leave', opThrough: 'through', opLw: 'leaveWall', opLf: 'leaveFloor', opPeck: 'peck', opRest: 'restD', opFs: 'finishStock', opOffD: 'offD' };
+    for (const [id, k] of Object.entries(map)) setN(id, v => camEdit(op, k, k === 'leave' || k === 'leaveWall' || k === 'leaveFloor' || k === 'through' || k === 'restD' || k === 'finishStock' || k === 'offD' ? Math.max(0, v) : Math.max(0.01, v)));
     ck('opFinish', v => camEdit(op, 'finish', v));
     const cyc = document.getElementById('opCycle'); if (cyc) cyc.addEventListener('change', () => camEdit(op, 'mode', cyc.value));
     const drillMap = { opPkI: 'peckFirst', opPkJ: 'peckReduce', opPkK: 'peckMin', opRpl: 'rPlane', opS22: 'chipBack', opS52: 's52', opDepth: 'depth' };
