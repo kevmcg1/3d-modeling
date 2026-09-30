@@ -4199,6 +4199,26 @@ table.meas tr.bad td { color: var(--danger); }
 .tool-card .tool-code { font: 11px ui-monospace, Consolas, monospace; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 .tool-card .tool-code:hover { color: var(--accent); }
 
+/* A control that is rebuilt when it is clicked (panels, ribbon, browser) starts in its new state; the observer near the end of the
+   page marks it .just-on / .just-off so it eases from how it looked a moment ago, and leaves untouched ones alone. */
+#panel .seg button.on, #panel .chip.on { animation: none; }
+@keyframes state-on { from { background-color: var(--panel-2); color: var(--ink-2); transform: scale(.94); } 55% { transform: scale(1.04); } to { transform: none; } }
+@keyframes state-on-flat { from { background-color: transparent; color: var(--ink-2); transform: scale(.94); } 55% { transform: scale(1.04); } to { transform: none; } }
+@keyframes state-off { from { background-color: var(--accent); color: var(--accent-ink); } to { } }
+#panel .seg button.on.just-on, #panel .chip.on.just-on, .seg button.on.just-on, .chip.on.just-on, .ws button.on.just-on { animation: state-on .34s var(--ease) both; }
+.tb.on.just-on, .rb-btn.on.just-on { animation: state-on-flat .34s var(--ease) both; }
+.seg button.just-off, .chip.just-off, .ws button.just-off, .tb.just-off, .rb-btn.just-off { animation: state-off .3s var(--ease) both; }
+/* only the first showing of a panel slides in; editing a value in it does not replay that */
+#panel.same .pn-body, #panel.same .pn-head { animation: none; }
+/* a different set of ribbon / browser buttons (a workspace change) fades and slides in as one */
+#toolbar.swap, #brTop.swap { animation: panel-in .3s var(--ease) both; }
+/* Advanced fields unfold (and fold away: see the Basic / Advanced handler) */
+.adv-block { min-width: 0; }
+#panel.adv-enter .adv-block { animation: adv-in .34s var(--ease) backwards; }
+@keyframes adv-in { from { opacity: 0; max-height: 0; overflow: hidden; transform: translateY(-4px); } to { opacity: 1; max-height: 1600px; overflow: hidden; transform: none; } }
+.pick, label.chk, .tool-card, .sec-title, .modebar { transition: background-color .2s var(--ease), border-color .2s var(--ease), box-shadow .22s var(--ease), color .2s var(--ease), opacity .2s var(--ease), transform .18s var(--ease); }
+label.chk:hover, .pick:hover { background-color: color-mix(in srgb, var(--accent) 6%, transparent); }
+.tool-card:hover { box-shadow: 0 2px 10px color-mix(in srgb, var(--ink) 10%, transparent); }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
 </style>
 </head>
@@ -13743,28 +13763,28 @@ const num = (id, v, lab, step = 'any', extra = '') => CAM_LEN.has(id)
 function drillCycleFields(op, adv = true) {
   const t = toolOf(op.tool), cy = drillSpec(op, t), m = cy.mode, pecking = m === 'peck' || m === 'chip';
   const hint = txt => `<small class="hint">${txt}</small>`;
-  const fld = (html, txt) => `<div class="hfield">${html}${hint(txt)}</div>`;
+  const fld = (html, txt) => `<div class="hfield">${html}${hint(txt)}</div>`, fldA = (html, txt) => `<div class="hfield adv-block">${html}${hint(txt)}</div>`;
   const cycles = Object.entries(DRILL_CYCLES).filter(([k]) => k !== 'tap');
   let h = t.type === 'tap'
     ? `<div class="field"><span>Cycle</span><div class="pick"><span>G84 · Rigid tap (a tap is loaded)</span></div></div>`
     : `<div class="field"><span>Cycle</span><select id="opCycle">${cycles.map(([k, c]) => `<option value="${k}" ${m === k ? 'selected' : ''}>${c.g} · ${c.name}</option>`).join('')}</select></div>`;
   h += `<p class="note cyc-note"><b>${cy.g}:</b> ${DRILL_CYCLES[m].what}</p>`;
   if (pecking) {
-    h += fld(`<div class="row2">${num('opPeck', cy.q, 'Peck (Q)', 0.5, 'min="0.1"')}${adv ? num('opPkI', op.peckFirst || 0, 'First peck (I)', 0.5, 'min="0"') : ''}</div>`,
+    h += fld(`<div class="row2">${num('opPeck', cy.q, 'Peck (Q)', 0.5, 'min="0.1"')}${adv ? `<span class="adv-block">${num('opPkI', op.peckFirst || 0, 'First peck (I)', 0.5, 'min="0"')}</span>` : ''}</div>`,
       '<b>Q</b> is how far the drill goes in each time before it backs out. Smaller pecks clear chips better but take longer. <b>I</b> (optional, 0 = off) makes the first peck a different size — usually deeper, since the chips clear easily near the top. Setting I switches the cycle to I / J / K pecking.');
-    if (adv && cy.i > 0) h += fld(`<div class="row2">${num('opPkJ', op.peckReduce || 0, 'Shorten by (J)', 0.1, 'min="0"')}${num('opPkK', op.peckMin || 0, 'Min peck (K)', 0.1, 'min="0"')}</div>`,
+    if (adv && cy.i > 0) h += fldA(`<div class="row2">${num('opPkJ', op.peckReduce || 0, 'Shorten by (J)', 0.1, 'min="0"')}${num('opPkK', op.peckMin || 0, 'Min peck (K)', 0.1, 'min="0"')}</div>`,
       '<b>J</b> takes this much off every peck after the first, because chips pack harder the deeper the hole gets. <b>K</b> is the floor: pecks never get shorter than this.');
   }
-  if (adv && (m === 'spot' || m === 'peck')) h += fld(`<div class="row2"><label class="field"><span>Dwell (P, seconds)</span><input type="number" id="opDwell" data-cam-input="1" step="0.1" min="0" value="${+(op.dwell || 0).toFixed(3)}"></label></div>`,
+  if (adv && (m === 'spot' || m === 'peck')) h += fldA(`<div class="row2"><label class="field"><span>Dwell (P, seconds)</span><input type="number" id="opDwell" data-cam-input="1" step="0.1" min="0" value="${+(op.dwell || 0).toFixed(3)}"></label></div>`,
     '<b>P</b> pauses the drill at the bottom for this many seconds so the point cleans up the floor (spot drills, counterbores). 0 = no pause.');
-  if (adv) h += fld(`<div class="row2">${num('opRpl', cy.rpl, 'R plane (R)', 0.5, 'min="0.2"')}<div class="field"><span>Between holes</span><div class="seg"><button data-opset="retPlane:init" class="${cy.ret === 'G98' ? 'on' : ''}" title="G98">Start height</button><button data-opset="retPlane:r" class="${cy.ret === 'G99' ? 'on' : ''}" title="G99">R plane</button></div></div></div>`,
+  if (adv) h += fldA(`<div class="row2">${num('opRpl', cy.rpl, 'R plane (R)', 0.5, 'min="0.2"')}<div class="field"><span>Between holes</span><div class="seg"><button data-opset="retPlane:init" class="${cy.ret === 'G98' ? 'on' : ''}" title="G98">Start height</button><button data-opset="retPlane:r" class="${cy.ret === 'G99' ? 'on' : ''}" title="G99">R plane</button></div></div></div>`,
     '<b>R</b> is where the rapid stops and the feed starts, this far above the stock top (pecks count from here). <b>G98</b> (start height) lifts back to the clearance height between holes — safe over clamps. <b>G99</b> (R plane) only lifts to R — faster, but only if nothing sticks up between the holes.');
-  if (adv && pecking) h += fld(`<div class="row2">${num('opS22', cy.s22, 'Setting 22', 0.1, 'min="0.01"')}${m === 'peck' ? num('opS52', cy.s52, 'Setting 52', 0.1, 'min="0"') : '<span></span>'}</div>`,
+  if (adv && pecking) h += fldA(`<div class="row2">${num('opS22', cy.s22, 'Setting 22', 0.1, 'min="0.01"')}${m === 'peck' ? num('opS52', cy.s52, 'Setting 52', 0.1, 'min="0"') : '<span></span>'}</div>`,
     m === 'chip' ? '<b>Setting 22</b> is how far G73 backs up between pecks to snap the chip (Haas default 0.050"). It is set on the control, not in the program — the program notes the value you choose here.'
       : '<b>Setting 22</b>: after pulling out, G83 rapids back down and stops this far above the last peck before feeding again (Haas default 0.050"). <b>Setting 52</b> lifts this much above R on each pull-out so chips can fly clear. Both are set on the control, not in the program — the program notes them.');
-  if (adv && m === 'tap') h += fld(`<div class="row2"><label class="field"><span>Retract speed (J)</span><input type="number" id="opTapJ" data-cam-input="1" step="1" min="1" max="4" value="${cy.tapJ}"></label></div>`,
+  if (adv && m === 'tap') h += fldA(`<div class="row2"><label class="field"><span>Retract speed (J)</span><input type="number" id="opTapJ" data-cam-input="1" step="1" min="1" max="4" value="${cy.tapJ}"></label></div>`,
     '<b>J</b> backs the tap out this many times faster than it went in (1 = same speed). Faster saves time; keep 1 for small or fragile taps. Setting 130 caps it.');
-  h += fld(`<div class="row2">${adv ? num('opThrough', op.through == null ? 1 : op.through, 'Breakthrough', 0.1, 'min="0"') : ''}${num('opDepth', op.depth || 0, 'Depth (0 = full)', 0.5, 'min="0"')}</div>`,
+  h += fld(`<div class="row2">${adv ? `<span class="adv-block">${num('opThrough', op.through == null ? 1 : op.through, 'Breakthrough', 0.1, 'min="0"')}</span>` : ''}${num('opDepth', op.depth || 0, 'Depth (0 = full)', 0.5, 'min="0"')}</div>`,
     '<b>Breakthrough</b>: how far past the bottom of a through hole the full diameter goes, so no burr or skin is left. <b>Depth</b> stops short of the hole’s bottom, measured from its top (spot drilling); 0 drills the whole hole.');
   h += `<small class="hint">Feed (F) and speed (S) come from the tool: plunge ${fmtRate(t.plunge)} at ${t.rpm.toLocaleString()} RPM.</small>`;
   return h;
@@ -13820,7 +13840,7 @@ function camPanel() {
     if (!op) { CAMUI.view = 'overview'; return camPanel(); }
     const P = toolpath(op), stats = P && !P.pending ? pathStats(P) : null;
     const tools = C.tools.map(t => `<option value="${t.n}" ${op.tool === t.n ? 'selected' : ''}>${toolName(t)}</option>`).join('');
-    const adv = !!UIX.camAdv, A = h => adv ? h : '';
+    const adv = !!UIX.camAdv, A = h => adv ? `<div class="adv-block">${h}</div>` : '';
     let f = `<div class="field"><span>Tool</span><select id="opTool">${tools}</select></div>`;
     const faces = (op.faces || []).length;
     if (op.type === 'face') f += `<div class="row2">${num('opSo', op.stepover, 'Stepover ×Ø', 0.05)}${num('opSd', op.stepdown, 'Stepdown', 0.1)}</div>${A(`<div class="row2">${num('opLeave', op.leave, 'Leave', 0.05)}</div>`)}` + A(`
@@ -13830,7 +13850,7 @@ function camPanel() {
     if (op.type === 'contour' && !op.holes) f += `<div class="field"><span>Side</span><div class="seg"><button data-opset="side:outside" class="${op.side !== 'inside' ? 'on' : ''}">Outside</button><button data-opset="side:inside" class="${op.side === 'inside' ? 'on' : ''}">Inside</button></div></div>
       <div class="field"><span>Boundary</span><div class="pick ${faces ? '' : 'empty'}"><span>${faces ? 'Chosen faces · click to add/remove' : 'Part outline · or click flat faces'}</span><span class="n">${faces || 'auto'}</span></div></div>
       <div class="row2">${num('opSd', op.stepdown, 'Stepdown', 0.1)}${num('opOffD', op.offD || 0, 'Offset Ø (0 = tool Ø)', 0.5, 'min="0" title="The diameter the path is offset by, if not the tool\'s: a measured or worn cutter, or a wider value to leave stock. The tool itself is unchanged."')}</div>` + A(`<div class="row2">${num('opLeave', op.leave, 'Leave', 0.05)}${num('opThrough', op.through, 'Below bottom', 0.1)}</div>${op.side !== 'inside' ? `<div class="row2">${num('opRest', op.restD || 0, 'Rest after tool Ø (0 = off)', 1)}</div>` : ''}`);
-    if (op.type === 'contour') f += adv ? `<div class="field"><span>Lead in / out</span><div class="seg">${[['corner', 'Off a corner'], ['arc', 'Arc'], ['line', 'Line']].map(([k, l]) => `<button data-opset="lead:${k}" class="${(op.lead || 'line') === k ? 'on' : ''}" title="${k === 'corner' ? 'Straight in and out along the walls at a sharp outside corner, well clear of the part: no witness mark' : k === 'arc' ? 'A tangent quarter arc on the air side' : 'A short straight line square to the wall'}">${l}</button>`).join('')}</div></div>` : '';
+    if (op.type === 'contour') f += adv ? `<div class="field adv-block"><span>Lead in / out</span><div class="seg">${[['corner', 'Off a corner'], ['arc', 'Arc'], ['line', 'Line']].map(([k, l]) => `<button data-opset="lead:${k}" class="${(op.lead || 'line') === k ? 'on' : ''}" title="${k === 'corner' ? 'Straight in and out along the walls at a sharp outside corner, well clear of the part: no witness mark' : k === 'arc' ? 'A tangent quarter arc on the air side' : 'A short straight line square to the wall'}">${l}</button>`).join('')}</div></div>` : '';
     if (op.type === 'contour' && op.holes) f += `<div class="field"><span>Faces holding the cut-outs</span><div class="pick ${faces ? '' : 'empty'}"><span>${faces ? 'Click a face again to remove it' : 'Click the flat faces the openings are in'}</span><span class="n">${faces}</span></div></div>
       <div class="row2">${num('opSd', op.stepdown, 'Stepdown', 0.1)}${num('opOffD', op.offD || 0, 'Offset Ø (0 = tool Ø)', 0.5)}</div>` + A(`<div class="row2">${num('opLeave', op.leave, 'Leave', 0.05)}${num('opThrough', op.through, 'Below bottom', 0.1)}</div>`);
     if (op.type === 'pocket') f += `<div class="field"><span>Floors</span><div class="pick ${faces ? '' : 'empty'}"><span>${faces ? 'Click a floor or wall again to remove it' : 'Click a pocket floor, or any wall or round hole wall above it'}</span><span class="n">${faces}</span></div></div>
@@ -13847,9 +13867,9 @@ function camPanel() {
         <div class="row2">${num('opLw', op.leaveWall, 'Leave on wall (final)', 0.05)}${num('opLf', op.leaveFloor, 'Leave on floor', 0.05)}</div><div class="row2">${num('opThrough', op.through, 'Below through holes', 0.1)}${num('opDepth', op.depth || 0, 'Depth (0 = to the bottom)', 0.5)}</div>`) : op.type === 'threadmill' ? threadFields(op, adv, A) : op.type === 'slotmill' ? '' : ''}`;
     }
     if (op.type === 'chamfer') { const faces = (op.faces || []).length; f += `<div class="field"><span>Chamfer faces</span><div class="pick ${faces ? '' : 'empty'}"><span>${faces ? 'Click a face again to remove it' : 'Click 45° chamfer faces'}</span><span class="n">${faces}</span></div></div>
-      <div class="row2">${num('opThrough', op.through, 'Tip below edge', 0.05)}${adv ? num('opLeave', op.leave, 'Leave', 0.05) : ''}</div>`; }
-    if (op.type === 'parallel') f += `<div class="row3">${num('opSoL', op.stepover, 'Stepover', 0.05)}${adv ? num('opLeave', op.leave, 'Leave', 0.05) : ''}<div class="field"><span>Direction</span><div class="seg"><button data-opset="angle:0" class="${!op.angle ? 'on' : ''}">X</button><button data-opset="angle:90" class="${op.angle === 90 ? 'on' : ''}">Y</button></div></div></div>
-      ${adv ? `<label class="chk"><input type="checkbox" id="opOverrun" ${op.overrun ? 'checked' : ''}> Run the tool past the part edges</label>` : ''}`;
+      <div class="row2">${num('opThrough', op.through, 'Tip below edge', 0.05)}${A(num('opLeave', op.leave, 'Leave', 0.05))}</div>`; }
+    if (op.type === 'parallel') f += `<div class="row3">${num('opSoL', op.stepover, 'Stepover', 0.05)}${A(num('opLeave', op.leave, 'Leave', 0.05))}<div class="field"><span>Direction</span><div class="seg"><button data-opset="angle:0" class="${!op.angle ? 'on' : ''}">X</button><button data-opset="angle:90" class="${op.angle === 90 ? 'on' : ''}">Y</button></div></div></div>
+      ${A(`<label class="chk"><input type="checkbox" id="opOverrun" ${op.overrun ? 'checked' : ''}> Run the tool past the part edges</label>`)}`;
     if (op.type === 'swarf') {
       const cfg = tiltCfg();
       f += `<div class="field"><span>Walls</span><div class="pick ${faces ? '' : 'empty'}"><span>${faces ? 'Click a wall again to remove it' : 'Click flat sloped or vertical walls'}</span><span class="n">${faces}</span></div></div>
@@ -13982,7 +14002,23 @@ function bindCamPanel() {
   // op fields
   const op = CAMUI.view === 'op' && opById(CAMUI.op);
   if (op) {
-    panel.querySelectorAll('[data-camadv]').forEach(b => b.addEventListener('click', () => { UIX.camAdv = b.dataset.camadv === '1'; try { localStorage.setItem('datum.camAdv', UIX.camAdv ? '1' : '0'); } catch (e) { /* ignore */ } refreshPanel(); }));
+    panel.querySelectorAll('[data-camadv]').forEach(b => b.addEventListener('click', () => {
+      const to = b.dataset.camadv === '1';
+      if (to === !!UIX.camAdv) return;
+      const commit = () => {
+        UIX.camAdv = to; try { localStorage.setItem('datum.camAdv', to ? '1' : '0'); } catch (e) { /* ignore */ }
+        panel.classList.toggle('adv-enter', to); refreshPanel();
+        if (to) setTimeout(() => panel.classList.remove('adv-enter'), 450);
+      };
+      const blocks = to || REDUCED() ? [] : [...panel.querySelectorAll('.adv-block')];
+      if (!blocks.length) { commit(); return; }
+      for (const bl of blocks) {                                     // fold the advanced fields away, then rebuild without them
+        bl.style.maxHeight = bl.scrollHeight + 'px'; bl.style.overflow = 'hidden'; void bl.offsetHeight;
+        bl.style.transition = 'max-height .26s cubic-bezier(.2,.7,.2,1), opacity .2s ease, transform .26s cubic-bezier(.2,.7,.2,1)';
+        bl.style.maxHeight = '0px'; bl.style.opacity = '0'; bl.style.transform = 'translateY(-4px)';
+      }
+      setTimeout(commit, 250);
+    }));
     panel.querySelectorAll('[data-slot]').forEach(b => b.addEventListener('click', () => { const k = b.dataset.slot, ks = (op.sizes || []).slice(), i = ks.indexOf(k); if (i >= 0) ks.splice(i, 1); else ks.push(k); camEdit(op, 'sizes', ks); }));
     setN('opFeedPct', v => camEdit(op, 'feedPct', clamp(v, 10, 300))); setN('opPlungePct', v => camEdit(op, 'plungePct', clamp(v, 10, 300))); setN('opRpmPct', v => camEdit(op, 'rpmPct', clamp(v, 10, 200)));
     setN('opPasses', v => camEdit(op, 'passes', clamp(Math.round(v), 1, 8))); setN('opRamp', v => camEdit(op, 'rampAngle', clamp(v, 0.5, 30)));
@@ -24716,6 +24752,34 @@ const TIP_TXT = {
 })();
 </script>
 
+<script>
+// Buttons that live in a container which is rebuilt on every change (panel, ribbon, browser, timeline) would snap to their new look.
+// When such a container is rebuilt, find the controls whose on/off state changed and let them ease from the old look (.just-on / .just-off).
+(() => {
+  const SEL = '.seg button, .chip, .tb, .rb-btn, .ws button';
+  const key = el => el.tagName + '|' + [...el.attributes].filter(a => a.name === 'id' || a.name.startsWith('data-')).map(a => a.name + '=' + a.value).join('|') + '|' + (el.textContent || '').trim().slice(0, 30);
+  const each = (nodes, fn) => { for (const n of nodes) { if (n.nodeType !== 1) continue; if (n.matches(SEL)) fn(n); n.querySelectorAll(SEL).forEach(fn); } };
+  const lastMode = {};
+  for (const id of ['panel', 'toolbar', 'brTop', 'tl-items']) {
+    const host = document.getElementById(id);
+    if (!host) continue;
+    new MutationObserver(muts => {
+      const was = new Map();
+      for (const m of muts) each(m.removedNodes, el => was.set(key(el), el.classList.contains('on')));
+      for (const m of muts) each(m.addedNodes, el => {
+        const before = was.get(key(el)), on = el.classList.contains('on');
+        if (before !== undefined && before !== on) el.classList.add(on ? 'just-on' : 'just-off');
+      });
+      if ((id === 'toolbar' || id === 'brTop') && was.size) {
+        let added = 0, fresh = 0;
+        for (const m of muts) each(m.addedNodes, el => { added++; if (!was.has(key(el))) fresh++; });
+        if (added && fresh / added > 0.5 && !host.classList.contains('swap')) { host.classList.add('swap'); setTimeout(() => host.classList.remove('swap'), 340); }
+      }
+      if (id === 'panel') { const mode = host.dataset.mode; host.classList.toggle('same', was.size > 0 && mode === lastMode.panel); lastMode.panel = mode; }
+    }).observe(host, { childList: true });
+  }
+})();
+</script>
 <script>boot();</script>
 </body>
 </html>
