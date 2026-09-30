@@ -9609,6 +9609,7 @@ const IC = {
   camcontour: '<rect x="5" y="6" width="10" height="8" rx="1.5"/><path d="M2.5 4.5h15v11h-15z" stroke-dasharray="2 1.6"/>',
   campocket: '<rect x="3" y="4" width="14" height="12" rx="1.5"/><path d="M6 7h8v6H6zM8.5 9.5h3v1h-3z" opacity=".7"/>',
   camdrill: '<path d="M10 2v11l-2 2 2 3 2-3-2-2"/><path d="M5 17h10" opacity=".5"/>',
+  camswarf: '<path d="M4 16L9 4h3L7 16z"/><path d="M12 16l4-10" opacity=".55"/>',
   camslot: '<rect x="3" y="7" width="14" height="6" rx="3"/><path d="M6.5 10h7" opacity=".55"/>',
   camcircle: '<circle cx="10" cy="10" r="7"/><circle cx="10" cy="10" r="3.2" opacity=".6"/><path d="M10 10h7" opacity=".5"/>',
   camthread: '<path d="M6 3h8M6 7h8M6 11h8M6 15h8" opacity=".6"/><path d="M4 5l12 3M4 9l12 3M4 13l12 3"/>',
@@ -10399,7 +10400,7 @@ function updateHint() {
   let h;
   const k = s => `<span class="kbd">${s}</span>`;
   if (CMD && CMD.type === 'measure') h = `<b>Measure:</b> click two points — they lock onto vertices, edge midpoints, hole centers and face centers. ${k('Esc')} to finish.`;
-  else if (UIX.ws === 'cam') { const op = CAMUI.view === 'op' && opById(CAMUI.op); h = op && (op.type === 'pocket' || op.type === 'contour') ? `<b>${op.name}:</b> ${op.type === 'pocket' ? 'click a pocket floor, or the wall or round wall around it' : 'click flat faces to set the boundary'}.` : op && HOLE_OPS.has(op.type) ? `<b>${op.name}:</b> click holes to add or remove their diameter.` : op && op.type === 'slotmill' ? `<b>${op.name}:</b> click slots to add or remove their size.` : CAMUI.view === 'sim' ? '<b>Simulation:</b> orbit freely while it runs. Orange is stock still to cut, red is a gouge.' : '<b>Manufacture:</b> set up stock and tools, add operations, simulate, then post G-code.'; }
+  else if (UIX.ws === 'cam') { const op = CAMUI.view === 'op' && opById(CAMUI.op); h = op && (op.type === 'pocket' || op.type === 'contour') ? `<b>${op.name}:</b> ${op.type === 'pocket' ? 'click a pocket floor, or the wall or round wall around it' : 'click flat faces to set the boundary'}.` : op && HOLE_OPS.has(op.type) ? `<b>${op.name}:</b> click holes to add or remove their diameter.` : op && op.type === 'slotmill' ? `<b>${op.name}:</b> click slots to add or remove their size.` : op && op.type === 'swarf' ? `<b>${op.name}:</b> click the sloped or vertical walls to flank-mill.` : CAMUI.view === 'sim' ? '<b>Simulation:</b> orbit freely while it runs. Orange is stock still to cut, red is a gouge.' : '<b>Manufacture:</b> set up stock and tools, add operations, simulate, then post G-code.'; }
   else if (CMD && CMD.type === 'pickPlane') h = `<b>Create sketch:</b> click a plane or flat face. ${k('Esc')} cancels.`;
   else if (CMD && CMD.type === 'extrude') h = `<b>Extrude:</b> click profiles (or a sketch in the timeline) to add or remove them, drag the arrow, then ${k('Enter')} for OK.`;
   else if (CMD && CMD.type === 'offset') h = `<b>Offset plane:</b> click a plane or flat face, set the distance.`;
@@ -10946,6 +10947,7 @@ const OP_INFO = {
   contour: { name: '2D Contour', icon: 'camcontour', tip: 'Cuts around the part outline (or chosen faces) with cutter compensation, in step-downs.' },
   pocket: { name: '2D Pocket', icon: 'campocket', tip: 'Clears material down to the flat faces you pick. At every depth it goes down in the middle and works outward in rings toward the walls, leaving a little on the walls; a finishing pass then takes the walls to size. Islands (like bosses) are left alone.' },
   drill: { name: 'Drill', icon: 'camdrill', tip: 'Drills every vertical hole of the chosen diameters with a Haas canned cycle: drill, spot, deep peck, chip-break peck, ream or rigid tap.' },
+  swarf: { name: '5-Axis Swarf', icon: 'camswarf', tip: 'Flank milling: the side of the tool lies along a sloped wall and runs its length, tool axis tilted to follow the wall (simultaneous 5-axis, Haas G234 tool center point control). Flat sloped and vertical walls; the stock simulation shows the tilted tool but Verify does not check it yet, so air-cut the program before running it.' },
   slotmill: { name: 'Slot Mill', icon: 'camslot', tip: 'Mills straight slots with rounded ends: a pass along the middle (ramped in), side passes out to the walls for a tool narrower than the slot, then a finish loop round the wall. A tool as wide as the slot just runs down its middle.' },
   circlemill: { name: 'Circle Mill', icon: 'camcircle', tip: 'Mills round holes with an end mill smaller than the hole: rings clear the inside (only the ring between a pre-drilled hole and the wall if you give its Ø), then one continuous helix takes the wall to size with no witness marks. Good for bores that need to be exact, or holes with no drill of that size.' },
   threadmill: { name: 'Thread Mill', icon: 'camthread', tip: 'Cuts an internal thread with a thread mill: in on an arc to the bottom, up one pitch per turn (climb, right-hand), out on an arc. Give the thread’s major Ø and pitch, or leave them at 0 to take the tool’s pitch and a hole drilled one pitch under the major.' },
@@ -11232,9 +11234,10 @@ function isCutout(loop) {
 // ── Toolpath builder ───────────────────────────────────────────────
 class Path {
   constructor(op, tool) { this.op = op; this.tool = tool; this.m = []; this.warn = []; this.cur = null; }
-  rapid(x, y, z) { this.m.push({ x, y, z, r: 1 }); this.cur = [x, y, z]; }
-  feed(x, y, z, f) { this.m.push({ x, y, z, r: 0, f: f || this.tool.feed }); this.cur = [x, y, z]; }
-  plunge(x, y, z) { this.feed(x, y, z, this.tool.plunge); }
+  // w (optional): the tool axis, unit, from the tip towards the spindle, for simultaneous multi-axis moves
+  rapid(x, y, z, w) { const m = { x, y, z, r: 1 }; if (w) { m.w = w; this.multi = true; } this.m.push(m); this.cur = [x, y, z]; }
+  feed(x, y, z, f, w) { const m = { x, y, z, r: 0, f: f || this.tool.feed }; if (w) { m.w = w; this.multi = true; } this.m.push(m); this.cur = [x, y, z]; }
+  plunge(x, y, z, w) { this.feed(x, y, z, this.tool.plunge, w); }
 }
 function levels(top, bottom, step) {
   if (top <= bottom + 1e-6) return [bottom];
@@ -12229,6 +12232,83 @@ GEN.slotmill = function (op, tool, st, part, P) {
   P.rapid(P.cur[0], P.cur[1], safe);
   P.info = `${done} slot${done > 1 ? 's' : ''} · ${ramp ? `ramped in at ${deg}°` : 'plunged'}${fin ? ' · finish loop on the walls' : ''}`;
 };
+// ── 5-axis swarf (flank) milling of flat walls ─────────────────────
+// The side of the tool lies along the wall and runs up it, the tool axis in the wall plane along its fall line,
+// the tool center one radius out from the plane. The tool tip follows the wall's lower edge; a wall taller than
+// the flutes is taken in bands from the top down. Everything is in the machine frame (X right, Y back, Z up).
+GEN.swarf = function (op, tool, st, part, P) {
+  if (!flatBottom(tool)) P.warn.push('Swarf milling is meant for a flat or bull-nose end mill.');
+  const refs = op.faces || [];
+  if (!refs.length) { P.warn.push('Click the sloped or vertical walls to flank-mill.'); return; }
+  const r = tool.d / 2, off0 = r + (op.leaveWall || 0), sp = Math.max(0.1, op.spacing || 0.5);
+  const loc = Math.max(tool.d, toolParams(tool).loc || tool.d * 2), safe = st.z1 + cam().safe, cfg = tiltCfg();
+  const toM = v => [v[0], -v[2], v[1]];                                   // model (Y up) to machine (Z up)
+  let nWalls = 0, nPasses = 0, maxTilt = 0, strips = 0;
+  for (const ref of refs) {
+    const f = findFace(visibleBodies(), ref), sf = f && Surf.list[f.fid];
+    if (!f || sf.t !== 'P') { warnOnce(P, 'A chosen wall no longer exists.'); continue; }
+    const nm = nrm3(toM(sf.n)), g = [0, 0, -1], d0 = sub3(g, mul3(nm, dot3(g, nm))), dl = len3(d0);
+    if (dl < 1e-3) { warnOnce(P, 'A chosen face is horizontal: use a pocket or face operation.'); continue; }
+    const d = mul3(d0, 1 / dl), a = neg3(d), sv = nrm3(crs3(nm, d));        // d: down the wall; a: up it (toward the spindle); sv: along the wall
+    const tri = [];
+    const vs = faceVerts(f.mesh, f.fid).map(toM);
+    for (let i = 0; i + 2 < vs.length; i += 3) tri.push([0, 1, 2].map(k => [dot3(vs[i + k], sv), dot3(vs[i + k], d)]));
+    if (!tri.length) continue;
+    const V0 = vs[0], at = (t, h) => add3(V0, add3(mul3(sv, t - dot3(V0, sv)), mul3(d, h - dot3(V0, d))));
+    let t0 = Infinity, t1 = -Infinity;
+    const ts = new Set();
+    for (const T of tri) for (const q of T) { t0 = Math.min(t0, q[0]); t1 = Math.max(t1, q[0]); ts.add(Math.round(q[0] * 1e4) / 1e4); }
+    for (let t = t0; t < t1; t += sp) ts.add(Math.round(t * 1e4) / 1e4);
+    const samples = [...ts].sort((x, y) => x - y).map(t => {
+      let lo = Infinity, hi = -Infinity;                                   // hi = the lowest point of the wall here (h counts downward)
+      for (const T of tri) {
+        for (let e = 0; e < 3; e++) {
+          const p = T[e], q = T[(e + 1) % 3];
+          if ((p[0] - t) * (q[0] - t) > 1e-9 || (Math.abs(p[0] - q[0]) < 1e-9 && Math.abs(p[0] - t) > 1e-6)) continue;
+          const u = Math.abs(p[0] - q[0]) < 1e-9 ? null : (t - p[0]) / (q[0] - p[0]);
+          for (const h of u === null ? [p[1], q[1]] : [p[1] + (q[1] - p[1]) * u]) { lo = Math.min(lo, h); hi = Math.max(hi, h); }
+        }
+      }
+      return isFinite(lo) ? { t, lo, hi, L: hi - lo } : { t, L: -1 };
+    });
+    const Lmax = Math.max(...samples.map(q => q.L));
+    if (Lmax < 0.05) continue;
+    const bands = Lmax <= loc * 0.98 ? 1 : Math.ceil((Lmax - loc) / (0.9 * loc)) + 1, step = bands > 1 ? (Lmax - loc) / (bands - 1) : 0;
+    if (bands > 1) warnOnce(P, `A wall is ${fmtLs(Lmax)} long up its slope: the ${fmtLs(loc)} flutes take it in ${bands} bands.`);
+    const tilt = Math.acos(clamp(a[2], -1, 1)) * 180 / Math.PI;
+    maxTilt = Math.max(maxTilt, tilt);
+    // an undercut wall (its normal points down) would put the tool's far edge into the floor: the tool is lifted clear
+    const lift = nm[2] < -1e-6 ? -2 * off0 * nm[2] / a[2] : 0;
+    if (lift > 0) strips++;
+    const climb = dot3(crs3(a, sv), neg3(nm)) > 0 === (op.cut !== 'conv');
+    nWalls++;
+    for (let j = bands - 1; j >= 0; j--) {
+      const shift = j * step;
+      const runs = [];
+      let cur = [];
+      for (const q of samples) {
+        if (q.L > shift + 1e-6) cur.push(add3(add3(at(q.t, q.hi), mul3(nm, off0)), mul3(a, shift + lift)));
+        else if (cur.length) { runs.push(cur); cur = []; }
+      }
+      if (cur.length) runs.push(cur);
+      for (let run of runs) {
+        if (run.length < 2) continue;
+        if (!climb) run = run.slice().reverse();
+        const off = mul3(nm, 1.5 * r + 2), up = (p, z) => add3(p, mul3(a, Math.max(0, (z - p[2]) / a[2])));
+        const p0 = run[0], p1 = run[run.length - 1], e0 = add3(p0, off), e1 = add3(p1, off), put = (fn, p) => fn(p[0], p[1], p[2]);
+        const R = (p) => P.rapid(p[0], p[1], p[2], a), Fd = (p, f) => P.feed(p[0], p[1], p[2], f, a);
+        R(up(e0, safe)); Fd(e0, tool.plunge); Fd(p0, tool.feed);
+        for (let i = 1; i < run.length; i++) Fd(run[i], tool.feed);
+        Fd(e1, tool.feed); R(up(e1, safe));
+        nPasses++;
+      }
+    }
+  }
+  if (!nPasses) { if (!P.warn.length) P.warn.push('Nothing to mill on the chosen walls.'); return; }
+  if (maxTilt > cfg.max + 1e-6) warnOnce(P, `A wall needs the tool tilted ${+maxTilt.toFixed(1)}°, past the ${cfg.max}° tilt limit.`);
+  if (strips) warnOnce(P, `${strips} undercut wall${strips > 1 ? 's leave' : ' leaves'} a strip at the bottom: the tool is lifted so its far edge clears the floor.`);
+  P.info = `${nWalls} wall${nWalls > 1 ? 's' : ''} · ${nPasses} pass${nPasses > 1 ? 'es' : ''} · tool tilted up to ${+maxTilt.toFixed(1)}° · G234 tool center point control`;
+};
 // Holes drilled with the part turned or tilted (3+2). Auto Detect records each hole's
 // mouth, diameter and depth; the moves are the same drill / peck / tap cycle as from the
 // top, along the hole's axis. Beyond the stock box along that axis everything is air, so
@@ -12482,7 +12562,7 @@ function simProgram() {
     if (!P || P.pending) continue;
     for (let i = 1; i < P.m.length; i++) {
       const a = P.m[i - 1], b = P.m[i], L = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z), dt = L / (b.r ? RAPID : b.f) + (b.dw || 0) / 60;
-      out.push({ a, b, r: b.r, tool: P.tool, t0: t, t1: t + dt, op: op.id, mi: i, fin: op.type === 'parallel', ax: opAxis(op) });
+      out.push({ a, b, r: b.r, tool: P.tool, t0: t, t1: t + dt, op: op.id, mi: i, fin: op.type === 'parallel', ax: b.w || opAxis(op), multi: !!P.multi });
       t += dt;
     }
   }
@@ -13229,7 +13309,8 @@ function fitArcs(pts, tol) {
 function tiltFrame(w, mode, o = [0, 0, 0]) {
   const d = 180 / Math.PI, f = x => (Math.abs(x) < 5e-4 ? 0 : x).toFixed(3);
   const S = mode !== 'g682' && camSetup(), P = S && setupPose(S, w);
-  if (P && P.words) return { code: [`G0 ${P.words} (turn the part: ${P.label})`], end: [S.kind === 'trunnion' ? 'G0 A0. C0.' : `G0 ${S.word}0.`], loc: p => sub3(XF.ap(P.M, add3(p, o)), o) };
+  const cfg = tiltCfg(), range = P && S.kind === 'trunnion' && P.tilt != null && (P.tilt < cfg.min - 1e-6 || P.tilt > cfg.max + 1e-6) ? [`(WARNING ${cfg.letter}${+P.tilt.toFixed(1)} IS OUTSIDE THE ${cfg.min} TO ${cfg.max} DEG TILT RANGE - FLIP THE PART OR CHECK THE TRUNNION)`] : [];
+  if (P && P.words) return { code: [...range, `G0 ${P.words} (turn the part: ${P.label})`], end: [S.kind === 'trunnion' ? `G0 ${cfg.letter}0. C0.` : `G0 ${S.word}0.`], loc: p => sub3(XF.ap(P.M, add3(p, o)), o) };
   const al = Math.atan2(w[0], -w[1]), be = Math.acos(clamp(w[2], -1, 1)), ca = Math.cos(al), sa = Math.sin(al), cb = Math.cos(be), sb = Math.sin(be);
   const u = [ca, sa, 0], v = [-sa * cb, ca * cb, sb], ww = [sa * sb, -ca * sb, cb];
   return { code: [`G68.2 X0. Y0. Z0. I${f(al * d)} J${f(be * d)} K0. (tilted work plane)`, 'G53.1'], end: ['G69'], loc: p => [dot3(p, u), dot3(p, v), dot3(p, ww)] };
@@ -13303,6 +13384,41 @@ function postGcode() {
     } else if (lastRpm !== Math.round(t.rpm)) { L.push(`S${Math.round(t.rpm)} M3`); lastRpm = Math.round(t.rpm); }
     if (fr) { L.push('G91 G28 Z0. (clear before turning the part)', 'G90', ...fr.code); st.g = null; st.x = st.y = st.z = null; }
     const endFrame = () => { if (fr) { L.push('G91 G28 Z0.', 'G90', ...fr.end); st.g = null; st.x = st.y = st.z = null; } };
+    if (P.multi && !grbl) {
+      // Simultaneous 5-axis with tool center point control (Haas G234). Order as in Haas's example: rotaries to zero,
+      // linear axes to the work-offset center, G234 H.., then a rapid XYZ (and rotaries) to the start; G49 cancels it.
+      const cfg = tiltCfg(), a3 = x => { const v = Math.abs(x) < 5e-4 ? 0 : x; return v.toFixed(3); };
+      let cPrev = 0, tMin = Infinity, tMax = -Infinity;
+      const angs = P.m.map(m => {
+        const w = m.w || [0, 0, 1], an = trunnionAngles(w);
+        let c = cfg.cs * an.c * 180 / Math.PI;
+        if (an.vertical) c = cPrev; else c += 360 * Math.round((cPrev - c) / 360);        // the C turn nearest the last one
+        cPrev = c;
+        const t = cfg.ts * an.t * 180 / Math.PI; tMin = Math.min(tMin, t); tMax = Math.max(tMax, t);
+        return { c, t };
+      });
+      L.push('(5-AXIS SIMULTANEOUS WITH TOOL CENTER POINT CONTROL G234 - NOT PROVEN ON A MACHINE: AIR CUT FIRST)');
+      if (tMin < cfg.min - 1e-6 || tMax > cfg.max + 1e-6) L.push(`(WARNING ${cfg.letter}${+tMin.toFixed(1)} TO ${+tMax.toFixed(1)} IS OUTSIDE THE ${cfg.min} TO ${cfg.max} DEG TILT RANGE)`);
+      L.push(`G0 G90 G54 ${cfg.letter}0. C0.`, 'G0 X0. Y0.', `G234 H${t.n}`);
+      let g = null, sx = null, sy = null, sz = null, sb = null, sc = null, sf = null;
+      P.m.forEach((m, i) => {
+        SRC = { op: op.id, mi: i };
+        const p = rel(m), G = m.r ? 'G0' : 'G1', w = [];
+        const nx = N(p[0]), ny = N(p[1]), nz = N(p[2]), nb = a3(angs[i].t), nc = a3(angs[i].c);
+        if (nx !== sx) w.push('X' + nx); if (ny !== sy) w.push('Y' + ny); if (nz !== sz) w.push('Z' + nz);
+        if (nb !== sb) w.push(cfg.letter + nb); if (nc !== sc) w.push('C' + nc);
+        if (!w.length) return;
+        if (!m.r && m.f !== sf) { w.push('F' + F(m.f)); sf = m.f; }
+        if (G !== g) w.unshift(G);
+        L.push(w.join(' '));
+        g = G; sx = nx; sy = ny; sz = nz; sb = nb; sc = nc;
+      });
+      SRC = { op: op.id, mi: P.m.length - 1 };
+      L.push('G49', `G0 ${cfg.letter}0. C0.`);
+      st.g = null; st.x = st.y = st.z = null; st.f = null;
+      totalMin += 0;
+      continue;
+    }
     const m0 = rel(P.m[0]);
     L.push(`G0 X${N(m0[0])} Y${N(m0[1])}`); st.g = 'G0'; st.x = N(m0[0]); st.y = N(m0[1]);
     if (!grbl) { L.push(`G43 H${t.n} Z${N(m0[2])}`); st.z = N(m0[2]); } else move('G0', null, null, m0[2]);
@@ -13403,6 +13519,7 @@ function camAddOp(type) {
     face: { tool: pick('face'), stepover: 0.7, stepdown: 1, leave: 0, pattern: 'zigzag', dir: 'auto' },
     contour: { tool: pick('flat'), side: 'outside', stepdown: 2, leave: 0, through: 0.5, faces: [] },
     pocket: { tool: pick('flat'), stepover: 0.45, stepdown: 1.5, leaveWall: 0, leaveFloor: 0, finishStock: isIn() ? 0.254 : 0.25, finish: true, faces: [] },
+    swarf: { tool: pick('flat'), leaveWall: 0, spacing: 0.5, cut: 'climb', faces: [] },
     slotmill: { tool: pick('flat'), stepdown: 1.5, stepover: 0.4, leaveWall: 0, leaveFloor: 0, finishStock: isIn() ? 0.254 : 0.25, finish: true, through: 0.5, sizes: [] },
     circlemill: { tool: pick('flat'), stepdown: 1.5, stepover: 0.4, leaveWall: 0, finishStock: isIn() ? 0.254 : 0.25, finish: true, predrill: 0, through: 0.5, diams: [] },
     threadmill: { tool: pick('threadmill'), pitch: 0, major: 0, through: 0, diams: [] },
@@ -13454,6 +13571,7 @@ function camPocketTarget(h) {
 function camToggleFace(op, h) {
   const s = Surf.list[h.fid];
   if (op.type === 'chamfer') { if (!chamferEdge(h.mesh, h.fid)) { toast('Pick a 45° chamfer face.'); return; } }
+  else if (op.type === 'swarf') { if (s.t !== 'P' || Math.abs(s.n[1]) > 0.999) { toast('Pick a flat sloped or vertical wall.'); return; } }
   else if (s.t !== 'P' || Math.abs(s.n[1]) < 0.999) { toast('Pick a flat, horizontal face.'); return; }
   const fi = faceInfo(h.mesh, h.fid), ref = faceRef(h.mesh, h.fid, fi.on);
   const i = op.faces.findIndex(r => { const f = findFace(visibleBodies(), r); return f && f.fid === h.fid; });
@@ -13463,6 +13581,10 @@ function camToggleFace(op, h) {
 }
 function camMove(x, y) {
   const op = CAMUI.view === 'op' && opById(CAMUI.op);
+  if (op && op.type === 'swarf') {
+    const h = pick3D(x, y, { faces: true }), ok = h && h.kind === 'face' && Surf.list[h.fid].t === 'P' && Math.abs(Surf.list[h.fid].n[1]) < 0.999;
+    setHover3D(ok ? h : null); ov.className = ok ? 'pointer' : 'default'; return;
+  }
   if (op && op.type === 'chamfer') {
     const h = pick3D(x, y, { faces: true }), ok = h && h.kind === 'face' && !!chamferEdge(h.mesh, h.fid);
     setHover3D(ok ? h : null); ov.className = ok ? 'pointer' : 'default'; return;
@@ -13501,7 +13623,7 @@ function camClick(x, y) {
     else toast(Surf.list[h.fid].t === 'C' || Math.abs(Surf.list[h.fid].n[1]) < 1e-3 ? 'That wall has no floor under it: it goes right through.' : 'Pick a pocket floor or the wall around it.');
     return;
   }
-  if (op.type === 'contour' || op.type === 'chamfer') camToggleFace(op, h);
+  if (op.type === 'contour' || op.type === 'chamfer' || op.type === 'swarf') camToggleFace(op, h);
   else if (HOLE_OPS.has(op.type)) {
     const s = Surf.list[h.fid]; if (s.t !== 'C' || s.sg > 0) return;
     const d = +(2 * s.r).toFixed(2), ds = op.diams.slice(), i = ds.findIndex(x => Math.abs(x - d) < 0.02);
@@ -13513,7 +13635,7 @@ function camFacesHL() {
   if (UIX.ws === 'cam' && CAMUI.view === 'auto' && AUTO.hl) return AUTO.hl.faces || [];
   const op = UIX.ws === 'cam' && CAMUI.view === 'op' && opById(CAMUI.op);
   if (!op || !op.faces) return [];
-  if (op.type === 'chamfer') return op.faces.map(r => findFace(visibleBodies(), r)).filter(Boolean).map(r => ({ mesh: r.mesh, fid: r.fid }));
+  if (op.type === 'chamfer' || op.type === 'swarf') return op.faces.map(r => findFace(visibleBodies(), r)).filter(Boolean).map(r => ({ mesh: r.mesh, fid: r.fid }));
   return resolveCamFaces(op.faces).map(f => f);
 }
 function setWorkspace(ws) {
@@ -13613,7 +13735,7 @@ function camOpMenu(op, x, y) {
 }
 // ── Right panel views ──────────────────────────────────────────────
 // Length fields show display units; setN converts them back to mm.
-const CAM_LEN = new Set(['stSide', 'stTop', 'stBot', 'camSafe', 'camRet', 'opSd', 'opLeave', 'opThrough', 'opOffD', 'opPre', 'opMajor', 'opPitch', 'opMicro', 'opLw', 'opLf', 'opPeck', 'opSoL', 'opRest', 'opFs', 'opPkI', 'opPkJ', 'opPkK', 'opRpl', 'opS22', 'opS52', 'opDepth']);
+const CAM_LEN = new Set(['stSide', 'stTop', 'stBot', 'camSafe', 'camRet', 'opSd', 'opLeave', 'opThrough', 'opOffD', 'opPre', 'opMajor', 'opPitch', 'opMicro', 'opSpacing', 'opLw', 'opLf', 'opPeck', 'opSoL', 'opRest', 'opFs', 'opPkI', 'opPkJ', 'opPkK', 'opRpl', 'opS22', 'opS52', 'opDepth']);
 const num = (id, v, lab, step = 'any', extra = '') => CAM_LEN.has(id)
   ? `<label class="field"><span>${lab} (${uName()})</span><input type="number" id="${id}" data-cam-input="1" data-len="1" step="any" value="${uval(+v)}" ${extra}></label>`
   : `<label class="field"><span>${lab}</span><input type="number" id="${id}" data-cam-input="1" step="${step}" value="${+(+v).toFixed(4)}" ${extra}></label>`;
@@ -13728,6 +13850,14 @@ function camPanel() {
       <div class="row2">${num('opThrough', op.through, 'Tip below edge', 0.05)}${adv ? num('opLeave', op.leave, 'Leave', 0.05) : ''}</div>`; }
     if (op.type === 'parallel') f += `<div class="row3">${num('opSoL', op.stepover, 'Stepover', 0.05)}${adv ? num('opLeave', op.leave, 'Leave', 0.05) : ''}<div class="field"><span>Direction</span><div class="seg"><button data-opset="angle:0" class="${!op.angle ? 'on' : ''}">X</button><button data-opset="angle:90" class="${op.angle === 90 ? 'on' : ''}">Y</button></div></div></div>
       ${adv ? `<label class="chk"><input type="checkbox" id="opOverrun" ${op.overrun ? 'checked' : ''}> Run the tool past the part edges</label>` : ''}`;
+    if (op.type === 'swarf') {
+      const cfg = tiltCfg();
+      f += `<div class="field"><span>Walls</span><div class="pick ${faces ? '' : 'empty'}"><span>${faces ? 'Click a wall again to remove it' : 'Click flat sloped or vertical walls'}</span><span class="n">${faces}</span></div></div>
+        <div class="row2">${num('opLw', op.leaveWall, 'Leave on wall', 0.05)}</div>`
+        + A(`<div class="row2">${num('opSpacing', op.spacing || 0.5, 'Point spacing along the wall', 0.1)}</div>
+        <div class="field"><span>Milling</span><div class="seg"><button data-opset="cut:climb" class="${op.cut !== 'conv' ? 'on' : ''}">Climb</button><button data-opset="cut:conv" class="${op.cut === 'conv' ? 'on' : ''}">Conventional</button></div></div>`)
+        + `<p class="note">Posts with <b>G234</b> on the ${cfg.letter}/C trunnion (set it in the G-code panel). Not checked by Verify: air-cut the program first.</p>`;
+    }
     // slot mill: pick slots by size, like holes by diameter
     if (op.type === 'slotmill') {
       const sl = camSlots(), keys = [...new Set(sl.map(x => x.key))];
@@ -13764,6 +13894,9 @@ function camPanel() {
     return `<div class="pn-head"><h2>G-code</h2><span class="tag">${g.lines} lines · ${fmtTime(g.min)}</span></div><div class="pn-body">
       <div class="field"><span>Controller</span><div class="pick"><span>Haas mill (NGC)</span></div></div>
       <div class="field"><span>Indexed ops</span><div class="seg"><button data-post="multi:setup" class="${pf.multi !== 'g682' ? 'on' : ''}">Rotary / trunnion (A, B, A+C)</button><button data-post="multi:g682" class="${pf.multi === 'g682' ? 'on' : ''}">Tilted plane G68.2</button></div></div>
+      <div class="field"><span>Trunnion tilt axis (Haas UMC-750: B)</span><div class="seg"><button data-post="tilt:B" class="${pf.tilt !== 'A' ? 'on' : ''}" title="UMC-750, UMC-500, UMC-1000: tilts about Y, B -35 to +120">B (about Y)</button><button data-post="tilt:A" class="${pf.tilt === 'A' ? 'on' : ''}" title="TR-series tables and the UMC-750P">A (about X)</button></div></div>
+      <div class="row2"><label class="chk"><input type="checkbox" id="postTiltRev" ${pf.tiltRev ? 'checked' : ''}> Reverse tilt direction</label><label class="chk"><input type="checkbox" id="postCRev" ${pf.cRev ? 'checked' : ''}> Reverse C direction</label></div>
+      <div class="row2">${num('postTiltMin', pf.tiltMin != null ? pf.tiltMin : -35, 'Tilt limit, low (deg)', 5)}${num('postTiltMax', pf.tiltMax != null ? pf.tiltMax : 120, 'Tilt limit, high (deg)', 5)}</div>
       <div class="row2">${num('postProg', pf.program, 'Program number', 1)}<div class="field"><span>Options</span><label class="chk"><input type="checkbox" id="postArcs" ${pf.arcs ? 'checked' : ''}> Arcs (G2/G3)</label><label class="chk"><input type="checkbox" id="postCool" ${pf.coolant ? 'checked' : ''}> Coolant</label></div></div>
       <textarea id="gcode" readonly spellcheck="false">${g.text.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</textarea>
       <div class="btns"><button class="btn" data-camdo="copyg">Copy</button><button class="btn primary" data-camdo="saveg">Save .nc</button></div>
@@ -13819,6 +13952,9 @@ function bindCamPanel() {
   setN('stBot', setup(v => { C.stock.bottom = Math.max(0, v); }, 'Stock bottom'));
   setN('camSafe', setup(v => { C.safe = Math.max(1, v); }, 'Clearance height'));
   setN('camRet', setup(v => { C.retract = Math.max(0.5, v); }, 'Retract height'));
+  for (const [id, k, lab] of [['postTiltRev', 'tiltRev', 'Reverse tilt'], ['postCRev', 'cRev', 'Reverse C']]) { const el = document.getElementById(id); if (el) el.addEventListener('change', () => setup(() => { C.post[k] = el.checked; }, lab)()); }
+  setN('postTiltMin', setup(v => { C.post.tiltMin = clamp(v, -180, 0); }, 'Tilt limit'));
+  setN('postTiltMax', setup(v => { C.post.tiltMax = clamp(v, 0, 180); }, 'Tilt limit'));
   setN('postProg', setup(v => {
       let n = clamp(Math.round(v), 1, 99999);
       if (n >= 9000 && n <= 9999) { n = 10000 + n % 1000; toast('O09000-O09999 are reserved by Haas (probing, macros): using O' + n); }
@@ -13852,8 +13988,8 @@ function bindCamPanel() {
     setN('opPasses', v => camEdit(op, 'passes', clamp(Math.round(v), 1, 8))); setN('opRamp', v => camEdit(op, 'rampAngle', clamp(v, 0.5, 30)));
     ck('opSpring', v => camEdit(op, 'spring', v)); ck('opSafe', v => camEdit(op, 'safeLinks', v));
     const ot = document.getElementById('opTool'); if (ot) ot.addEventListener('change', () => camEdit(op, 'tool', +ot.value));
-    const map = { opSo: 'stepover', opSoL: 'stepover', opSd: 'stepdown', opLeave: 'leave', opThrough: 'through', opLw: 'leaveWall', opLf: 'leaveFloor', opPeck: 'peck', opRest: 'restD', opFs: 'finishStock', opOffD: 'offD', opPre: 'predrill', opMajor: 'major', opPitch: 'pitch', opMicro: 'microlift' };
-    for (const [id, k] of Object.entries(map)) setN(id, v => camEdit(op, k, k === 'leave' || k === 'leaveWall' || k === 'leaveFloor' || k === 'through' || k === 'restD' || k === 'finishStock' || k === 'offD' || k === 'predrill' || k === 'major' || k === 'pitch' || k === 'microlift' ? Math.max(0, v) : Math.max(0.01, v)));
+    const map = { opSo: 'stepover', opSoL: 'stepover', opSd: 'stepdown', opLeave: 'leave', opThrough: 'through', opLw: 'leaveWall', opLf: 'leaveFloor', opPeck: 'peck', opRest: 'restD', opFs: 'finishStock', opOffD: 'offD', opPre: 'predrill', opMajor: 'major', opPitch: 'pitch', opMicro: 'microlift', opSpacing: 'spacing' };
+    for (const [id, k] of Object.entries(map)) setN(id, v => camEdit(op, k, k === 'leave' || k === 'leaveWall' || k === 'leaveFloor' || k === 'through' || k === 'restD' || k === 'finishStock' || k === 'offD' || k === 'predrill' || k === 'major' || k === 'pitch' || k === 'microlift' || k === 'spacing' ? Math.max(0, v) : Math.max(0.01, v)));
     ck('opFinish', v => camEdit(op, 'finish', v));
     const cyc = document.getElementById('opCycle'); if (cyc) cyc.addEventListener('change', () => camEdit(op, 'mode', cyc.value));
     const drillMap = { opPkI: 'peckFirst', opPkJ: 'peckReduce', opPkK: 'peckMin', opRpl: 'rPlane', opS22: 'chipBack', opS52: 's52', opDepth: 'depth' };
@@ -15695,7 +15831,9 @@ async function verifyProgram(onProgress) {
   let lastOp = null, since = 0, t0 = performance.now();
   const prev0 = i => { const p = segs[i - 1]; return p && p.tool; };
   for (let i = 0; i < segs.length; i++) {
-    const sg = segs[i], tool = sg.tool; X = ctxOf(sg.ax); const a = X.loc(sg.a), b = X.loc(sg.b), R = tool.d / 2, ti = tinfo(tool);
+    const sg = segs[i], tool = sg.tool;
+    if (sg.multi) { if (!sg.r) model.cut(sg.a, sg.b, tool, undefined, sg.ax); continue; }        // simultaneous multi-axis moves are simulated but not checked
+    X = ctxOf(sg.ax); const a = X.loc(sg.a), b = X.loc(sg.b), R = tool.d / 2, ti = tinfo(tool);
     if (sg.op !== lastOp) { model.flush(); lastOp = sg.op; since = 0; }
     const L = Math.hypot(b.x - a.x, b.y - a.y), zlo = Math.min(a.z, b.z);
     if (sg.r) {
@@ -17304,11 +17442,24 @@ function roundAxis() {
   const k = d.findIndex(x => Math.abs(x) > 0.5);
   return { p, dir: d[k] < 0 ? neg3(d) : d, r: best.r };
 }
+// The trunnion the program is for. Haas's UMC-750 tilts on B (-35..+120 deg) and turns on C; tables
+// such as the TR series tilt on A. The two "reverse" switches flip the sign of the commanded angle
+// (Haas's positive directions are not checked here: prove the first program with an air cut).
+function tiltCfg() {
+  const p = cam().post || {};
+  return { letter: p.tilt === 'A' ? 'A' : 'B', ts: p.tiltRev ? -1 : 1, cs: p.cRev ? -1 : 1, min: p.tiltMin != null ? p.tiltMin : -35, max: p.tiltMax != null ? p.tiltMax : 120 };
+}
+// Model angles (radians) that stand the part so tool axis w points straight up: turn about Z by c, then tilt.
+function trunnionAngles(w) {
+  w = nrm3(w);
+  const h = Math.hypot(w[0], w[1]), b = tiltCfg().letter === 'B';
+  return { c: h < 1e-9 ? 0 : b ? Math.atan2(w[1], -w[0]) : Math.atan2(w[0], w[1]), t: Math.atan2(h, w[2]), vertical: h < 1e-9 };
+}
 let SETUP = { key: null, v: null };
 function camSetup() {
   if (!cam || !doc) return null;
   const ops = cam().ops.filter(o => !o.sup && opAxis(o));
-  const key = camEpoch + '|' + ops.map(o => o.axis.map(x => x.toFixed(4)).join(',')).join(';');
+  const key = camEpoch + '|' + tiltCfg().letter + '|' + ops.map(o => o.axis.map(x => x.toFixed(4)).join(',')).join(';');
   if (SETUP.key === key) return SETUP.v;
   let v = null;
   const st = camStock();
@@ -17320,8 +17471,8 @@ function camSetup() {
     else if (perp([1, 0, 0])) v = { kind: 'rotary', dir: [1, 0, 0], c };
     else if (perp([0, 1, 0])) v = { kind: 'rotary', dir: [0, 1, 0], c };
     else v = { kind: 'trunnion', dir: [1, 0, 0], c };
-    v.word = v.kind === 'trunnion' ? 'A+C' : Math.abs(v.dir[0]) > 0.999 ? 'A' : Math.abs(v.dir[1]) > 0.999 ? 'B' : null;
-    v.name = v.kind === 'trunnion' ? 'trunnion table (A tilt + C rotation)' : `${v.word ? v.word + ' ' : ''}rotary${v.round ? ` along the part’s Ø${fmtD(2 * v.round.r)} centerline` : ''}`;
+    v.word = v.kind === 'trunnion' ? tiltCfg().letter + '+C' : Math.abs(v.dir[0]) > 0.999 ? 'A' : Math.abs(v.dir[1]) > 0.999 ? 'B' : null;
+    v.name = v.kind === 'trunnion' ? `trunnion table (${tiltCfg().letter} tilt + C rotation)` : `${v.word ? v.word + ' ' : ''}rotary${v.round ? ` along the part’s Ø${fmtD(2 * v.round.r)} centerline` : ''}`;
   }
   SETUP = { key, v };
   return v;
@@ -17334,15 +17485,16 @@ function setupPose(S, w) {
     const a = S.dir, th = Math.atan2(dot3(crs3(a, w), [0, 0, 1]), w[2]);
     return { M: XF.rot(S.c, a, th), words: S.word ? `${S.word}${f(th)}` : null, label: `${S.word || 'rotary'} ${+deg(th).toFixed(1)}°` };
   }
-  const ga = Math.atan2(w[0], w[1]), al = Math.atan2(Math.hypot(w[0], w[1]), w[2]);
-  return { M: XF.mul(XF.rot(S.c, [1, 0, 0], al), XF.rot(S.c, [0, 0, 1], ga)), words: `C${f(ga)} A${f(al)}`, label: `A ${+deg(al).toFixed(1)}° · C ${+deg(ga).toFixed(1)}°` };
+  const cfg = tiltCfg(), { c: ga, t: al } = trunnionAngles(w), ax = cfg.letter === 'B' ? [0, 1, 0] : [1, 0, 0];
+  return { M: XF.mul(XF.rot(S.c, ax, al), XF.rot(S.c, [0, 0, 1], ga)), words: `C${f(cfg.cs * ga)} ${cfg.letter}${f(cfg.ts * al)}`, label: `${cfg.letter} ${+deg(cfg.ts * al).toFixed(1)}° · C ${+deg(cfg.cs * ga).toFixed(1)}°`, tilt: cfg.ts * deg(al) };
 }
 // The pose of one operation, with its world-space rotation for the view (cached).
 const POSES = new Map();
+
 function poseForOp(op) {
   const S = camSetup(), w = op && opAxis(op);
   if (!S || !w) return null;
-  const key = SETUP.key + '|' + w.join(',');
+  const key = SETUP.key + '|' + JSON.stringify(tiltCfg()) + '|' + w.join(',');
   let p = POSES.get(key);
   if (!p) {
     if (POSES.size > 200) POSES.clear();
@@ -22187,7 +22339,7 @@ const FA_MAP = {
   fillet: 'border-top-left', trim: 'scissors', extend: 'arrows-left-right-to-line', offset: 'clone', mirror: 'arrows-left-right', project: 'diagram-project', cons: 'link', del: 'trash-can',
   sketch: 'pen-ruler', extrude: 'arrow-up-from-bracket', plane: 'layer-group', finish: 'check', body: 'cube', eye: 'eye', eyeoff: 'eye-slash', origin: 'crosshairs', origin2: 'location-crosshairs',
   chamfer: 'diamond', fillet3: 'circle-half-stroke', chamfer3: 'diamond', thread: 'screwdriver', point: 'circle-dot', marker: 'flag', blueprint: 'compass-drafting', measure: 'ruler',
-  camsetup: 'sliders', camtools: 'screwdriver-wrench', camface: 'grip-lines', camcontour: 'route', campocket: 'inbox', camdrill: 'arrow-down-long', camcircle: 'circle-notch', camslot: 'grip-lines-vertical', camthread: 'screwdriver', camparallel: 'water', camsim: 'play', campost: 'file-code',
+  camsetup: 'sliders', camtools: 'screwdriver-wrench', camface: 'grip-lines', camcontour: 'route', campocket: 'inbox', camdrill: 'arrow-down-long', camcircle: 'circle-notch', camslot: 'grip-lines-vertical', camswarf: 'diagram-project', camthread: 'screwdriver', camparallel: 'water', camsim: 'play', campost: 'file-code',
   import: 'file-import', auto: 'wand-magic-sparkles', export: 'file-export', autoprog: 'robot', verify: 'shield-halved', camchamfer: 'diamond', camthread: 'screwdriver',
   revolve: 'rotate', sweep: 'wave-square', loft: 'shapes', coil: 'arrows-spin', hole: 'ring', shell: 'box-open', pattern: 'table-cells', patternc: 'circle-nodes', mirror3: 'arrows-left-right',
   combine: 'object-group', move: 'up-down-left-right', rotate: 'rotate-right', scale: 'maximize', split: 'object-ungroup', create: 'plus', modify: 'pen', construct: 'ruler-combined', array: 'table-cells',
