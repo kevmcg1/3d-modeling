@@ -7304,6 +7304,12 @@ function hwInfo(f) {
   o.minor = d - 1.2269 * p; o.pitchD = d - 0.6495 * p; o.tpi = p ? 25.4 / p : 0;
   return o;
 }
+// where a piece of hardware sits: origin C, the axis `up`, and the in-plane directions U, V (U × V = up)
+function hwFrame(f) {
+  const B = ORIGIN_PLANES[f.base || 'XZ'], up = f.flip ? neg3(B.n) : B.n;
+  const U = XF.vec(XF.rot([0, 0, 0], up, (+f.rot || 0) * Math.PI / 180), B.u);
+  return { C: add3(planeTo3(B, P2(+f.cx || 0, +f.cy || 0)), mul3(B.n, +f.off || 0)), up, U, V: crs3(up, U) };
+}
 function evalHardware(f, ctx, tol) {
   const kd = HW_KINDS[f.kind];
   if (!kd) throw new Error('Unknown fastener type');
@@ -7311,11 +7317,7 @@ function evalHardware(f, ctx, tol) {
   if (!(d > 0)) throw new Error('Diameter must be positive');
   const D = hwDims(f), nutish = kd.head === 'nut', wash = kd.head === 'washer';
   if (!nutish && !wash && !(L > 0)) throw new Error('Length must be positive');
-  // frame: the seat (under the head) at C, the axis up toward the head
-  const B = ORIGIN_PLANES[f.base || 'XZ'];
-  const C = add3(planeTo3(B, P2(+f.cx || 0, +f.cy || 0)), mul3(B.n, +f.off || 0));
-  const up = f.flip ? neg3(B.n) : B.n;
-  const U = XF.vec(XF.rot([0, 0, 0], up, (+f.rot || 0) * Math.PI / 180), B.u), V = crs3(up, U);
+  const { C, up, U, V } = hwFrame(f);                                     // the seat (under the head) at C, the axis up toward the head
   const plP = { o: C, u: U, v: V, n: up }, plL = { o: C, u: U, v: up, n: crs3(U, up) };
   const pri = (pts, h0, h1) => {                                          // a polygon prism from height h0 to h1
     const q = pts.map(a => P2(a[0], a[1]));
@@ -7460,6 +7462,261 @@ function evalHardware(f, ctx, tol) {
   finishTool(f, ctx, tool);
 }
 FEATX.screw = evalHardware;
+</script>
+
+<script data-kernel>
+// ═══════════════════════════════════════════════════════════════════
+//  Workholding and shop equipment — vises, clamps, blocks, plates,
+//  fixtures. Each item is a short list of parameters plus a build
+//  function over a tiny modeling kit (boxes, prisms, cylinders, turned
+//  profiles, booleans) in the item's own frame: x along it, y across, z up
+//  from the table. Add an item by adding one SHOP entry.
+// ═══════════════════════════════════════════════════════════════════
+const SHOP = {};
+const INCH = 25.4;
+const SHOP_COL = { iron: '#3a4552', steel: '#aab2bb', ground: '#8f98a3', black: '#2a2d31', blue: '#3a6ea5', alu: '#c9cfd6', red: '#b5392f', brass: '#c8a24a', work: '#d8c7a0' };
+// parameter spec: [key, label, default, type, options]; type: len (mm), int, deg, chk, sel
+const shopDefaults = k => Object.fromEntries(SHOP[k].p.map(([key, , d]) => [key, d]));
+function shopKit(f, tol) {
+  const F = hwFrame(f), AX = { z: [F.U, F.V, F.up], x: [F.V, F.up, F.U], y: [F.up, F.U, F.V] };
+  const plane = (a, o = F.C) => ({ o, u: AX[a][0], v: AX[a][1], n: AX[a][2] });
+  const K = {
+    poly(a, pts, a0, a1) {                                                // a polygon prism along axis a, from a0 to a1
+      const q = pts.map(p => P2(p[0], p[1]));
+      let outer = loopOf(q); if (loopArea(outer) < 0) outer = loopOf(q.slice().reverse());
+      return prism({ outer, holes: [] }, plane(a), a0, a1, tol, f.id);
+    },
+    cyl: (a, c1, c2, r, a0, a1) => prism({ outer: [{ k: 'A', c: P2(c1, c2), r, t0: 0, s: TAU, a: P2(c1 + r, c2), b: P2(c1 + r, c2), src: 5 }], holes: [] }, plane(a), a0, a1, tol, f.id),
+    box: (x0, x1, y0, y1, z0, z1) => K.poly('z', [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], z0, z1),
+    // a solid of revolution about the axis through (c1, c2) along a, from a0; pts are (radius, distance along the axis)
+    turn(a, c1, c2, a0, pts) {
+      const [u, v, n] = AX[a], o = add3(add3(add3(F.C, mul3(u, c1)), mul3(v, c2)), mul3(n, a0)), q = [];
+      for (const b of pts) { const l = q[q.length - 1]; if (!l || Math.hypot(b[0] - l.x, b[1] - l.y) > 1e-6) q.push(P2(Math.max(0, b[0]), b[1])); }
+      let outer = q.map((b, i) => ({ k: 'L', a: b, b: q[(i + 1) % q.length], src: 200 + i }));
+      if (loopArea(outer) < 0) { outer.reverse(); for (const g of outer) { const t = g.a; g.a = g.b; g.b = t; } }
+      return revolveBuild({ outer, holes: [] }, { o, u, v: n, n: crs3(u, n) }, { p: o, dir: n }, 0, TAU, Math.max(16, circleN(Math.max(...q.map(b => b.x), 0.1), tol)), true, tol, f.id);
+    },
+    // plain (x, y, z) helpers: polygons in the XZ or YZ plane, cylinders and turned parts about X or Y
+    polyXZ: (pts, y0, y1) => K.poly('y', pts.map(([x, z]) => [z, x]), y0, y1),
+    polyYZ: (pts, x0, x1) => K.poly('x', pts, x0, x1),
+    cylY: (x, z, r, y0, y1) => K.cyl('y', z, x, r, y0, y1),
+    cylX: (y, z, r, x0, x1) => K.cyl('x', y, z, r, x0, x1),
+    turnX: (y, z, x0, pts) => K.turn('x', y, z, x0, pts),
+    turnY: (x, z, y0, pts) => K.turn('y', z, x, y0, pts),
+    sub: (a, ...bs) => bs.reduce((s, b) => (b ? CSG.subtract(s, b) : s), a),
+    add: (...xs) => xs.filter(Boolean).reduce((s, b) => CSG.union(s, b)),
+    // a rounded rectangle as polygon points (corner radius r)
+    rrect(x0, x1, y0, y1, r, n = 6) {
+      const pts = [], c = [[x1 - r, y1 - r, 0], [x0 + r, y1 - r, 1], [x0 + r, y0 + r, 2], [x1 - r, y0 + r, 3]];
+      for (const [cx, cy, q] of c) for (let i = 0; i <= n; i++) { const t = (q + i / n) * Math.PI / 2; pts.push([cx + r * Math.cos(t), cy + r * Math.sin(t)]); }
+      return pts;
+    },
+    // a stadium (slot) of width w from (x0, y) to (x1, y), as polygon points
+    slot(x0, x1, y, w, n = 8) {
+      const pts = [], r = w / 2;
+      for (let i = 0; i <= n; i++) { const t = -Math.PI / 2 + Math.PI * i / n; pts.push([x1 + r * Math.cos(t), y + r * Math.sin(t)]); }
+      for (let i = 0; i <= n; i++) { const t = Math.PI / 2 + Math.PI * i / n; pts.push([x0 + r * Math.cos(t), y + r * Math.sin(t)]); }
+      return pts;
+    },
+    // a hex bolt head / nut standing on z0, across flats s, height h
+    hexZ: (cx, cy, s, z0, z1) => K.poly('z', hwRegular(6, s / Math.sqrt(3), 0).map(p => [p[0] + cx, p[1] + cy]), z0, z1),
+    // a cap screw / stud: head on top at z, shank down to zb (a lathe, so it stays light)
+    bolt(cx, cy, d, z, zb, head = 1.6) { const r = d / 2, hr = r * head, hh = d * 0.9; return K.turn('z', cx, cy, zb, [[0, 0], [r, 0], [r, z - zb], [hr, z - zb], [hr, z - zb + hh], [0, z - zb + hh]]); },
+  };
+  return K;
+}
+function evalShop(f, ctx, tol) {
+  const it = SHOP[f.kind];
+  if (!it) throw new Error('Unknown equipment type');
+  const P = {};
+  for (const [k, , d] of it.p) { P[k] = f[k] === undefined || f[k] === null ? d : f[k]; if (typeof d === 'number' && !(+P[k] >= 0) && it.p.find(q => q[0] === k)[3] !== 'deg') throw new Error('Sizes cannot be negative'); }
+  const parts = it.build(P, shopKit(f, tol));
+  const ids = [];
+  parts.forEach((polys, i) => {
+    if (!polys || !polys.length) return;
+    const id = i ? f.id + i / 1000 : f.id;
+    ctx.bodies = [...ctx.bodies, { id, polys, bb: bboxPolys(polys) }]; ids.push(id);
+  });
+  if (!ids.length) throw new Error('Empty part');
+  ctx.hl[f.id] = ids;
+}
+FEATX.shop = evalShop;
+
+// ── Blocks, parallels and plates ──
+SHOP.block123 = {
+  name: '1-2-3 block', grp: 'Blocks & plates', parts: [['1-2-3 block', SHOP_COL.ground]],
+  p: [['L', 'Length', 3 * INCH, 'len'], ['W', 'Width', 2 * INCH, 'len'], ['H', 'Height', INCH, 'len'], ['holes', 'Holes', 'std', 'sel', [['std', 'Standard pattern'], ['none', 'Plain']]], ['hd', 'Tapped hole Ø', 5.2, 'len'], ['th', 'Through hole Ø', 8.4, 'len']],
+  build(P, K) {
+    const b = K.box(-P.L / 2, P.L / 2, -P.W / 2, P.W / 2, 0, P.H);
+    if (P.holes !== 'std') return [b];
+    const g = P.L / 3, r = P.hd / 2, d = P.W * 0.25, cuts = [K.cyl('z', -g / 2, 0, P.th / 2, -1, P.H + 1), K.cyl('z', g / 2, 0, P.th / 2, -1, P.H + 1)];
+    for (const x of [-g, 0, g]) {
+      for (const y of [-P.W / 4, P.W / 4]) cuts.push(K.cyl('z', x, y, r, P.H * 0.4, P.H + 1));       // top, tapped
+      cuts.push(K.cylY(x, P.H / 2, r, -P.W / 2 - 1, -P.W / 2 + d));                                      // front, tapped
+    }
+    cuts.push(K.cylX(0, P.H / 2, r, -P.L / 2 - 1, -P.L / 2 + d), K.cylX(0, P.H / 2, r, P.L / 2 - d, P.L / 2 + 1));   // both ends
+    return [K.sub(b, ...cuts)];
+  },
+};
+SHOP.parallels = {
+  name: 'Parallels (pair)', grp: 'Blocks & plates', parts: [['Parallel A', SHOP_COL.ground], ['Parallel B', SHOP_COL.ground]],
+  p: [['L', 'Length', 150, 'len'], ['T', 'Thickness', 6, 'len'], ['H', 'Height', 25, 'len'], ['gap', 'Gap between', 40, 'len']],
+  build: (P, K) => [K.box(-P.L / 2, P.L / 2, -P.gap / 2 - P.T, -P.gap / 2, 0, P.H), K.box(-P.L / 2, P.L / 2, P.gap / 2, P.gap / 2 + P.T, 0, P.H)],
+};
+SHOP.vblock = {
+  name: 'V-block', grp: 'Blocks & plates', parts: [['V-block', SHOP_COL.ground]],
+  p: [['L', 'Length', 76, 'len'], ['W', 'Width', 50, 'len'], ['H', 'Height', 50, 'len'], ['ang', 'V angle (°)', 90, 'deg'], ['vw', 'V opening width', 36, 'len'], ['hd', 'Clamp hole Ø', 8.5, 'len']],
+  build(P, K) {
+    const dep = Math.min(P.H * 0.8, (P.vw / 2) / Math.tan(P.ang * Math.PI / 360));
+    return [K.sub(K.box(-P.L / 2, P.L / 2, -P.W / 2, P.W / 2, 0, P.H), K.polyYZ([[-P.vw / 2, P.H + 1], [0, P.H - dep], [P.vw / 2, P.H + 1]], -P.L / 2 - 1, P.L / 2 + 1), K.cylY(-P.L / 4, P.H * 0.25, P.hd / 2, -P.W / 2 - 1, P.W / 2 + 1), K.cylY(P.L / 4, P.H * 0.25, P.hd / 2, -P.W / 2 - 1, P.W / 2 + 1))];
+  },
+};
+SHOP.anglePlate = {
+  name: 'Angle plate', grp: 'Blocks & plates', parts: [['Angle plate', SHOP_COL.iron]],
+  p: [['A', 'Base length', 100, 'len'], ['B', 'Upright height', 100, 'len'], ['W', 'Width', 75, 'len'], ['T', 'Thickness', 15, 'len'], ['sl', 'Slot width', 11, 'len'], ['hd', 'Upright hole Ø', 10, 'len'], ['gus', 'Gussets', true, 'chk']],
+  build(P, K) {
+    const x0 = -P.A / 2;
+    let b = K.add(K.box(x0, P.A / 2, -P.W / 2, P.W / 2, 0, P.T), K.box(x0, x0 + P.T, -P.W / 2, P.W / 2, 0, P.B));
+    if (P.gus) for (const y of [-P.W / 2, P.W / 2 - P.T * 0.6]) b = K.add(b, K.polyXZ([[x0 + P.T - 0.5, P.T - 0.5], [x0 + P.T - 0.5, P.B * 0.7], [x0 + P.T + P.A * 0.55, P.T - 0.5]], y, y + P.T * 0.6));
+    const cuts = [];
+    for (const y of [-P.W / 4, P.W / 4]) { cuts.push(K.poly('z', K.slot(x0 + P.T + 16, P.A / 2 - 16, y, P.sl), -1, P.T + 1)); for (const z of [P.B * 0.35, P.B * 0.72]) cuts.push(K.cylX(y, z, P.hd / 2, x0 - 1, x0 + P.T + 1)); }
+    return [K.sub(b, ...cuts)];
+  },
+};
+SHOP.subplate = {
+  name: 'Tooling (grid) plate', grp: 'Blocks & plates', parts: [['Grid plate', SHOP_COL.alu]],
+  p: [['nx', 'Holes along X', 6, 'int'], ['ny', 'Holes along Y', 4, 'int'], ['pitch', 'Hole pitch', 25, 'len'], ['T', 'Thickness', 20, 'len'], ['hd', 'Tapped hole Ø', 6.8, 'len'], ['dowel', 'Corner dowel Ø', 10, 'len'], ['margin', 'Edge margin', 25, 'len']],
+  build(P, K) {
+    const wx = (P.nx - 1) * P.pitch + 2 * P.margin, wy = (P.ny - 1) * P.pitch + 2 * P.margin, cuts = [];
+    for (let i = 0; i < P.nx; i++) for (let j = 0; j < P.ny; j++) {
+      const corner = (i === 0 || i === P.nx - 1) && (j === 0 || j === P.ny - 1);
+      cuts.push(K.cyl('z', (i - (P.nx - 1) / 2) * P.pitch, (j - (P.ny - 1) / 2) * P.pitch, (corner && P.dowel > 0 ? P.dowel : P.hd) / 2, P.T * 0.15, P.T + 1));
+    }
+    return [K.sub(K.poly('z', K.rrect(-wx / 2, wx / 2, -wy / 2, wy / 2, 6), 0, P.T), ...cuts)];
+  },
+};
+SHOP.tslotPlate = {
+  name: 'T-slot table section', grp: 'Blocks & plates', parts: [['T-slot table', SHOP_COL.iron]],
+  p: [['L', 'Length', 300, 'len'], ['W', 'Width', 160, 'len'], ['T', 'Thickness', 40, 'len'], ['n', 'T-slots', 3, 'int'], ['pitch', 'Slot spacing', 63.5, 'len'], ['sw', 'Slot width', 14, 'len'], ['hw', 'Head width', 24, 'len'], ['sd', 'Neck depth', 10, 'len'], ['hdp', 'Head depth', 12, 'len']],
+  build(P, K) {
+    const cuts = [], a = P.T - P.sd, b = a - P.hdp;
+    for (let i = 0; i < P.n; i++) { const y = (i - (P.n - 1) / 2) * P.pitch; cuts.push(K.polyYZ([[y - P.sw / 2, P.T + 1], [y - P.sw / 2, a], [y - P.hw / 2, a], [y - P.hw / 2, b], [y + P.hw / 2, b], [y + P.hw / 2, a], [y + P.sw / 2, a], [y + P.sw / 2, P.T + 1]], -P.L / 2 - 1, P.L / 2 + 1)); }
+    return [K.sub(K.box(-P.L / 2, P.L / 2, -P.W / 2, P.W / 2, 0, P.T), ...cuts)];
+  },
+};
+SHOP.sinebar = {
+  name: 'Sine bar', grp: 'Precision', parts: [['Sine bar', SHOP_COL.ground], ['Roll A', SHOP_COL.steel], ['Roll B', SHOP_COL.steel]],
+  p: [['L', 'Center distance', 5 * INCH, 'len'], ['W', 'Width', 25, 'len'], ['H', 'Body height', 20, 'len'], ['R', 'Roll radius', 10, 'len']],
+  build(P, K) {
+    const body = K.sub(K.box(-P.L / 2 - P.R - 4, P.L / 2 + P.R + 4, -P.W / 2, P.W / 2, P.R, P.R + P.H), K.cyl('z', -P.L / 4, 0, 4, P.R - 1, P.R + P.H + 1), K.cyl('z', P.L / 4, 0, 4, P.R - 1, P.R + P.H + 1));
+    return [body, K.cylY(-P.L / 2, P.R, P.R, -P.W / 2 - 3, P.W / 2 + 3), K.cylY(P.L / 2, P.R, P.R, -P.W / 2 - 3, P.W / 2 + 3)];
+  },
+};
+SHOP.colletBlock = {
+  name: 'Collet block', grp: 'Precision', parts: [['Collet block', SHOP_COL.ground]],
+  p: [['sides', 'Shape', 4, 'sel', [[4, 'Square'], [6, 'Hex']]], ['AF', 'Across flats', 60, 'len'], ['L', 'Length', 76, 'len'], ['bore', 'Bore Ø', 32, 'len'], ['key', 'Keyway width', 6, 'len']],
+  build(P, K) {
+    const n = +P.sides, R = P.AF / 2 / Math.cos(Math.PI / n);
+    return [K.sub(K.poly('z', hwRegular(n, R, n === 4 ? Math.PI / 4 : 0), 0, P.L), K.cyl('z', 0, 0, P.bore / 2, -1, P.L + 1), K.box(-P.key / 2, P.key / 2, P.bore / 2 - 1, P.bore / 2 + 3, -1, P.L + 1))];
+  },
+};
+
+// ── Clamps ──
+SHOP.strapClamp = {
+  name: 'Strap clamp', grp: 'Clamps', parts: [['Strap clamp', SHOP_COL.black]],
+  p: [['L', 'Length', 150, 'len'], ['W', 'Width', 25, 'len'], ['T', 'Thickness', 12, 'len'], ['sl', 'Slot length', 70, 'len'], ['sw', 'Slot width', 13, 'len'], ['nose', 'Nose (toe) drop', 8, 'len']],
+  build(P, K) {
+    const strap = K.add(K.box(-P.L / 2, P.L / 2, -P.W / 2, P.W / 2, 0, P.T), K.polyXZ([[P.L / 2 - 14, 0.5], [P.L / 2, -P.nose], [P.L / 2, 0.5]], -P.W / 2, P.W / 2));
+    return [K.sub(strap, K.poly('z', K.slot(-P.sl / 2 + P.sw / 2, P.sl / 2 - P.sw / 2, 0, P.sw), -P.nose - 1, P.T + 1))];
+  },
+};
+SHOP.toeClamp = {
+  name: 'Toe clamp', grp: 'Clamps', parts: [['Clamp body', SHOP_COL.black], ['Cap screw', SHOP_COL.steel], ['Heel screw', SHOP_COL.steel]],
+  p: [['L', 'Length', 50, 'len'], ['W', 'Width', 28, 'len'], ['H', 'Height', 22, 'len'], ['toe', 'Toe slope (°)', 15, 'deg'], ['sd', 'Screw Ø', 10, 'len'], ['sl', 'Slot length', 18, 'len']],
+  build(P, K) {
+    const L2 = P.L / 2, drop = Math.min(P.H * 0.5, 14 * Math.tan(P.toe * Math.PI / 180) + 4);
+    let body = K.polyXZ([[-L2, 0], [L2 - 3, 0], [L2, drop * 0.5], [L2, P.H * 0.55], [L2 - 12, P.H], [-L2, P.H]], -P.W / 2, P.W / 2);
+    body = K.sub(body, K.poly('z', K.slot(-P.sl / 2, P.sl / 2, 0, P.sd + 1.5), -1, P.H + 1), K.cyl('z', 0, 0, P.sd * 0.9, P.H - P.sd * 0.8, P.H + 1), K.cyl('z', -L2 + 6, 0, P.sd * 0.4, -1, P.H + 1));
+    return [body, K.bolt(0, 0, P.sd, P.H - P.sd * 0.8 + 0.4, -P.H * 1.1), K.bolt(-L2 + 6, 0, P.sd * 0.8, P.H, -P.H * 0.4, 1)];
+  },
+};
+SHOP.stepBlock = {
+  name: 'Step block', grp: 'Clamps', parts: [['Step block', SHOP_COL.black]],
+  p: [['L', 'Length', 110, 'len'], ['W', 'Width', 38, 'len'], ['steps', 'Steps', 4, 'int'], ['low', 'Lowest step', 16, 'len'], ['rise', 'Step height', 12.7, 'len'], ['sd', 'Stud hole Ø', 11, 'len']],
+  build(P, K) {
+    const n = Math.max(1, Math.round(P.steps)), run = P.L / n, pts = [[-P.L / 2, 0], [P.L / 2, 0]], cuts = [];
+    for (let i = n - 1; i >= 0; i--) { const x0 = -P.L / 2 + i * run, z = P.low + i * P.rise; pts.push([x0 + run, z], [x0, z]); cuts.push(K.cyl('z', x0 + run / 2, 0, P.sd / 2, -1, z + 1)); }
+    return [K.sub(K.polyXZ(pts, -P.W / 2, P.W / 2), ...cuts)];
+  },
+};
+SHOP.clampSet = {
+  name: 'Clamping set (strap, step block, stud)', grp: 'Clamps', parts: [['Workpiece', SHOP_COL.work], ['Strap clamp', SHOP_COL.black], ['Step block', SHOP_COL.black], ['Stud', SHOP_COL.steel], ['Nut', SHOP_COL.steel], ['Washer', SHOP_COL.steel]],
+  p: [['wh', 'Workpiece height', 30, 'len'], ['ww', 'Workpiece width', 70, 'len'], ['d', 'Stud Ø', 12, 'len'], ['L', 'Strap length', 140, 'len'], ['W', 'Strap width', 25, 'len'], ['T', 'Strap thickness', 12, 'len']],
+  build(P, K) {
+    const n = 4, bl = 16, rise = 12.7, run = 28, zs = Array.from({ length: n }, (_, i) => bl + i * rise);
+    const i0 = zs.reduce((b, z, i) => (Math.abs(z - P.wh) < Math.abs(zs[b] - P.wh) ? i : b), 0), top = zs[i0];     // the step level with the workpiece
+    const xb0 = P.ww + 6, sx = xb0 + (i0 + 0.5) * run, sd = P.d + 1.5, pts = [[xb0, 0], [xb0 + n * run, 0]];
+    for (let i = n - 1; i >= 0; i--) pts.push([xb0 + (i + 1) * run, zs[i]], [xb0 + i * run, zs[i]]);
+    const step = K.sub(K.polyXZ(pts, -19, 19), ...zs.map((z, i) => K.cyl('z', xb0 + (i + 0.5) * run, 0, sd / 2, -1, z + 1)));
+    const strap = K.sub(K.box(P.ww - 18, P.ww - 18 + P.L, -P.W / 2, P.W / 2, top, top + P.T), K.poly('z', K.slot(sx - 35, sx + 35, 0, sd), top - 1, top + P.T + 1));
+    const zw = top + P.T, nutTop = zw + 3 + P.d * 0.8;
+    return [K.box(0, P.ww, -30, 30, 0, P.wh), strap, step, K.cyl('z', sx, 0, P.d / 2, -8, nutTop + 6), K.sub(K.hexZ(sx, 0, P.d * 1.5, zw + 3, nutTop), K.cyl('z', sx, 0, P.d / 2, zw, nutTop + 1)), K.sub(K.cyl('z', sx, 0, P.d * 1.05, zw, zw + 3), K.cyl('z', sx, 0, P.d / 2, zw - 1, zw + 4))];
+  },
+};
+SHOP.cClamp = {
+  name: 'C-clamp', grp: 'Clamps', parts: [['Frame', SHOP_COL.blue], ['Screw', SHOP_COL.steel], ['Swivel pad', SHOP_COL.steel], ['Handle', SHOP_COL.steel]],
+  p: [['open', 'Jaw capacity', 100, 'len'], ['throat', 'Throat depth', 75, 'len'], ['t', 'Frame thickness', 11, 'len'], ['w', 'Frame width', 24, 'len'], ['sd', 'Screw Ø', 14, 'len'], ['gap', 'Opened to', 60, 'len']],
+  build(P, K) {
+    const t = P.t, t1 = t * 1.1, t2 = t * 1.4, ht = P.open + t1 + t2, w = P.w / 2, xs = -t * 1.6, sd = P.sd, gap = Math.min(P.gap, P.open - 4);
+    let fr = K.add(K.box(-P.throat - t, -P.throat, -w, w, 0, ht), K.box(-P.throat - t, 0, -w, w, 0, t1), K.box(-P.throat - t, 0, -w, w, ht - t2, ht), K.cyl('z', xs, 0, sd * 0.95, ht - t2 - 8, ht), K.cyl('z', xs, 0, sd * 0.8, t1, t1 + 4));
+    fr = K.sub(fr, K.cyl('z', xs, 0, sd / 2 + 0.2, ht - t2 - 9, ht + 1));
+    const padZ = t1 + 4 + gap, hz = ht + 14;
+    return [fr, K.cyl('z', xs, 0, sd / 2 - 0.4, padZ + 4, ht + 20), K.turn('z', xs, 0, padZ, [[0, 0], [sd * 0.8, 0], [sd * 0.8, 3.5], [sd * 0.4, 3.5], [sd * 0.4, 4.5], [0, 4.5]]),
+      K.add(K.cylY(xs, hz, 3.4, -P.open * 0.45, P.open * 0.45), K.turnY(xs, hz, P.open * 0.45, [[0, 0], [5.5, 3], [5.5, 9], [0, 12]]), K.turnY(xs, hz, -P.open * 0.45, [[0, 0], [5.5, -3], [5.5, -9], [0, -12]]))];
+  },
+};
+
+// ── Vises and dovetail fixtures ──
+SHOP.vise = {
+  name: 'Machine vise', grp: 'Vises', parts: [['Base', SHOP_COL.blue], ['Fixed jaw', SHOP_COL.blue], ['Fixed jaw plate', SHOP_COL.ground], ['Moving jaw', SHOP_COL.blue], ['Moving jaw plate', SHOP_COL.ground], ['Lead screw', SHOP_COL.black], ['Handle', SHOP_COL.black]],
+  p: [['W', 'Jaw width', 6 * INCH, 'len'], ['open', 'Jaw opening now', 70, 'len'], ['maxOpen', 'Maximum opening', 6 * INCH, 'len'], ['H', 'Jaw height', 45, 'len'], ['sd', 'Screw Ø', 26, 'len'], ['hl', 'Handle length', 160, 'len']],
+  build(P, K) {
+    const W = P.W / 2, bh = 30, jt = 40, pl = 8, x0 = -pl - jt - 20, x1 = P.maxOpen + pl + jt + 100, g = Math.min(P.open, P.maxOpen), sz = bh + 14, mj = g + pl;
+    let base = K.add(K.box(x0, x1, -W, W, 0, bh), K.box(x0, x0 + 90, -W - 26, W + 26, 0, 16), K.box(x1 - 130, x1 - 40, -W - 26, W + 26, 0, 16), K.box(x1 - 60, x1 - 10, -34, 34, bh, sz + P.sd / 2 + 10));
+    base = K.sub(base, ...[[x0 + 26, x0 + 56], [x1 - 100, x1 - 70]].flatMap(([a, b]) => [-1, 1].map(s => K.poly('z', K.slot(a, b, s * (W + 14), 14), -1, 20))), K.cylX(0, sz, P.sd / 2 + 0.5, x1 - 61, x1 - 9));
+    const hx = x1 + 30;
+    return [base, K.box(-pl - jt, -pl, -W, W, bh, bh + P.H), K.box(-pl, 0, -W + 6, W - 6, bh + 6, bh + P.H - 4),
+      K.box(mj, mj + jt + 10, -W, W, bh, bh + P.H), K.box(g, g + pl, -W + 6, W - 6, bh + 6, bh + P.H - 4),
+      K.turnX(0, sz, mj + jt + 10, [[0, 0], [P.sd / 2, 0], [P.sd / 2, hx - mj - jt - 10], [0, hx - mj - jt - 10]]),
+      K.add(K.cylY(hx, sz, 7, -P.hl / 2, P.hl / 2), K.turnY(hx, sz, P.hl / 2, [[0, 0], [11, 4], [11, 20], [0, 24]]), K.turnY(hx, sz, -P.hl / 2, [[0, 0], [11, -4], [11, -20], [0, -24]]))];
+  },
+};
+// a dovetail groove (female) in a jaw face at x = face, running along y: width wo at the face, flaring to wb at depth dg (dir +1: the jaw lies at x < face)
+const dovetailPts = (face, dir, zc, wo, dg, ang) => { const wb = wo + 2 * dg * Math.tan(ang * Math.PI / 180); return [[face + dir * 0.01, zc - wo / 2], [face - dir * dg, zc - wb / 2], [face - dir * dg, zc + wb / 2], [face + dir * 0.01, zc + wo / 2]]; };
+SHOP.dovetailVise = {
+  name: 'Dovetail vise', grp: 'Vises', parts: [['Base', SHOP_COL.iron], ['Fixed jaw', SHOP_COL.black], ['Moving jaw', SHOP_COL.black], ['Clamp screw', SHOP_COL.steel], ['Dovetail stock', SHOP_COL.work]],
+  p: [['W', 'Jaw length', 100, 'len'], ['gap', 'Stock width between jaws', 60, 'len'], ['H', 'Jaw height', 30, 'len'], ['ang', 'Dovetail flank angle (°)', 15, 'deg'], ['wo', 'Dovetail neck width', 6, 'len'], ['dg', 'Dovetail depth', 5, 'len'], ['stock', 'Show stock', true, 'chk']],
+  build(P, K) {
+    const W = P.W / 2, bh = 14, jt = 28, g = P.gap, x0 = -jt - 14, x1 = g + jt + 70, zc = bh + P.H * 0.55, tw = Math.tan(P.ang * Math.PI / 180);
+    const base = K.sub(K.box(x0, x1, -W - 14, W + 14, 0, bh), ...[[x0 + 12, x0 + 40], [x1 - 40, x1 - 12]].flatMap(([a, b]) => [-1, 1].map(s => K.poly('z', K.slot(a, b, s * (W + 3), 9), -1, bh + 1))));
+    const fj = K.sub(K.box(-jt, 0, -W, W, bh, bh + P.H), K.polyXZ(dovetailPts(0, 1, zc, P.wo, P.dg, P.ang), -W - 1, W + 1));
+    const mj = K.sub(K.box(g, g + jt, -W, W, bh, bh + P.H), K.polyXZ(dovetailPts(g, -1, zc, P.wo, P.dg, P.ang), -W - 1, W + 1));
+    const screw = K.add(K.turnX(0, zc, g + jt, [[0, 0], [5, 0], [5, 60], [0, 60]]), K.turnX(0, zc, g + jt + 50, [[0, 0], [9, 0], [9, 14], [0, 14]]));
+    const dg = P.dg - 0.15, wb = P.wo + 2 * dg * tw;
+    const stock = P.stock ? K.add(K.box(0, g, -W + 4, W - 4, bh, bh + P.H * 0.95), K.polyXZ([[0, zc - P.wo / 2 + 0.1], [-dg, zc - wb / 2 + 0.1], [-dg, zc + wb / 2 - 0.1], [0, zc + P.wo / 2 - 0.1]], -W + 4, W - 4), K.polyXZ([[g, zc - P.wo / 2 + 0.1], [g + dg, zc - wb / 2 + 0.1], [g + dg, zc + wb / 2 - 0.1], [g, zc + P.wo / 2 - 0.1]], -W + 4, W - 4)) : null;
+    return [base, fj, mj, screw, stock];
+  },
+};
+SHOP.dovetailFixture = {
+  name: 'Dovetail fixture plate', grp: 'Vises', parts: [['Fixture plate', SHOP_COL.alu], ['Dovetail slide', SHOP_COL.black], ['Clamp bolt A', SHOP_COL.steel], ['Clamp bolt B', SHOP_COL.steel]],
+  p: [['L', 'Plate length', 200, 'len'], ['W', 'Plate width', 120, 'len'], ['T', 'Plate thickness', 30, 'len'], ['sw', 'Dovetail width (top)', 40, 'len'], ['dp', 'Dovetail depth', 14, 'len'], ['ang', 'Flank angle (°)', 60, 'deg'], ['sl', 'Slide length', 90, 'len'], ['pos', 'Slide position', 0, 'len'], ['hd', 'Clamp bolt Ø', 8, 'len']],
+  build(P, K) {
+    const bw = P.sw / 2 + P.dp / Math.tan(P.ang * Math.PI / 180), zt = P.T, zb = P.T - P.dp, c = 0.15, bx = [P.pos - P.sl / 4, P.pos + P.sl / 4], cap = P.T * 0.35;
+    const plate = K.sub(K.box(-P.L / 2, P.L / 2, -P.W / 2, P.W / 2, 0, P.T), K.polyYZ([[-P.sw / 2, zt + 0.01], [-bw, zb], [bw, zb], [P.sw / 2, zt + 0.01]], -P.L / 2 - 1, P.L / 2 + 1), ...[-1, 1].flatMap(sx => [-1, 1].map(sy => K.cyl('z', sx * (P.L / 2 - 18), sy * (P.W / 2 - 14), 5.5, -1, P.T + 1))), ...bx.map(x => K.cyl('z', x, 0, P.hd * 0.4, zb - 14, zb + 1)));
+    const slide = K.sub(K.polyYZ([[-bw + c, zb + c], [bw - c, zb + c], [P.sw / 2 - c, zt], [P.sw / 2 - c, zt + cap], [-P.sw / 2 + c, zt + cap], [-P.sw / 2 + c, zt]], P.pos - P.sl / 2, P.pos + P.sl / 2), ...bx.map(x => K.cyl('z', x, 0, P.hd / 2 + 0.3, zb, zt + cap + 1)));
+    return [plate, slide, ...bx.map(x => K.bolt(x, 0, P.hd, zt + cap + P.hd * 0.9, zb - 12))];
+  },
+};
 </script>
 
 <script data-kernel>
@@ -25293,6 +25550,22 @@ function hwSetSize(f, id) {
   const s = hwSizeById(id); if (!s) { f.size = 'custom'; return; }
   Object.assign(f, { size: s.id, fam: s.fam, d: +s.d.toFixed(4), pitch: +s.p.toFixed(4) }, HW_OVR);
 }
+// placement, shared by every hardware / workholding item: which way it points, where its seat is, and a "place on a point" picker
+const hwPlacePanel = f => pf.seg('Axis points', 'base', [['XZ', 'Up (Z)'], ['XY', 'Toward front'], ['YZ', 'Toward side']]) + pf.chk('Upside down', 'flip')
+  + `<div class="row2">${pf.num('Position X', 'cx', { len: 1 })}${pf.num('Position Y', 'cy', { len: 1 })}</div><div class="row2">${pf.num('Seat height', 'off', { len: 1 })}${pf.num('Turn (°)', 'rot', { step: 15 })}</div>`
+  + `<div class="btns"><button class="btn ${CMD.step === 'pt' ? 'primary' : ''}" data-fdo="pick" title="Click a vertex, hole center or face center to put it there">${CMD.step === 'pt' ? 'Click a point…' : 'Place on a point…'}</button></div>`;
+const HW_PLACE = {
+  act: { pick() { CMD.step = CMD.step === 'pt' ? null : 'pt'; CMD.kp = null; refreshPanel(); requestDraw(); } },
+  move(x, y) { if (CMD.step === 'pt') { CMD.kp = pickKeyPoint(x, y, beforeBodies()); ov.className = 'pointer'; requestDraw(); } else setHover3D(null); },
+  click() {
+    const c = CMD, f = c.f; if (c.step !== 'pt' || !c.kp) return;
+    const B = ORIGIN_PLANES[f.base || 'XZ'], P = c.kp.P;
+    Object.assign(f, { cx: +dot3(P, B.u).toFixed(5), cy: +dot3(P, B.v).toFixed(5), off: +dot3(P, B.n).toFixed(5) });
+    c.step = null; c.kp = null; featSync();
+  },
+  draw() { if (CMD.step === 'pt' && CMD.kp) kpGlyph(CMD.kp.P, CMD.kp.k, COL.accent, true); },
+  hint: c => c.step === 'pt' ? 'click a vertex, hole center, edge midpoint or face center to place it there' : 'set the parameters in the panel — the part updates live',
+};
 FEATS.screw = {
   label: 'Fastener', need: '',
   title: f => HW_KINDS[f.kind].name,
@@ -25330,22 +25603,11 @@ FEATS.screw = {
         if (drive !== 'none') h += `<div class="row2">${drive !== 'torx' ? O(drive === 'slot' ? 'Slot width' : drive === 'phillips' ? 'Arm length' : 'Key size', 'ds', info.ds) : ''}${O('Drive depth', 'dd', 0.5 * (info.hk || info.ds))}</div>`;
       }
     }
-    h += pf.seg('Axis points', 'base', [['XZ', 'Up (Z)'], ['XY', 'Toward front'], ['YZ', 'Toward side']]) + pf.chk('Head the other way', 'flip');
-    h += `<div class="row2">${pf.num('Position X', 'cx', { len: 1 })}${pf.num('Position Y', 'cy', { len: 1 })}</div><div class="row2">${pf.num('Seat height', 'off', { len: 1 })}${pf.num('Turn (°)', 'rot', { step: 15 })}</div>`;
-    h += `<div class="btns"><button class="btn ${CMD.step === 'pt' ? 'primary' : ''}" data-fdo="pick" title="Click a vertex, hole center or face center to put the seat there">${CMD.step === 'pt' ? 'Click a point…' : 'Place on a point…'}</button></div>`;
+    h += hwPlacePanel(f);
     h += `<dl class="kv">${[['Thread depth', p => L(0.6134 * p), +f.pitch], ['Pitch Ø', () => L(info.pitchD)], ['Minor Ø', () => L(info.minor)], ['Standard', () => kd.std]].filter(r => (+f.pitch > 0 || r[0] === 'Standard') && !wash && !(nut && r[0] === 'Thread depth')).map(([a, fn, x]) => `<dt>${a}</dt><dd>${fn(x)}</dd>`).join('')}${info.tpi && f.fam === 'I' ? `<dt>Threads / inch</dt><dd>${+info.tpi.toFixed(2)}</dd>` : ''}</dl>`;
     return h + pf.note('Click this part in the view at any time to change any of these. Changing the size sets the standard head, drive and thread; typing in a field overrides just that one.');
   },
-  act: { pick() { CMD.step = CMD.step === 'pt' ? null : 'pt'; CMD.kp = null; refreshPanel(); requestDraw(); } },
-  move(x, y) { if (CMD.step === 'pt') { CMD.kp = pickKeyPoint(x, y, beforeBodies()); ov.className = 'pointer'; requestDraw(); } else setHover3D(null); },
-  click() {
-    const c = CMD, f = c.f; if (c.step !== 'pt' || !c.kp) return;
-    const B = ORIGIN_PLANES[f.base || 'XZ'], P = c.kp.P;
-    Object.assign(f, { cx: +dot3(P, B.u).toFixed(5), cy: +dot3(P, B.v).toFixed(5), off: +dot3(P, B.n).toFixed(5) });
-    c.step = null; c.kp = null; featSync();
-  },
-  draw() { if (CMD.step === 'pt' && CMD.kp) kpGlyph(CMD.kp.P, CMD.kp.k, COL.accent, true); },
-  hint: c => c.step === 'pt' ? 'click a vertex, hole center, edge midpoint or face center for the seat' : 'set the type and size in the panel — the part updates live',
+  ...HW_PLACE,
   sub: f => `${hwTitle(f).replace(HW_KINDS[f.kind].name + ' ', '')}${HW_KINDS[f.kind].head === 'nut' || HW_KINDS[f.kind].head === 'washer' ? '' : ' × ' + fmtLs(f.L)}`,
 };
 function hwName(f) {
@@ -25356,6 +25618,34 @@ function hwName(f) {
 // ── the Hardware ribbon group and its menus ──
 const hwMenuItems = kinds => { const out = []; let g = null; for (const [k, v] of kinds) { if (v.grp !== g) { if (g) out.push(null); g = v.grp; out.push({ label: `<span class="mh">${v.grp}</span>`, run() {} }); } out.push({ label: `<span>${v.name}</span><span class="mk">${v.std.split(' / ')[0]}</span>`, run: () => cmdFeat('screw', null, { kind: k }) }); } return out; };
 const HW_MENUS = { fast: () => hwMenuItems(Object.entries(HW_KINDS)) };
+// ── Workholding & shop equipment: the panel is generated from each item's parameter list ──
+Object.assign(FEAT_BASE, { shop: 'Shop' });
+Object.assign(FEAT_IC, { shop: 'vise' });
+TOOL_FEATS.add('shop');
+PARAM_TYPES.add('shop');
+const shopKindOpts = () => { const g = {}; Object.entries(SHOP).forEach(([k, v]) => (g[v.grp] = g[v.grp] || []).push([k, v.name])); return Object.entries(g); };
+const shopColors = f => SHOP[f.kind].parts.forEach(([, c], i) => setBodyColor(i ? f.id + i / 1000 : f.id, c, true));
+function shopName(f) { const base = SHOP[f.kind].name.replace(/[^A-Za-z0-9]+/g, '').slice(0, 10); let n = 1; while (doc.features.some(x => x !== f && x.name === base + n)) n++; return base + n; }
+FEATS.shop = {
+  label: 'Workholding', need: '', title: f => SHOP[f.kind].name,
+  init: () => ({ kind: 'vise', ...shopDefaults('vise'), base: 'XZ', cx: 0, cy: 0, off: 0, flip: false, rot: 0, op: 'new' }),
+  ready: () => true,
+  start(c) { const f = c.f; Object.assign(f, shopDefaults(f.kind)); f.name = shopName(f); shopColors(f); },
+  text(f, k, v) {
+    if (k === 'kind') { f.kind = v; Object.assign(f, shopDefaults(v)); f.name = shopName(f); shopColors(f); }
+    else f[k] = isNaN(+v) ? v : +v;
+  },
+  panel: f => {
+    const it = SHOP[f.kind], flat = s => s.startsWith('<label class="chk"') || s.includes('data-ft=');
+    const row = it.p.map(([k, lab, , ty, opts]) => ty === 'chk' ? pf.chk(lab, k) : ty === 'sel' ? pf.sel(lab, k, opts, f[k]) : ty === 'deg' ? pf.num(lab, k, { step: 1 }) : ty === 'int' ? pf.num(lab, k, { int: 1, min: 1 }) : pf.num(lab, k, { len: 1, min: 0 }));
+    let h = pf.sel('Equipment', 'kind', shopKindOpts(), f.kind) + '<div class="m-sec" style="margin-top:6px">Dimensions</div>';
+    for (let i = 0; i < row.length;) { if (flat(row[i])) h += row[i++]; else if (row[i + 1] && !flat(row[i + 1])) { h += `<div class="row2">${row[i]}${row[i + 1]}</div>`; i += 2; } else h += `<div class="row2">${row[i++]}</div>`; }
+    return h + hwPlacePanel(f) + pf.note(`${it.parts.length} part${it.parts.length > 1 ? 's' : ''}: ${it.parts.map(q => q[0]).join(', ')}. Click any part in the view to change these.`);
+  },
+  ...HW_PLACE,
+  sub: f => SHOP[f.kind].name,
+};
+HW_MENUS.shop = () => { const out = []; let g = null; for (const [k, v] of Object.entries(SHOP)) { if (v.grp !== g) { if (g) out.push(null); g = v.grp; out.push({ label: `<span class="mh">${v.grp}</span>`, run() {} }); } out.push({ label: `<span>${v.name}</span>`, run: () => cmdFeat('shop', null, { kind: k }) }); } return out; };
 const hwRibbon = () => `<section class="rb-panel" aria-label="Hardware"><div class="rb-body">${['fast', ...(HW_MENUS.shop ? ['shop'] : [])].map(k => `<button class="rb-btn rb-big ${CMD && CMD.type === 'feat' && ((k === 'fast' && CMD.kind === 'screw') || (k === 'shop' && CMD.kind === 'shop')) ? 'on' : ''}" data-act="hw:${k}" title="${k === 'fast' ? 'Screws, bolts, nuts and washers — any size' : 'Vises, clamps, parallels and fixtures'}">${svg(k === 'fast' ? 'screw' : 'vise')}<span>${k === 'fast' ? 'Fasteners' : 'Workholding'}</span></button>`).join('')}</div><div class="rb-title">Hardware</div></section>`;
 const modelToolbarHTML1 = modelToolbarHTML;
 modelToolbarHTML = function () { return modelToolbarHTML1().replace('<section class="rb-panel" aria-label="Inspect">', hwRibbon() + '<section class="rb-panel" aria-label="Inspect">'); };
