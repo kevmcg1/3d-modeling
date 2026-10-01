@@ -10328,6 +10328,7 @@ const IC = {
   camdrill: '<path d="M10 2v11l-2 2 2 3 2-3-2-2"/><path d="M5 17h10" opacity=".5"/>',
   cammill: '<path d="M8 2h4v7l1.5 2v3h-7v-3L8 9z"/><path d="M4 17h12" opacity=".5"/><path d="M8 5h4" opacity=".5"/>',
   polyline3: '<path d="M3 15l4-8 4 5 6-9"/><circle cx="3" cy="15" r="1.3"/><circle cx="7" cy="7" r="1.3"/><circle cx="11" cy="12" r="1.3"/><circle cx="17" cy="3" r="1.3"/>',
+  camcbore: '<path d="M3 4h14v4h-4v8H7V8H3z"/>', cambsf: '<path d="M3 4h14v12H3z" opacity=".4"/><path d="M10 2v10"/><path d="M4 14h12"/><path d="M7 12l-3 2 3 2M13 12l3 2-3 2"/>',
   camspot: '<path d="M10 2v8"/><path d="M7 10h6l-3 5z"/><path d="M4 17h12" opacity=".5"/><circle cx="10" cy="17" r="1.3" opacity=".7"/>',
   campeck: '<path d="M10 2v5M10 9v3" /><path d="M8 12l2 3 2-3z"/><path d="M5 17h10M6.5 14.5h7" opacity=".5" stroke-dasharray="1.6 1.4"/>',
   camtap: '<path d="M10 2v6"/><path d="M7.5 8h5v9l-2.5 1.5L7.5 17z"/><path d="M7.5 10.5h5M7.5 13h5M7.5 15.5h5" opacity=".6"/>',
@@ -11612,7 +11613,7 @@ const CAMPL = { o: [0, 0, 0], u: [1, 0, 0], v: [0, 0, -1], n: [0, 1, 0] };
 const toW = (x, y, z) => [x, z, -y];
 const CS = 1000;                 // Clipper scale: integer micrometers
 const RAPID = 5000;              // mm/min, for time estimates
-const TOOL_TYPES = { flat: 'Flat endmill', ball: 'Ball endmill', bull: 'Bull-nose endmill', drill: 'Drill', spot: 'Spot drill', chamfer: 'Chamfer mill', face: 'Face mill', reamer: 'Reamer', tap: 'Tap', threadmill: 'Thread mill' };
+const TOOL_TYPES = { flat: 'Flat endmill', ball: 'Ball endmill', bull: 'Bull-nose endmill', drill: 'Drill', spot: 'Spot drill', chamfer: 'Chamfer mill', face: 'Face mill', reamer: 'Reamer', tap: 'Tap', threadmill: 'Thread mill', cbore: 'Counterbore (piloted)', bsf: 'Back spot-face tool (folding blade)' };
 // Datum tool type ↔ Tool Builder category (ToolModel), so a cutter looks the
 // same here as in the Tool Builder and codes can be pasted either way.
 const TOOL_CAT = { flat: ['endmill', 'flat'], ball: ['endmill', 'ball'], bull: ['endmill', 'bull'], drill: ['drill'], spot: ['spotdrill'], chamfer: ['chamfer'], face: ['facemill'], reamer: ['reamer'], tap: ['tap'], threadmill: ['threadmill'] };
@@ -11653,7 +11654,7 @@ const MATERIALS = {
 const matOf = () => MATERIALS[(typeof doc !== 'undefined' && doc && doc.cam && doc.cam.material) || 'aluminum'] || MATERIALS.aluminum;
 // Feeds & speeds for a tool in the current material.
 function toolDefaults(type, d) {
-  const M = matOf(), drillish = type === 'drill' || type === 'spot' || type === 'reamer', tap = type === 'tap';
+  const M = matOf(), drillish = type === 'drill' || type === 'spot' || type === 'reamer' || type === 'cbore' || type === 'bsf', tap = type === 'tap';
   const vc = type === 'face' ? M.vc.face : tap ? M.vc.tap : drillish ? M.vc.drill : M.vc.mill;
   const rpm = Math.round(clamp(vc * 1000 / (Math.PI * d), 200, 18000) / 50) * 50;
   const flutes = type === 'face' ? 5 : drillish || tap ? 2 : d < 4 ? 2 : 3;
@@ -13040,7 +13041,7 @@ function simProgram() {
     if (!P || P.pending) continue;
     for (let i = 1; i < P.m.length; i++) {
       const a = P.m[i - 1], b = P.m[i], L = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z), dt = L / (b.r ? RAPID : b.f) + (b.dw || 0) / 60;
-      out.push({ a, b, r: b.r, tool: P.tool, t0: t, t1: t + dt, op: op.id, mi: i, fin: op.type === 'parallel', ax: opAxis(op) });
+      out.push({ a, b, r: b.r, tool: b.tool || P.tool, t0: t, t1: t + dt, op: op.id, mi: i, fin: op.type === 'parallel', ax: opAxis(op) });
       t += dt;
     }
   }
@@ -13058,7 +13059,7 @@ function cutRadius(tool, h) {
   if (t === 'tap' || t === 'threadmill') return 0;                 // they only cut threads into existing walls
   return R;                                                          // flat, face mill
 }
-const flatBottom = t => t.type === 'flat' || t.type === 'face' || t.type === 'bull';
+const flatBottom = t => t.type === 'flat' || t.type === 'face' || t.type === 'bull' || t.type === 'cbore' || t.type === 'bsf';
 // Cutting depths: every Z a flat-bottomed tool cuts at, plus fine steps
 // through the height range of ball / pointed tools.
 function stockLevels(st, segs) {
@@ -13067,10 +13068,12 @@ function stockLevels(st, segs) {
   const side = [];
   for (const s of segs) {
     if (s.r) continue;
-    if (s.ax) {                                                     // tilted: fine steps through the height it cuts
+    if (s.ax || s.tool.up) {                                        // tilted: fine steps through the height it cuts
       let lo = Infinity, hi = -Infinity;
-      for (const p of StockModel.toolPts(s.tool, s.a, s.ax).concat(StockModel.toolPts(s.tool, s.b, s.ax))) { lo = Math.min(lo, p[2]); hi = Math.max(hi, p[2]); }
+      const ax = s.ax || [0, 0, 1];
+      for (const p of StockModel.toolPts(s.tool, s.a, ax).concat(StockModel.toolPts(s.tool, s.b, ax))) { lo = Math.min(lo, p[2]); hi = Math.max(hi, p[2]); }
       side.push([Math.max(lo, st.z0), Math.min(hi, st.z1), clamp(s.tool.d / 10, 0.15, 0.5)]);
+      if (s.tool.up) for (const z of [s.a.z, s.b.z]) if (z > st.z0 && z < st.z1) lv.add(q(z));     // the blade's face stops exactly where the spot face ends
       continue;
     }
     const level = Math.abs(s.a.z - s.b.z) < 1e-6, down = !level && Math.hypot(s.b.x - s.a.x, s.b.y - s.a.y) < 1e-6;
@@ -13135,7 +13138,7 @@ class StockModel {
   // only in the slabs where its cut is still widening; flush() carries every
   // removal on up the stack (each slab ⊆ the slab below it).
   cut(a, b, tool, coarse, ax) {
-    if (ax) { this.cutAxial(a, b, tool, ax); return; }
+    if (ax || tool.up) { this.cutAxial(a, b, tool, ax || [0, 0, 1]); return; }
     this.coarse = coarse;
     // ZT: slab heights are kept to the micron, so a pass at a floor may sit a hair above its slab
     const zlo = Math.min(a.z, b.z), R = tool.d / 2, ZT = 1e-3;
@@ -13242,6 +13245,7 @@ class StockModel {
   }
   // Points on the cutting part of a tool standing on its tip, along axis ax.
   static toolPts(tool, tip, ax) {
+    if (tool.up) ax = [-ax[0], -ax[1], -ax[2]];                     // a back-facing blade hangs below its cutting face
     const R = tool.d / 2, ux = ax[0], uy = ax[1], uz = ax[2];
     let e1 = Math.abs(ux) < 0.9 ? [0, uz, -uy] : [-uz, 0, ux];
     const l1 = Math.hypot(e1[0], e1[1], e1[2]); e1 = [e1[0] / l1, e1[1] / l1, e1[2] / l1];
@@ -13838,8 +13842,8 @@ function postGcode() {
     if (lastTool !== t.n) {
       if (lastTool !== null) { if (pf.coolant) L.push('M9'); L.push('M5'); }
       L.push(grbl ? `M0 (Change to ${toolName(t)})` : `T${t.n} M6`);
-      L.push(`S${Math.round(t.rpm)} M3`);
-      if (pf.coolant) L.push('M8');
+      L.push(op.kind === 'bsf' ? `S${Math.round(t.rpm)} (SPINDLE STAYS OFF UNTIL THE BLADE IS BELOW THE PART)` : `S${Math.round(t.rpm)} M3`);
+      if (pf.coolant && op.kind !== 'bsf') L.push('M8');
       lastTool = t.n; st.g = null; st.x = st.y = st.z = null; st.f = null;
     }
     if (fr) { L.push('G91 G28 Z0. (clear before turning the part)', 'G90', ...fr.code); st.g = null; st.x = st.y = st.z = null; }
@@ -13876,9 +13880,11 @@ function postGcode() {
     while (i < P.m.length) {
       const m = P.m[i];
       SRC = { op: op.id, mi: i };
+      if (m.code) L.push(...m.code);
+      if (m.hold) { if (m.dw) L.push(`G4 P${+m.dw.toFixed(2)}`); i++; continue; }
       if (m.r) { const p = rel(m); move('G0', p[0], p[1], p[2]); i++; continue; }
       let j = i;
-      while (j + 1 < P.m.length && !P.m[j + 1].r && Math.abs(P.m[j + 1].z - m.z) < 1e-9 && P.m[j + 1].f === m.f && Math.abs(P.m[i - 1].z - m.z) < 1e-9) j++;
+      while (j + 1 < P.m.length && !P.m[j + 1].r && !P.m[j + 1].hold && !P.m[j + 1].tool && !P.m[j + 1].code && Math.abs(P.m[j + 1].z - m.z) < 1e-9 && P.m[j + 1].f === m.f && Math.abs(P.m[i - 1].z - m.z) < 1e-9) j++;
       if (pf.arcs && !fr && j - i >= 3) {
         const pts = [P.m[i - 1], ...P.m.slice(i, j + 1)].map(q => P2(q.x - o[0], q.y - o[1]));
         for (const s of fitArcs(pts, 0.003)) {
@@ -13932,6 +13938,8 @@ const DRILL_KINDS = {
   peck: { name: 'Peck Drill', tool: 'drill', mode: 'peck' },
   drill: { name: 'Drill', tool: 'drill', mode: 'drill' },
   tap: { name: 'Tap', tool: 'tap', mode: 'drill' },
+  cbore: { name: 'Counterbore', tool: 'cbore', mode: 'spot' },
+  bsf: { name: 'Back Spot Face', tool: 'bsf', mode: 'drill' },
 };
 // The library tool of this type nearest the wanted diameter, or a new one added to the library.
 function camToolOfType(type, d, extra) {
@@ -13943,7 +13951,16 @@ function camToolOfType(type, d, extra) {
   return nt;
 }
 // What a drilling button sets up: the tool, the hole sizes it takes and the cycle.
+// Counterbore: the counterbores the part has. Back spot-face: its through holes, with a folding blade wider than the hole.
+function boreKindSetup(kind) {
+  const all = camHoles(), pick = kind === 'cbore' ? all.filter(innerHole) : all.filter(h => holeThrough(h, camPart()) && !innerHole(h));
+  const ds = [...new Set((pick.length ? pick : all).map(h => +h.d.toFixed(2)))].sort((a, b) => a - b), d0 = ds[0] || 8;
+  if (kind === 'cbore') return { tool: camToolOfType('cbore', d0).n, diams: ds, through: 0, dwell: 0.5 };
+  const D = +Math.max(d0 * 1.8, d0 + 5).toFixed(1);
+  return { tool: camToolOfType('bsf', D, { cd: +Math.max(1, d0 - 1).toFixed(1) }).n, diams: [d0], through: 0, bsfDepth: 1, bsfClear: 5, bsfOpen: 'cw', bsfClose: 'stop' };
+}
 function drillKindSetup(kind) {
+  if (kind === 'cbore' || kind === 'bsf') return boreKindSetup(kind);
   const hs = camHoles(), ds = [...new Set(hs.map(h => +h.d.toFixed(2)))].sort((a, b) => a - b);
   if (kind === 'spot') {
     const spot = cam().tools.filter(t => t.type === 'spot').sort((a, b) => b.d - a.d)[0];
@@ -13967,6 +13984,73 @@ function drillKindSetup(kind) {
   const o = { tool: t.n, diams: mine.length ? mine : ds, through: 1, peck: +Math.max(1, t.d).toFixed(1) };
   if (kind === 'peck') o.mode = 'peck';
   return o;
+}
+
+// ── Counterbore and back spot-facing ────────────────────────────────
+// A piloted counterbore runs as a dwelling (G82) cycle onto the floor of each counterbore
+// the part already has. A back spot-face tool is a folding-blade bar: it goes down through
+// a through hole closed (smaller than the hole), the blade opens under the part, cuts the
+// underside as the spindle rises, and closes again before it comes back up. How it opens
+// and how it closes depend on the tool, so both are choices.
+const BSF_OPEN = {
+  cw: ['Spindle forward', 'Centrifugal force swings the blade out', r => [`S${r} M3`]],
+  ccw: ['Spindle reverse', 'M4 turns the tool the other way and the blade opens', r => [`S${r} M4`]],
+  coolant: ['Coolant pressure', 'Coolant pressure through the tool opens the blade', r => ['M8', `S${r} M3`]],
+  manual: ['By hand', 'Program stop: open the blade by hand', r => ['M5', 'M0 (OPEN THE BLADE BY HAND)', `S${r} M3`]],
+};
+const BSF_CLOSE = {
+  stop: ['Spindle stop', 'A spring closes the blade when the spindle stops', () => ['M5']],
+  reverse: ['Reverse', 'Spin the tool the opposite way to fold the blade in', o => ['M5', o === 'ccw' ? 'M3' : 'M4', 'G4 P1.', 'M5']],
+  coolant: ['Coolant off', 'A spring closes the blade when the coolant pressure drops', () => ['M9', 'M5']],
+  manual: ['By hand', 'Program stop: close the blade by hand', () => ['M5', 'M0 (CLOSE THE BLADE BY HAND)']],
+};
+// The blade's two shapes for the simulation: closed (a plain bar) and open (a disc whose top face cuts upward).
+const BSF_V = new WeakMap();
+function bsfTools(t) {
+  const cd = t.cd || t.d * 0.6, k = t.d + '/' + cd + '/' + t.rpm;
+  let v = BSF_V.get(t);
+  if (!v || v.k !== k) BSF_V.set(t, v = { k, cd, open: { ...t, type: 'flat', p: undefined, up: true }, closed: { ...t, type: 'flat', p: undefined, d: cd } });
+  return v;
+}
+const toolExtra = t => t.type === 'bsf' ? `<label class="field"><span>Closed Ø ${uName()} — must pass through the hole</span><input type="number" data-tf="cd" value="${uval(t.cd || t.d * 0.6)}" step="any" min="0"></label>` : '';
+function genBsf(op, tool, st, part, P) {
+  const want = op.diams && op.diams.length ? op.diams : null, T = bsfTools(tool);
+  let holes = camHoles().filter(h => holeThrough(h, part) && !innerHole(h) && (want ? want.some(d => Math.abs(d - h.d) < 0.02) : true));
+  if (!holes.length) { P.warn.push('No through holes of the chosen diameters to spot-face from behind.'); return; }
+  const ordered = [];
+  let cur = P2(st.x0, st.y0);
+  while (holes.length) { let bi = 0; holes.forEach((h, i) => { if (dst2(P2(h.x, h.y), cur) < dst2(P2(holes[bi].x, holes[bi].y), cur)) bi = i; }); const h = holes.splice(bi, 1)[0]; ordered.push(h); cur = P2(h.x, h.y); }
+  const safe = st.z1 + cam().safe, rpm = Math.round(tool.rpm), dp = Math.max(0.1, op.bsfDepth == null ? 1 : op.bsfDepth), clr = Math.max(tool.d * 0.15, op.bsfClear == null ? 5 : op.bsfClear);
+  const o = op.bsfOpen in BSF_OPEN ? op.bsfOpen : 'cw', c = op.bsfClose in BSF_CLOSE ? op.bsfClose : 'stop';
+  const R = Math.max(...ordered.map(h => h.top)) + 2;
+  const at = (h, z, extra) => P.m.push({ x: h.x, y: h.y, z, r: 0, f: tool.plunge, ...extra });
+  for (const h of ordered) {
+    if (T.cd > h.d - 0.2) P.warn.push(`Ø${+h.d.toFixed(2)} hole: the closed tool (Ø${+T.cd.toFixed(2)}) will not pass — make it smaller than the hole.`);
+    if (tool.d <= h.d + 0.5) P.warn.push(`Ø${+h.d.toFixed(2)} hole: the open blade (Ø${+tool.d.toFixed(2)}) is not wider than the hole, so there is nothing to face.`);
+    const zA = h.bot - clr;
+    P.rapid(h.x, h.y, safe); P.rapid(h.x, h.y, R);
+    at(h, zA, { f: tool.plunge * 3, tool: T.closed });                                    // down through the hole, blade folded
+    at(h, zA, { hold: 1, dw: 1, tool: T.open, code: [`(OPEN: ${BSF_OPEN[o][0].toUpperCase()})`, ...BSF_OPEN[o][2](rpm)] });
+    at(h, h.bot - 0.3, { f: tool.plunge, tool: T.open });                                 // up to the underside
+    at(h, h.bot + dp, { f: tool.feed, tool: T.open });                                    // and into it: the spot face
+    at(h, h.bot + dp, { hold: 1, dw: 0.5, tool: T.open });                               // a moment for the floor to clean up
+    at(h, zA, { f: tool.plunge * 3, tool: T.open });
+    at(h, zA, { hold: 1, dw: 1, tool: T.closed, code: [`(CLOSE: ${BSF_CLOSE[c][0].toUpperCase()})`, ...BSF_CLOSE[c][2](o)] });
+    P.m.push({ x: h.x, y: h.y, z: R, r: 1, tool: T.closed });                           // back out, folded
+  }
+  const e = P.m[P.m.length - 1]; P.rapid(e.x, e.y, safe);
+  P.info = `${ordered.length} hole${ordered.length > 1 ? 's' : ''} · opens: ${BSF_OPEN[o][0].toLowerCase()} · closes: ${BSF_CLOSE[c][0].toLowerCase()} · needs ${+clr.toFixed(1)} mm of clear space under the part`;
+}
+const genDrill0 = GEN.drill;
+GEN.drill = function (op, tool, st, part, P) { return tool.type === 'bsf' ? genBsf(op, tool, st, part, P) : genDrill0.call(this, op, tool, st, part, P); };
+function bsfFields(op) {
+  const t = toolOf(op.tool), o = op.bsfOpen in BSF_OPEN ? op.bsfOpen : 'cw', c = op.bsfClose in BSF_CLOSE ? op.bsfClose : 'stop';
+  const seg = (key, cur, tbl) => `<div class="seg">${Object.entries(tbl).map(([k, v]) => `<button data-opset="${key}:${k}" class="${cur === k ? 'on' : ''}" title="${v[1]}">${v[0]}</button>`).join('')}</div>`;
+  return `<p class="note cyc-note"><b>Back spot-face:</b> the blade goes down through the hole folded, opens under the part, cuts the underside as the spindle rises, and folds again before it comes back up. It needs clear space under the part, so lift it on parallels.</p>
+    <div class="field"><span>Blade opens by</span>${seg('bsfOpen', o, BSF_OPEN)}</div><small class="hint">${BSF_OPEN[o][1]}.</small>
+    <div class="field"><span>Blade closes by</span>${seg('bsfClose', c, BSF_CLOSE)}</div><small class="hint">${BSF_CLOSE[c][1]}.</small>
+    <div class="row2">${num('opBsD', op.bsfDepth == null ? 1 : op.bsfDepth, 'Spot-face depth', 0.1, 'min="0.1"')}${num('opBsC', op.bsfClear == null ? 5 : op.bsfClear, 'Room under part', 0.5, 'min="1"')}</div>
+    <small class="hint">Feed (F) and speed (S) come from the tool: ${fmtRate(t.feed)} at ${t.rpm.toLocaleString()} RPM. The spindle stays off until the blade is below the part.</small>`;
 }
 function camAddOp(type, kind) {
   if (SIM.on) simStop();
@@ -14153,7 +14237,7 @@ function camOpMenu(op, x, y) {
 }
 // ── Right panel views ──────────────────────────────────────────────
 // Length fields show display units; setN converts them back to mm.
-const CAM_LEN = new Set(['stSide', 'stTop', 'stBot', 'camSafe', 'camRet', 'opSd', 'opLeave', 'opThrough', 'opLw', 'opLf', 'opPeck', 'opSoL', 'opRest', 'opFs', 'opRough', 'opPkI', 'opPkJ', 'opPkK', 'opRpl', 'opS22', 'opS52', 'opDepth']);
+const CAM_LEN = new Set(['stSide', 'stTop', 'stBot', 'camSafe', 'camRet', 'opSd', 'opLeave', 'opThrough', 'opLw', 'opLf', 'opPeck', 'opSoL', 'opRest', 'opFs', 'opRough', 'opPkI', 'opPkJ', 'opPkK', 'opRpl', 'opS22', 'opS52', 'opDepth', 'opBsD', 'opBsC']);
 const num = (id, v, lab, step = 'any', extra = '') => CAM_LEN.has(id)
   ? `<label class="field"><span>${lab} (${uName()})</span><input type="number" id="${id}" data-cam-input="1" data-len="1" step="any" value="${uval(+v)}" ${extra}></label>`
   : `<label class="field"><span>${lab}</span><input type="number" id="${id}" data-cam-input="1" step="${step}" value="${+(+v).toFixed(4)}" ${extra}></label>`;
@@ -14216,6 +14300,7 @@ function camPanel() {
       <div class="row3">${['d', 'flutes', 'rpm'].map(k => `<label class="field"><span>${{ d: 'Ø ' + uName(), flutes: t.type === 'face' ? 'Inserts' : 'Flutes', rpm: 'RPM' }[k]}</span><input type="number" data-tf="${k}" value="${k === 'd' ? uval(t.d) : t[k]}" step="any" min="0"></label>`).join('')}</div>
       <div class="row2">${['feed', 'plunge'].map(k => `<label class="field"><span>${k === 'feed' ? 'Feed' : 'Plunge'} ${uRate()}</span><input type="number" data-tf="${k}" value="${uval(t[k], 1)}" step="any" min="0.1"></label>`).join('')}</div>
       ${t.type === 'chamfer' ? `<label class="field"><span>Cone angle (included, °) — the wall it lies flat on is ${+((t.cone || 90) / 2).toFixed(1)}° off the tool axis</span><input type="number" data-tf="cone" list="coneAngles" value="${t.cone || 90}" step="1" min="10" max="150"><datalist id="coneAngles">${[20, 30, 45, 60, 82, 90, 100, 120].map(a => `<option value="${a}">`).join('')}</datalist></label>` : ''}
+      ${typeof toolExtra === 'function' ? toolExtra(t) : ''}
       <div class="tool-code" data-tcode="${t.n}" title="Tool Builder code — click to copy">${esc(toolCode(t))}</div></div></div>`).join('');
     const groups = {};
     (ToolModel.COMMON || []).forEach((c, i) => { if (ToolModel.isLathe(c.p) || c.p.category === 'insert') return; (groups[c.g] = groups[c.g] || []).push(`<option value="${i}">${esc(c.n)}</option>`); });
@@ -14253,7 +14338,7 @@ function camPanel() {
       if (ax) { const pz = poseForOp(op), S = camSetup(); f += `<p class="note"><b>Indexed:</b> holes from ${dirName([ax[0], ax[2], -ax[1]])} · ${hl.length} hole${hl.length === 1 ? '' : 's'}. The part turns on the ${S ? S.name : 'rotary'} to <b>${pz ? pz.label : '—'}</b> so the spindle comes straight down (shown in the view).</p>`; }
       const ds = [...new Set(hl.map(h => +h.d.toFixed(2)))].sort((a, b) => a - b);
       f += `<div class="field"><span>Hole diameters (click holes in the view too)</span><div class="chips">${ds.map(d => { const n = hl.filter(h => Math.abs(h.d - d) < 0.02).length, on = op.diams.some(x => Math.abs(x - d) < 0.02); return `<button class="chip ${on ? 'on' : ''}" data-dia="${d}">${fmtDia(d)} <small>×${n}</small></button>`; }).join('') || '<span class="note">No vertical holes found.</span>'}</div></div>
-        ${drillCycleFields(op)}`;
+        ${toolOf(op.tool).type === 'bsf' ? bsfFields(op) : drillCycleFields(op)}`;
     }
     if (op.type === 'chamfer') {
       const faces = (op.faces || []).length, tl = toolOf(op.tool), cone = tl.cone || 90, sw = faces ? swarfPlan(op, tl) : null;
@@ -14354,7 +14439,7 @@ function bindCamPanel() {
   // tools
   panel.querySelectorAll('.tool-card').forEach(card => {
     const t = C.tools.find(x => x.n === +card.dataset.tool);
-    card.querySelectorAll('[data-tf]').forEach(inp => inp.addEventListener('change', () => { const k = inp.dataset.tf, v = k === 'type' ? inp.value : ['d', 'feed', 'plunge'].includes(k) ? fromU(parseFloat(inp.value)) : parseFloat(inp.value); if (k !== 'type' && !(v > 0)) return; setup(() => { t[k] = k === 'cone' ? clamp(v, 10, 150) : v; if (k === 'd' || k === 'type' || k === 'cone') delete t.p; }, `Tool T${t.n} ${k}`)(); }));
+    card.querySelectorAll('[data-tf]').forEach(inp => inp.addEventListener('change', () => { const k = inp.dataset.tf, v = k === 'type' ? inp.value : ['d', 'cd', 'feed', 'plunge'].includes(k) ? fromU(parseFloat(inp.value)) : parseFloat(inp.value); if (k !== 'type' && !(v > 0)) return; setup(() => { t[k] = k === 'cone' ? clamp(v, 10, 150) : v; if (k === 'd' || k === 'type' || k === 'cone') delete t.p; }, `Tool T${t.n} ${k}`)(); }));
   });
   // 3D pictures of each cutter, drawn one per frame so the panel appears at once.
   const imgs = [...panel.querySelectorAll('[data-thumb]')];
@@ -14376,7 +14461,7 @@ function bindCamPanel() {
     });
     ck('opFinish', v => camEdit(op, 'finish', v));
     const cyc = document.getElementById('opCycle'); if (cyc) cyc.addEventListener('change', () => camEdit(op, 'mode', cyc.value));
-    const drillMap = { opPkI: 'peckFirst', opPkJ: 'peckReduce', opPkK: 'peckMin', opRpl: 'rPlane', opS22: 'chipBack', opS52: 's52', opDepth: 'depth' };
+    const drillMap = { opPkI: 'peckFirst', opPkJ: 'peckReduce', opPkK: 'peckMin', opRpl: 'rPlane', opS22: 'chipBack', opS52: 's52', opDepth: 'depth', opBsD: 'bsfDepth', opBsC: 'bsfClear' };
     for (const [id, k] of Object.entries(drillMap)) setN(id, v => camEdit(op, k, Math.max(k === 'rPlane' ? 0.2 : k === 'chipBack' ? 0.01 : 0, v)));
     setN('opDwell', v => camEdit(op, 'dwell', Math.max(0, v)));
     setN('opTapJ', v => camEdit(op, 'tapJ', clamp(Math.round(v), 1, 4)));
@@ -16524,6 +16609,7 @@ async function verifyProgram(onProgress) {
       }
       continue;
     }
+    if (tool.up) continue;                                          // the open blade cuts the part's underside on purpose
     const n = tool.type === 'ball' && L < 1 ? 1 : Math.max(1, Math.ceil(L / Math.max(0.5, R * 0.5)));
     const prev = segs[i - 1], joined = prev && !prev.r && prev.tool === tool && prev.b === a;   // its start was the last move's end
     for (let k = joined ? 1 : 0; k <= n; k++) {
@@ -17886,7 +17972,7 @@ const SimWorker = {
     if (!this.init()) return false;
     const tools = [], ti = new Map(), opIx = new Map(), axes = [], axIx = new Map(), D = new Float64Array(segs.length * 8), I = new Int32Array(segs.length * 4);
     segs.forEach((s, i) => {
-      let k = ti.get(s.tool); if (k === undefined) { k = tools.length; tools.push({ d: s.tool.d, type: s.tool.type, r: s.tool.r, cone: s.tool.cone }); ti.set(s.tool, k); }
+      let k = ti.get(s.tool); if (k === undefined) { k = tools.length; tools.push({ d: s.tool.d, type: s.tool.type, r: s.tool.r, cone: s.tool.cone, up: s.tool.up }); ti.set(s.tool, k); }
       let o = opIx.get(s.op); if (o === undefined) { o = opIx.size; opIx.set(s.op, o); }
       D.set([s.a.x, s.a.y, s.a.z, s.b.x, s.b.y, s.b.z, s.t0, s.t1], i * 8);
       let x = -1;
@@ -23151,7 +23237,7 @@ const FA_MAP = {
   fillet: 'border-top-left', trim: 'scissors', extend: 'arrows-left-right-to-line', offset: 'clone', mirror: 'arrows-left-right', project: 'diagram-project', cons: 'link', del: 'trash-can',
   sketch: 'pen-ruler', extrude: 'arrow-up-from-bracket', plane: 'layer-group', finish: 'check', body: 'cube', eye: 'eye', eyeoff: 'eye-slash', origin: 'crosshairs', origin2: 'location-crosshairs',
   chamfer: 'diamond', fillet3: 'circle-half-stroke', chamfer3: 'diamond', thread: 'screwdriver', point: 'circle-dot', marker: 'flag', blueprint: 'compass-drafting', measure: 'ruler',
-  camsetup: 'sliders', camtools: 'screwdriver-wrench', camface: 'grip-lines', camcontour: 'route', campocket: 'inbox', camdrill: 'arrow-down-long', cammill: 'industry', camspot: 'bullseye', campeck: 'arrows-down-to-line', camtap: 'screwdriver', camparallel: 'water', camsim: 'play', campost: 'file-code',
+  camsetup: 'sliders', camtools: 'screwdriver-wrench', camface: 'grip-lines', camcontour: 'route', campocket: 'inbox', camdrill: 'arrow-down-long', cammill: 'industry', camspot: 'bullseye', camcbore: 'circle-dot', cambsf: 'arrows-up-to-line', campeck: 'arrows-down-to-line', camtap: 'screwdriver', camparallel: 'water', camsim: 'play', campost: 'file-code',
   import: 'file-import', auto: 'wand-magic-sparkles', export: 'file-export', autoprog: 'robot', verify: 'shield-halved', camchamfer: 'diamond', camthread: 'screwdriver',
   revolve: 'rotate', sweep: 'wave-square', loft: 'shapes', coil: 'arrows-spin', hole: 'ring', shell: 'box-open', pattern: 'table-cells', patternc: 'circle-nodes', mirror3: 'arrows-left-right',
   combine: 'object-group', move: 'up-down-left-right', rotate: 'rotate-right', scale: 'maximize', split: 'object-ungroup', create: 'plus', modify: 'pen', construct: 'ruler-combined', array: 'table-cells',
@@ -23799,7 +23885,7 @@ function sheetRibbonHTML() {
   return rbPanel('Setup Sheet', [['sheetfill', 'Rebuild from Program', '', 'campost'], ['tocam', 'Manufacture', '', 'camsetup']], 2);
 }
 
-const DRILL_ICON = { spot: 'camspot', peck: 'campeck', drill: 'camdrill', tap: 'camtap' };
+const DRILL_ICON = { spot: 'camspot', peck: 'campeck', drill: 'camdrill', tap: 'camtap', cbore: 'camcbore', bsf: 'cambsf' };
 // ── Manufacture ──
 camToolbar = function () {
   const v = CAMUI.view, wire = typeof isWire === 'function' && isWire();
