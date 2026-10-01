@@ -11346,6 +11346,7 @@ document.getElementById('btnFile').addEventListener('click', e => {
   showMenu([
     { label: 'New empty model', run: () => loadDoc({ features: [], next: 1 }, 'New model') },
     { label: 'Sample parts…', run: openSamples },
+    { label: 'Physics lab…', run: () => physicsOpen() },
     null,
     { label: 'Open or import…  (Ctrl+O)', run: () => fileIn.click() },
     { label: 'Save (.json)  (Ctrl+S)', run: saveFile },
@@ -24693,6 +24694,7 @@ const CMDS = [
   ['color', 'color NAME|#hex', 'Colors the last body (red, blue, green, orange, black, white, gray…).'],
   ['cut', 'cut box … / cut cylinder …', 'Put "cut" first to take the shape away from the part instead of adding it.'],
   ['new', 'box … new', 'Put "new" last to make a separate body instead of joining the part.'],
+  ['physics', 'physics | sticks | marbles | drone', 'Opens the physics lab: swinging sticks, a marble tower and a flyable drone.'],
   ['sample', 'sample NAME', 'Opens a sample part by name (e.g. sample heat sink).'],
   ['clear', 'clear', 'Starts an empty design.'],
   ['undo', 'undo / redo', 'Takes the last step back (or forward).'],
@@ -24806,6 +24808,7 @@ function runCommand(line) {
   while (words.length > 1 && CMD_FILLER.has(words[0]) && !['x', '×', '*', 'by'].includes(words[0])) words.shift();      // "make a cube…"
   const head = words[0];
   if (head === 'help' || head === '?') { cmdShowHelp(); return 'Commands listed above'; }
+  if (['physics', 'sticks', 'marbles', 'drone'].includes(head)) { physicsOpen({ sticks: 'sticks', marbles: 'marbles', drone: 'drone' }[head]); return 'Physics lab'; }
   if (head === 'undo') { undo(); return 'Undone'; }
   if (head === 'redo') { redo(); return 'Redone'; }
   if (head === 'clear' || head === 'new' && words.length === 1) { loadDoc({ features: [], next: 1 }, 'New design'); return 'Empty design'; }
@@ -25642,7 +25645,7 @@ const TIP_TXT = {
 const PARAM_TYPES = new Set(['gear', 'screw']);                         // features whose bodies open a parameter panel
 Object.assign(FEAT_BASE, { screw: 'Screw' });
 Object.assign(FEAT_IC, { screw: 'screw' });
-Object.assign(IC, { screw: '<path d="M5 3h10v3H5zM7 6v2M8 8l4 1.4M8 10.4l4 1.4M8 12.8l4 1.4M8 15.2l2.4.8"/><path d="M10 6v10.5" opacity=".001"/>', vise: '<path d="M2.5 15.5h15M4 15.5V8h3.5v7.5M12.5 15.5V8H16v7.5M7.5 11.5h5"/>' });
+Object.assign(IC, { phys: '<path d="M10 2v3M10 5L6.5 13"/><circle cx="6" cy="14.4" r="2.1"/><path d="M10 5l4.5 5.5" opacity=".55"/><circle cx="15.2" cy="11.6" r="1.5" opacity=".55"/><path d="M3 18h14"/>', screw: '<path d="M5 3h10v3H5zM7 6v2M8 8l4 1.4M8 10.4l4 1.4M8 12.8l4 1.4M8 15.2l2.4.8"/><path d="M10 6v10.5" opacity=".001"/>', vise: '<path d="M2.5 15.5h15M4 15.5V8h3.5v7.5M12.5 15.5V8H16v7.5M7.5 11.5h5"/>' });
 Object.assign(MENU_IC, { 'hw:screw': 'screw' });
 TOOL_FEATS.add('screw');
 const HW_COLOR = { socket: '#2b2d31', lowsocket: '#2b2d31', button: '#2b2d31', flat: '#2b2d31', set: '#2b2d31', pan: '#b9bec5', cheese: '#b9bec5', shoulder: '#4b4f56', hex: '#b9bec5', flange: '#b9bec5', carriage: '#b9bec5', stud: '#b9bec5', nut: '#b9bec5', jam: '#b9bec5', nylock: '#4a6fa5', flangenut: '#b9bec5', squarenut: '#b9bec5', capnut: '#c8a24a', washer: '#d4d8dd', washerL: '#d4d8dd', lockwasher: '#8b9097' };
@@ -25723,7 +25726,7 @@ function hwName(f) {
 }
 // ── the Hardware ribbon group and its menus ──
 const hwMenuItems = kinds => { const out = []; let g = null; for (const [k, v] of kinds) { if (v.grp !== g) { if (g) out.push(null); g = v.grp; out.push({ label: `<span class="mh">${v.grp}</span>`, run() {} }); } out.push({ label: `<span>${v.name}</span><span class="mk">${v.std.split(' / ')[0]}</span>`, run: () => cmdFeat('screw', null, { kind: k }) }); } return out; };
-const HW_MENUS = { fast: () => hwMenuItems(Object.entries(HW_KINDS)) };
+const HW_MENUS = { fast: () => hwMenuItems(Object.entries(HW_KINDS)), phys: () => Object.entries(PHY_SIMS).map(([k, v]) => ({ label: `<span>${v[0]}</span>`, run: () => physicsOpen(k) })) };
 // ── Workholding & shop equipment: the panel is generated from each item's parameter list ──
 Object.assign(FEAT_BASE, { shop: 'Shop' });
 Object.assign(FEAT_IC, { shop: 'vise' });
@@ -25752,7 +25755,8 @@ FEATS.shop = {
   sub: f => SHOP[f.kind].name,
 };
 HW_MENUS.shop = () => { const out = []; let g = null; for (const [k, v] of Object.entries(SHOP)) { if (v.grp !== g) { if (g) out.push(null); g = v.grp; out.push({ label: `<span class="mh">${v.grp}</span>`, run() {} }); } out.push({ label: `<span>${v.name}</span>`, run: () => cmdFeat('shop', null, { kind: k }) }); } return out; };
-const hwRibbon = () => `<section class="rb-panel" aria-label="Hardware"><div class="rb-body">${['fast', ...(HW_MENUS.shop ? ['shop'] : [])].map(k => `<button class="rb-btn rb-big ${CMD && CMD.type === 'feat' && ((k === 'fast' && CMD.kind === 'screw') || (k === 'shop' && CMD.kind === 'shop')) ? 'on' : ''}" data-act="hw:${k}" title="${k === 'fast' ? 'Screws, bolts, nuts and washers — any size' : 'Vises, clamps, parallels and fixtures'}">${svg(k === 'fast' ? 'screw' : 'vise')}<span>${k === 'fast' ? 'Fasteners' : 'Workholding'}</span></button>`).join('')}</div><div class="rb-title">Hardware</div></section>`;
+const HW_BTNS = { fast: ['Fasteners', 'screw', 'Screws, bolts, nuts and washers — any size', k => CMD && CMD.type === 'feat' && CMD.kind === 'screw'], shop: ['Workholding', 'vise', 'Vises, clamps, parallels and fixtures', k => CMD && CMD.type === 'feat' && CMD.kind === 'shop'], phys: ['Physics lab', 'phys', 'Swinging sticks, a marble tower and a drone, simulated live', () => PHY.el && !PHY.el.hidden] };
+const hwRibbon = () => `<section class="rb-panel" aria-label="Hardware"><div class="rb-body">${Object.entries(HW_BTNS).map(([k, [lab, ic, tip, on]]) => `<button class="rb-btn rb-big ${on(k) ? 'on' : ''}" data-act="hw:${k}" title="${tip}">${svg(ic)}<span>${lab}</span></button>`).join('')}</div><div class="rb-title">Hardware &amp; sim</div></section>`;
 const modelToolbarHTML1 = modelToolbarHTML;
 modelToolbarHTML = function () { return modelToolbarHTML1().replace('<section class="rb-panel" aria-label="Inspect">', hwRibbon() + '<section class="rb-panel" aria-label="Inspect">'); };
 const featAction1 = featAction;
@@ -25783,6 +25787,392 @@ ov.addEventListener('dblclick', e => {
 const hwStyle = document.createElement('style');
 hwStyle.textContent = '#ctxmenu button:has(.mh) { pointer-events: none; font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding: 8px 10px 2px; } #ctxmenu .mk { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }';
 document.head.appendChild(hwStyle);
+</script>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  Physics lab — swinging sticks, a marble tower and a drone. Its own
+//  small three.js scene, made only when opened and paused when hidden.
+//  Every sim is { group, reset, step(dt), frame(dt), controls[], set(k, v),
+//  info() } and the lab does the rest: fixed 1/240 s steps, the camera, the UI.
+// ═══════════════════════════════════════════════════════════════════
+const PHY = { el: null, rend: null, scene: null, cam: null, sim: null, id: 'sticks', paused: false, speed: 1, raf: 0, last: 0, acc: 0, keys: new Set(), orbit: { th: 0.5, ph: 0.35, d: 12, t: new THREE.Vector3(0, 2, 0) }, sims: {}, drag: null };
+const PHY_H = 1 / 240, PHY_G = 9.81;
+const phyRng = (a => () => (a = (a * 1664525 + 1013904223) >>> 0) / 4294967296)(12345);
+const phyMat = (c, o = {}) => new THREE.MeshPhongMaterial({ color: c, shininess: 50, specular: 0x444444, ...o });
+const phyDisposeGroup = g => g.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); });
+
+// ── Swinging sticks: point masses at the joints, rigid sticks between them (position-based Verlet) ──
+function phySticks() {
+  const g = new THREE.Group(), S = { preset: 'double', damp: 0.9999, trails: true, grav: PHY_G };
+  let pts = [], chains = [], trails = [], pick = null;
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(9, 0.12, 0.3), phyMat(0x59616b)); bar.position.y = 4.06; g.add(bar);
+  const leg = x => { const m = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 4.1, 12), phyMat(0x59616b)); m.position.set(x, 2, 0); g.add(m); };
+  leg(-4.4); leg(4.4);
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(24, 12), phyMat(0xdfe5ec)); floor.rotation.x = -Math.PI / 2; g.add(floor);
+  const PRE = {
+    single: [{ x: 0, lens: [2.2], ang: [70] }],
+    double: [{ x: 0, lens: [1.5, 1.5], ang: [110, 100] }],
+    triple: [{ x: 0, lens: [1.1, 1.1, 1.1], ang: [95, 100, 105] }],
+    chain: [{ x: 0, lens: [0.55, 0.55, 0.55, 0.55, 0.55, 0.55, 0.55, 0.55], ang: [85, 85, 85, 85, 85, 85, 85, 85] }],
+    side: [-3, 0, 3].map((x, i) => ({ x, lens: [1.3, 1.3], ang: [60 + i * 40, 90 + i * 30] })),
+    wave: Array.from({ length: 15 }, (_, i) => { const T = 60 / (20 + i), L = PHY_G * T * T / (4 * Math.PI * Math.PI); return { x: -3.5 + i * 0.5, lens: [L], ang: [25] }; }),
+  };
+  function build() {
+    for (const c of chains) { c.meshes.forEach(m => { g.remove(m); m.geometry.dispose(); }); }
+    for (const t of trails) { g.remove(t.line); t.line.geometry.dispose(); }
+    pts = []; chains = []; trails = [];
+    for (const [ci, ch] of PRE[S.preset].entries()) {
+      const n = ch.lens.length + 1, c = { i0: pts.length, n, lens: ch.lens, meshes: [] };
+      let x = ch.x, y = 4, a = 0;
+      pts.push({ p: new THREE.Vector3(x, y, 0), q: new THREE.Vector3(x, y, 0), w: 0 });
+      ch.lens.forEach((L, k) => { a = ch.ang[k] * Math.PI / 180; x += L * Math.sin(a); y -= L * Math.cos(a); pts.push({ p: new THREE.Vector3(x, y, 0), q: new THREE.Vector3(x, y, 0), w: 1 }); });
+      const hue = (ci * 0.17 + 0.55) % 1;
+      for (let k = 0; k < ch.lens.length; k++) {
+        const st = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 1, 10), phyMat(new THREE.Color().setHSL(hue, 0.55, 0.52 + 0.04 * k)));
+        const jn = new THREE.Mesh(new THREE.SphereGeometry(k === ch.lens.length - 1 ? 0.13 : 0.08, 16, 12), phyMat(new THREE.Color().setHSL(hue, 0.7, 0.45)));
+        g.add(st, jn); c.meshes.push(st, jn);
+      }
+      chains.push(c);
+      if (ch.lens.length >= 2 || S.preset === 'wave') {
+        const N = 360, geo = new THREE.BufferGeometry(), pos = new Float32Array(N * 3), col = new Float32Array(N * 3), base = new THREE.Color().setHSL(hue, 0.9, 0.55);
+        for (let i = 0; i < N; i++) { const f = i / N; col.set([base.r * f, base.g * f, base.b * f], i * 3); }
+        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ vertexColors: true })); line.frustumCulled = false; g.add(line);
+        trails.push({ line, pos, c, filled: false });
+      }
+    }
+  }
+  const relax = () => {
+    for (let it = 0; it < 24; it++) for (const c of chains) for (let k = 0; k < c.lens.length; k++) {
+      const A = pts[c.i0 + k], B = pts[c.i0 + k + 1], dx = B.p.x - A.p.x, dy = B.p.y - A.p.y, d = Math.hypot(dx, dy) || 1e-9, e = (d - c.lens[k]) / d, wa = A.w, wb = B.w, ws = wa + wb;
+      if (!ws) continue;
+      A.p.x += dx * e * wa / ws; A.p.y += dy * e * wa / ws; B.p.x -= dx * e * wb / ws; B.p.y -= dy * e * wb / ws;
+    }
+  };
+  const sim = {
+    group: g, camera: { th: 0.2, ph: 0.12, d: 13, t: [0, 2.2, 0] }, speed: 1,
+    controls: [{ k: 'preset', t: 'sel', label: 'Sticks', v: 'double', opts: [['single', 'One stick'], ['double', 'Double pendulum'], ['triple', 'Triple pendulum'], ['chain', 'Chain of 8 sticks'], ['side', 'Three double pendulums'], ['wave', 'Wave of 15 pendulums']] },
+      { k: 'grav', t: 'range', label: 'Gravity', v: PHY_G, min: 1, max: 20, step: 0.1 }, { k: 'damp', t: 'range', label: 'Air drag', v: 0.0001, min: 0, max: 0.02, step: 0.0001 }, { k: 'trails', t: 'chk', label: 'Trails', v: true }, { k: 'kick', t: 'btn', label: 'Kick' }],
+    reset: build,
+    set(k, v) { if (k === 'kick') { for (const c of chains) for (let i = 1; i < c.n; i++) { const P = pts[c.i0 + i]; P.q.x -= (phyRng() - 0.5) * 0.03; P.q.y -= (phyRng() - 0.5) * 0.03; } return; } if (k === 'damp') S.damp = 1 - v; else S[k] = v; if (k === 'preset') build(); if (k === 'trails') trails.forEach(t => { t.line.visible = !!v; }); },
+    step(dt) {
+      const d2 = dt * dt, gy = -S.grav * d2;
+      for (const P of pts) { if (!P.w) continue; const vx = (P.p.x - P.q.x) * S.damp, vy = (P.p.y - P.q.y) * S.damp; P.q.copy(P.p); P.p.x += vx; P.p.y += vy + gy; }
+      if (pick) { const P = pts[pick.i]; P.p.x += (pick.x - P.p.x) * 0.35; P.p.y += (pick.y - P.p.y) * 0.35; P.q.copy(P.p); }
+      relax();
+    },
+    frame() {
+      const Y = new THREE.Vector3(0, 1, 0), a = new THREE.Vector3(), b = new THREE.Vector3(), d = new THREE.Vector3();
+      for (const c of chains) for (let k = 0; k < c.lens.length; k++) {
+        a.copy(pts[c.i0 + k].p); b.copy(pts[c.i0 + k + 1].p); d.subVectors(b, a);
+        const st = c.meshes[2 * k], jn = c.meshes[2 * k + 1], L = d.length() || 1e-6;
+        st.position.copy(a).addScaledVector(d, 0.5); st.scale.set(1, L, 1); st.quaternion.setFromUnitVectors(Y, d.multiplyScalar(1 / L)); jn.position.copy(b);
+      }
+      for (const t of trails) { const p = t.pos, P = pts[t.c.i0 + t.c.n - 1].p; p.copyWithin(0, 3); p.set([P.x, P.y, P.z], p.length - 3); if (!t.filled) { for (let i = 0; i < p.length; i += 3) p.set([P.x, P.y, P.z], i); t.filled = true; } t.line.geometry.attributes.position.needsUpdate = true; }
+    },
+    info: () => 'Drag any joint with the mouse. Right-drag orbits.',
+    // dragging a joint: the lab passes a world point on the sticks' plane
+    pointerDown(ray, scr) {
+      let best = null;
+      for (const c of chains) for (let i = 1; i < c.n; i++) { const P = pts[c.i0 + i].p, s = P.clone().project(PHY.cam), dx = (s.x * 0.5 + 0.5) * scr.w - scr.x, dy = (-s.y * 0.5 + 0.5) * scr.h - scr.y, d = Math.hypot(dx, dy); if (d < 34 && (!best || d < best.d)) best = { i: c.i0 + i, d }; }
+      if (!best) return false; pick = { i: best.i, x: pts[best.i].p.x, y: pts[best.i].p.y }; return true;
+    },
+    pointerMove(ray) { if (!pick) return; const t = -ray.origin.z / ray.direction.z; if (isFinite(t)) { pick.x = ray.origin.x + ray.direction.x * t; pick.y = Math.max(0.05, ray.origin.y + ray.direction.y * t); } },
+    pointerUp() { pick = null; },
+    dispose() { phyDisposeGroup(g); },
+  };
+  build();
+  return sim;
+}
+
+// ── Marble tower: a slide wound round a tower; marbles pop out of the top and roll down it ──
+function phyMarbles() {
+  const g = new THREE.Group(), S = { max: 18, every: 0.9, grav: 0.5 };       // gravity is scaled: this is a toy-sized tower (cm), shown in slow motion
+  const GC = 981, RT = 7, YT = 30, W = 2.1, HW = 1.8, R = 1.1;              // gravity (cm/s²), tower radius, deck height, half width, wall height, marble radius
+  // ── the track: a flat chute from the hole, then a descending spiral that swings out into lobes ──
+  const raw = [], ds = 0.7;
+  { const turns = 3.7, Th = turns * 2 * Math.PI, N = 4000;
+    for (let i = 0; i <= 8; i++) raw.push([4 + i * 0.7, 0, 0]);                                   // the chute: out from the hole at θ = 0
+    for (let i = 1; i <= N; i++) { const th = Th * i / N, u = th / Th, lobe = Math.min(1, Math.max(0, (u - 0.38) / 0.3)), r = 10.5 + 2 * Math.sin(th * 0.8) + lobe * (4.2 * Math.sin(2 * th + 0.4) + 2.5); raw.push([r * Math.cos(th), r * Math.sin(th), th]); } }
+  const C = [], cum = [0];
+  { const pr = raw.map(q => new THREE.Vector3(q[0], 0, -q[1])); let acc = 0, next = 0;
+    C.push(pr[0].clone());
+    for (let i = 1; i < pr.length; i++) { const seg = pr[i].distanceTo(pr[i - 1]); acc += seg; while (acc >= next + ds) { next += ds; const f = 1 - (acc - next) / seg; C.push(pr[i - 1].clone().lerp(pr[i], f)); } } }
+  const M = C.length, Ltot = (M - 1) * ds, flat = 4 / ds, slope = (YT - 4.5) / (Ltot - flat * ds);
+  C.forEach((c, i) => { c.y = YT - Math.max(0, i - flat) * ds * slope; });
+  const Tn = [], Sn = [], Nn = [];
+  for (let i = 0; i < M; i++) {
+    const t = C[Math.min(M - 1, i + 1)].clone().sub(C[Math.max(0, i - 1)]).normalize(), up = new THREE.Vector3(0, 1, 0), sh = new THREE.Vector3().crossVectors(up, t).normalize();
+    const toC = new THREE.Vector3(-C[i].x, 0, -C[i].z).normalize(), inward = sh.dot(toC) >= 0 ? sh : sh.clone().negate(), bank = i < flat ? 0 : 0.17;
+    const n = up.clone().multiplyScalar(Math.cos(bank)).addScaledVector(inward, Math.sin(bank)).normalize(), s = new THREE.Vector3().crossVectors(n, t).normalize();
+    Tn.push(t); Sn.push(s); Nn.push(new THREE.Vector3().crossVectors(t, s).normalize());
+  }
+  // ── the look: tower, deck, base, the track as a swept U-channel, pillars ──
+  const PURPLE = 0x8a77cf, LIGHT = 0xa391e0;
+  const tower = new THREE.Mesh(new THREE.CylinderGeometry(RT, RT + 1, YT, 48), phyMat(PURPLE)); tower.position.y = YT / 2; g.add(tower);
+  const deck = new THREE.Mesh(new THREE.CylinderGeometry(RT + 0.8, RT + 0.8, 1, 48), phyMat(LIGHT)); deck.position.y = YT + 0.5 - 1.02; g.add(deck);
+  const hole = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 0.05, 24), phyMat(0x1c1630)); hole.position.set(4, YT + 0.02, 0); g.add(hole);
+  const base = new THREE.Mesh(new THREE.BoxGeometry(50, 2, 40), phyMat(LIGHT)); base.position.y = -1; g.add(base);
+  { const prof = [[-W - 0.55, HW], [-W - 0.55, -0.55], [W + 0.55, -0.55], [W + 0.55, HW], [W, HW], [W, 0], [-W, 0], [-W, HW]], P = [], idx = [], K = prof.length;
+    for (let i = 0; i < M; i++) for (const [a, b] of prof) P.push(C[i].x + Sn[i].x * a + Nn[i].x * b, C[i].y + Sn[i].y * a + Nn[i].y * b, C[i].z + Sn[i].z * a + Nn[i].z * b);
+    for (let i = 0; i + 1 < M; i++) for (let k = 0; k < K; k++) { const a = i * K + k, b = i * K + (k + 1) % K, c = (i + 1) * K + k, d = (i + 1) * K + (k + 1) % K; idx.push(a, c, b, b, c, d); }
+    const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); geo.setIndex(idx); geo.computeVertexNormals();
+    g.add(new THREE.Mesh(geo, phyMat(PURPLE, { side: THREE.DoubleSide }))); }
+  { const pil = []; for (let i = 20; i < M; i += 22) pil.push(i);
+    const im = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.8, 0.95, 1, 12), phyMat(PURPLE), pil.length), m = new THREE.Matrix4();
+    pil.forEach((i, k) => { const top = C[i].y - 0.7; m.compose(new THREE.Vector3(C[i].x, top / 2, C[i].z), new THREE.Quaternion(), new THREE.Vector3(1, Math.max(0.01, top), 1)); im.setMatrixAt(k, m); }); g.add(im); }
+  // ── marbles: instanced, with vertex stripes so a roll can be seen ──
+  const MAXM = 40, sg = new THREE.SphereGeometry(R, 20, 14), cols = [];
+  { const cc = new Float32Array(sg.attributes.position.count * 3), p = sg.attributes.position; for (let i = 0; i < p.count; i++) { const f = Math.sin(p.getX(i) * 5.5) * Math.sin(p.getY(i) * 5.5) * Math.sin(p.getZ(i) * 5.5) > 0 ? 1 : 0.55; cc.set([f, f, f], i * 3); } sg.setAttribute('color', new THREE.BufferAttribute(cc, 3)); }
+  const marbles = new THREE.InstancedMesh(sg, phyMat(0xffffff, { vertexColors: true, shininess: 120, specular: 0xbbbbbb }), MAXM);
+  ['#ff4d6d', '#ffd23f', '#3bceac', '#4cc9f0', '#ffffff', '#f72585', '#ff9f1c'].forEach(c => cols.push(new THREE.Color(c)));
+  marbles.instanceMatrix.setUsage(THREE.DynamicDrawUsage); g.add(marbles);
+  let list = [], clock = 0, spawnT = 0, done = 0, lost = 0;
+  const bodies = () => list;
+  const spawn = () => {
+    const m = list.find(q => !q.on) || (list.length < MAXM ? list[list.push({ on: false, p: new THREE.Vector3(), v: new THREE.Vector3(), q: new THREE.Quaternion(), idx: 0, t: 0, ci: list.length % cols.length }) - 1] : null);
+    if (!m) return false;
+    m.on = true; m.idx = 0; m.t = 0; m.ground = 0; m.floor = false; m.rise = true; m.p.set(C[0].x, YT - 1.2, C[0].z); m.v.set(12 + phyRng() * 5, 70 + phyRng() * 10, (phyRng() - 0.5) * 2);
+    marbles.setColorAt(list.indexOf(m), cols[m.ci]); marbles.instanceColor.needsUpdate = true; return true;
+  };
+  const gv = new THREE.Vector3(), tmp = new THREE.Vector3(), dd = new THREE.Vector3(), cp = new THREE.Vector3(), sN = new THREE.Vector3(), nN = new THREE.Vector3(), tN = new THREE.Vector3();
+  const sim = {
+    group: g, camera: { th: 0.7, ph: 0.3, d: 95, t: [0, 15, 0] }, speed: 0.55,
+    controls: [{ k: 'max', t: 'range', label: 'Marbles', v: 18, min: 1, max: 40, step: 1 }, { k: 'every', t: 'range', label: 'Pop every (s)', v: 0.9, min: 0.2, max: 3, step: 0.1 }, { k: 'grav', t: 'range', label: 'Gravity', v: 0.5, min: 0.1, max: 1.2, step: 0.05 }, { k: 'drop', t: 'btn', label: 'Pop a marble' }],
+    reset() { list.forEach(m => { m.on = false; }); clock = 0; spawnT = 0; done = 0; lost = 0; },
+    set(k, v) { if (k === 'drop') spawn(); else S[k] = v; },
+    step(dt) {
+      clock += dt; spawnT -= dt;
+      const live = list.filter(m => m.on).length;
+      if (spawnT <= 0 && live < S.max) { if (spawn()) spawnT = S.every; }
+      gv.set(0, -GC * S.grav, 0);
+      for (const m of list) {
+        if (!m.on) continue;
+        m.t += dt; m.v.addScaledVector(gv, dt); m.p.addScaledVector(m.v, dt);
+        // the nearest piece of track, searched near where the marble last was
+        let bj = -1, bd = 1e9, bu = 0;
+        for (let j = Math.max(0, m.idx - 12); j < Math.min(M - 1, m.idx + 48); j++) {
+          dd.subVectors(C[j + 1], C[j]); const u = Math.min(1, Math.max(0, tmp.subVectors(m.p, C[j]).dot(dd) / (ds * ds))); cp.copy(C[j]).addScaledVector(dd, u);
+          const d = cp.distanceToSquared(m.p); if (d < bd) { bd = d; bj = j; bu = u; }
+        }
+        let touching = false;
+        if (bj >= 0 && bd < 36) {
+          m.idx = bj; cp.copy(C[bj]).lerp(C[bj + 1], bu); sN.copy(Sn[bj]).lerp(Sn[bj + 1], bu).normalize(); nN.copy(Nn[bj]).lerp(Nn[bj + 1], bu).normalize(); tN.copy(Tn[bj]);
+          dd.subVectors(m.p, cp); const yl = dd.dot(sN), zh = dd.dot(nN);
+          if (m.rise && m.p.y > YT + R + 0.1) m.rise = false;
+          const onRun = !m.rise;                                                     // a marble still popping up through the hole passes through the chute floor
+          if (onRun && zh > -1.6 && zh < R && Math.abs(yl) < W + 0.5) {              // the floor
+            m.p.addScaledVector(nN, R - zh); const vn = m.v.dot(nN);
+            if (vn < 0) m.v.addScaledVector(nN, -(1 + (vn < -60 ? 0.22 : 0)) * vn);
+            touching = true;
+          }
+          if (onRun && zh > -0.6 && zh < HW + R && Math.abs(yl) < W + 1.2) {        // the walls
+            const lim = W - R;
+            if (yl > lim) { m.p.addScaledVector(sN, -(yl - lim)); const vn = m.v.dot(sN); if (vn > 0) m.v.addScaledVector(sN, -1.28 * vn); m.v.multiplyScalar(1 - 1.4 * dt); }
+            else if (yl < -lim) { m.p.addScaledVector(sN, -(yl + lim)); const vn = m.v.dot(sN); if (vn < 0) m.v.addScaledVector(sN, -1.28 * vn); m.v.multiplyScalar(1 - 1.4 * dt); }
+          }
+        }
+        if (touching) {                                                              // rolling: a solid ball keeps 5/7 of the pull along the slope, and loses a little to the surface
+          const gn = gv.dot(nN); tmp.copy(gv).addScaledVector(nN, -gn); m.v.addScaledVector(tmp, -dt * 2 / 7); m.v.multiplyScalar(1 - 0.35 * dt); m.floor = true;
+          // turn the marble with its roll (angular velocity = n × v / r)
+          dd.crossVectors(nN, m.v).multiplyScalar(-1 / R); const w = dd.length();
+          if (w > 1e-6) m.q.premultiply(new THREE.Quaternion().setFromAxisAngle(dd.multiplyScalar(1 / w), w * dt));
+        }
+        // the tower, the base
+        const rho = Math.hypot(m.p.x, m.p.z);
+        if (m.p.y < YT - 1 && rho < RT + R) { const k = (RT + R - rho) / (rho || 1); m.p.x += m.p.x * k; m.p.z += m.p.z * k; const nx = m.p.x / (Math.hypot(m.p.x, m.p.z) || 1), nz = m.p.z / (Math.hypot(m.p.x, m.p.z) || 1), vn = m.v.x * nx + m.v.z * nz; if (vn < 0) { m.v.x -= 1.3 * vn * nx; m.v.z -= 1.3 * vn * nz; } }
+        if (m.p.y < R) { m.p.y = R; if (m.v.y < 0) m.v.y *= -0.35; m.v.x *= 1 - 3 * dt; m.v.z *= 1 - 3 * dt; m.ground += dt; } else m.ground = 0;
+        if (m.ground > 1.6 || m.p.y < -50 || !isFinite(m.p.x + m.p.y + m.p.z) || m.t > 90) { if (m.idx > M - 12) done++; else lost++; m.on = false; }
+      }
+      // marbles against each other
+      for (let a = 0; a < list.length; a++) { const A = list[a]; if (!A.on) continue; for (let b = a + 1; b < list.length; b++) { const B = list[b]; if (!B.on) continue; dd.subVectors(B.p, A.p); const d = dd.length(); if (d < 2 * R && d > 1e-6) { dd.multiplyScalar(1 / d); const o = (2 * R - d) / 2; A.p.addScaledVector(dd, -o); B.p.addScaledVector(dd, o); const vr = B.v.dot(dd) - A.v.dot(dd); if (vr < 0) { const j = -(1 + 0.6) * vr / 2; A.v.addScaledVector(dd, -j); B.v.addScaledVector(dd, j); } } } }
+    },
+    frame() {
+      const m4 = new THREE.Matrix4(), one = new THREE.Vector3(1, 1, 1), off = new THREE.Vector3(0, -1000, 0);
+      for (let i = 0; i < MAXM; i++) { const m = list[i]; m4.compose(m && m.on ? m.p : off, m ? m.q : new THREE.Quaternion(), one); marbles.setMatrixAt(i, m4); }
+      marbles.instanceMatrix.needsUpdate = true;
+    },
+    info: () => `${list.filter(m => m.on).length} marbles on the run · ${done} finished · track ${Ltot.toFixed(0)} cm, slope ${(Math.atan(slope) * 180 / Math.PI).toFixed(1)}°`,
+    stats: () => ({ live: list.filter(m => m.on).length, done, lost, maxIdx: Math.max(0, ...list.filter(m => m.on).map(m => m.idx)), M }),
+    dispose() { phyDisposeGroup(g); },
+  };
+  return sim;
+}
+
+// ── Drone: a rigid body with four rotors, a flight controller, and a ring of gates to fly ──
+function phyDrone() {
+  const g = new THREE.Group(), S = { mode: 'manual', alt: 0 };
+  const m = 0.9, A = 0.18, Ixx = 0.012, Iyy = 0.022, Izz = 0.012, TMAX = m * PHY_G / 4 * 2.6, KQ = 0.022, TILT = 0.5;
+  const rotors = [[A, A, 1], [-A, A, -1], [-A, -A, 1], [A, -A, -1]];
+  const st = { p: new THREE.Vector3(0, 0.07, 0), v: new THREE.Vector3(), q: new THREE.Quaternion(), w: new THREE.Vector3(), yaw: 0, T: [0, 0, 0, 0], armed: false, gate: 0, laps: 0, passed: 0, wp: 0 };
+  // scenery
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(120, 120), phyMat(0x8fb08a)); ground.rotation.x = -Math.PI / 2; g.add(ground);
+  const grid = new THREE.GridHelper(120, 60, 0x6e8f6a, 0x7fa07b); grid.material.transparent = true; grid.material.opacity = 0.5; grid.position.y = 0.01; g.add(grid);
+  const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 0.02, 32), phyMat(0xdfe5ec)); pad.position.y = 0.01; g.add(pad);
+  const gates = [], NG = 6;
+  for (let i = 0; i < NG; i++) {
+    const a = i / NG * Math.PI * 2, R = 7, y = 1.6 + 0.9 * Math.sin(i * 1.3), c = new THREE.Vector3(Math.cos(a) * R, y, Math.sin(a) * R), tan = new THREE.Vector3(-Math.sin(a), 0, Math.cos(a));
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.95, 0.07, 10, 36), phyMat(0xff7a3d)); ring.position.copy(c); ring.lookAt(c.clone().add(tan)); g.add(ring);
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, y - 1, 8), phyMat(0x59616b)); post.position.set(c.x, (y - 1) / 2, c.z); g.add(post);
+    gates.push({ c, tan, ring, last: 0 });
+  }
+  for (let i = 0; i < 14; i++) { const a = phyRng() * 6.28, r = 12 + phyRng() * 18, h = 1 + phyRng() * 3, t = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.5, h, 8), phyMat(0x6b7a4f)); t.position.set(Math.cos(a) * r, h / 2, Math.sin(a) * r); g.add(t); const l = new THREE.Mesh(new THREE.ConeGeometry(1.3, 2.2, 10), phyMat(0x3f7a4a)); l.position.set(t.position.x, h + 0.9, t.position.z); g.add(l); }
+  // the drone
+  const D = new THREE.Group(), body = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.07, 0.3), phyMat(0x22262c)); D.add(body);
+  const cam = new THREE.Mesh(new THREE.SphereGeometry(0.045, 12, 8), phyMat(0x111111)); cam.position.set(0, -0.02, -0.16); D.add(cam);
+  for (const [sx, sz] of [[1, 1], [-1, 1]]) { const arm = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.025, 0.04), phyMat(0x2f353d)); arm.rotation.y = sx * sz * Math.PI / 4; arm.position.y = 0; D.add(arm); }
+  const props = rotors.map(([x, z, s], i) => {
+    const mo = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.05, 12), phyMat(0x59616b)); mo.position.set(x, 0.03, z); D.add(mo);
+    const pr = new THREE.Group(); pr.position.set(x, 0.065, z);
+    for (let k = 0; k < 2; k++) { const b = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.004, 0.022), phyMat(i < 2 ? 0xff3b3b : 0xdddddd)); b.rotation.y = k * Math.PI / 2; pr.add(b); }
+    const blur = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.002, 24), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.12 })); pr.add(blur);
+    D.add(pr); return { pr, s, blur };
+  });
+  const led = (x, z, c) => { const l = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 6), new THREE.MeshBasicMaterial({ color: c })); l.position.set(x, 0.02, z); D.add(l); };
+  led(-0.07, -0.16, 0xff3b3b); led(0.07, -0.16, 0xff3b3b); led(-0.07, 0.16, 0x3bff6a); led(0.07, 0.16, 0x3bff6a);
+  for (const sx of [-0.1, 0.1]) { const sk = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.012, 0.3), phyMat(0x59616b)); sk.position.set(sx, -0.065, 0); D.add(sk); const lg = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.06, 0.012), phyMat(0x59616b)); lg.position.set(sx, -0.035, 0.1); D.add(lg); const lg2 = lg.clone(); lg2.position.z = -0.1; D.add(lg2); }
+  g.add(D);
+  const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.3, 20), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35 })); shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.02; g.add(shadow);
+  const trailGeo = new THREE.BufferGeometry(), TN = 240, tpos = new Float32Array(TN * 3); trailGeo.setAttribute('position', new THREE.BufferAttribute(tpos, 3));
+  const trail = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({ color: 0xffd23f })); trail.frustumCulled = false; g.add(trail);
+  const qy = new THREE.Quaternion(), qt = new THREE.Quaternion(), qd = new THREE.Quaternion(), qe = new THREE.Quaternion(), ex = new THREE.Vector3(1, 0, 0), ez = new THREE.Vector3(0, 0, 1), up = new THREE.Vector3(0, 1, 0), tv = new THREE.Vector3(), te = new THREE.Vector3();
+  const inp = { pitch: 0, roll: 0, yaw: 0, climb: 0 };
+  function reset() { st.p.set(0, 0.07, 0); st.v.set(0, 0, 0); st.q.identity(); st.w.set(0, 0, 0); st.yaw = 0; st.armed = false; S.alt = 0.07; S.mode = 'manual'; st.gate = 0; st.laps = 0; st.passed = 0; gates.forEach(q => { q.ring.material.color.set(0xff7a3d); q.last = 0; }); }
+  function takeoff() { st.armed = true; S.alt = Math.max(S.alt, 1.6); }
+  const sim = {
+    group: g, camera: null, speed: 1, follow: true,
+    controls: [{ k: 'takeoff', t: 'btn', label: 'Take off' }, { k: 'land', t: 'btn', label: 'Land' }, { k: 'auto', t: 'chk', label: 'Autopilot: fly the gates', v: false }, { k: 'orbitcam', t: 'chk', label: 'Free camera', v: false }],
+    reset,
+    set(k, v) { if (k === 'takeoff') takeoff(); else if (k === 'land') { S.alt = 0.07; S.mode = 'manual'; } else if (k === 'auto') { S.mode = v ? 'auto' : 'manual'; if (v) takeoff(); } else if (k === 'orbitcam') sim.follow = !v; },
+    key(e, down) {
+      const k = e.code, set = (n, v) => { inp[n] = down ? v : (Math.sign(inp[n]) === Math.sign(v) ? 0 : inp[n]); };
+      if (k === 'KeyW' || k === 'ArrowUp') set('pitch', 1); else if (k === 'KeyS' || k === 'ArrowDown') set('pitch', -1); else if (k === 'KeyD' || k === 'ArrowRight') set('roll', 1); else if (k === 'KeyA' || k === 'ArrowLeft') set('roll', -1);
+      else if (k === 'KeyE') set('yaw', -1); else if (k === 'KeyQ') set('yaw', 1); else if (k === 'Space') set('climb', 1); else if (k === 'ShiftLeft' || k === 'ShiftRight') set('climb', -1);
+      else if (down && k === 'KeyT') takeoff(); else if (down && k === 'KeyG') sim.set('land'); else return false;
+      return true;
+    },
+    step(dt) {
+      // ── flight controller ──
+      let pitch = inp.pitch, roll = inp.roll, yawRate = inp.yaw * 1.6;
+      if (S.mode === 'auto' && st.armed) {
+        const G = gates[st.gate], toG = G.c.clone().sub(st.p), dist = toG.length(), vdes = toG.clone().setY(0).normalize().multiplyScalar(Math.min(3.2, dist * 1.2));
+        S.alt = G.c.y; const ad = vdes.sub(tv.copy(st.v).setY(0)).multiplyScalar(2.2);
+        const fw = new THREE.Vector3(0, 0, -1).applyAxisAngle(up, st.yaw), rt = new THREE.Vector3(1, 0, 0).applyAxisAngle(up, st.yaw);
+        pitch = THREE.MathUtils.clamp(ad.dot(fw) / PHY_G / TILT, -1, 1); roll = THREE.MathUtils.clamp(ad.dot(rt) / PHY_G / TILT, -1, 1);
+        const want = Math.atan2(-toG.x, -toG.z); let de = want - st.yaw; de = Math.atan2(Math.sin(de), Math.cos(de)); yawRate = THREE.MathUtils.clamp(de * 2, -1.8, 1.8);
+      }
+      st.yaw += yawRate * dt;
+      if (st.armed) S.alt = Math.max(0.07, S.alt + inp.climb * 1.6 * dt);
+      if (st.armed && S.alt <= 0.1 && st.p.y < 0.15) st.armed = false;
+      qy.setFromAxisAngle(up, st.yaw); qt.setFromAxisAngle(ex, -pitch * TILT).multiply(new THREE.Quaternion().setFromAxisAngle(ez, -roll * TILT)); qd.copy(qy).multiply(qt);
+      qe.copy(qd).multiply(st.q.clone().invert()); if (qe.w < 0) { qe.x = -qe.x; qe.y = -qe.y; qe.z = -qe.z; qe.w = -qe.w; }
+      te.set(qe.x, qe.y, qe.z).multiplyScalar(2).applyQuaternion(st.q.clone().invert());               // attitude error in the body frame
+      const tau = new THREE.Vector3((70 * te.x - 13 * st.w.x) * Ixx, (40 * te.y - 8 * st.w.y) * Iyy, (70 * te.z - 13 * st.w.z) * Izz);
+      const upW = up.clone().applyQuaternion(st.q), tilt = Math.max(0.35, upW.y);
+      let F = st.armed ? m * (PHY_G + 7 * (S.alt - st.p.y) - 4.2 * st.v.y) / tilt : 0;
+      F = THREE.MathUtils.clamp(F, 0, 4 * TMAX);
+      // mixer: thrust per rotor from the collective force and the three torques
+      for (let i = 0; i < 4; i++) { const [x, z, s] = rotors[i]; st.T[i] = THREE.MathUtils.clamp(F / 4 + (-z * tau.x + x * tau.z) / (4 * A * A) + s * tau.y / (4 * KQ), 0, TMAX); }
+      if (!st.armed) st.T = [0, 0, 0, 0];
+      // ── rigid body ──
+      let sum = 0, tx = 0, ty = 0, tz = 0; for (let i = 0; i < 4; i++) { const [x, z, s] = rotors[i], T = st.T[i]; sum += T; tx += -z * T; tz += x * T; ty += s * KQ * T; }
+      const a = new THREE.Vector3(0, sum / m, 0).applyQuaternion(st.q); a.y -= PHY_G; a.addScaledVector(st.v, -0.25 / m * 1.0);
+      st.v.addScaledVector(a, dt); st.p.addScaledVector(st.v, dt);
+      const w = st.w, Iw = new THREE.Vector3(Ixx * w.x, Iyy * w.y, Izz * w.z), gyro = new THREE.Vector3().crossVectors(w, Iw);
+      w.x += (tx - gyro.x) / Ixx * dt; w.y += (ty - gyro.y) / Iyy * dt; w.z += (tz - gyro.z) / Izz * dt; w.multiplyScalar(1 - 0.4 * dt);
+      const dq = new THREE.Quaternion(w.x * dt * 0.5, w.y * dt * 0.5, w.z * dt * 0.5, 0).multiply(new THREE.Quaternion(0, 0, 0, 1)); void dq;
+      qd.set(st.q.w * w.x + st.q.y * w.z - st.q.z * w.y, st.q.w * w.y + st.q.z * w.x - st.q.x * w.z, st.q.w * w.z + st.q.x * w.y - st.q.y * w.x, -st.q.x * w.x - st.q.y * w.y - st.q.z * w.z);   // q ⊗ (0, ω)
+      st.q.set(st.q.x + 0.5 * dt * qd.x, st.q.y + 0.5 * dt * qd.y, st.q.z + 0.5 * dt * qd.z, st.q.w + 0.5 * dt * qd.w).normalize();
+      if (st.p.y < 0.07) { st.p.y = 0.07; if (st.v.y < 0) st.v.y = 0; st.v.x *= 1 - 6 * dt; st.v.z *= 1 - 6 * dt; if (!st.armed) { st.w.multiplyScalar(1 - 8 * dt); st.q.slerp(qy, 0.1); } }
+      // gates: pass through a ring's circle
+      for (let i = 0; i < NG; i++) { const G = gates[i], d = tv.copy(st.p).sub(G.c), side = d.dot(G.tan);
+        if (G.last * side < 0 && Math.hypot(d.x - G.tan.x * side, d.y - G.tan.y * side, d.z - G.tan.z * side) < 1.0) { if (i === st.gate) { st.passed++; G.ring.material.color.set(0x3bd16f); st.gate = (st.gate + 1) % NG; if (st.gate === 0) { st.laps++; gates.forEach(q => q.ring.material.color.set(0xff7a3d)); } } }
+        G.last = side; }
+    },
+    frame(dtReal) {
+      D.position.copy(st.p); D.quaternion.copy(st.q);
+      props.forEach((p, i) => { p.pr.rotation.y += p.s * (8 + st.T[i] / TMAX * 90) * dtReal; p.blur.material.opacity = 0.05 + 0.2 * (st.T[i] / TMAX); });
+      shadow.position.set(st.p.x, 0.02, st.p.z); const s = 1 / (1 + st.p.y * 0.35); shadow.scale.set(s, s, 1);
+      trail.geometry.attributes.position.array.copyWithin(0, 3); trail.geometry.attributes.position.array.set([st.p.x, st.p.y, st.p.z], (TN - 1) * 3); trail.geometry.attributes.position.needsUpdate = true;
+      if (sim.follow) { const back = new THREE.Vector3(0, 0, 1).applyAxisAngle(up, st.yaw).multiplyScalar(2.6); const want = st.p.clone().add(back).add(new THREE.Vector3(0, 1.1 + st.p.y * 0.2, 0)); PHY.cam.position.lerp(want, 1 - Math.pow(0.0005, dtReal)); PHY.cam.lookAt(st.p.x, st.p.y + 0.15, st.p.z); }
+    },
+    info: () => `${st.armed ? 'flying' : 'landed'} · altitude ${st.p.y.toFixed(1)} m · speed ${st.v.length().toFixed(1)} m/s · gates ${st.passed}${S.mode === 'auto' ? ' · autopilot' : ''}   —   T take off · Space/Shift climb/descend · W A S D tilt · Q E turn · G land`,
+    state: st,
+    dispose() { phyDisposeGroup(g); },
+  };
+  reset();
+  return sim;
+}
+
+// ── The lab: overlay, camera, loop ──
+const PHY_SIMS = { sticks: ['Swinging sticks', phySticks], marbles: ['Marble tower', phyMarbles], drone: ['Drone', phyDrone] };
+function physicsOpen(id = PHY.id) {
+  if (S.sk) finishSketch();
+  if (CMD) cancelCmd();
+  if (!PHY.el) {
+    const el = PHY.el = document.createElement('div'); el.id = 'phy'; el.className = 'phy';
+    el.innerHTML = `<div class="phy-bar"><b>Physics lab</b><div class="seg" id="phyTabs">${Object.entries(PHY_SIMS).map(([k, v]) => `<button data-phy="${k}">${v[0]}</button>`).join('')}</div><span class="phy-sp"></span><button class="btn" data-pa="reset">Reset</button><button class="btn" data-pa="pause">Pause</button><div class="seg" id="phySpeed">${[0.25, 0.5, 1, 2].map(v => `<button data-ps="${v}">${v}×</button>`).join('')}</div><button class="btn primary" data-pa="close">Close</button></div><div class="phy-main"><canvas id="phyCv"></canvas><div class="phy-card" id="phyCard"></div><div class="phy-info" id="phyInfo"></div></div>`;
+    document.body.appendChild(el);
+    const cv = el.querySelector('#phyCv');
+    PHY.rend = new THREE.WebGLRenderer({ canvas: cv, antialias: true }); PHY.rend.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5));
+    PHY.scene = new THREE.Scene(); PHY.scene.background = new THREE.Color(0xe9eef5); PHY.scene.fog = new THREE.Fog(0xe9eef5, 60, 220);
+    PHY.scene.add(new THREE.HemisphereLight(0xffffff, 0x8a93a6, 0.95)); const dl = new THREE.DirectionalLight(0xffffff, 0.85); dl.position.set(30, 60, 40); PHY.scene.add(dl);
+    PHY.cam = new THREE.PerspectiveCamera(45, 1, 0.05, 600);
+    el.addEventListener('click', e => {
+      const t = e.target.closest('[data-phy],[data-pa],[data-ps]'); if (!t) return;
+      if (t.dataset.phy) physicsOpen(t.dataset.phy);
+      else if (t.dataset.ps) { PHY.speed = +t.dataset.ps; phyMark(); }
+      else if (t.dataset.pa === 'close') physicsClose(); else if (t.dataset.pa === 'reset') PHY.sim && PHY.sim.reset(); else if (t.dataset.pa === 'pause') { PHY.paused = !PHY.paused; t.textContent = PHY.paused ? 'Play' : 'Pause'; }
+    });
+    // camera: drag to orbit (a sim may take the drag first), wheel to zoom
+    cv.addEventListener('pointerdown', e => {
+      const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+      if (e.button === 0 && PHY.sim && PHY.sim.pointerDown) { const ray = phyRay(x, y, r); if (PHY.sim.pointerDown(ray, { x, y, w: r.width, h: r.height })) { PHY.drag = 'sim'; cv.setPointerCapture(e.pointerId); return; } }
+      PHY.drag = { x: e.clientX, y: e.clientY }; cv.setPointerCapture(e.pointerId);
+    });
+    cv.addEventListener('pointermove', e => {
+      if (PHY.drag === 'sim') { const r = cv.getBoundingClientRect(); PHY.sim.pointerMove(phyRay(e.clientX - r.left, e.clientY - r.top, r)); return; }
+      if (!PHY.drag) return; const o = PHY.orbit; o.th -= (e.clientX - PHY.drag.x) * 0.006; o.ph = Math.max(-0.2, Math.min(1.45, o.ph + (e.clientY - PHY.drag.y) * 0.005)); PHY.drag = { x: e.clientX, y: e.clientY }; phyCamera();
+    });
+    cv.addEventListener('pointerup', () => { if (PHY.drag === 'sim' && PHY.sim.pointerUp) PHY.sim.pointerUp(); PHY.drag = null; });
+    cv.addEventListener('wheel', e => { e.preventDefault(); PHY.orbit.d = Math.max(2, Math.min(300, PHY.orbit.d * Math.exp(e.deltaY * 0.001))); phyCamera(); }, { passive: false });
+    addEventListener('resize', phyResize);
+    addEventListener('keydown', e => { if (PHY.el.hidden) return; if (e.code === 'Escape') { physicsClose(); e.stopPropagation(); return; } if (!/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName) && PHY.sim && PHY.sim.key && PHY.sim.key(e, true)) { e.preventDefault(); e.stopPropagation(); } }, true);
+    addEventListener('keyup', e => { if (!PHY.el.hidden && PHY.sim && PHY.sim.key && PHY.sim.key(e, false)) { e.preventDefault(); e.stopPropagation(); } }, true);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) phyStop(); else if (!PHY.el.hidden) phyStart(); });
+  }
+  PHY.el.hidden = false; PHY.id = id;
+  if (PHY.sim) { PHY.scene.remove(PHY.sim.group); }
+  PHY.sim = PHY.sims[id] || (PHY.sims[id] = PHY_SIMS[id][1]());
+  PHY.scene.add(PHY.sim.group);
+  const c = PHY.sim.camera; if (c) Object.assign(PHY.orbit, { th: c.th, ph: c.ph, d: c.d, t: new THREE.Vector3(...c.t) });
+  PHY.speed = PHY.sim.speed || 1; PHY.paused = false; PHY.el.querySelector('[data-pa="pause"]').textContent = 'Pause';
+  PHY.el.querySelectorAll('[data-phy]').forEach(b => b.classList.toggle('on', b.dataset.phy === id)); phyMark();
+  const card = PHY.el.querySelector('#phyCard');
+  card.innerHTML = PHY.sim.controls.map(c => c.t === 'sel' ? `<label><span>${c.label}</span><select data-c="${c.k}">${c.opts.map(([v, l]) => `<option value="${v}" ${v === c.v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>` : c.t === 'range' ? `<label><span>${c.label}</span><input type="range" data-c="${c.k}" min="${c.min}" max="${c.max}" step="${c.step}" value="${c.v}"></label>` : c.t === 'chk' ? `<label class="chk"><input type="checkbox" data-c="${c.k}" ${c.v ? 'checked' : ''}> ${c.label}</label>` : `<button class="btn" data-c="${c.k}">${c.label}</button>`).join('');
+  card.oninput = card.onchange = card.onclick = e => { const t = e.target.closest('[data-c]'); if (!t) return; if (e.type === 'click' && t.tagName !== 'BUTTON') return; if (e.type === 'input' && t.tagName === 'SELECT') return; PHY.sim.set(t.dataset.c, t.type === 'checkbox' ? t.checked : t.type === 'range' ? +t.value : t.tagName === 'SELECT' ? t.value : true); };
+  phyResize(); phyCamera(); phyStart();
+}
+function phyMark() { PHY.el.querySelectorAll('[data-ps]').forEach(b => b.classList.toggle('on', +b.dataset.ps === PHY.speed)); }
+function physicsClose() { if (PHY.el) { PHY.el.hidden = true; phyStop(); } }
+function phyResize() { if (!PHY.el || PHY.el.hidden) return; const cv = PHY.el.querySelector('#phyCv'), r = cv.parentElement.getBoundingClientRect(); PHY.rend.setSize(r.width, r.height, false); PHY.cam.aspect = r.width / Math.max(1, r.height); PHY.cam.updateProjectionMatrix(); }
+function phyCamera() { const o = PHY.orbit, c = PHY.cam; if (PHY.sim && PHY.sim.follow) return; c.position.set(o.t.x + o.d * Math.sin(o.th) * Math.cos(o.ph), o.t.y + o.d * Math.sin(o.ph), o.t.z + o.d * Math.cos(o.th) * Math.cos(o.ph)); c.lookAt(o.t); }
+function phyRay(x, y, r) { const v = new THREE.Vector3((x / r.width) * 2 - 1, -(y / r.height) * 2 + 1, 0.5).unproject(PHY.cam), o = PHY.cam.position.clone(); return { origin: o, direction: v.sub(o).normalize() }; }
+function phyStart() { if (PHY.raf) return; PHY.last = performance.now(); PHY.raf = requestAnimationFrame(phyLoop); }
+function phyStop() { cancelAnimationFrame(PHY.raf); PHY.raf = 0; }
+function phyLoop(now) {
+  PHY.raf = requestAnimationFrame(phyLoop);
+  const dt = Math.min(0.05, (now - PHY.last) / 1000); PHY.last = now;
+  const sim = PHY.sim; if (!sim) return;
+  if (!PHY.paused) { PHY.acc += dt * PHY.speed; let n = 0; while (PHY.acc >= PHY_H && n < 10) { sim.step(PHY_H); PHY.acc -= PHY_H; n++; } if (n === 10) PHY.acc = 0; }
+  sim.frame(dt); if (sim.follow) PHY.cam.updateMatrixWorld(); else phyCamera();
+  PHY.rend.render(PHY.scene, PHY.cam);
+  if (((now / 250) | 0) !== PHY.tick) { PHY.tick = (now / 250) | 0; PHY.el.querySelector('#phyInfo').textContent = sim.info(); }
+}
+const phyStyle = document.createElement('style');
+phyStyle.textContent = '.phy { position: fixed; inset: 0; z-index: 70; display: flex; flex-direction: column; background: var(--bg, #e9eef5); } .phy[hidden] { display: none; } .phy-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 14px; border-bottom: 1px solid var(--rule); background: var(--panel); } .phy-sp { flex: 1; } .phy-main { position: relative; flex: 1; min-height: 0; } #phyCv { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; } .phy-card { position: absolute; left: 12px; top: 12px; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: color-mix(in srgb, var(--panel) 92%, transparent); border: 1px solid var(--rule); border-radius: 10px; backdrop-filter: blur(8px); font-size: 12px; max-width: 240px; } .phy-card label { display: flex; flex-direction: column; gap: 3px; color: var(--ink-2); } .phy-card label.chk { flex-direction: row; align-items: center; gap: 6px; } .phy-card select, .phy-card input[type=range] { width: 100%; } .phy-info { position: absolute; left: 12px; bottom: 12px; right: 12px; font-size: 12px; color: var(--ink-2); background: color-mix(in srgb, var(--panel) 85%, transparent); padding: 6px 10px; border-radius: 8px; pointer-events: none; } @media (max-width: 700px) { .phy-card { right: 12px; max-width: none; flex-direction: row; flex-wrap: wrap; } .phy-card label { flex: 1 1 130px; } }';
+document.head.appendChild(phyStyle);
 </script>
 </body>
 </html>
