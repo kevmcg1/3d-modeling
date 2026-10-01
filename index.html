@@ -5142,7 +5142,10 @@ function buildMesh(polys) {
     // a seam where the two faces meet smoothly (fillet boundaries, tangent arcs) is not drawn
     // (a freeform corner blend only matches its neighbors to a few degrees, so it gets more slack)
     const thr = Surf.list[fs[0]].t === 'S' || Surf.list[fs[1]].t === 'S' ? 0.93 : 0.997;
-    const smooth = [VP[a], VP[b]].every(v => dot3(Surf.normalAt(fs[0], v), Surf.normalAt(fs[1], v)) > thr);
+    // two round faces of the same fillet meeting at a corner are one blend: no line between them
+    const fe = sf => { if (sf.t === 'P') return null; for (const m of sf.metas || []) { try { const o = JSON.parse(m); if (o.edge !== undefined && o.feat !== undefined) return o.feat; } catch (e) { /* not a tag */ } } return null; };
+    const fa = fe(Surf.list[fs[0]]);
+    const smooth = (fa !== null && fa === fe(Surf.list[fs[1]])) || [VP[a], VP[b]].every(v => dot3(Surf.normalAt(fs[0], v), Surf.normalAt(fs[1], v)) > thr);
     if (!smooth) edgePos.push(...VP[a], ...VP[b]);
     fedges.push({ a, b, fa: fs[0], fb: fs[1] });
   }
