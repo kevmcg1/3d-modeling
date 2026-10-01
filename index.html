@@ -12750,7 +12750,11 @@ class StockModel {
       for (const A of pts) {
         if (Math.abs(A[2] - z) < 1e-9) { sec.push([A[0], A[1]]); continue; }
         if (A[2] < z) continue;
-        for (const B of pts) { if (B[2] >= z) continue; const t = (z - A[2]) / (B[2] - A[2]); sec.push([A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t]); }
+        for (const B of pts) {
+          if (B[2] >= z) continue;
+          // the hull's edges join points looking the same way round the axis: neighbours on the polygons, never across them
+          if (A[4] > 1 && B[4] > 1) { let dk = Math.abs(A[3] - B[3]); dk = Math.min(dk, A[4] - dk); if (dk > 1) continue; }
+          const t = (z - A[2]) / (B[2] - A[2]); sec.push([A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t]); }
       }
       const hl = StockModel.hull2(sec);
       if (hl.length < 3) continue;
@@ -12771,7 +12775,7 @@ class StockModel {
       const r = Math.max(1e-3, cutRadius(tool, hh)), n = r < 0.01 ? 1 : 32, rr = n > 1 ? r * 1.0032 : r;
       for (let k = 0; k < n; k++) {
         const c = Math.cos(k * TAU / n) * rr, s = Math.sin(k * TAU / n) * rr;
-        out.push([tip.x + ux * hh + e1[0] * c + e2[0] * s, tip.y + uy * hh + e1[1] * c + e2[1] * s, tip.z + uz * hh + e1[2] * c + e2[2] * s]);
+        out.push([tip.x + ux * hh + e1[0] * c + e2[0] * s, tip.y + uy * hh + e1[1] * c + e2[1] * s, tip.z + uz * hh + e1[2] * c + e2[2] * s, k, n]);
       }
     }
     return out;
@@ -12779,6 +12783,17 @@ class StockModel {
   // Convex hull (monotone chain), counterclockwise.
   static hull2(P) {
     if (P.length < 3) return P;
+    if (P.length > 48) {
+      // keep only what could be on the hull: drop every point inside the octagon of the eight extremes (Akl-Toussaint)
+      const D = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]], ext = D.map(() => null), val = D.map(() => -Infinity);
+      for (const p of P) for (let k = 0; k < 8; k++) { const v = p[0] * D[k][0] + p[1] * D[k][1]; if (v > val[k]) { val[k] = v; ext[k] = p; } }
+      const poly = []; for (const e of ext) if (!poly.length || poly[poly.length - 1] !== e) poly.push(e);
+      if (poly.length >= 3) {
+        const inside = p => { for (let i = 0; i < poly.length; i++) { const a = poly[i], b = poly[(i + 1) % poly.length]; if ((b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]) < 1e-9) return false; } return true; };
+        P = P.filter(p => !inside(p));
+        for (const e of poly) P.push(e);
+      }
+    }
     P = P.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
     const cr = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]), lo = [], up = [];
     for (const p of P) { while (lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], p) <= 1e-12) lo.pop(); lo.push(p); }
@@ -15597,6 +15612,15 @@ function autoPlan(R) {
   const refOf = f => faceRef(f.mesh, f.fid, faceInfo(f.mesh, f.fid).on);        // a point on the face: rings have their centroid in the hole
   const coveredBy = test => { const o = mine.find(test); return o ? o.name : null; };
   const step = s => { s.i = plan.length; plan.push(s); return s; };
+  // A turned part (a profile revolved about X) is machined all round on the 4th axis: rough in layers, then finish.
+  { const tp = typeof turnedPart === 'function' && R.groups && turnedPart();
+    if (tp) {
+      const tool = pick('ball', 6, true);
+      step({ key: 'rotary', type: 'rotary', title: 'Rotary finish the turned profile', why: `The part is a profile turned about X (Ø${fmtD(2 * tp.rmax)} at its widest): the 4th axis turns it while a Ø6 ball mill follows the profile, roughing in radial layers first.`, tool, faces: [],
+        op: { stepover: 0.15, stepdown: 5, leave: 0, rough: true, a0: 0, a1: 360 }, covered: coveredBy(o => o.type === 'rotary') });
+      for (const s of plan) if (s.type !== 'manual' && AUTO.on[s.key] === undefined) s.def = !s.covered;
+      return plan;
+    } }
   // 1 · facing
   if (R.st.z1 - R.part.z1 > 1e-3) {
     const lib = C.tools.filter(t => t.type === 'face').sort((a, b) => b.d - a.d)[0];
@@ -24485,10 +24509,11 @@ const camToolbarJ = camToolbar;
 camToolbar = function () {
   let h = camToolbarJ();
   if (typeof isWire === 'function' && isWire()) return h;
-  const P = rbPanel('Fixture', [['jaws', 'Soft Jaws', '', 'softjaws', JAW.on]], 1, 'data-cam');
+  const P = rbPanel('Fixture', [['setup', 'Workholding', '', 'camvise', CAMUI.view === 'setup'], ['jaws', 'Soft Jaws', '', 'softjaws', JAW.on]], 2, 'data-cam');
   const i = h.indexOf('<section class="rb-panel" aria-label="Actions"');
   return i >= 0 ? h.slice(0, i) + P + h.slice(i) : h + P;
 };
+if (!IC.camvise) IC.camvise = '<rect x="2" y="13" width="16" height="4" rx=".8"/><rect x="3" y="5" width="4" height="8"/><rect x="13" y="5" width="4" height="8"/><rect x="7.5" y="8" width="5" height="5" opacity=".6"/>';
 if (!IC.softjaws) IC.softjaws = '<path d="M2 16h16"/><path d="M3 16V7h4v4h2V7"/><path d="M17 16V7h-4v4h-2V7"/><rect x="7.5" y="3" width="5" height="6" rx="0.6" opacity=".6"/>';
 const setWorkspaceJ = setWorkspace;
 setWorkspace = function (ws) { if (JAW.on && ws !== 'cam') jawClose(); setWorkspaceJ(ws); };
@@ -26202,6 +26227,25 @@ function rotSimplify(pts, tol) {
   }
   return pts.filter((_, k) => keep[k]);
 }
+// A part that is a surface of revolution about a line along X (every side facet's normal lies in a plane through the axis),
+// with a profile that changes along its length: what a Rotary Finish is for.
+function turnedPart() {
+  const part = camPart(), g = camGeom(), G = g && (g.fineG || g.G);
+  if (!part || !G || G.T.length < 50) return null;
+  const cy = (part.y0 + part.y1) / 2, cz = (part.z0 + part.z1) / 2;
+  let area = 0, bad = 0, rmin = Infinity, rmax = 0;
+  for (const t of G.T) {
+    const a = t.a, b = t.b, c = t.c, A = 0.5 * len3(crs3(sub3(b, a), sub3(c, a)));
+    area += A;
+    if (Math.abs(t.n[0]) > 0.97) continue;                                          // an end face, flat across the axis
+    const y = (a[1] + b[1] + c[1]) / 3 - cy, z = (a[2] + b[2] + c[2]) / 3 - cz, r = Math.hypot(y, z);
+    if (r < 0.5) { bad += A; continue; }
+    if (Math.abs(t.n[1] * (-z / r) + t.n[2] * (y / r)) > 0.08) bad += A;            // the normal leaves the meridian plane
+    for (const v of [a, b, c]) { const rr = Math.hypot(v[1] - cy, v[2] - cz); rmin = Math.min(rmin, rr); rmax = Math.max(rmax, rr); }
+  }
+  if (bad > 0.01 * area || rmax - rmin < 1 || rmax < 3) return null;
+  return { cy, cz, rmax, rmin };
+}
 GEN.rotary = function (op, tool, st, part, P) {
   const S = camSetup();
   if (!S || S.kind !== 'rotary' || S.word !== 'A') { P.warn.push('Rotary Finish needs a 4th axis A along X: set Multi-axis table to Auto or 4th axis A in Setup.'); return; }
@@ -26225,7 +26269,8 @@ GEN.rotary = function (op, tool, st, part, P) {
   };
   let cutAngles = 0, dir = 1, thPrev = null, zPrev = null, firstDone = false;
   const t0 = performance.now();
-  for (const th of angs) {
+  const rstride = Math.max(1, Math.floor(0.5 * tool.d / (dth * Math.max(rPart, 1))));          // roughing only needs every few angles: the finish pass takes the ridges
+  for (const [ki, th] of angs.entries()) {
     const geo = rotGeomAt(G0, c, th, R + 0.6);
     if (!geo) continue;
     // the height the tool tip can sit at over every x, with `lv` the extra material left
@@ -26242,13 +26287,13 @@ GEN.rotary = function (op, tool, st, part, P) {
     const zf = prof(leave);
     if (!zf) continue;                                                                  // nothing of the part under the line at this angle
     const passes = [];
-    if (rough) {
+    if (rough && ki % rstride === 0) {
       const zr = prof(rl), top = rotStockTop(st, c, th);
       for (let lvl = top - sd; lvl > Math.min(...zr) + 0.01; lvl -= sd) if (lvl < top - 0.01) passes.push(zr.map(v => Math.max(v, lvl)));
     }
     passes.push(zf);
     for (const z of passes) {
-      const line = rotSimplify(xs.map((x, i) => [x, z[i]]), 0.004), seq = dir > 0 ? line : line.slice().reverse(), z0 = seq[0][1];
+      const line = rotSimplify(xs.map((x, i) => [x, z[i]]), z === zf ? 0.004 : 0.04), seq = dir > 0 ? line : line.slice().reverse(), z0 = seq[0][1];
       if (!firstDone) {
         mk(seq[0][0], zClear, th, true); mk(seq[0][0], z0, th, true);                          // down beyond the end of the stock
         firstDone = true;
