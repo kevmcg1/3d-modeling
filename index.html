@@ -25862,6 +25862,8 @@ GEN.rotary = function (op, tool, st, part, P) {
       for (let i = 0; i < f; i++) z[i] = z[f];                                         // beyond the part's ends the profile is held
       for (let i = l + 1; i < z.length; i++) z[i] = z[l];
       for (let i = f; i < l; i++) if (z[i] == null) { let j = i; while (z[j] == null) j++; z[i] = z[i - 1] + (z[j] - z[i - 1]) / (j - i + 1); }
+      // the margin of stock beyond the part's ends is taken off down to the axis, clear of the part's end faces
+      for (let i = 0; i < z.length; i++) if (xs[i] < part.x0 - R - 0.05 || xs[i] > part.x1 + R + 0.05) z[i] = Math.min(z[i], c[2]);
       return z;
     };
     const zf = prof(leave);
