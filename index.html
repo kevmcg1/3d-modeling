@@ -5140,7 +5140,9 @@ function buildMesh(polys) {
     if (pa !== undefined && pa === Surf.list[fs[1]].patch) continue;   // inside one smooth imported patch
     const [a, b] = k.split(',').map(Number);
     // a seam where the two faces meet smoothly (fillet boundaries, tangent arcs) is not drawn
-    const smooth = [VP[a], VP[b]].every(v => dot3(Surf.normalAt(fs[0], v), Surf.normalAt(fs[1], v)) > 0.997);
+    // (a freeform corner blend only matches its neighbors to a few degrees, so it gets more slack)
+    const thr = Surf.list[fs[0]].t === 'S' || Surf.list[fs[1]].t === 'S' ? 0.93 : 0.997;
+    const smooth = [VP[a], VP[b]].every(v => dot3(Surf.normalAt(fs[0], v), Surf.normalAt(fs[1], v)) > thr);
     if (!smooth) edgePos.push(...VP[a], ...VP[b]);
     fedges.push({ a, b, fa: fs[0], fb: fs[1] });
   }
@@ -22304,12 +22306,13 @@ bpSVG = function (d) {
     const edges = b => [[b.x0, b.y0, b.x1, b.y0], [b.x1, b.y0, b.x1, b.y1], [b.x1, b.y1, b.x0, b.y1], [b.x0, b.y1, b.x0, b.y0]];
     const inB = (x, y, b) => x > b.x0 && x < b.x1 && y > b.y0 && y < b.y1;
     const segBox = (g, b) => inB(g[2], g[3], b) || edges(b).some(e => crossS(g, e));
+    const arrow = (x, y, tx, ty) => { const a = Math.atan2(ty - y, tx - x), q = (da, l) => `${f2(x + Math.cos(a + da) * l)} ${f2(y + Math.sin(a + da) * l)}`; return `<path d="M${f2(x)} ${f2(y)}L${q(0.22, 2.4)}L${q(-0.22, 2.4)}Z" fill="${INK}" stroke="none"/>`; };
     const callout = (viewK, P, text) => {
       const [px, py] = pv(viewK, P), L = tw(text, 2.7), vb = views[viewK].box, id = `c:${viewK}:${text}`, [dx, dy] = off(id);
       const mk = (ex, ey, right) => { const x0 = right ? ex + 1 : ex - 1 - L - 3, sx = right ? ex + 3 : ex - 3; return { ex, ey, right, sx, b: { x0: x0 - 0.8, y0: ey - 3.4, x1: x0 + L + 3.8, y1: ey + 1.6 }, A: [px, py, ex, ey] }; };
       const put = c => {
         boxes.push(c.b); leaders.push(c.A, [c.ex, c.ey, c.sx, c.ey]);
-        parts[viewK] += lbl(id, viewK, `<path d="M${f2(px)} ${f2(py)}L${f2(c.ex)} ${f2(c.ey)}H${f2(c.sx)}" fill="none" stroke="${INK}" stroke-width="0.15"/><circle cx="${f2(px)}" cy="${f2(py)}" r="0.45" fill="${INK}"/>` + txt(c.right ? c.sx + 0.8 : c.sx - 0.8, c.ey + 0.95, text, 2.7, c.right ? 'start' : 'end'));
+        parts[viewK] += lbl(id, viewK, `<path d="M${f2(px)} ${f2(py)}L${f2(c.ex)} ${f2(c.ey)}H${f2(c.sx)}" fill="none" stroke="${INK}" stroke-width="0.15"/>${arrow(px, py, c.ex, c.ey)}` + txt(c.right ? c.sx + 0.8 : c.sx - 0.8, c.ey + 0.95, text, 2.7, c.right ? 'start' : 'end'));
         return true;
       };
       if (LY.l[id]) { const p0 = LY.l[id]; return put(mk(px + p0[2], py + p0[3], p0[2] >= 0)); }   // placed by hand: where it was put
@@ -22328,9 +22331,11 @@ bpSVG = function (d) {
       }
       return best ? put(best) : false;
     };
+    let diaN = 0;
     for (const g of D.dia) {
       const m0 = g.members[0], view = BP_ROUNDVIEW[g.ax], o1 = ['X', 'Z', 'D'].filter(a => a !== g.ax);
-      const rim = add3(m0.c3, [0, 1, 2].map(i => (BP_AX[o1[0]][i] + BP_AX[o1[1]][i]) * m0.r * Math.SQRT1_2));
+      const th = [45, 135, -45, -135, 90, 0, 180, -90][diaN++ % 8] * Math.PI / 180;       // each size at its own angle round the circle
+      const rim = add3(m0.c3, [0, 1, 2].map(i => (BP_AX[o1[0]][i] * Math.cos(th) + BP_AX[o1[1]][i] * Math.sin(th)) * m0.r));
       const text = `${g.members.length > 1 ? g.members.length + '× ' : ''}Ø${bpNum(g.d)}${g.hole ? (g.thru ? ' THRU' : ` × ${bpNum(g.depth)} DEEP`) : ''}`;
       if (callout(view, rim, text)) placed.dia.push(g);
     }
@@ -22361,7 +22366,7 @@ bpSVG = function (d) {
   svg += small(tx + 2, ty + 3.6, 'TITLE') + big(tx + 2, ty + 11, BP.title || 'Untitled part', 5.2, 600);
   svg += small(tx + 2, ty + 17.2, 'UNITS') + big(tx + 2, ty + 22, isIn() ? 'INCHES' : 'MILLIMETERS', 3);
   svg += small(c1 + 2, ty + 17.2, 'SCALE') + big(c1 + 2, ty + 22, bpScaleTxt(sc), 3);
-  svg += small(c2 + 2, ty + 17.2, 'SHEET') + big(c2 + 2, ty + 22, sheetK === 'ANSI A' ? 'LETTER' : sheetK, 3);
+  svg += small(c2 + 2, ty + 17.2, 'SHEET') + big(c2 + 2, ty + 22, `${sheetK === 'ANSI A' ? 'LETTER' : sheetK} (${/^ANSI/.test(sheetK) ? [SW, SH].map(v => +(v / 25.4).toFixed(1)).join(' × ') + ' in' : SW + ' × ' + SH + ' mm'})`, 2.6);
   svg += small(tx + 2, ty + 27.2, 'DIMENSIONS') + big(tx + 2, ty + 32, 'Ordinate from X0 Y0 Z0', 2.6);
   svg += small(c1 + 2, ty + 27.2, 'DATE') + big(c1 + 2, ty + 32, new Date().toISOString().slice(0, 10), 3);
   svg += small(c2 + 2, ty + 27.2, 'PROJECTION') + big(c2 + 2, ty + 32, '3rd angle', 3);
@@ -22513,6 +22518,7 @@ openBlueprint = function () {
 };
 </script>
 <style>
+.bp-stage3 #bpPage, .bp-stage3 #bpPage * { user-select: none; -webkit-user-select: none; }
 .bp-stage.bp-stage3 { overflow: hidden; display: block; padding: 0; cursor: grab; background: #2a2d33; }
 .bp-stage.bp-stage3.grabbing { cursor: grabbing; }
 .bp-stage3 #bpPage { position: absolute; left: 0; top: 0; transform-origin: 0 0; box-shadow: 0 8px 30px rgba(0,0,0,.45); }
