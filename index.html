@@ -5926,10 +5926,19 @@ function resolveProfiles(f, arr) {
   });
   return [...out];
 }
-function sketchPlane(f, ctx) {
+// A sketch's plane before any turn: its reference or plane, the sketch origin, a whole-sketch move.
+function sketchPlaneBase(f, ctx) {
   const b0 = resolvePlane(f.ref, f.plane, ctx), o = f.org || { x: 0, y: 0 };
   const b = f.mv ? { ...b0, o: add3(b0.o, f.mv) } : b0;               // a whole-sketch move (3D)
   return (o.x || o.y) ? { ...b, o: add3(b.o, add3(mul3(b.u, o.x), mul3(b.v, o.y))) } : b;
+}
+// q is a rigid motion of the whole sketch in space (what the gizmo's arrows and rings leave):
+// a rotation R (row-major 3×3) and a move t, applied to the plane. Curves stay in plane coordinates.
+const qVec = (R, v) => [R[0] * v[0] + R[1] * v[1] + R[2] * v[2], R[3] * v[0] + R[4] * v[1] + R[5] * v[2], R[6] * v[0] + R[7] * v[1] + R[8] * v[2]];
+const qPlane = (pl, q) => ({ ...pl, o: add3(qVec(q.R, pl.o), q.t), u: qVec(q.R, pl.u), v: qVec(q.R, pl.v), n: qVec(q.R, pl.n) });
+function sketchPlane(f, ctx) {
+  const b = sketchPlaneBase(f, ctx);
+  return f.q ? qPlane(b, f.q) : b;
 }
 function evalFeature(f, ctx, tol) {
   if (typeof FEATX !== 'undefined' && FEATX[f.type]) { FEATX[f.type](f, ctx, tol); return; }
@@ -7154,10 +7163,11 @@ FEATX.gear = evalGear;
 //  CAM kernel (runs in the worker): drop-cutter for 3D finishing.
 //  CAM frame: X = world x, Y = −world z, Z = world y (spindle axis up).
 // ═══════════════════════════════════════════════════════════════════
-function camTriangles(posArrays) {
-  const T = [];
+// B: optional tool-axis frame {u, v, w} (3+2): the mesh is turned so w points straight up.
+function camTriangles(posArrays, B) {
+  const T = [], loc = B ? p => [B.u[0] * p[0] + B.u[1] * p[1] + B.u[2] * p[2], B.v[0] * p[0] + B.v[1] * p[1] + B.v[2] * p[2], B.w[0] * p[0] + B.w[1] * p[1] + B.w[2] * p[2]] : p => p;
   for (const pos of posArrays) for (let i = 0; i < pos.length; i += 9) {
-    const a = [pos[i], -pos[i + 2], pos[i + 1]], b = [pos[i + 3], -pos[i + 5], pos[i + 4]], c = [pos[i + 6], -pos[i + 8], pos[i + 7]];
+    const a = loc([pos[i], -pos[i + 2], pos[i + 1]]), b = loc([pos[i + 3], -pos[i + 5], pos[i + 4]]), c = loc([pos[i + 6], -pos[i + 8], pos[i + 7]]);
     const n = crs3(sub3(b, a), sub3(c, a)), L = len3(n);
     if (L < 1e-12) continue;
     T.push({ a, b, c, n: mul3(n, 1 / L), x0: Math.min(a[0], b[0], c[0]), x1: Math.max(a[0], b[0], c[0]), y0: Math.min(a[1], b[1], c[1]), y1: Math.max(a[1], b[1], c[1]), z1: Math.max(a[2], b[2], c[2]) });
@@ -7242,7 +7252,7 @@ function dropCutter(G, x, y, R, ball, stamp, floor = -Infinity) {
 }
 // Raster finishing path. params: {R, ball, x0, x1, y0, y1, stepover, step, zmin, leave, angle}
 function camParallel(posArrays, P) {
-  const G = binTriangles(camTriangles(posArrays), Math.max(2 * P.R, 1));
+  const G = binTriangles(camTriangles(posArrays, P.basis), Math.max(2 * P.R, 1));
   const stamp = new Int32Array(G.T.length);
   G.q = 0;
   const cl = (x, y) => { G.q++; return Math.max(dropCutter(G, x, y, P.R, P.ball, stamp), P.zmin) + P.leave; };
@@ -8992,6 +9002,24 @@ function pick3D(x, y, o) {
     const uv = planeFrom3(pl, h.P), ri = arrOf(f).faceAt(uv);
     if (ri >= 0) consider({ kind: 'profile', sketch: f.id, pt: uv, region: ri, t: h.t - sceneR * 1e-4 - 1e-6 });
   }
+  if (o.sketches && VIS.sketches) for (const f of doc.features) {
+    if (f.type !== 'sketch' || !sketchShown(f) || f === S.sk) continue;
+    const pl = planeOf(f), tol = tolForZoom(), m = P2(x, y);
+    let bd = 8, bp = null;
+    for (const e of f.ents) {
+      if (e.cons) continue;
+      const q = entPoints(e, tol).map(pt => planeTo3(pl, pt));
+      for (let i = 0; i + 1 < q.length; i++) {
+        const a = toScreen(q[i]), b = toScreen(q[i + 1]), d = segDist(m, a, b);
+        if (d < bd) { bd = d; bp = q[i]; }
+      }
+    }
+    if (bp) {
+      // a curve behind a solid cannot be picked; one in front of (or on) the solid beats the faces, planes and profiles around it
+      const ct = dot3(sub3(bp, A3(rc.ray.origin)), A3(rc.ray.direction)), bh = bodyMeshes.length && bodyGroup.visible ? rc.intersectObjects(bodyMeshes.map(b => b.me), false)[0] : null;
+      if (!bh || ct < bh.distance + sceneR * 2e-3 + 1e-4) consider({ kind: 'sketch', sketch: f.id, t: -1e12 + ct });
+    }
+  }
   if (o.faces && bodyMeshes.length && bodyGroup.visible) {
     const hit = rc.intersectObjects(bodyMeshes.map(b => b.me), false)[0];
     if (hit) {
@@ -9281,7 +9309,7 @@ function solidMove(x, y) {
   if (UIX.ws === 'cam') { camMove(x, y); return; }
   if (!CMD) { const e = pickEdge(x, y, visibleBodies(), 7); if (e) { setHover3D({ kind: 'edge', body: e.body.id, ch: e.ch, mesh: e.mesh }); ov.className = 'pointer'; return; } }
   let o;
-  if (!CMD) o = { profiles: true, faces: true, planes: true };
+  if (!CMD) o = { profiles: true, faces: true, planes: true, sketches: true };
   else if (CMD.type === 'pickPlane' || CMD.type === 'offset') o = { faces: true, planes: true, planarOnly: true };
   else if (CMD.type === 'extrude' && CMD.f.extent === 'to') { extToHover(x, y); return; }
   else o = { profiles: true };
@@ -9621,6 +9649,8 @@ const IC = {
   camdrill: '<path d="M10 2v11l-2 2 2 3 2-3-2-2"/><path d="M5 17h10" opacity=".5"/>',
   cammill: '<path d="M8 2h4v7l1.5 2v3h-7v-3L8 9z"/><path d="M4 17h12" opacity=".5"/><path d="M8 5h4" opacity=".5"/>',
   polyline3: '<path d="M3 15l4-8 4 5 6-9"/><circle cx="3" cy="15" r="1.3"/><circle cx="7" cy="7" r="1.3"/><circle cx="11" cy="12" r="1.3"/><circle cx="17" cy="3" r="1.3"/>',
+  camtilt: '<path d="M3 15l9-7 5 4-9 5z"/><path d="M14 2v6M12 6l2 2 2-2" opacity=".8"/><path d="M3 17h14" opacity=".4"/>',
+  camtilt3: '<path d="M3 15c3-5 7-7 14-6"/><path d="M4 12c3-4 7-5 12-4" opacity=".5"/><path d="M13 2l2 5M12 6l3 1.5 1-3" opacity=".8"/>',
   camspot: '<path d="M10 2v8"/><path d="M7 10h6l-3 5z"/><path d="M4 17h12" opacity=".5"/><circle cx="10" cy="17" r="1.3" opacity=".7"/>',
   campeck: '<path d="M10 2v5M10 9v3" /><path d="M8 12l2 3 2-3z"/><path d="M5 17h10M6.5 14.5h7" opacity=".5" stroke-dasharray="1.6 1.4"/>',
   camtap: '<path d="M10 2v6"/><path d="M7.5 8h5v9l-2.5 1.5L7.5 17z"/><path d="M7.5 10.5h5M7.5 13h5M7.5 15.5h5" opacity=".6"/>',
@@ -9787,6 +9817,13 @@ function renderTree() {
     inp.addEventListener('input', () => setBodyColor(+inp.dataset.bcol, inp.value, true));
     inp.addEventListener('change', () => { setBodyColor(+inp.dataset.bcol, inp.value); if (before) record('Body color', before); before = null; });
   });
+  el.querySelectorAll('li[data-body]').forEach(li => li.addEventListener('click', ev => {
+    if (ev.target.closest('[data-eye], [data-bcol]') || S.sk || CMD || UIX.ws !== 'design') return;
+    const id = +li.dataset.body;
+    if (!bodyMeshOf(id)) return;
+    selProfiles.length = 0; selEdges.length = 0; sel3D = { kind: 'body', body: id };
+    rebuildHighlights(); refreshPanel(); requestDraw();
+  }));
   el.querySelectorAll('[data-f]').forEach(li => {
     const f = byId(+li.dataset.f);
     if (f && f.type === 'sketch') li.addEventListener('click', ev => { if (!ev.target.closest('[data-eye]')) selectSketch(f); });
@@ -10021,7 +10058,7 @@ function selectSketch(f) {
   const arr = arrOf(f);
   selProfiles.length = 0; sel3D = null; selEdges.length = 0;
   for (const r of arr.regions) selProfiles.push({ sketch: f.id, pt: interiorPoint(r) });
-  if (!selProfiles.length) toast(`${f.name} has no closed profiles — right-click it to move, rotate or scale it anyway.`);
+  if (!selProfiles.length) sel3D = { kind: 'sketch', sketch: f.id };        // open curves: the sketch itself is what is picked
   rebuildHighlights(); refreshPanel(); requestDraw();
 }
 // Move / rotate / scale a whole sketch: open it with every curve picked and start the live
@@ -11676,6 +11713,36 @@ function pocketFinish(op, tool, st, P, area, floor, restArea) {
   }
   if (passes) P.finish = (P.finish || 0) + passes;
 }
+// ── Tool axis ──────────────────────────────────────────────────────
+// A face or a 3D finish can run with the tool tilted (3+2): the part is turned on the rotary or
+// trunnion so the tool stands square to what it cuts, then cut like any flat job.
+const AXMODES = [['vert', 'Vertical'], ['tilt', 'Tilted'], ['face', 'Square to a face']];
+function axisFromTilt(tilt, head) { const t = tilt * Math.PI / 180, h = head * Math.PI / 180; return [Math.sin(t) * Math.cos(h), Math.sin(t) * Math.sin(h), Math.cos(t)].map(v => +v.toFixed(6)); }
+function axisBlock(op) {
+  const w = opAxis(op), mode = op.axmode || (w ? 'face' : 'vert');
+  let h = `<h3 class="sub">Tool axis</h3><div class="field"><span>The tool stands</span><div class="seg">${AXMODES.map(([k, l]) => `<button data-axmode="${k}" class="${mode === k ? 'on' : ''}" title="${k === 'vert' ? 'Straight down: an ordinary 3-axis job' : k === 'tilt' ? 'Leaning by an angle: the part is tilted under the spindle (3+2)' : 'Square to a flat face you click: that face is cut flat-on from the right side'}">${l}</button>`).join('')}</div></div>`;
+  if (mode === 'tilt') h += `<div class="row2">${num('opTilt', op.tilt == null ? 15 : op.tilt, 'Tilt from vertical (°)', 5, 'min="0" max="120"')}${num('opHead', op.head || 0, 'Leans toward (°, 0 = +X)', 15)}</div>`;
+  if (mode === 'face') h += `<div class="field"><span>Face to stand square to</span><div class="pick ${w ? '' : 'empty'}" data-axpick role="button" tabindex="0"><span>${CAMUI.pickAxis === op.id ? 'Click a flat face in the view…' : w ? 'Click to pick another face' : 'Click, then click a flat face in the view'}</span></div></div>`;
+  if (w) {
+    const pz = poseForOp(op), S = camSetup(), aw = axisWarn(op);
+    h += `<dl class="kv"><dt>Tool axis</dt><dd>${dirName([w[0], w[2], -w[1]])}</dd><dt>Part turned to</dt><dd>${pz ? pz.label : '—'}</dd><dt>Needs</dt><dd>${S ? S.name : '—'}</dd></dl>${aw ? `<p class="note err-note">${aw}</p>` : ''}`;
+  }
+  return h;
+}
+function camSetAxis(op, w, mode, extra) {
+  const before = snap();
+  if (!w) { delete op.axis; delete op.axmode; } else { op.axis = w; op.axmode = mode; }
+  Object.assign(op, extra || {});
+  record(`Edit ${op.name} tool axis`, before);
+  camRefresh();
+}
+// the flat face under the mouse, as a tool axis: its outward normal in the machine frame
+function axisOfFace(h) {
+  if (!h || h.kind !== 'face') return null;
+  const sf = Surf.list[h.fid];
+  if (!sf || sf.t !== 'P') return null;
+  return nrm3([sf.n[0], -sf.n[2], sf.n[1]]);
+}
 // ── Surface finish ─────────────────────────────────────────────────
 // The ridges a cutter leaves are arcs of its own radius R, one pitch apart: the pitch is the
 // stepover of a ball mill, or the feed per tooth along a wall. Peak to valley Rt = pitch² / 8R,
@@ -12190,14 +12257,60 @@ function facesBox(refs) {
   FACEBOX.set(key, b);
   return b;
 }
-function parallelParams(op, tool, part) {
+// ── Tool axis (3+2): a tilted tool is a vertical one in a turned frame ──
+// The frame is the tilted work plane G68.2 would set up: u, v across it, w the tool axis. A
+// toolpath is made in that frame (the part turned so w is straight up) and every point is
+// carried back to the stock frame, where the post and the simulation expect it.
+function tiltBasis(w) {
+  w = nrm3(w);
+  const al = Math.atan2(w[0], -w[1]), be = Math.acos(clamp(w[2], -1, 1)), ca = Math.cos(al), sa = Math.sin(al), cb = Math.cos(be), sb = Math.sin(be);
+  return { u: [ca, sa, 0], v: [-sa * cb, ca * cb, sb], w: [sa * sb, -ca * sb, cb] };
+}
+const tiltLoc = (B, p) => [dot3(B.u, p), dot3(B.v, p), dot3(B.w, p)];
+const tiltBack = (B, q) => add3(add3(mul3(B.u, q[0]), mul3(B.v, q[1])), mul3(B.w, q[2]));
+const boxCorners = b => { const o = []; for (const x of [b[0], b[3]]) for (const y of [b[1], b[4]]) for (const z of [b[2], b[5]]) o.push([x, y, z]); return o; };
+function tiltedBox(B, pts) {
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (const p of pts) { const q = tiltLoc(B, p); for (let i = 0; i < 3; i++) { if (q[i] < lo[i]) lo[i] = q[i]; if (q[i] > hi[i]) hi[i] = q[i]; } }
+  return [lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]];
+}
+const TILTBOX = new Map();
+// The stock and the part as boxes in the tool's frame: the part's from its own surface, so its top along w is exact.
+function tiltSetup(w, st, part) {
+  const B = tiltBasis(w), key = camEpoch + '|' + w.map(v => v.toFixed(5)).join(',');
+  let pb = TILTBOX.get(key);
+  if (!pb) {
+    if (TILTBOX.size > 40) TILTBOX.clear();
+    const g = camGeom(), G = g.fineG || g.G, pts = [];
+    if (G && G.T.length) { const seen = new Set(); for (const t of G.T) for (const v of [t.a, t.b, t.c]) { const k = v[0].toFixed(3) + ',' + v[1].toFixed(3) + ',' + v[2].toFixed(3); if (!seen.has(k)) { seen.add(k); pts.push(v); } } }
+    pb = tiltedBox(B, pts.length ? pts : boxCorners([part.x0, part.y0, part.z0, part.x1, part.y1, part.z1]));
+    TILTBOX.set(key, pb);
+  }
+  const sb = tiltedBox(B, boxCorners([st.x0, st.y0, st.z0, st.x1, st.y1, st.z1])), bx = b => ({ x0: b[0], y0: b[1], z0: b[2], x1: b[3], y1: b[4], z1: b[5] });
+  return { B, st: bx(sb), part: bx(pb) };
+}
+// back to the stock frame
+function tiltPath(P, B) {
+  P.m = P.m.map(m => { const q = tiltBack(B, [m.x, m.y, m.z]); return { ...m, x: q[0], y: q[1], z: q[2] }; });
+  if (P.m.length) { const l = P.m[P.m.length - 1]; P.cur = [l.x, l.y, l.z]; }
+  P.axis = B.w.slice();
+}
+// How far over a trunnion's travel a tool axis needs it (null if within reach).
+function axisWarn(op) {
+  const w = opAxis(op), S = w && camSetup();
+  if (!S || S.kind !== 'trunnion') return null;
+  const al = Math.atan2(Math.hypot(w[0], w[1]), w[2]) * 180 / Math.PI;
+  return al > 120.5 ? `The table would have to tilt ${Math.round(al)}°, past the +120° of a typical trunnion: turn the part over for this side (a new setup).` : null;
+}
+function parallelParams(op, tool, part, B) {
   const r = tool.d / 2, o = op.overrun ? r : 0;
   let x0 = part.x0 - o, x1 = part.x1 + o, y0 = part.y0 - o, y1 = part.y1 + o, zmin = part.z0;
   // limited to the chosen faces (fillets, slopes): no diving down walls that need no finishing
-  const b = op.faces && op.faces.length ? facesBox(op.faces) : null;
+  let b = op.faces && op.faces.length ? facesBox(op.faces) : null;
+  if (b && B) b = tiltedBox(B, boxCorners(b));
   if (b) { x0 = Math.max(x0, b[0] - r - 1); x1 = Math.min(x1, b[3] + r + 1); y0 = Math.max(y0, b[1] - r - 1); y1 = Math.min(y1, b[4] + r + 1); zmin = Math.max(zmin, b[2] - 0.5); }
   return { R: r, ball: tool.type === 'ball', x0, x1, y0, y1,
-    stepover: Math.max(0.05, op.stepover), step: Math.max(0.05, Math.min(op.stepover, r / 3, 0.5)), zmin, leave: op.leave || 0, angle: op.angle || 0 };
+    stepover: Math.max(0.05, op.stepover), step: Math.max(0.05, Math.min(op.stepover, r / 3, 0.5)), zmin, leave: op.leave || 0, angle: op.angle || 0, basis: B || null };
 }
 // Cached toolpaths, invalidated whenever the model or the op changes.
 const TP = new Map();
@@ -12213,8 +12326,11 @@ function toolpath(op) {
   let c = TP.get(op.id);
   if (c && c.key === key && c.path) return c.path;
   let res = null;
+  // a tilted tool (3+2): made in the tool's own frame, then carried back
+  const wT = (op.type === 'face' || op.type === 'parallel') && opAxis(op), T = wT ? tiltSetup(wT, st, part) : null;
+  const st2 = T ? T.st : st, part2 = T ? T.part : part;
   if (op.type === 'parallel') {
-    const prm = parallelParams(op, tool, part), pkey = camModelKey() + '|' + JSON.stringify(prm);
+    const prm = parallelParams(op, tool, part2, T && T.B), pkey = camModelKey() + '|' + JSON.stringify(prm);
     if (!c || c.pkey !== pkey) {
       const e = { pkey, res: null };
       TP.set(op.id, e); c = e;
@@ -12226,8 +12342,10 @@ function toolpath(op) {
     if (!res) { const P = new Path(op, tool); if (c.err) P.warn.push('3D toolpath failed.'); else P.pending = true; return P; }
   }
   const P = new Path(op, tool);
-  try { GEN[op.type](op, tool, st, part, P, res); } catch (e) { console.error(e); P.warn.push('Could not generate this toolpath.'); }
-  if (op.safeLinks) P.m = safeRapids(P.m, st.z1 + cam().retract);
+  try { GEN[op.type](op, tool, st2, part2, P, res); } catch (e) { console.error(e); P.warn.push('Could not generate this toolpath.'); }
+  if (T) tiltPath(P, T.B);
+  else if (op.safeLinks) P.m = safeRapids(P.m, st.z1 + cam().retract);
+  { const aw = axisWarn(op); if (aw) P.warn.push(aw); }
   if (res) P.info = `${res.lines} passes over ${res.tris.toLocaleString()} triangles · ${Math.round(res.ms || 0)} ms${op.type === 'parallel' && tool.type === 'ball' ? ` · ≈ ${fmtRa(raOf(Math.max(0.05, op.stepover), tool.d / 2))} Ra` : ''}`;
   c = TP.get(op.id) || {};
   c.key = key; c.path = P; TP.set(op.id, c);
@@ -13265,8 +13383,9 @@ function camAddOp(type, kind) {
   const C = cam(), before = snap();
   const pick = t => (C.tools.find(x => x.type === t) || C.tools[0]).n;
   const dk = type === 'drill' && DRILL_KINDS[kind];
-  const label = dk ? dk.name : OP_INFO[type].name;
-  const n = C.ops.filter(o => dk ? o.type === 'drill' && o.kind === kind : o.type === type).length + 1;
+  const tilt = kind === 'tilt' && (type === 'face' || type === 'parallel');
+  const label = dk ? dk.name : tilt ? 'Tilted ' + OP_INFO[type].name : OP_INFO[type].name;
+  const n = C.ops.filter(o => dk ? o.type === 'drill' && o.kind === kind : tilt ? o.type === type && o.axmode : o.type === type).length + 1;
   const base = { id: C.next++, type, name: label + (n > 1 ? ' ' + n : '') };
   const defs = {
     face: { tool: pick('face'), stepover: 0.7, stepdown: 1, leave: 0, pattern: 'zigzag', dir: 'auto' },
@@ -13280,6 +13399,7 @@ function camAddOp(type, kind) {
   if (type === 'chamfer' && !C.tools.some(t => t.type === 'chamfer')) op.tool = camToolOfType('chamfer', stdChamfer()[3] || 12, { cone: 90 }).n;   // a cone is what lies on the face
   if (dk) Object.assign(op, { kind, mode: dk.mode }, drillKindSetup(kind));
   else if (type === 'drill') { const hs = camHoles(), t = toolOf(op.tool); op.diams = [...new Set(hs.filter(h => Math.abs(h.d - t.d) < 0.05).map(h => +h.d.toFixed(2)))]; if (!op.diams.length) op.diams = [...new Set(hs.map(h => +h.d.toFixed(2)))]; }
+  if (tilt) { op.axmode = 'face'; CAMUI.pickAxis = op.id; toast('Click the flat face the tool should stand square to'); }
   C.ops.push(op);
   record('Add ' + op.name, before);
   CAMUI.view = 'op'; CAMUI.op = op.id;
@@ -13312,6 +13432,10 @@ function camToggleFace(op, h) {
 }
 function camMove(x, y) {
   const op = CAMUI.view === 'op' && opById(CAMUI.op);
+  if (op && CAMUI.pickAxis === op.id) {
+    const h = pick3D(x, y, { faces: true }), ok = !!axisOfFace(h);
+    setHover3D(ok ? h : null); ov.className = ok ? 'pointer' : 'default'; return;
+  }
   if (op && op.type === 'chamfer') {
     const h = pick3D(x, y, { faces: true }), ok = h && h.kind === 'face' && !!chamferEdge(h.mesh, h.fid, 'any');
     setHover3D(ok ? h : null); ov.className = ok ? 'pointer' : 'default'; return;
@@ -13331,6 +13455,13 @@ function camMove(x, y) {
 function camClick(x, y) {
   const op = CAMUI.view === 'op' && opById(CAMUI.op);
   if (!op) return;
+  if (CAMUI.pickAxis === op.id) {
+    const w = axisOfFace(pick3D(x, y, { faces: true }));
+    if (!w) { toast('Click a flat face.'); return; }
+    CAMUI.pickAxis = null;
+    camSetAxis(op, Math.abs(w[2] - 1) < 1e-4 ? null : w, 'face');
+    return;
+  }
   const h = pick3D(x, y, { faces: true });
   if (!h || h.kind !== 'face') return;
   if (op.type === 'pocket' || op.type === 'contour' || op.type === 'chamfer') camToggleFace(op, h);
@@ -13558,6 +13689,7 @@ function camPanel() {
     }
     if (op.type === 'parallel') f += `<div class="row3">${num('opSoL', op.stepover, 'Stepover', 0.05)}${num('opLeave', op.leave, 'Leave', 0.05)}<div class="field"><span>Direction</span><div class="seg"><button data-opset="angle:0" class="${!op.angle ? 'on' : ''}">X</button><button data-opset="angle:90" class="${op.angle === 90 ? 'on' : ''}">Y</button></div></div></div>
       <label class="chk"><input type="checkbox" id="opOverrun" ${op.overrun ? 'checked' : ''}> Run the tool past the part edges</label>`;
+    if (op.type === 'face' || op.type === 'parallel') f += axisBlock(op);
     { const fb = ['parallel', 'chamfer', 'contour', 'pocket'].includes(op.type) ? finishBlock(op, toolOf(op.tool)) : ''; if (fb) f += `<h3 class="sub">Surface finish</h3>${fb}`; }
     const warn = P && P.warn.length ? P.warn.map(w => `<p class="note err-note">${w}</p>`).join('') : '';
     const info = P && P.pending ? '<p class="note"><span class="spin"></span> Computing the 3D toolpath in the background…</p>' : stats ? `<dl class="kv"><dt>Cutting</dt><dd>${fmtRun(stats.feedLen)}</dd><dt>Rapids</dt><dd>${fmtRun(stats.rapidLen)}</dd><dt>Machining time</dt><dd>${fmtTime(stats.min)}</dd>${P.info ? `<dt>Detail</dt><dd>${P.info}</dd>` : ''}</dl>` : '';
@@ -13674,6 +13806,15 @@ function bindCamPanel() {
     setN('opTapJ', v => camEdit(op, 'tapJ', clamp(Math.round(v), 1, 4)));
     panel.querySelectorAll('[data-opset]').forEach(b => b.addEventListener('click', () => { const [k, v] = b.dataset.opset.split(':'); camEdit(op, k, k === 'angle' || k === 'passes' ? +v : v); }));
     panel.querySelectorAll('[data-opra]').forEach(b => b.addEventListener('click', () => camSetFinish(op, +b.dataset.opra)));
+    panel.querySelectorAll('[data-axmode]').forEach(b => b.addEventListener('click', () => {
+      const m = b.dataset.axmode;
+      if (m === 'vert') { CAMUI.pickAxis = null; camSetAxis(op, null); }
+      else if (m === 'tilt') { CAMUI.pickAxis = null; const t = op.tilt == null ? 15 : op.tilt, hd = op.head || 0; camSetAxis(op, axisFromTilt(t, hd), 'tilt', { tilt: t, head: hd }); }
+      else { op.axmode = 'face'; CAMUI.pickAxis = op.id; toast('Click the flat face the tool should stand square to'); camRefresh(); }
+    }));
+    const axp = panel.querySelector('[data-axpick]'); if (axp) axp.addEventListener('click', () => { CAMUI.pickAxis = op.id; toast('Click the flat face the tool should stand square to'); camRefresh(); });
+    setN('opTilt', v => camSetAxis(op, axisFromTilt(clamp(v, 0, 120), op.head || 0), 'tilt', { tilt: clamp(v, 0, 120) }));
+    setN('opHead', v => camSetAxis(op, axisFromTilt(op.tilt == null ? 15 : op.tilt, v), 'tilt', { head: v }));
     panel.querySelectorAll('[data-usecone]').forEach(b => b.addEventListener('click', () => camEdit(op, 'tool', +b.dataset.usecone)));
     panel.querySelectorAll('[data-addcone]').forEach(b => b.addEventListener('click', () => {
       const before = snap(), cur = toolOf(op.tool), t = { n: nextToolN(), ...toolDefaults('chamfer', cur.type === 'chamfer' ? cur.d : 12), cone: +b.dataset.addcone };
@@ -14889,6 +15030,22 @@ function sGableBlock() {
   for (const s of [-1, 1]) kHole(k, [0, s * 40, 15], [0, s, 0], 12, 25);                      // both ends
   return k.doc();
 }
+function sHipRoofBlock() {
+  const k = sampleKit();
+  kBox(k, -40, -30, 40, 30, 40);
+  for (const s of [-1, 1]) { k.slice(mPt(0, 0, 40), mDir(s * 0.5, 0, 1), 120); k.slice(mPt(0, 0, 40), mDir(0, s * 0.5, 1), 120); }   // four slopes meeting in a ridge and hips
+  kHole(k, [0, 0, 40], [0, 0, 1], 10, 14);                                                  // a port at the peak
+  for (const s of [-1, 1]) kHole(k, [s * 26, 0, 27], [s * 0.5, 0, 1], 8, 16);              // square to the two long slopes
+  return k.doc();
+}
+function sCornerFacetBlock() {
+  const k = sampleKit();
+  kBox(k, -35, -35, 35, 35, 35);
+  k.slice(mPt(35, 35, 35), mDir(1, 1, 1), 120);                                            // one corner taken off on a compound-angle plane
+  k.slice(mPt(-35, -35, 35), mDir(-1, -1, 1), 120);                                        // and the opposite one
+  kHole(k, [24, 24, 25], [1, 1, 1], 8, 14);                                                 // square to the facet
+  return k.doc();
+}
 function sKnuckleBracket() {
   const k = sampleKit();
   kBox(k, -40, -30, 40, 30, 15);
@@ -14975,6 +15132,8 @@ const SAMPLES = [
   { axes: 5, name: 'Swirl injector', make: sSwirlInjector, desc: 'Six holes leaning inward and twisting round the axis, plus a center feed — tilt and rotate to line each one up.' },
   { axes: 5, name: 'Fan-out block', make: sFanOutBlock, desc: 'Seven holes fanned across 84° from the top, plus a cross hole in the front.' },
   { axes: 5, name: 'Gable block', make: sGableBlock, desc: 'A ridge sloped 27° both ways, four holes square to the slopes and a port in each end.' },
+  { axes: 5, name: 'Hip-roof block', make: sHipRoofBlock, desc: 'Four planar slopes meeting in a ridge, each the highest thing along its own normal — face them flat-on with the part tilted — plus a port at the peak and holes square to the long slopes.' },
+  { axes: 5, name: 'Corner-facet block', make: sCornerFacetBlock, desc: 'A cube with two opposite corners taken off on compound-angle planes (a trunnion tilts A and turns C to face each one), and a hole square to a facet.' },
   { axes: 5, name: 'Knuckle bracket', make: sKnuckleBracket, desc: 'L-bracket with leaning holes in the base and compound-angle holes in the face of the upright.' },
   { axes: 6, name: 'Mushroom tee', make: sMushroomTee, desc: 'Post with a cap that overhangs both sides, holes drilled up through the underside of the cap, plus side and end ports.' },
   { axes: 6, name: 'T-slot plate', make: sTSlotPlate, desc: 'Two T-slots whose undercut roofs face down, with holes from the top, leaning beside the slots, and in an end and the front.' },
@@ -15173,6 +15332,25 @@ function autoDetect() {
     const vertical = Math.abs(t.dir[1]) > 0.999;
     return { ...t, external, nominal: iso ? iso[0] : +d.toFixed(2), label: `${iso ? 'M' + iso[0] : 'Ø' + fmtD(d)}×${+t.pitch.toFixed(2)} ${external ? 'external' : 'internal'}`, vertical };
   });
+  // sloped planes a flat tool can face square-on: planar, tilted, and the highest thing along their own normal
+  const slopes = [], incl = groups.get('incline');
+  if (incl) {
+    const allV = [];
+    for (const b of visibleBodies()) for (const v of bodyMesh(b).VP) allV.push(v);
+    for (const f of incl.faces) {
+      const sf = Surf.list[f.fid];
+      if (!sf || sf.t !== 'P') continue;
+      const tilt = Math.acos(clamp(sf.n[1], -1, 1)) * 180 / Math.PI;
+      if (tilt < 8 || tilt > 70 || faceInfo(f.mesh, f.fid).area < 40) continue;
+      let top = true;
+      for (const v of allV) if (v[0] * sf.n[0] + v[1] * sf.n[1] + v[2] * sf.n[2] > sf.d + 0.02) { top = false; break; }
+      if (!top) continue;
+      let g = slopes.find(q => dot3(q.n, sf.n) > 0.9995);
+      if (!g) slopes.push(g = { n: sf.n.slice(), faces: [] });
+      g.faces.push(f);
+    }
+    for (const g of slopes) needs.push({ d: g.n, why: 'slope' });
+  }
   // machine axes needed
   const dirs = [];
   for (const n of needs) if (!dirs.some(x => dot3(x.d, n.d) > 0.9995)) dirs.push(n);
@@ -15187,7 +15365,8 @@ function autoDetect() {
   const tilted = holeList.filter(h => !h.fromTop);
   if (tilted.length) why.push(`${tilted.length} hole${tilted.length > 1 ? 's' : ''} entering from ${[...new Set(tilted.map(h => dirName(h.entry)))].slice(0, 4).join(', ')}`);
   if (dirs.some(n => n.why === 'overhang')) why.push('faces that point downward (overhangs / undercuts)');
-  const res = { part, st, groups, holes: holeList, threads: threadList, axes, rotary, flipOnly, dirs, why, minCornerR, minConcave3D, freeform, floors, cutoutFaces };
+  if (slopes.length) why.push(`${slopes.length} sloped plane${slopes.length > 1 ? 's' : ''} the part can be tilted to face square-on`);
+  const res = { part, st, groups, slopes, holes: holeList, threads: threadList, axes, rotary, flipOnly, dirs, why, minCornerR, minConcave3D, freeform, floors, cutoutFaces };
   res.plan = autoPlan(res);
   return res;
 }
@@ -15216,6 +15395,14 @@ function autoPlan(R) {
     const tool = lib ? { n: lib.n, t: lib, isNew: false } : pick('face', isIn() ? 50.8 : 50, true);
     step({ key: 'face', type: 'face', title: 'Face the top', why: `Take ${fmtLs(R.st.z1 - R.part.z1)} off the stock down to the top of the part.`, tool, faces: R.groups.get('top') ? R.groups.get('top').faces : [],
       op: { stepover: 0.7, stepdown: Math.min(2, R.st.z1 - R.part.z1), leave: 0 }, covered: coveredBy(o => o.type === 'face') });
+  }
+  // 1b · sloped planes, faced square-on with the part tilted (3+2)
+  for (const g of R.slopes || []) {
+    const tilt = Math.round(Math.acos(clamp(g.n[1], -1, 1)) * 180 / Math.PI), from = dirName(g.n);
+    const lib = C.tools.filter(t => t.type === 'face').sort((a, b) => b.d - a.d)[0];
+    const tool = lib ? { n: lib.n, t: lib, isNew: false } : pick('face', isIn() ? 50.8 : 50, true);
+    step({ key: 'slope|' + from, type: 'face', title: `Face the ${tilt}° slope (${from}), part tilted`, why: `The part is tilted ${tilt}° so the face mill stands square to this plane and takes the stock off it flat, in layers (3+2) — a cleaner finish than raster-ing it with a ball mill.`, tool, faces: g.faces,
+      op: { stepover: 0.7, stepdown: 2, leave: 0, axis: [g.n[0], -g.n[2], g.n[1]], axmode: 'face' }, covered: null });
   }
   // 2 · pockets and steps (roughing to the floors)
   if (R.floors.length) {
@@ -20786,18 +20973,32 @@ function gzCommit(id, st, label) {
   record(label || 'Move body', before);
   modelChanged(true); refreshUI();
 }
-let gzActive = () => !S.sk && !CMD && UIX.ws === 'design' && sel3D && sel3D.kind === 'body' && !!bodyMeshOf(sel3D.body);
+// What the gizmo is on: the selected body, or the selected sketch (a click on one of its curves, or
+// on a profile of it).
+function gzSketchSel() {
+  if (sel3D && sel3D.kind === 'sketch' && byId(sel3D.sketch)) return sel3D.sketch;
+  if (!sel3D && selProfiles.length && selProfiles.every(q => q.sketch === selProfiles[0].sketch) && byId(selProfiles[0].sketch)) return selProfiles[0].sketch;
+  return null;
+}
+function gzT() {
+  if (sel3D && sel3D.kind === 'body' && bodyMeshOf(sel3D.body)) return { kind: 'body', id: sel3D.body };
+  const sk = gzSketchSel();
+  return sk != null ? { kind: 'sketch', id: sk } : null;
+}
+let gzActive = () => !S.sk && !CMD && UIX.ws === 'design' && !!gzT();
+// a sketch's gizmo always starts from nothing done, at the middle of its curves
+const gzStateSk = id => ({ t: [0, 0, 0], r: [0, 0, 0], s: 1, a: w2u(skmvCenter(byId(id), planeOf(byId(id)))), f: null });
 
 // ── the gizmo ──
 function gzGeom() {
-  const id = sel3D.body, st = GZ.drag ? GZ.drag.st : gzState(id), Pu = [st.a[0] + st.t[0], st.a[1] + st.t[1], st.a[2] + st.t[2]], Pw = u2w(Pu), c = toScreen(Pw), L = 88 / ppu();
+  const T = gzT(), id = T.id, st = GZ.drag ? GZ.drag.st : T.kind === 'sketch' ? gzStateSk(id) : gzState(id), Pu = [st.a[0] + st.t[0], st.a[1] + st.t[1], st.a[2] + st.t[2]], Pw = u2w(Pu), c = toScreen(Pw), L = 88 / ppu();
   const ax = GZ_AX.map((e, i) => { const d = u2w(e), end = toScreen(add3(Pw, mul3(d, L))); return { i, d, end }; });
   const rings = GZ.mode === 'rotate' ? ax.map(({ i, d }) => {
     const u = nrm3(Math.abs(d[1]) < 0.9 ? crs3(d, [0, 1, 0]) : crs3(d, [1, 0, 0])), v = crs3(d, u), R = L * 0.8, pts = [];
     for (let k = 0; k <= 72; k++) { const t = k / 72 * TAU; pts.push(toScreen(add3(Pw, add3(mul3(u, R * Math.cos(t)), mul3(v, R * Math.sin(t)))))); }
     return { i, d, u, v, pts };
   }) : null;
-  return { id, st, Pu, Pw, c, L, ax, rings };
+  return { id, kind: T.kind, st, Pu, Pw, c, L, ax, rings };
 }
 const segDist = (p, a, b) => { const ab = sub2(b, a), t = Math.max(0, Math.min(1, dot2(sub2(p, a), ab) / (dot2(ab, ab) || 1))); return dst2(p, add2(a, mul2(ab, t))); };
 function gzHit(x, y) {
@@ -20848,6 +21049,7 @@ const drawOverlay0 = drawOverlay;
 drawOverlay = function () { drawOverlay0(); if (!S.sk && UIX.ws === 'design') drawGizmo(); };
 // the body follows the drag without a rebuild; the Move feature is written when the button comes up
 function gzPreview(M) {
+  if (GZ.drag.kind === 'sketch') { gzPreviewSk(GZ.drag.id, M); return; }
   const bm = bodyMeshOf(GZ.drag.id); if (!bm) return;
   bm.group.matrixAutoUpdate = false; bm.group.matrix.copy(M); bm.group.matrixWorldNeedsUpdate = true;
   hlGroup.matrixAutoUpdate = false; hlGroup.matrix.copy(M); hlGroup.matrixWorldNeedsUpdate = true;
@@ -20891,7 +21093,7 @@ ov.addEventListener('pointerdown', e => {
   const h = gzHit(x, y); if (!h) return;
   e.stopImmediatePropagation(); try { ov.setPointerCapture(e.pointerId); } catch (x) { /* synthetic pointer */ }
   const g0 = gzGeom(), st0 = gzClone(g0.st);
-  GZ.drag = { id: sel3D.body, h, x0: x, y0: y, g0, st0, st: gzClone(st0), hit0: h.k === 'ring' ? rayPlane(rayAt(x, y).ray, { o: g0.Pw, n: g0.rings[h.i].d }) : null, deg: 0 };
+  GZ.drag = { id: g0.id, kind: g0.kind, h, x0: x, y0: y, g0, st0, st: gzClone(st0), hit0: h.k === 'ring' ? rayPlane(rayAt(x, y).ray, { o: g0.Pw, n: g0.rings[h.i].d }) : null, deg: 0 };
   setHover3D(null); requestDraw();
 }, true);
 ov.addEventListener('pointermove', e => {
@@ -20906,12 +21108,15 @@ ov.addEventListener('pointermove', e => {
 ov.addEventListener('pointerup', e => {
   if (!GZ.drag) return;
   e.stopImmediatePropagation();
-  const D = GZ.drag; GZ.drag = null; ptr = { down: false };
+  const D = GZ.drag; ptr = { down: false };
   const same = D.st.t.every((v, i) => v === D.st0.t[i]) && D.st.r.every((v, i) => v === D.st0.r[i]) && D.st.s === D.st0.s;
-  if (same) { gzPreview0(D.id); requestDraw(); return; }
-  gzCommit(D.id, D.st, GZ.mode === 'move' ? 'Move body' : GZ.mode === 'rotate' ? 'Rotate body' : 'Scale body');
+  const what = D.kind === 'sketch' ? 'sketch' : 'body';
+  if (same) { gzPreview0(D.id); GZ.drag = null; requestDraw(); return; }
+  GZ.drag = null;
+  const label = (GZ.mode === 'move' ? 'Move ' : GZ.mode === 'rotate' ? 'Rotate ' : 'Scale ') + what;
+  if (D.kind === 'sketch') gzCommitSk(D.id, D.st, label); else gzCommit(D.id, D.st, label);
 }, true);
-function gzPreview0(id) { const bm = bodyMeshOf(id); if (bm) bm.group.matrix.identity(); hlGroup.matrix.identity(); }
+function gzPreview0(id) { if (GZ.drag && GZ.drag.kind === 'sketch') { gzPreviewSkEnd(id); return; } const bm = bodyMeshOf(id); if (bm) bm.group.matrix.identity(); hlGroup.matrix.identity(); }
 addEventListener('keydown', e => { if (e.key === 'Escape' && GZ.pick) { GZ.pick = false; GZ.pickHover = null; requestDraw(); refreshPanel(); e.stopImmediatePropagation(); } }, true);
 
 // ── picking: a body, not a face ──
@@ -22149,7 +22354,7 @@ const FA_MAP = {
   fillet: 'border-top-left', trim: 'scissors', extend: 'arrows-left-right-to-line', offset: 'clone', mirror: 'arrows-left-right', project: 'diagram-project', cons: 'link', del: 'trash-can',
   sketch: 'pen-ruler', extrude: 'arrow-up-from-bracket', plane: 'layer-group', finish: 'check', body: 'cube', eye: 'eye', eyeoff: 'eye-slash', origin: 'crosshairs', origin2: 'location-crosshairs',
   chamfer: 'diamond', fillet3: 'circle-half-stroke', chamfer3: 'diamond', thread: 'screwdriver', point: 'circle-dot', marker: 'flag', blueprint: 'compass-drafting', measure: 'ruler',
-  camsetup: 'sliders', camtools: 'screwdriver-wrench', camface: 'grip-lines', camcontour: 'route', campocket: 'inbox', camdrill: 'arrow-down-long', cammill: 'industry', camspot: 'bullseye', campeck: 'arrows-down-to-line', camtap: 'screwdriver', camparallel: 'water', camsim: 'play', campost: 'file-code',
+  camsetup: 'sliders', camtools: 'screwdriver-wrench', camface: 'grip-lines', camcontour: 'route', campocket: 'inbox', camdrill: 'arrow-down-long', cammill: 'industry', camspot: 'bullseye', camtilt: 'arrows-rotate', camtilt3: 'rotate', campeck: 'arrows-down-to-line', camtap: 'screwdriver', camparallel: 'water', camsim: 'play', campost: 'file-code',
   import: 'file-import', auto: 'wand-magic-sparkles', export: 'file-export', autoprog: 'robot', verify: 'shield-halved', camchamfer: 'diamond', camthread: 'screwdriver',
   revolve: 'rotate', sweep: 'wave-square', loft: 'shapes', coil: 'arrows-spin', hole: 'ring', shell: 'box-open', pattern: 'table-cells', patternc: 'circle-nodes', mirror3: 'arrows-left-right',
   combine: 'object-group', move: 'up-down-left-right', rotate: 'rotate-right', scale: 'maximize', split: 'object-ungroup', create: 'plus', modify: 'pen', construct: 'ruler-combined', array: 'table-cells',
@@ -22313,7 +22518,7 @@ function skmvStart(f) {
   if (SKMV.on) skmvOK();
   selProfiles.length = 0; sel3D = null; selEdges.length = 0; hover3D = null;
   const pl0 = planeOf(f);
-  Object.assign(SKMV, { on: true, f, before: snap(), mv0: (f.mv || [0, 0, 0]).slice(), pl0, d: [0, 0, 0], from: w2u(skmvCenter(f, pl0)), fromK: 'middle of the sketch', pick: null, hover: null, drag: null, hot: null });
+  Object.assign(SKMV, { on: true, f, before: snap(), mv0: (f.q ? f.q.t : [0, 0, 0]).slice(), R0: (f.q ? f.q.R : Q_I).slice(), pl0, d: [0, 0, 0], from: w2u(skmvCenter(f, pl0)), fromK: 'middle of the sketch', pick: null, hover: null, drag: null, hot: null });
   f.vis = true;
   rebuildHighlights(); refreshPanel(); requestDraw();
   toast(`Move ${f.name}: drag an arrow, or pick the point to move from and the point to move to`);
@@ -22321,8 +22526,8 @@ function skmvStart(f) {
 // the sketch shows where it will go; the model is rebuilt from it when asked
 function skmvPreview(rebuild) {
   const f = SKMV.f;
-  f.mv = add3(SKMV.mv0, u2w(SKMV.d)).map(v => +v.toFixed(6));
-  if (f.mv.every(v => v === 0)) delete f.mv;
+  f.q = { R: SKMV.R0.slice(), t: add3(SKMV.mv0, u2w(SKMV.d)).map(v => +v.toFixed(6)) };    // a move after any turn the sketch has
+  if (f.q.t.every(v => v === 0) && f.q.R.every((v, i) => v === Q_I[i])) delete f.q;
   PLANES[f.id] = skmvPlane();
   if (rebuild) { touch(f); modelChanged(); }
   requestDraw();
@@ -22810,7 +23015,7 @@ camToolbar = function () {
   return P('Setup', [['setup', 'Setup', '', 'camsetup', v === 'setup'], ['tools', 'Tool Library', '', 'camtools', v === 'tools']], 1)
     + P('Machine', mach, 2)
     + (wire ? '' : P('Automate', [['autoprog', 'Auto Program', '', 'autoprog', v === 'report'], ['auto', 'Auto Detect', '', 'auto', v === 'auto'], ['verify', 'Verify', '', 'verify']], 1))
-    + (wire ? P('Wire EDM', [op('wire')], 1) : P('2D', D2.map(op), 2) + P('Drilling', drilling, 4) + P('3D', D3.map(op), 1) + P('Other', other.map(op), 1))
+    + (wire ? P('Wire EDM', [op('wire')], 1) : P('2D', D2.map(op), 2) + P('Drilling', drilling, 4) + P('Multi-axis', [['add:face:tilt', 'Tilted Face', '', 'camtilt'], ['add:parallel:tilt', 'Tilted Finish', '', 'camtilt3']], 2) + P('3D', D3.map(op), 1) + P('Other', other.map(op), 1))
     + P('Actions', [['sim', 'Simulate', '', 'camsim', v === 'sim'], ['post', 'Post G-code', '', 'campost', v === 'post'], ['ws:sheet', 'Setup Sheet', '', 'blueprint']], 1)
     + P('Inspect', [['measure', 'Measure', 'M', 'measure', CMD && CMD.type === 'measure']], 1);
 };
@@ -22819,6 +23024,155 @@ camAction = function (a) {
   if (a === 'ws:sheet') { setWorkspace('sheet'); return; }
   if (a.startsWith('mach:')) { if (SIM.on) simStop(); CAMUI.view = 'overview'; if ((a.slice(5) === 'wire') !== isWire()) setMachine(a.slice(5)); return; }
   camActionRb0(a);
+};
+</script>
+
+<style>
+#gzbar { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); z-index: 6; display: flex; flex-direction: column; gap: 3px; padding: 6px; background: color-mix(in srgb, var(--panel) 94%, transparent); border: 1px solid var(--rule); border-radius: 10px; box-shadow: var(--shadow); }
+#gzbar[hidden] { display: none; }
+#gzbar .gzb-t { font: 600 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding: 2px 6px 4px; }
+#gzbar button { display: flex; align-items: center; gap: 8px; border: 0; background: transparent; border-radius: 7px; padding: 6px 10px; cursor: pointer; font: 500 12.5px Inter, system-ui, sans-serif; color: var(--ink-2); text-align: left; }
+#gzbar button svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.6; }
+#gzbar button:hover { background: var(--panel-2); color: var(--ink); }
+#gzbar button.on { background: var(--accent); color: var(--accent-ink); }
+@media (max-width: 820px) { #gzbar { top: auto; bottom: 60px; transform: none; flex-direction: row; } #gzbar .gzb-t { display: none; } }
+</style>
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  Sketches as objects, like bodies. Click a sketch (one of its curves,
+//  a profile, or its row in the browser) and it gets the same gizmo a
+//  body has — arrows, rings or scale handles at the middle of its curves —
+//  and a small Move / Rotate / Scale switch at the middle of the left edge
+//  of the view, on Move to start with. The turn it leaves is stored on the
+//  sketch (q: a rotation and a move of its plane), so everything built
+//  from the sketch follows; scale is written into its curves and dimensions.
+// ═══════════════════════════════════════════════════════════════════
+const Q_I = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+const qMul = (A, B) => { const o = new Array(9); for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) o[i * 3 + j] = A[i * 3] * B[j] + A[i * 3 + 1] * B[3 + j] + A[i * 3 + 2] * B[6 + j]; return o; };
+const qClean = v => +v.toFixed(9);
+// the world matrix a gizmo drag stands for → its rotation (unit), scale and move
+function gzParts(M) {
+  const e = M.elements, s = Math.hypot(e[0], e[1], e[2]) || 1;
+  return { R: [e[0] / s, e[4] / s, e[8] / s, e[1] / s, e[5] / s, e[9] / s, e[2] / s, e[6] / s, e[10] / s], s, t: [e[12], e[13], e[14]], L: [e[0], e[4], e[8], e[1], e[5], e[9], e[2], e[6], e[10]] };
+}
+// show the sketch where the drag would put it, without rebuilding the model
+function gzPreviewSk(id, M) {
+  const D = GZ.drag, f = byId(id); if (!f) return;
+  if (!D.pl0) D.pl0 = JSON.parse(JSON.stringify(planeOf(f)));
+  const P = gzParts(M), pl = D.pl0;
+  PLANES[id] = { ...pl, o: add3(qVec(P.L, pl.o), P.t), u: qVec(P.L, pl.u), v: qVec(P.L, pl.v), n: qVec(P.R, pl.n) };
+  requestDraw();
+}
+function gzPreviewSkEnd(id) { const D = GZ.drag; if (D && D.pl0) PLANES[id] = D.pl0; requestDraw(); }
+// write a gizmo result into the sketch: st = {t, r, s, a} about the anchor a (user axes)
+function gzCommitSk(id, st, label, pl0) {
+  const f = byId(id); if (!f || gzIdentity(st)) { if (pl0) PLANES[id] = pl0; requestDraw(); return; }
+  const before = snap(), P = gzParts(gzMatrix(st)), cur = pl0 || planeOf(f), base = sketchPlaneBase(f, MODEL);
+  const R0 = f.q ? f.q.R : Q_I, Rn = qMul(P.R, R0), newO = add3(qVec(P.L, cur.o), P.t), tn = sub3(newO, qVec(Rn, base.o));
+  f.q = { R: Rn.map(qClean), t: tn.map(qClean) };
+  if (f.q.R.every((v, i) => Math.abs(v - Q_I[i]) < 1e-9) && f.q.t.every(v => Math.abs(v) < 1e-9)) delete f.q;
+  if (Math.abs(P.s - 1) > 1e-12) {                                      // scale lives in the curves: about the sketch origin, the plane origin having moved above
+    const k = P.s, sc = p => mul2(p, k);
+    f.ents = f.ents.map(e => xfEnt(e, sc, 0, k));
+    for (const d of f.dims || []) { if (d.type !== 'ang') d.value *= k; if (d.rel) d.rel = mul2(d.rel, k); }
+  }
+  touch(f); record(label, before);
+  PLANES = planesOnly().planes; modelChanged(true); refreshUI();
+}
+// a number typed in the panel: move, turn or scale by that much about the middle of the sketch
+function gzApplySk(id, how, i, v) {
+  const st = gzStateSk(id);
+  if (how === 'move') st.t[i] = fromU(v);
+  else if (how === 'turn') gzTurn(st, i, v);
+  else if (how === 'scale') { if (!(v > 0)) { toast('Scale has to be more than 0'); return; } st.s = v; }
+  gzCommitSk(id, st, how === 'move' ? 'Move sketch' : how === 'turn' ? 'Rotate sketch' : 'Scale sketch');
+}
+// ── the panel of a selected sketch ──
+const idlePanelGz0 = idlePanel;
+idlePanel = function () {
+  const T = gzT();
+  if (!T || T.kind !== 'sketch') return idlePanelGz0();
+  const f = byId(T.id), U = uName(), step = isIn() ? 0.05 : 1, arr = arrOf(f), c = w2u(skmvCenter(f, planeOf(f)));
+  const sec = (t, mode, lab) => `<div class="gz-sec"><h3>${t}</h3><button class="chip ${GZ.mode === mode ? 'on' : ''}" data-gzm="${mode}" title="${lab} in the view">${lab} in view</button></div>`;
+  const row = (attr, vals, titleOf) => `<div class="row3">${[0, 1, 2].map(i => `<input type="number" ${attr}="${i}" step="${step}" value="${vals[i]}" title="${titleOf(i)}" aria-label="${titleOf(i)}">`).join('')}</div>`;
+  return `<div class="pn-head"><h2>${xmlEsc(f.name)}</h2><span class="tag">sketch</span></div><div class="pn-body">
+    <p class="note">${f.ents.length} curve${f.ents.length === 1 ? '' : 's'}, ${arr.regions.length} closed profile${arr.regions.length === 1 ? '' : 's'}. Pick Move, Rotate or Scale at the left of the view, then drag the ${GZ.mode === 'rotate' ? 'rings' : GZ.mode === 'scale' ? 'handles' : 'arrows'} or type values below. Whatever is built from the sketch follows it.</p>
+    <div class="field"><span>Middle of the sketch (${U})</span><div class="row3">${c.map((v, i) => `<input type="number" value="${+toU(v).toFixed(4)}" readonly tabindex="-1" aria-label="Center ${'XYZ'[i]}">`).join('')}</div></div>
+    ${sec('Move', 'move', 'Arrows')}
+    <div class="field"><span>Move by (${U}) — type a distance, Enter</span>${row('data-gsk-move', [0, 0, 0], i => 'Move by ' + 'XYZ'[i])}</div>
+    ${sec('Rotate', 'rotate', 'Rings')}
+    <div class="field"><span>Turn about the middle by (°) — Enter</span>${row('data-gsk-turn', [0, 0, 0], i => 'Turn about ' + 'XYZ'[i])}</div>
+    <div class="field"><span>Turn 90° about</span><div class="row3">${[0, 1, 2].map(i => `<div class="seg"><button data-gsk-t90="${i}:-90" title="−90° about ${'XYZ'[i]}">−${'XYZ'[i]}</button><button data-gsk-t90="${i}:90" title="+90° about ${'XYZ'[i]}">+${'XYZ'[i]}</button></div>`).join('')}</div></div>
+    ${sec('Scale', 'scale', 'Handles')}
+    <div class="field"><span>Scale about the middle (×) — Enter</span><input type="number" data-gsk-scale step="0.1" value="1" aria-label="Scale factor"></div>
+    <div class="divider"></div>
+    <div class="btns"><button class="btn primary" data-gskdo="edit">Edit sketch</button>${arr.regions.length ? '<button class="btn" data-gskdo="extrude">Extrude</button>' : ''}</div>
+    <div class="btns"><button class="btn" data-gskdo="points" title="Pick any vertex of any shape or sketch to move from, then one to move to">Move between points…</button>${f.q || f.mv ? '<button class="btn" data-gskdo="reset">Put back</button>' : ''}</div>
+  </div>`;
+};
+function gzBindSk() {
+  const T = gzT(); if (!T || T.kind !== 'sketch') return;
+  const id = T.id, f = byId(id);
+  panel.querySelectorAll('[data-gzm]').forEach(b => b.addEventListener('click', () => gzSetMode(b.dataset.gzm)));
+  panel.querySelectorAll('[data-gsk-move]').forEach(inp => inp.addEventListener('change', () => { const v = +inp.value; if (Number.isFinite(v) && v) gzApplySk(id, 'move', +inp.dataset.gskMove, v); }));
+  panel.querySelectorAll('[data-gsk-turn]').forEach(inp => inp.addEventListener('change', () => { const v = +inp.value; if (Number.isFinite(v) && v) gzApplySk(id, 'turn', +inp.dataset.gskTurn, v); }));
+  panel.querySelectorAll('[data-gsk-t90]').forEach(b => b.addEventListener('click', () => { const [i, d] = b.dataset.gskT90.split(':').map(Number); gzApplySk(id, 'turn', i, d); }));
+  const sc = panel.querySelector('[data-gsk-scale]'); if (sc) sc.addEventListener('change', () => { const v = +sc.value; if (Number.isFinite(v) && Math.abs(v - 1) > 1e-9) gzApplySk(id, 'scale', 0, v); });
+  panel.querySelectorAll('[data-gskdo]').forEach(b => b.addEventListener('click', () => {
+    const d = b.dataset.gskdo;
+    if (d === 'edit') editFeature(f);
+    if (d === 'extrude') { cmdExtrude(); }
+    if (d === 'points') skmvStart(f);
+    if (d === 'reset') { const before = snap(); delete f.q; delete f.mv; touch(f); record('Put ' + f.name + ' back', before); PLANES = planesOnly().planes; modelChanged(true); refreshUI(); }
+  }));
+}
+const refreshPanelGz0 = refreshPanel;
+refreshPanel = function () { refreshPanelGz0(); if (!CMD && !S.sk && UIX.ws === 'design') gzBindSk(); gzbarSync(); };
+// the selected sketch and the one under the mouse show up in the view
+const drawEdgesGz0 = drawEdgesAndPoints;
+drawEdgesAndPoints = function () {
+  if (!S.sk) {
+    const mark = (id, col, w) => { const f = byId(id); if (f && f.type === 'sketch' && sketchShown(f)) strokeSkEnts(id, f.ents.filter(e => !e.cons).map(e => e.id), col, w); };
+    if (hover3D && hover3D.kind === 'sketch' && !(sel3D && sel3D.kind === 'sketch' && sel3D.sketch === hover3D.sketch)) mark(hover3D.sketch, COL['face-hot'], 3);
+    if (sel3D && sel3D.kind === 'sketch') mark(sel3D.sketch, COL.accent, 3.2);
+  }
+  drawEdgesGz0();
+};
+// ── Move / Rotate / Scale, at the middle of the left edge of the view ──
+const gzbar = document.createElement('div');
+gzbar.id = 'gzbar'; gzbar.hidden = true; gzbar.setAttribute('role', 'group'); gzbar.setAttribute('aria-label', 'Move, rotate or scale the selection');
+gzbar.innerHTML = '<div class="gzb-t">Transform</div>' + [['move', 'Move', 'Arrows along X, Y, Z'], ['rotate', 'Rotate', 'Rings about X, Y, Z'], ['scale', 'Scale', 'Handles to resize']].map(([k, l, t]) => `<button data-gzmode="${k}" title="${t}">${svg(k)}${l}</button>`).join('');
+document.getElementById('viewport').appendChild(gzbar);
+function gzSetMode(m) {
+  GZ.mode = m; GZ.drag = null; GZ.hot = null;
+  try { localStorage.setItem('datum.gzMode', m); } catch (e) { /* ok */ }
+  refreshPanel(); requestDraw();
+}
+gzbar.addEventListener('click', e => { const b = e.target.closest('[data-gzmode]'); if (b) gzSetMode(b.dataset.gzmode); });
+gzbar.addEventListener('pointerdown', e => e.stopPropagation());
+let gzbarKey = '';
+// a new selection starts on Move
+function gzbarSync() {
+  const on = !S.sk && !CMD && UIX.ws === 'design' && !(typeof explOn === 'function' && explOn()) && !!gzT();
+  const T = on && gzT(), key = T ? T.kind + ':' + T.id : '';
+  if (key !== gzbarKey) { gzbarKey = key; if (T && GZ.mode !== 'move') { GZ.mode = 'move'; GZ.hot = null; } }
+  gzbar.hidden = !on;
+  if (on) gzbar.querySelectorAll('[data-gzmode]').forEach(b => b.classList.toggle('on', b.dataset.gzmode === GZ.mode));
+}
+const drawOverlayGz0 = drawOverlay;
+drawOverlay = function () { gzbarSync(); drawOverlayGz0(); };
+// "Move sketch…" in the sketch's menu: pick it, with the arrows
+sketchXform = function (f, tool) {
+  if (!f || f.type !== 'sketch') return;
+  if (S.sk) finishSketch();
+  if (tool === 'smove' || tool === 'srot' || tool === 'sscale') {
+    if (CMD) cancelCmd();
+    selProfiles.length = 0; selEdges.length = 0; sel3D = { kind: 'sketch', sketch: f.id };
+    GZ.mode = tool === 'srot' ? 'rotate' : tool === 'sscale' ? 'scale' : 'move'; gzbarKey = 'sketch:' + f.id;
+    rebuildHighlights(); refreshPanel(); requestDraw();
+    return;
+  }
+  sketchXformSk0(f, tool);
 };
 </script>
 
@@ -24058,7 +24412,7 @@ function cmdPolyline(args) {
     const mo = mPt(...o), mu = mDir(...u), mv = mDir(...v);
     K.sketch({ o: mo, u: mu, v: mv, n: crs3(mu, mv) }, ents);
     const add = K.features.filter(f => !doc.features.includes(f));
-    for (const f of add) { f.name = featName(f.type); insertFeature(f); }
+    for (const f of add) { f.name = featName(f.type); if (f.type === 'sketch') f.vis = true; insertFeature(f); }
     doc.next = Math.max(doc.next, K.nid());
     label = `Sketch polyline, ${seq.length - 1} line${seq.length > 2 ? 's' : ''}`;
   } else {
@@ -24525,6 +24879,8 @@ const TIP_ART = (() => {
     'add:drill:peck': [iso(() => B()), iso(() => B() + ell(0, 0, 14, 3.5, C.hole) + line([P(0, 0, 34), P(0, 0, 22)], C.cut, 1.4, 'stroke-dasharray="3 2"') + line([P(0, 0, 22), P(0, 0, 10)], C.acc, 1.4) + poly([P(-1, 0, 30), P(1, 0, 30), P(1, 0, 20), P(0, 0, 17), P(-1, 0, 20)], '#c9a24a', C.line, 0.6))],
     'add:drill:drill': [iso(() => B()), iso(() => B() + ell(0, 0, 14, 3.5, C.hole) + line([P(0, 0, 34), P(0, 0, 14)], C.cut, 1.4, 'stroke-dasharray="3 2"') + poly([P(-1, 0, 36), P(1, 0, 36), P(1, 0, 22), P(0, 0, 19), P(-1, 0, 22)], '#c9a24a', C.line, 0.6))],
     'add:drill:tap': [iso(() => B() + ell(0, 0, 14, 2.6, C.hole)), iso(() => B() + ell(0, 0, 14, 3.4, C.hole) + [16, 19, 22].map(z => line([P(-2, 0, z), P(2, 0, z - 1)], C.acc, 1)).join('') + poly([P(-1.6, 0, 36), P(1.6, 0, 36), P(1.6, 0, 22), P(-1.6, 0, 22)], '#8f99a6', C.line, 0.6))],
+    'add:face:tilt': [iso(() => poly([P(-16, -10, 6), P(16, -10, 6), P(16, 10, 14), P(-16, 10, 14)], C.top) + box(-16, -10, 0, 32, 20, 6, 's')), iso(() => poly([P(-16, -10, 6), P(16, -10, 6), P(16, 10, 14), P(-16, 10, 14)], C.accT, C.acc) + box(-16, -10, 0, 32, 20, 6) + line([P(0, 4, 20), P(0, 0, 11)], C.cut, 1.6, 'stroke-dasharray="3 2"') + poly([P(-1.5, 5, 26), P(1.5, 5, 26), P(1.5, 2, 18), P(-1.5, 2, 18)], '#c9a24a', C.line, 0.6))],
+    'add:parallel:tilt': [iso(() => poly([P(-16, -10, 6), P(16, -10, 6), P(16, 10, 14), P(-16, 10, 14)], C.top) + box(-16, -10, 0, 32, 20, 6)), iso(() => poly([P(-16, -10, 6), P(16, -10, 6), P(16, 10, 14), P(-16, 10, 14)], C.top) + box(-16, -10, 0, 32, 20, 6) + [-6, -2, 2, 6].map(x => line([P(x, -10, 6.4), P(x, 10, 14.4)], C.acc, 1)).join(''))],
     'mach:mill': [iso(() => box(-16, -12, 0, 32, 24, 12, 's')), iso(() => box(-16, -12, 0, 32, 24, 12, 's') + cyl(4, 2, 10, 3, 18, 'a'))],
     'mach:wire': [iso(() => box(-16, -12, 0, 32, 24, 8, 's')), iso(() => box(-16, -12, 0, 32, 24, 8, 's') + line([P(-6, -6, 8.2), P(6, -6, 8.2), P(6, 6, 8.2), P(-6, 6, 8.2), P(-6, -6, 8.2)], '#c9a24a', 1.8) + line([P(6, 6, 0), P(6, 6, 20)], '#c9a24a', 1))],
     'add:chamfer': [iso(() => B() + line([P(15, -11, 14), P(15, 11, 14)], C.warn, 2.4)), iso(() => box(-15, -11, 0, 30, 22, 11) + poly([P(-15, -11, 11), P(12, -11, 11), P(12, -11, 14), P(-15, -11, 14)], C.l) + poly([P(-15, -11, 14), P(12, -11, 14), P(12, 11, 14), P(-15, 11, 14)], C.top) + poly([P(12, -11, 14), P(15, -11, 11), P(15, 11, 11), P(12, 11, 14)], C.accT, C.acc))],
@@ -24610,6 +24966,8 @@ const TIP_TXT = {
   'add:drill:peck': ['Deep holes: drill in pecks and pull out to clear the chips (G83, or G73 chip-break).', ['Pick the hole diameters.', 'Set the peck depth.']],
   'add:drill:drill': ['Straight drilling for shallow holes (G81).', ['Pick the hole diameters (or click holes).', 'Set the breakthrough past through holes.']],
   'add:drill:tap': ['Rigid tap threaded holes (G84): feed is exactly the thread pitch per turn.', ['Picks the tap that matches the tap-drilled holes.', 'Set the retract speed.']],
+  'add:face:tilt': ['Face a sloped plane flat-on: the part is tilted so the tool stands square to the face you click (3+2).', ['Click Tilted Face, then click the flat face.', 'The view shows the part turned the way the machine turns it.', 'Set stepover and depth as for any face.']],
+  'add:parallel:tilt': ['Finish a surface with the tool leaning or square to a face, so a ball mill is never cutting on its dead center (3+2).', ['Click Tilted Finish, then a flat face to stand square to; or choose Tilted and type the angle.', 'Set the stepover or a surface-finish target.']],
   'mach:mill': ['Program the part for the Haas mill.', ['Click to work in Mill mode.']],
   'mach:wire': ['Program the part for the wire EDM: openings and outside cut straight through.', ['Click to switch to Wire EDM.', 'Pick what to cut and the number of skims.']],
   'add:chamfer': ['Lie the cone of a chamfer mill flat on a sloped face: the flank cuts the whole face in one pass, at any angle.', ['Click the sloped faces (chamfers, drafts, countersinks).', 'Pick a chamfer mill with the matching cone angle.', 'Choose rough-and-finish passes and a surface-finish target.']],
