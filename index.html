@@ -14546,7 +14546,7 @@ async function runExport(key, opts = {}) {
 // ── Right-click a body (in the view or in the Bodies list) → export it on its own ──
 function bodyExportMenu(id, x, y) {
   const names = bodyNames(), nm = xmlEsc(names[id] || 'Body'), base = names[id] || 'Body';
-  const items = [{ label: `Export ${nm}…`, run: () => openExport([id]) }, null];
+  const items = [{ label: 'Move from a point…', run: () => { if (!(sel3D && sel3D.kind === 'body' && sel3D.body === id)) { sel3D = { kind: 'body', body: id }; rebuildHighlights(); } mfpStart(id); } }, null, { label: `Export ${nm}…`, run: () => openExport([id]) }, null];
   for (const g of EXPORT_FORMATS) for (const [k, n, ext] of g.list) if (k !== 'datum') items.push({ label: `Export as ${n} <small style="opacity:.55">.${ext}</small>`, run: () => runExport(k, { only: [id], base }) });
   showMenu(items, x, y);
 }
@@ -21125,6 +21125,7 @@ idlePanel = function () {
     ${gzSec('Move', 'move', 'Arrows')}
     <div class="field"><span>Position of the anchor (${U})</span><div class="row3">${[0, 1, 2].map(i => num('p' + i, toU(P[i]), step, 'XYZ'[i])).join('')}</div></div>
     <div class="field"><span>Move by (${U}) — type a distance, Enter</span><div class="row3">${[0, 1, 2].map(i => `<input type="number" data-gzby="${i}" step="${step}" value="0" title="Move by ${'XYZ'[i]}" aria-label="Move by ${'XYZ'[i]}">`).join('')}</div></div>
+    ${mfpPanel(id)}
     ${gzSec('Rotate', 'rotate', 'Rings')}
     <div class="field"><span>Rotation about the anchor (°)</span><div class="row3">${[0, 1, 2].map(i => num('r' + i, st.r[i], 15, 'About ' + 'XYZ'[i])).join('')}</div></div>
     <div class="field"><span>Turn 90° about</span><div class="row3">${[0, 1, 2].map(i => `<div class="seg"><button data-gzturn="${i}:-90" title="−90° about ${'XYZ'[i]}">−${'XYZ'[i]}</button><button data-gzturn="${i}:90" title="+90° about ${'XYZ'[i]}">+${'XYZ'[i]}</button></div>`).join('')}</div></div>
@@ -21176,9 +21177,132 @@ function gzBindPanel() {
     if (d === 'face') { sel3D = { ...sel3D, kind: 'face' }; rebuildHighlights(); refreshPanel(); requestDraw(); }
     if (d === 'gear') { const f = byId(Math.floor(id)); if (f) editFeature(f); }
   }));
+  mfpBind(id);
 }
 const refreshPanel0 = refreshPanel;
 refreshPanel = function () { refreshPanel0(); if (!CMD && !S.sk && UIX.ws === 'design') gzBindPanel(); };
+
+// ── Move from a point: pick a point on the body, then the point it should land on ──
+//    Stage 1 snaps to a vertex, edge midpoint, hole or face center of THIS body; stage 2 to any point
+//    (another body, a construction point, the origin) or typed coordinates. The body follows the cursor
+//    as a preview and the result is an ordinary Move feature.
+const MFP = { on: false };
+function mfpStart(id) {
+  GZ.pick = false; GZ.pickHover = null;
+  Object.assign(MFP, { on: true, id, stage: 'from', from: null, hover: null, to: null });
+  toast('Move from a point — click the point on this part to move from (vertex, edge midpoint, hole or face center) · Esc to cancel');
+  ov.className = 'pointer'; refreshPanel(); requestDraw();
+}
+function mfpEnd() {
+  if (!MFP.on) return;
+  const id = MFP.id; MFP.on = false; MFP.hover = null; MFP.from = null; MFP.to = null;
+  gzPreview0(id); ov.className = 'default'; refreshPanel(); requestDraw();
+}
+function mfpPick(x, y) {
+  const bodies = MFP.stage === 'from' ? MODEL.bodies.filter(b => b.id === MFP.id) : MODEL.bodies;
+  const m = P2(x, y), depth = surfaceDepthAt(x, y);
+  let best = null;
+  for (const kp of allKeyPoints(bodies)) {
+    if (MFP.stage === 'from' && kp.k === 'point') continue;
+    const d = dst2(toScreen(kp.P), m);
+    if (d > 12 || (best && d >= best.d)) continue;
+    if (viewDepth(kp.P) > depth + Math.max(sceneR * 0.004, 2 / ppu())) continue;
+    best = { d, kp };
+  }
+  if (best) return { P: best.kp.P, k: best.kp.k };
+  if (MFP.stage === 'to') { const hp = pick3D(x, y, { faces: true }); if (hp && hp.point) return { P: hp.point, k: 'face-point' }; }
+  return null;
+}
+function mfpPreview(toU) {
+  const bm = bodyMeshOf(MFP.id); if (!bm) return;
+  const d = u2w([toU[0] - MFP.from[0], toU[1] - MFP.from[1], toU[2] - MFP.from[2]]), M = new THREE.Matrix4().makeTranslation(d[0], d[1], d[2]);
+  bm.group.matrixAutoUpdate = false; bm.group.matrix.copy(M); bm.group.matrixWorldNeedsUpdate = true;
+  hlGroup.matrixAutoUpdate = false; hlGroup.matrix.copy(M); hlGroup.matrixWorldNeedsUpdate = true;
+}
+function mfpApply(toU) {
+  const id = MFP.id, from = MFP.from.slice();
+  const d = [toU[0] - from[0], toU[1] - from[1], toU[2] - from[2]];
+  if (Math.hypot(...d) < 1e-9) { toast('That is where it already is.'); mfpEnd(); return; }
+  MFP.on = false; MFP.hover = null; gzPreview0(id);
+  const st = gzState(id); st.t = [st.t[0] + d[0], st.t[1] + d[1], st.t[2] + d[2]];
+  gzCommit(id, st, 'Move from a point');
+  ov.className = 'default';
+  toast(`Moved by ${fmtLs(d[0])}, ${fmtLs(d[1])}, ${fmtLs(d[2])}`);
+}
+function mfpPanel(id) {
+  const U = uName(), step = isIn() ? 0.05 : 1;
+  if (!(MFP.on && MFP.id === id)) return `<div class="btns"><button class="btn" data-mfp="start" title="Pick a point on this part, then the point it should land on">Move from a point…</button></div>`;
+  const f = MFP.from, to = MFP.to || f || [0, 0, 0];
+  const row = (k, v) => `<div class="row3">${[0, 1, 2].map(i => `<input type="number" data-mfpv="${k}${i}" step="${step}" value="${+toU(v[i]).toFixed(4)}" title="${'XYZ'[i]}" aria-label="${k} ${'XYZ'[i]}">`).join('')}</div>`;
+  return `<div class="mfp-box"><div class="mfp-h">Move from a point</div>
+    <div class="mfp-step ${MFP.stage === 'from' ? 'act' : 'done'}"><b>1</b> ${f ? `From <span class="mono">${[0, 1, 2].map(i => fmtLs(f[i])).join(' · ')}</span>` : 'Click the point on this part to move from'}</div>
+    <div class="mfp-step ${MFP.stage === 'to' ? 'act' : ''}"><b>2</b> Click where it should land${f ? '' : ' (after the first point)'}</div>
+    ${f ? `<div class="field"><span>…or type the destination (${U})</span>${row('t', to)}</div>
+    <div class="btns"><button class="btn primary" data-mfp="apply">Move there</button><button class="btn" data-mfp="origin" title="Land the point on the origin">To the origin</button></div>` : ''}
+    <div class="btns"><button class="btn" data-mfp="again" ${f ? '' : 'disabled'}>Pick the first point again</button><button class="btn" data-mfp="cancel">Cancel</button></div></div>`;
+}
+function mfpBind(id) {
+  panel.querySelectorAll('[data-mfp]').forEach(b => b.addEventListener('click', () => {
+    const a = b.dataset.mfp;
+    if (a === 'start') mfpStart(id);
+    else if (a === 'cancel') mfpEnd();
+    else if (a === 'again') { MFP.stage = 'from'; MFP.from = null; MFP.to = null; gzPreview0(id); refreshPanel(); requestDraw(); }
+    else if (a === 'origin') { if (MFP.from) mfpApply([0, 0, 0]); }
+    else if (a === 'apply') { if (!MFP.from) return; const v = [0, 1, 2].map(i => { const e = panel.querySelector(`[data-mfpv="t${i}"]`); return e ? fromU(+e.value) : 0; }); if (v.every(Number.isFinite)) mfpApply(v); }
+  }));
+  panel.querySelectorAll('[data-mfpv]').forEach(inp => inp.addEventListener('input', () => {
+    if (!MFP.from) return;
+    const v = [0, 1, 2].map(i => { const e = panel.querySelector(`[data-mfpv="t${i}"]`); return e ? fromU(+e.value) : 0; });
+    if (v.every(Number.isFinite)) { MFP.to = v; mfpPreview(v); requestDraw(); }
+  }));
+}
+ov.addEventListener('pointerdown', e => {
+  if (!MFP.on || e.button !== 0 || e.altKey || UIX.ws !== 'design') return;
+  const { x, y } = local(e);
+  e.stopImmediatePropagation();
+  const h = mfpPick(x, y);
+  if (!h) { toast(MFP.stage === 'from' ? 'Click a vertex, edge midpoint, hole or face center on the part.' : 'Click a point — or type the destination in the panel.'); return; }
+  const P = w2u(h.P);
+  if (MFP.stage === 'from') {
+    MFP.from = P; MFP.stage = 'to'; MFP.hover = null; MFP.to = null;
+    toast('Now click where that point should land — a point on another part, or type it in the panel');
+    refreshPanel(); requestDraw();
+  } else mfpApply(P);
+}, true);
+ov.addEventListener('pointermove', e => {
+  if (!MFP.on) return;
+  const { x, y } = local(e);
+  if (!(e.buttons & 7)) e.stopImmediatePropagation();
+  const h = mfpPick(x, y);
+  MFP.hover = h; ov.className = h ? 'pointer' : 'default';
+  if (MFP.stage === 'to' && MFP.from) { if (h) mfpPreview(w2u(h.P)); else gzPreview0(MFP.id); }
+  requestDraw();
+}, true);
+addEventListener('keydown', e => { if (e.key === 'Escape' && MFP.on) { e.stopImmediatePropagation(); mfpEnd(); } }, true);
+// the glyphs, the leader and the distance
+const drawOverlay1 = drawOverlay;
+drawOverlay = function () {
+  drawOverlay1();
+  if (!MFP.on || S.sk || UIX.ws !== 'design') return;
+  og.save();
+  if (MFP.from) {
+    const a = toScreen(u2w(MFP.from)); kpGlyph(u2w(MFP.from), 'vertex', COL.accent, true);
+    const tgt = MFP.hover ? MFP.hover.P : null;
+    if (tgt) {
+      const b = toScreen(tgt), d = sub3(w2u(tgt), MFP.from);
+      og.strokeStyle = COL.accent; og.lineWidth = 1.6; og.setLineDash([6, 4]); og.beginPath(); og.moveTo(a.x, a.y); og.lineTo(b.x, b.y); og.stroke(); og.setLineDash([]);
+      og.fillStyle = COL.ink; og.font = '600 12px Inter, system-ui, sans-serif'; og.fillText(`Δ ${fmtLs(d[0])} · ${fmtLs(d[1])} · ${fmtLs(d[2])}`, b.x + 12, b.y - 10);
+    }
+  }
+  if (MFP.hover) kpGlyph(MFP.hover.P, MFP.hover.k === 'face-point' ? 'face' : MFP.hover.k, COL.accent, true);
+  og.restore();
+};
+// a different selection ends it
+const refreshPanel1 = refreshPanel;
+refreshPanel = function () { if (MFP.on && !(sel3D && sel3D.kind === 'body' && sel3D.body === MFP.id)) { MFP.on = false; MFP.hover = null; if (bodyMeshOf(MFP.id)) gzPreview0(MFP.id); } refreshPanel1(); };
+const mfpStyle = document.createElement('style');
+mfpStyle.textContent = '.mfp-box { border: 1px solid var(--accent); background: var(--accent-soft); border-radius: 9px; padding: 10px 12px; margin: 6px 0 10px; display: flex; flex-direction: column; gap: 8px; } .mfp-h { font-weight: 600; font-size: 12.5px; } .mfp-step { font-size: 12px; color: var(--ink-2); display: flex; gap: 8px; align-items: baseline; } .mfp-step b { width: 18px; height: 18px; border-radius: 50%; background: var(--rule); color: var(--ink); font-size: 11px; display: inline-flex; align-items: center; justify-content: center; flex: none; } .mfp-step.act { color: var(--ink); font-weight: 600; } .mfp-step.act b { background: var(--accent); color: #fff; } .mfp-step.done b { background: var(--ink-2); color: var(--panel); } .mfp-box .btns { margin: 0; } .mfp-box .row3 input { width: 100%; }';
+document.head.appendChild(mfpStyle);
 
 // ── the Select switch in the view ──
 const renderVis0 = renderVis;
