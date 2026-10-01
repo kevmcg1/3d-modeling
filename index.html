@@ -14833,6 +14833,102 @@ function sYoke() {
   kHole(k, [0, 16, 0], nrm3([0.4, 0, -1]), 8, 12);                                 // tilted from underneath, clear of the X bore
   return k.doc();
 }
+
+// ── More multi-axis samples ─────────────────────────────────────────
+function sFlattedRotor() {
+  const k = sampleKit(), R = 20, cz = 20;
+  kBarX(k, R, cz, 110);
+  for (const sy of [-1, 1]) k.slice(mPt(0, sy * 15, cz), mDir(0, sy, 0), 80);              // two wrench flats down the length
+  kHole(k, [-35, 0, cz + R], [0, 0, 1], 6, R + 2);                                          // top
+  kHole(k, [0, 15, cz], [0, 1, 0], 8, 31);                                                   // square to a flat, right through
+  for (const deg of [60, 240]) {                                                             // radial, between the flats
+    const a = deg * Math.PI / 180, n = [0, Math.cos(a), Math.sin(a)];
+    kHole(k, [30, R * n[1], cz + R * n[2]], n, 5, 12);
+  }
+  return k.doc();
+}
+function sChamferedBar() {
+  const k = sampleKit(), R = 25, cz = 25, ap = R * Math.cos(Math.PI / 4);
+  kBarX(k, R, cz, 100, 4);
+  for (let i = 0; i < 4; i++) {                                                              // corners broken at 45° about the bar's axis
+    const a = (45 + i * 90) * Math.PI / 180, n = [0, Math.cos(a), Math.sin(a)];
+    k.slice(mPt(0, 21 * n[1], cz + 21 * n[2]), mDir(...n), 80);
+    kHole(k, [25, 21 * n[1], cz + 21 * n[2]], n, 5, 10);                                      // a hole square to each chamfer
+  }
+  for (let i = 0; i < 4; i++) {                                                              // and one through each flat
+    const a = i * Math.PI / 2, n = [0, Math.cos(a), Math.sin(a)];
+    kHole(k, [-30, ap * n[1], cz + ap * n[2]], n, 8, 12);
+  }
+  return k.doc();
+}
+function sSwirlInjector() {
+  const k = sampleKit();
+  k.extrude(k.sketch(k.XZ, [k.C(0, 0, 30)], { k: 'origin', w: 'XZ' }), [P2(0, 0)], 40, 'new');
+  for (let i = 0; i < 6; i++) {                                                              // leaning inward and twisting round the axis
+    const a = i * Math.PI / 3, r = [Math.cos(a), Math.sin(a)], t = [-r[1], r[0]];
+    kHole(k, [22 * r[0], 22 * r[1], 40], [0.3 * r[0] + 0.45 * t[0], 0.3 * r[1] + 0.45 * t[1], 1], 5, 28);
+  }
+  kHole(k, [0, 0, 40], [0, 0, 1], 10, 30);
+  return k.doc();
+}
+function sFanOutBlock() {
+  const k = sampleKit();
+  kBox(k, -45, -25, 45, 25, 40);
+  for (let i = 0; i < 7; i++) {                                                              // a fan of holes in the XZ plane, 14° apart
+    const th = (i - 3) * 14 * Math.PI / 180;
+    kHole(k, [(i - 3) * 12, 0, 40], [Math.sin(th), 0, Math.cos(th)], 5, 28);
+  }
+  kHole(k, [0, -25, 20], [0, -1, 0], 10, 20);
+  return k.doc();
+}
+function sGableBlock() {
+  const k = sampleKit();
+  kBox(k, -40, -40, 40, 40, 40);
+  for (const s of [-1, 1]) k.slice(mPt(0, 0, 40), mDir(s * 0.5, 0, 1), 120);              // a ridge, sloped 27° both ways
+  for (const s of [-1, 1]) for (const y of [-20, 20]) kHole(k, [s * 20, y, 30], [s * 0.5, 0, 1], 8, 20);   // square to each slope
+  for (const s of [-1, 1]) kHole(k, [0, s * 40, 15], [0, s, 0], 12, 25);                      // both ends
+  return k.doc();
+}
+function sKnuckleBracket() {
+  const k = sampleKit();
+  kBox(k, -40, -30, 40, 30, 15);
+  kJoin(k, 15, k.rect(-40, -30, -20, 30), [P2(-30, 0)], 45);                                 // upright
+  for (const y of [-20, 20]) kHole(k, [10, y, 15], [0.3, 0, 1], 8, 15);                      // leaning base holes
+  for (const y of [-15, 15]) kHole(k, [-20, y, 40], [1, y > 0 ? 0.25 : -0.25, 0.35], 8, 18);   // compound holes in the upright's face
+  kHole(k, [-30, 0, 60], [0, 0, 1], 8, 20);
+  return k.doc();
+}
+function sMushroomTee() {
+  const k = sampleKit();
+  kBox(k, -10, -30, 10, 30, 50);
+  kJoin(k, 35, k.rect(-40, -30, 40, 30), [P2(0, 0)], 15);                                    // a cap overhanging both sides
+  for (const s of [-1, 1]) for (const y of [-15, 15]) kHole(k, [s * 28, y, 35], [s * 0.35, 0, -1], 8, 12);   // up into the cap, from underneath
+  kHole(k, [40, 0, 43], [1, 0, 0], 6, 20);
+  kHole(k, [0, -30, 20], [0, -1, 0], 10, 25);
+  kHole(k, [0, 0, 50], [0, 0, 1], 10, 12);
+  return k.doc();
+}
+function sTSlotPlate() {
+  const k = sampleKit();
+  kBox(k, -60, -35, 60, 35, 35);
+  kCut(k, 35, [...k.rect(-34, -36, -26, 36), ...k.rect(26, -36, 34, 36)], [P2(-30, 0), P2(30, 0)], 10);   // slots from the top
+  kCut(k, 25, [...k.rect(-40, -36, -20, 36), ...k.rect(20, -36, 40, 36)], [P2(-30, 0), P2(30, 0)], 8);    // wider underneath: T-slots
+  for (const y of [-10, 10]) kHole(k, [0, y, 35], [0, 0, 1], 8, 20);
+  for (const sx of [-1, 1]) kHole(k, [sx * 50, 0, 35], [sx * 0.35, 0, 1], 6, 18);                // leaning outward, beside the slots
+  kHole(k, [60, 0, 17], [1, 0, 0], 8, 20);
+  kHole(k, [0, -35, 17], [0, -1, 0], 8, 20);                                                   // across the others, from the front
+  return k.doc();
+}
+function sArchBridge() {
+  const k = sampleKit();
+  kBox(k, -50, -20, 50, 20, 40);
+  k.extrude(k.sketch(hPlane(-1), k.rect(-25, -21, 25, 21)), [P2(0, 0)], 26, 'cut');           // a passage underneath: its roof faces down
+  for (const s of [-1, 1]) kHole(k, [s * 12, 0, 25], [s * 0.3, 0, -1], 8, 12);               // up into the roof, leaning outward
+  for (const s of [-1, 1]) kHole(k, [s * 38, 0, 40], [0, 0, 1], 8, 25);                       // down through the legs
+  kHole(k, [50, 0, 20], [1, 0, 0], 8, 20);
+  kHole(k, [0, -20, 32], [0, -1, 0], 6, 20);
+  return k.doc();
+}
 const SAMPLES = [
   { axes: 3, name: 'Flanged boss', make: () => sampleDoc(), desc: 'Plate with a threaded boss, hex socket, fillets, a chamfer and a stepped edge — everything reachable from the top.' },
   { axes: 3, name: 'Pocketed plate', make: samplePocketPlate, desc: 'Rounded pocket with an island, a counterbored round pocket and four mounting holes.' },
@@ -14874,6 +14970,15 @@ const SAMPLES = [
   { axes: 6, name: 'Underside-tilt plate', make: sUnderTilt, desc: 'Four holes drilled up from underneath, each leaning outward a different way.' },
   { axes: 6, name: 'Shelf bracket', make: sShelfBracket, desc: 'Upright with a shelf overhanging the table, holes in the shelf, its end and the upright.' },
   { axes: 6, name: 'Gimbal yoke', make: sYoke, desc: 'U-shaped yoke with cross holes along X and Y and one tilted up from underneath.' },
+  { axes: 4, name: 'Flatted rotor shaft', make: sFlattedRotor, desc: 'Round shaft with two wrench flats, a hole square to a flat and radial holes top and underneath — one rotary setup.' },
+  { axes: 4, name: 'Chamfered square bar', make: sChamferedBar, desc: 'Square bar with its four corners broken at 45° and a hole square to every flat and every chamfer — eight directions about one axis.' },
+  { axes: 5, name: 'Swirl injector', make: sSwirlInjector, desc: 'Six holes leaning inward and twisting round the axis, plus a center feed — tilt and rotate to line each one up.' },
+  { axes: 5, name: 'Fan-out block', make: sFanOutBlock, desc: 'Seven holes fanned across 84° from the top, plus a cross hole in the front.' },
+  { axes: 5, name: 'Gable block', make: sGableBlock, desc: 'A ridge sloped 27° both ways, four holes square to the slopes and a port in each end.' },
+  { axes: 5, name: 'Knuckle bracket', make: sKnuckleBracket, desc: 'L-bracket with leaning holes in the base and compound-angle holes in the face of the upright.' },
+  { axes: 6, name: 'Mushroom tee', make: sMushroomTee, desc: 'Post with a cap that overhangs both sides, holes drilled up through the underside of the cap, plus side and end ports.' },
+  { axes: 6, name: 'T-slot plate', make: sTSlotPlate, desc: 'Two T-slots whose undercut roofs face down, with holes from the top, leaning beside the slots, and in an end and the front.' },
+  { axes: 6, name: 'Arch bridge', make: sArchBridge, desc: 'A passage underneath whose roof faces down, with holes leaning up into it, down through both legs and in the end.' },
 ];
 const AXIS_WHAT = { 3: '3-axis', 4: '4-axis (3 + one rotary)', 5: '5-axis', 6: '6-axis (robot / multi-setup)' };
 function openSamples() {
