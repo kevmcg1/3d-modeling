@@ -18440,7 +18440,7 @@ const isAng = d => d.type === 'ang';
 const dimText = (d, v) => { v = v === undefined ? d.value : v; const t = isAng(d) ? `${+(v * 180 / Math.PI).toFixed(2)}°` : (d.type === 'dia' ? 'Ø' : d.type === 'rad' ? 'R' : '') + (+toU(v).toFixed(isIn() ? 4 : 3)); return d.driven ? `(${t})` : t; };
 
 // Update Sketch: every pending value at once.
-function dimUpdate(quiet) {
+function dimUpdate(quiet, noUndo) {
   const sk = S.sk;
   if (!sk) return true;
   const pend = dimsPending(sk);
@@ -18453,7 +18453,7 @@ function dimUpdate(quiet) {
     requestDraw(); setTimeout(requestDraw, 2700);
     return false;
   }
-  pushUndo('Update sketch');
+  if (!noUndo) pushUndo('Update sketch');
   skWrite(sk, r.V, r.x);
   for (const d of pend) { d.value = d.pend; delete d.pend; }
   sketchChanged(); dimsSync(sk);
@@ -18465,8 +18465,10 @@ function dimSetPending(d, v) {
   if (!isFinite(v)) return;
   if ((d.type === 'dia' || d.type === 'rad' || d.type === 'dist') && !(v > 0)) { toast('That dimension has to be larger than zero.'); return; }
   pushUndo('Change dimension');
-  if (Math.abs(v - d.value) < 1e-9) delete d.pend; else d.pend = v;
-  refreshPanel(); refreshToolbar(); requestDraw();
+  if (Math.abs(v - d.value) < 1e-9) { delete d.pend; refreshPanel(); refreshToolbar(); requestDraw(); return; }
+  d.pend = v;
+  // a dimension drives the sketch the moment it is set (and the extrudes follow); only a conflict leaves it pending
+  if (!dimUpdate(true, true)) { refreshPanel(); refreshToolbar(); requestDraw(); }
 }
 function dimDelete(d) {
   pushUndo('Delete dimension');
