@@ -8526,12 +8526,16 @@ function planeQuad(pl, size, key) {
   m.userData = { planeKey: key, plane: pl };
   return m;
 }
+let planeSz = 0;
 function rebuildPlanes() {
   planeGroup.children.forEach(m => { m.geometry.dispose(); m.material.dispose(); m.children.forEach(c => { c.geometry.dispose(); c.material.dispose(); }); });
   planeGroup.clear(); planeMats.length = 0;
   const pick = CMD && (CMD.type === 'pickPlane' || CMD.type === 'offset' || (CMD.type === 'feat' && CMD.step === 'plane'));
   if (S.sk) return;
-  const size = Math.max(sceneR * 0.9, 40);
+  // the planes keep their size while the model grows or shrinks a little (an extrude must not resize them)
+  const want = Math.max(sceneR * 0.9, 40);
+  if (!planeSz || want > planeSz * 2 || want < planeSz / 4) planeSz = want;
+  const size = planeSz;
   if (doc.originVis !== false || pick) for (const w of ['XY', 'XZ', 'YZ']) {
     const pl = ORIGIN_PLANES[w];
     const m = planeQuad({ ...pl, o: add3(add3(pl.o, mul3(pl.u, size / 2)), mul3(pl.v, size / 2)) }, size, { k: 'origin', w });
@@ -11473,7 +11477,7 @@ function loadDoc(d, msg) {
   if (d.meshes) { for (const [id, m] of Object.entries(d.meshes)) { try { MeshStore.put(decMesh(id, m)); } catch (e) { console.warn('Bad mesh data', id, e); } } delete d.meshes; }
   if (S.sk) exitSketchMode(false);
   CMD = null; if (typeof SIM !== 'undefined' && SIM.on) simStop(); pushUndo(msg || 'Open model'); doc = d; doc.next = Math.max(doc.next || 1, ...doc.features.map(f => f.id + 1), ...doc.features.flatMap(f => (f.ents || []).map(e => e.id + 1)));
-  selProfiles.length = 0; sel3D = null;
+  selProfiles.length = 0; sel3D = null; planeSz = 0;
   if (UIX.ws === 'cam') { CAMUI.view = 'overview'; TP.clear(); }
   firstFit = true;
   MeshStore.ensure(docMeshIds(doc)).then(() => { modelChanged(true); if (UIX.ws === 'cam') camRefresh(); });
