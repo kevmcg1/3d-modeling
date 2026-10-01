@@ -13938,7 +13938,6 @@ function bindCamPanel() {
     if (d === 'post') camAction('post');
     if (d === 'auto') camAction('auto');
     if (d === 'sheet') openSetupSheet();
-    if (d === 'gcheck') { if (VERIFY.report) { try { VERIFY.report.gcode = gcodeCheckAll(); } catch (e) { toast('G-code check failed: ' + e.message); } refreshPanel(); } return; }
     if (d === 'reverify') { VERIFY.report = null; VERIFY.progress = 'Checking every move'; refreshPanel(); verifyAndFix(m => { VERIFY.progress = m; refreshPanel(); }).then(() => { if (SIM.on) { SIM.issues = verifyCached(); simMarks(); } camRefresh(); }); }
     if (d === 'endsim') { simStop(); CAMUI.view = 'overview'; camRefresh(); }
     if (d === 'delop') { const op = opById(CAMUI.op), before = snap(); C.ops.splice(C.ops.indexOf(op), 1); record('Delete ' + op.name, before); CAMUI.view = 'overview'; camRefresh(); }
@@ -16336,11 +16335,6 @@ async function verifyAndFix(progress, pre = []) {
     if (progress) progress('Measuring the finished part');
     const meas = measurePart(res);
     VERIFY.report = { time: Date.now(), counts, issues: res.issues, fixes, rounds, meas, total: res.total, ok: !res.issues.length && meas.every(m => m.ok) };
-    // the program text, read back like a control reads it, against the toolpaths
-    if (typeof gcodeCheckAll === 'function' && !isWire()) {
-      if (progress) progress('Reading the G-code back');
-      try { const gc = gcodeCheckAll(); VERIFY.report.gcode = gc; if (gc.some(x => !x.ok)) VERIFY.report.ok = false; } catch (e) { console.error(e); VERIFY.report.gcode = [{ multi: 'setup', ok: false, errors: [{ sev: 'error', msg: 'The G-code check failed: ' + e.message }], warns: [], perOp: [], stats: {}, tools: [], lines: 0 }]; VERIFY.report.ok = false; }
-    }
     return VERIFY.report;
   } finally { VERIFY.busy = false; }
 }
@@ -16388,7 +16382,6 @@ function reportPanel() {
     <div class="axis-verdict"><span class="big" style="color:var(${r.ok ? '--ok' : '--danger'})">${r.ok ? '✓' : '!'}</span><span><small><b>${r.ok ? 'Safe to run in simulation' : 'Some checks did not pass'}</b></small><small>${r.axes ? r.axes + '-axis part · ' : ''}${C.ops.filter(o => !o.sup).length} operations · ${tools} tools · ${fmtTime(r.total)}</small></span></div>
     <div class="field"><span>Checks on every move (${r.rounds.length} pass${r.rounds.length > 1 ? 'es' : ''})</span><ul class="det">${checks}</ul></div>
     ${toolDirectionsHtml()}
-    ${typeof gcodeCheckHtml === 'function' ? gcodeCheckHtml(r) : ''}
     ${r.fixes.length ? `<div class="field"><span>Corrected automatically</span><ul class="mlist">${r.fixes.map(f => `<li>${f}</li>`).join('')}</ul></div>` : ''}
     <div class="field"><span>Measured on the simulated part (±${fmtL(0.03, 4)})</span><table class="meas"><thead><tr><th>Feature</th><th>Model</th><th>Machined</th><th></th></tr></thead><tbody>${meas || '<tr><td colspan="4">Nothing to measure</td></tr>'}</tbody></table></div>
     <div class="btns"><button class="btn" data-camdo="sim">Simulate</button><button class="btn" data-camdo="post">G-code</button><button class="btn primary" data-camdo="sheet">Setup sheet</button></div>
@@ -25685,12 +25678,11 @@ function fixAutoFix(op, tool, list, changes) {
   }
 }
 // ── the Setup panel ──
-const tiltLimit = () => cam().aMax != null ? cam().aMax : (MILL_LIB[cam().mill || ''] || {}).a || 120;
+const tiltLimit = () => cam().aMax != null ? cam().aMax : 120;
 function workholdHtml() {
   const C = cam(), fx = fixOf(), L = fx ? fixLayout() : null, groups = [...new Set(Object.values(FIX_LIB).map(d => d.g))];
   const opts = `<option value="">None · stock sits on the table</option>` + groups.map(g => `<optgroup label="${g}">${Object.entries(FIX_LIB).filter(([, d]) => d.g === g).map(([k, d]) => `<option value="${k}" ${fx && fx.kind === k ? 'selected' : ''}>${d.n}</option>`).join('')}</optgroup>`).join('');
-  const M = MILL_LIB[C.mill || ''] || MILL_LIB[''];
-  let h = `<div class="field"><span>Machine travel</span><select id="millSel" aria-label="Machine travel">${Object.entries(MILL_LIB).map(([k, m]) => `<option value="${k}" ${(C.mill || '') === k ? 'selected' : ''}>${m.n}</option>`).join('')}</select></div>${M.x ? `<p class="note">The G-code check holds the program to ${fmtLs(M.x)} × ${fmtLs(M.y)} × ${fmtLs(M.z)} of travel${M.a ? ` and ${M.a}° of table tilt` : ''}.</p>` : ''}`;
+  let h = '';
   h += `<div class="field"><span>Workholding</span><select id="fixKind" aria-label="Workholding">${opts}</select></div>`;
   if (fx && L) {
     const def = L.def, P = L.P, fields = FIX_FIELDS[def.t] || [];
@@ -25706,8 +25698,6 @@ function fixSet(fn, label) {
   record(label, before); camRefresh();
 }
 function bindWorkhold() {
-  const ms = panel.querySelector('#millSel');
-  if (ms) ms.addEventListener('change', () => fixSet(C => { if (ms.value) C.mill = ms.value; else delete C.mill; }, 'Machine: ' + MILL_LIB[ms.value].n));
   const sel = panel.querySelector('#fixKind');
   if (sel) sel.addEventListener('change', () => fixSet(C => { if (sel.value) C.fix = { kind: sel.value }; else delete C.fix; }, sel.value ? 'Workholding: ' + FIX_LIB[sel.value].n : 'Workholding: none'));
   panel.querySelectorAll('[data-fixaxis]').forEach(b => b.addEventListener('click', () => fixSet(C => { C.fix.axis = b.dataset.fixaxis; }, 'Jaw direction')));
@@ -25764,420 +25754,10 @@ camDraw = function () {
 </script>
 
 
-<script>
-// ═══════════════════════════════════════════════════════════════════
-//  G-code check. The program text the post wrote is read back the way a control reads it (modal
-//  words, units, absolute / incremental, arcs, canned cycles, the table turned by A / B / C words or
-//  a tilted work plane), and what it would do is compared with the toolpaths it came from:
-//   · structure   program number, units, work offset, tool change before cutting, spindle on, feed set,
-//                 H = T, cycles cancelled, the table only turned with the tool up, program end
-//   · arithmetic  an arc whose end is not on its circle, a number the control would reject
-//   · geometry    every cut and rapid, put back into the part's own frame, lies on the toolpath (and the
-//                 toolpath on it): the same lengths, the same feeds, the same holes at the same depths
-//   · machine     the travel the program needs against the machine's, the table's tilt limit
-// ═══════════════════════════════════════════════════════════════════
-const MILL_LIB = {
-  '': { n: 'Any machine (no travel limits)', x: 0, y: 0, z: 0 },
-  mini: { n: 'Haas Mini Mill · 16 × 12 × 10 in', x: 406, y: 305, z: 254 },
-  vf2: { n: 'Haas VF-2 · 30 × 16 × 20 in', x: 762, y: 406, z: 508 },
-  vf3: { n: 'Haas VF-3 · 40 × 20 × 25 in', x: 1016, y: 508, z: 635 },
-  vf4: { n: 'Haas VF-4 · 50 × 20 × 25 in', x: 1270, y: 508, z: 635 },
-  umc500: { n: 'Haas UMC-500 · 5-axis, 20 × 16 × 16 in', x: 508, y: 406, z: 406, a: 120 },
-  umc750: { n: 'Haas UMC-750 · 5-axis, 30 × 20 × 20 in', x: 762, y: 508, z: 508, a: 120 },
-};
-function gcParse(text, opt = {}) {
-  const lines = text.split(/\r?\n/), issues = [], moves = [], ops = [], tools = [];
-  const err = (n, msg, sev = 'error') => issues.push({ ln: n + 1, sev, msg, text: lines[n] });
-  const S = { abs: true, mm: null, plane: null, wcs: null, comp: null, h: null, nextT: null, tool: null, s: 0, spin: false, cool: false, f: null, ret: null, cyc: null, pos: [null, null, null], rot: { a: 0, b: 0, c: 0 }, tilt: null, cutSince: false, plan: false, g: null };
-  const bbox = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity], rotMax = { a: [0, 0], b: [0, 0], c: [0, 0] };
-  const U = () => (S.mm === false ? 25.4 : 1);
-  let curOp = null, first = true, end = false, afterEnd = false, sawO = false, unknown = new Set(), cutsBeforeSpindle = false;
-  const addPt = p => { for (let i = 0; i < 3; i++) { if (p[i] < bbox[i]) bbox[i] = p[i]; if (p[i] > bbox[i + 3]) bbox[i + 3] = p[i]; } };
-  const push = m => { m.tool = S.tool; m.rot = { ...S.rot }; m.tilt = S.tilt ? { ...S.tilt } : null; m.op = curOp; moves.push(m); if (curOp) curOp.moves.push(m); };
-  for (let n = 0; n < lines.length; n++) {
-    const raw = lines[n].trim();
-    if (!raw) continue;
-    if (afterEnd) { err(n, 'Text after the program end'); break; }
-    if (raw === '%') { if (n > 0 && !end) err(n, 'Program ends with % before M30'); if (n > 0) afterEnd = true; continue; }
-    { let depth = 0, bad = false; for (const ch of raw) { if (ch === '(') { depth++; if (depth > 1) bad = true; } else if (ch === ')') { depth--; if (depth < 0) bad = true; } } if (bad || depth !== 0) err(n, 'Brackets in a comment: a control ends it at the first ")"'); }
-    const coms = [...raw.matchAll(/\(([^)]*)\)/g)].map(m => m[1]);
-    const code = raw.replace(/\([^)]*\)/g, '').replace(/;.*$/, '').trim().toUpperCase();
-    if (/^\(/.test(raw) && !code) {
-      const mm = /^(.+?) - (T\d+\b.*)$/.exec(coms[0] || '');
-      if (mm && !/skipped/.test(coms[0])) { curOp = { name: mm[1], tool: mm[2], ln: n + 1, moves: [] }; ops.push(curOp); }
-      continue;
-    }
-    if (!code) continue;
-    if (/^O\d+/.test(code) && !code.replace(/^O\d+/, '').trim()) { sawO = true; if (n > 2) err(n, 'Program number out of place'); continue; }
-    if (/^O\d+/.test(code)) { sawO = true; }
-    // words
-    const rest = code.replace(/^O\d+/, ''), re = /([A-Z])\s*([-+]?(?:\d+\.?\d*|\.\d+))/g, words = [], used = {};
-    let m, eaten = 0;
-    while ((m = re.exec(rest))) { words.push([m[1], parseFloat(m[2]), m[2]]); eaten += m[0].length; }
-    if (rest.replace(/([A-Z])\s*([-+]?(?:\d+\.?\d*|\.\d+))/g, '').replace(/\s+/g, '')) err(n, 'Unreadable characters in the block');
-    const G = [], M = [], val = {};
-    for (const [l, v, s] of words) {
-      if (l === 'G') G.push(+v.toFixed(1)); else if (l === 'M') M.push(v);
-      else { if (val[l] !== undefined) err(n, `Letter ${l} twice in one block`); val[l] = v; }
-    }
-    const has = k => val[k] !== undefined;
-    const u = U();
-    // modal groups
-    let motion = null, cycleG = null, doHome = false;
-    for (const g of G) {
-      if (g === 20) S.mm = false; else if (g === 21) S.mm = true;
-      else if (g === 90) S.abs = true; else if (g === 91) S.abs = false;
-      else if (g === 17 || g === 18 || g === 19) S.plane = g;
-      else if (g === 94) S.feedMode = 94; else if (g === 93) err(n, 'Inverse-time feed (G93) is not used by this post', 'warn');
-      else if (g === 40) S.comp = 40; else if (g === 41 || g === 42) { S.comp = g; err(n, 'Cutter compensation is not expected: the toolpaths are already offset', 'warn'); }
-      else if (g === 43) S.tlc = true; else if (g === 49) S.tlc = false;
-      else if (g >= 54 && g <= 59) S.wcs = g;
-      else if (g === 98 || g === 99) S.ret = g;
-      else if (g === 0 || g === 1 || g === 2 || g === 3) motion = g;
-      else if (g === 4) { /* dwell */ }
-      else if (g === 28) doHome = true;
-      else if (g === 53.1) { if (!S.tilt || !S.tilt.pending) err(n, 'G53.1 without G68.2 before it'); else S.tilt.pending = false; }
-      else if (g === 68.2) { S.tilt = { pending: true, I: val.I || 0, J: val.J || 0, K: val.K || 0, o: [val.X || 0, val.Y || 0, val.Z || 0] }; S.pos = [null, null, null]; }
-      else if (g === 69) { S.tilt = null; S.pos = [null, null, null]; }
-      else if (g === 80) { S.cyc = null; }
-      else if (g === 73 || (g >= 81 && g <= 89)) { cycleG = g; }
-      else if (g === 53) { /* machine coordinates for this block */ }
-      else unknown.add('G' + g);
-    }
-    if (G.includes(68.2) && S.tilt) { S.tilt.I = val.I || 0; S.tilt.J = val.J || 0; S.tilt.K = val.K || 0; }
-    // spindle, tools, coolant
-    if (has('T')) S.nextT = val.T;
-    for (const mc of M) {
-      if (mc === 3 || mc === 4) { S.spin = mc; if (!has('S') && !S.s) err(n, 'Spindle started with no speed (S)'); }
-      else if (mc === 5) S.spin = false;
-      else if (mc === 6) { if (S.nextT == null) err(n, 'M6 with no tool (T) named'); else { S.tool = S.nextT; if (!tools.includes(S.tool)) tools.push(S.tool); } S.h = null; S.tlc = false; S.cyc = null; S.spin = false; S.pos[2] = null; S.cutSince = false; }
-      else if (mc === 8) S.cool = true; else if (mc === 9) S.cool = false;
-      else if (mc === 30 || mc === 2) { end = true; if (S.spin) err(n, 'Program ends with the spindle on', 'warn'); if (S.cyc) err(n, 'Program ends inside a canned cycle'); }
-      else if (mc === 0 || mc === 1) { /* stop */ } else unknown.add('M' + mc);
-    }
-    if (has('S')) { S.s = val.S; if (!(val.S > 0)) err(n, 'Spindle speed is zero or negative'); }
-    if (has('F')) { S.f = val.F * u; if (!(val.F > 0)) err(n, 'Feed rate is zero or negative'); }
-    if (has('H')) {
-      if (G.includes(43)) { S.h = val.H; if (S.tool != null && val.H !== S.tool) err(n, `G43 H${val.H} while tool T${S.tool} is loaded`); }
-      else if (!G.includes(43)) err(n, 'H word without G43', 'warn');
-    }
-    // the table
-    const rotNew = {}; for (const k of ['A', 'B', 'C']) if (has(k)) rotNew[k.toLowerCase()] = val[k];
-    const turned = Object.keys(rotNew).some(k => Math.abs(rotNew[k] - S.rot[k]) > 1e-6), rot0 = { ...S.rot };
-    if (turned) {
-      if (S.cutSince && !(motion === 1 && !['X', 'Y', 'Z'].some(k => has(k)))) err(n, 'The table is turned while the tool may still be down: no Z retract (G28) since the last cut');
-      if ((motion === 1 || motion === 2 || motion === 3) && ['X', 'Y', 'Z'].some(k => has(k))) err(n, 'The table turns inside a cutting move', 'warn');
-      Object.assign(S.rot, rotNew);
-      for (const k of ['a', 'b', 'c']) { if (S.rot[k] < rotMax[k][0]) rotMax[k][0] = S.rot[k]; if (S.rot[k] > rotMax[k][1]) rotMax[k][1] = S.rot[k]; }
-      if (S.tilt) err(n, 'A / B / C words inside a tilted work plane', 'warn');
-      push({ k: 'index', ln: n + 1, rot: { ...S.rot } });
-    }
-    if (doHome) {
-      // G91 G28 Z0.: the Z axis goes home; its position is unknown until it is set again
-      S.cutSince = false; S.pos[2] = null; push({ k: 'home', ln: n + 1 });
-      if (has('X') || has('Y')) { S.pos[0] = S.pos[1] = null; }
-      continue;
-    }
-    if (G.includes(68.2)) continue;                                           // X Y Z there are the plane's origin, not a move
-    const axes = ['X', 'Y', 'Z'].filter(k => has(k));
-    // the table turning on its own while feeding (a rotary finish steps round beyond the stock's end)
-    if (turned && !axes.length && (motion === 1 || (motion == null && S.g === 1)) && !G.includes(0)) {
-      if (!(S.f > 0)) err(n, 'Rotary feed move with no feed rate (F) set');
-      if (S.pos.every(v => v != null)) push({ k: 'spin', ln: n + 1, pos: S.pos.slice(), rot0, rot1: { ...S.rot }, f: S.f });
-      S.cutSince = true;
-      continue;
-    }
-    const target = S.pos.slice();
-    for (const k of axes) {
-      const i = 'XYZ'.indexOf(k), v = val[k] * u;
-      if (G.includes(53)) continue;
-      if (S.abs) target[i] = v; else { if (S.pos[i] == null) err(n, `Incremental ${k} move from an unknown position`); else target[i] = S.pos[i] + v; }
-    }
-    // a canned cycle: the first block sets it up; a block with only X Y repeats it
-    if (cycleG != null) {
-      S.cyc = { g: cycleG, z: has('Z') ? (S.abs ? val.Z * u : S.pos[2] + val.Z * u) : S.cyc && S.cyc.g === cycleG ? S.cyc.z : null, r: has('R') ? val.R * u : S.cyc && S.cyc.r, q: has('Q') ? val.Q * u : S.cyc && S.cyc.q, p: has('P') ? val.P : 0, f: has('F') ? val.F * u : S.f, ret: S.ret };
-      if (!has('R')) err(n, `G${cycleG} without an R plane`);
-      if (S.cyc.z == null) err(n, `G${cycleG} without a depth (Z)`);
-      if (!(S.f > 0) && !has('F')) err(n, `G${cycleG} without a feed (F)`);
-      if (S.cyc.z != null && S.cyc.r != null && !(S.cyc.z < S.cyc.r)) err(n, `Cycle depth Z${(S.cyc.z / u).toFixed(3)} is not below its R plane`);
-      if (cycleG === 73 || cycleG === 83) if (!(S.cyc.q > 0) && !has('I')) err(n, `G${cycleG} without a peck depth (Q)`);
-      if (!S.ret) err(n, 'Cycle with no G98 / G99 return plane set', 'warn');
-      if (!S.spin) err(n, 'Cycle with the spindle off');
-      if (!S.tlc) err(n, 'Cycle before G43 tool length offset');
-    }
-    if (S.cyc && cycleG == null && (has('X') || has('Y')) && !motion) {
-      // repeated at the new position (Z may be given again)
-      if (has('Z') && !G.length) S.cyc.z = S.abs ? val.Z * u : S.cyc.z + val.Z * u;
-    }
-    if (S.cyc && (cycleG != null || ((has('X') || has('Y')) && motion == null))) {
-      if (first && (S.mm === null || S.wcs == null)) { err(n, 'Motion before units / work offset are set'); first = false; }
-      push({ k: 'cycle', ln: n + 1, g: S.cyc.g, x: target[0], y: target[1], z: S.cyc.z, r: S.cyc.r, q: S.cyc.q, p: S.cyc.p, f: S.cyc.f, ret: S.cyc.ret });
-      S.pos[0] = target[0]; S.pos[1] = target[1];
-      if (target[0] != null && target[1] != null) { addPt([target[0], target[1], S.cyc.z]); addPt([target[0], target[1], S.cyc.r]); }
-      S.cutSince = true;
-      continue;
-    }
-    if (motion != null) S.g = motion; else if (axes.length) motion = S.g;
-    if (S.cyc && cycleG == null && axes.length && (motion === 0 || motion === 1 || motion === 2 || motion === 3)) { err(n, 'A move while the canned cycle is still active: the cycle was not cancelled with G80', 'warn'); S.cyc = null; }
-    if (axes.length && motion == null) { err(n, 'Axis words with no motion mode set'); continue; }
-    if (!axes.length) continue;
-    if (S.mm === null || S.wcs == null) { if (first) { err(n, `Motion before ${S.mm === null ? 'units (G20 / G21)' : 'a work offset (G54)'} are set`); first = false; } }
-    if (!S.abs && S.g !== 0) err(n, 'Cutting in incremental mode', 'warn');
-    if (S.g === 1 || S.g === 2 || S.g === 3) {
-      if (!(S.f > 0)) err(n, 'Feed move with no feed rate (F) set');
-      if (!S.spin) { err(n, 'Feed move with the spindle off'); cutsBeforeSpindle = true; }
-      if (S.tool == null) err(n, 'Feed move before any tool is loaded');
-      if (!S.tlc) err(n, 'Feed move before G43 tool length offset');
-      S.cutSince = true;
-    } else if (S.spin === false && target[2] != null && S.pos[2] != null && target[2] < S.pos[2] - 1e-9 && S.tool == null) err(n, 'Moving down with no tool loaded', 'warn');
-    const from = S.pos.slice();
-    if (S.g === 2 || S.g === 3) {
-      if (S.plane !== 17 && S.plane != null) err(n, 'Arc outside the XY plane is not expected', 'warn');
-      if (from[0] == null || from[1] == null) { err(n, 'Arc from an unknown position'); }
-      else if (!(has('I') || has('J') || has('R'))) err(n, 'Arc with no center (I J) or radius (R)');
-      else {
-        const sx = from[0], sy = from[1], ex = target[0], ey = target[1], ccw = S.g === 3;
-        let cx, cy;
-        if (has('R')) {
-          const R = Math.abs(val.R * u), dx = ex - sx, dy = ey - sy, d = Math.hypot(dx, dy);
-          if (d > 2 * R + 1e-6) { err(n, 'Arc radius is smaller than half the chord'); cx = (sx + ex) / 2; cy = (sy + ey) / 2; }
-          else { const h = Math.sqrt(Math.max(0, R * R - d * d / 4)), sgn = (val.R > 0) === ccw ? 1 : -1; cx = (sx + ex) / 2 - sgn * h * dy / d; cy = (sy + ey) / 2 + sgn * h * dx / d; }
-        } else { cx = sx + (val.I || 0) * u; cy = sy + (val.J || 0) * u; }
-        const r1 = Math.hypot(sx - cx, sy - cy), r2 = Math.hypot(ex - cx, ey - cy);
-        if (Math.abs(r1 - r2) > Math.max(0.01, 0.0005 * r1)) err(n, `Arc end is ${Math.abs(r1 - r2).toFixed(4)} off its circle (start radius ${r1.toFixed(3)}, end radius ${r2.toFixed(3)})`);
-        let a0 = Math.atan2(sy - cy, sx - cx), a1 = Math.atan2(ey - cy, ex - cx), da = a1 - a0;
-        if (ccw) { while (da <= 1e-9) da += 2 * Math.PI; } else { while (da >= -1e-9) da -= 2 * Math.PI; }
-        const nseg = Math.max(4, Math.ceil(Math.abs(da) / (Math.PI / 90))), pts = [];
-        const z0 = from[2], z1 = target[2];
-        for (let q = 0; q <= nseg; q++) { const a = a0 + da * q / nseg; pts.push([cx + r1 * Math.cos(a), cy + r1 * Math.sin(a), z0 == null || z1 == null ? z1 : z0 + (z1 - z0) * q / nseg]); }
-        pts[nseg] = [ex, ey, z1];
-        for (const p of pts) if (p[2] != null) addPt(p);
-        push({ k: 'arc', ln: n + 1, g: S.g, from: from.slice(), to: target.slice(), f: S.f, pts, c: [cx, cy], r: r1 });
-      }
-    } else if (from.some(v => v == null) && S.g === 1) {
-      // a feed move from an unknown height cannot happen in a sane program
-      err(n, 'Feed move from a position that was never set');
-      push({ k: S.g === 0 ? 'rapid' : 'feed', ln: n + 1, from, to: target.slice(), f: S.f });
-    } else {
-      push({ k: S.g === 0 ? 'rapid' : 'feed', ln: n + 1, from, to: target.slice(), f: S.f });
-      if (target.every(v => v != null)) addPt(target);
-    }
-    for (let i = 0; i < 3; i++) if (target[i] != null) S.pos[i] = target[i];
-  }
-  if (!sawO && !opt.allowNoO) issues.push({ ln: 1, sev: 'warn', msg: 'No program number (O word)' });
-  if (!end) issues.push({ ln: lines.length, sev: 'error', msg: 'The program has no M30 / M2' });
-  if (lines[0] && lines[0].trim() !== '%' && !opt.noPercent) issues.push({ ln: 1, sev: 'warn', msg: 'Does not start with %' });
-  if (lines.filter(l => l.trim()).pop() !== '%' && !opt.noPercent) issues.push({ ln: lines.length, sev: 'warn', msg: 'Does not end with %' });
-  if (unknown.size) issues.push({ ln: 0, sev: 'warn', msg: 'Words this check does not know: ' + [...unknown].join(', ') });
-  const lastRot = S.rot;
-  if (Object.values(lastRot).some(v => Math.abs(v) > 1e-6)) issues.push({ ln: lines.length, sev: 'warn', msg: `The table is left turned at the end (${Object.entries(lastRot).filter(([, v]) => Math.abs(v) > 1e-6).map(([k, v]) => k.toUpperCase() + v).join(' ')})` });
-  return { issues, moves, ops, tools, bbox, rotMax, inch: S.mm === false, lines: lines.length };
-}
-// ── back into the part's own frame ──
-// p is a G-code position in mm from the work origin o; `rot` the A / B / C words in force and `tilt`
-// the tilted work plane (G68.2) if any. The table's rotation center c (machine coordinates) and kind
-// come from the setup; the inverse is written out here, not borrowed from the post.
-function gcToStock(p, rot, tilt, o, S) {
-  const abs = [p[0] + o[0], p[1] + o[1], p[2] + o[2]];
-  if (tilt) {
-    const d = Math.PI / 180, al = tilt.I * d, be = tilt.J * d, ga = tilt.K * d;
-    const ca = Math.cos(al), sa = Math.sin(al), cb = Math.cos(be), sb = Math.sin(be);
-    const u = [ca, sa, 0], v = [-sa * cb, ca * cb, sb], w = [sa * sb, -ca * sb, cb];
-    const q = ga ? [p[0] * Math.cos(ga) - p[1] * Math.sin(ga), p[0] * Math.sin(ga) + p[1] * Math.cos(ga), p[2]] : p;
-    return [o[0] + q[0] * u[0] + q[1] * v[0] + q[2] * w[0], o[1] + q[0] * u[1] + q[1] * v[1] + q[2] * w[1], o[2] + q[0] * u[2] + q[1] * v[2] + q[2] * w[2]];
-  }
-  if (!S || (!rot.a && !rot.b && !rot.c)) return abs;
-  const d = Math.PI / 180, c = S.c;
-  const rotAbout = (pt, axis, th) => {                                      // right-handed turn of pt about the line through c
-    const [x, y, z] = axis, cs = Math.cos(th), sn = Math.sin(th), C = 1 - cs, v = [pt[0] - c[0], pt[1] - c[1], pt[2] - c[2]];
-    return [c[0] + (cs + x * x * C) * v[0] + (x * y * C - z * sn) * v[1] + (x * z * C + y * sn) * v[2], c[1] + (y * x * C + z * sn) * v[0] + (cs + y * y * C) * v[1] + (y * z * C - x * sn) * v[2], c[2] + (z * x * C - y * sn) * v[0] + (z * y * C + x * sn) * v[1] + (cs + z * z * C) * v[2]];
-  };
-  // the machine turned the part by C about Z first, then tilted it by A about X (a trunnion), or by A / B alone (a rotary): undo in reverse
-  let q = abs;
-  if (S.kind === 'trunnion') { q = rotAbout(q, [1, 0, 0], -rot.a * d); q = rotAbout(q, [0, 0, 1], -rot.c * d); }
-  else if (rot.a) q = rotAbout(q, [1, 0, 0], -rot.a * d);
-  else if (rot.b) q = rotAbout(q, [0, 1, 0], -rot.b * d);
-  return q;
-}
-// distance from a point to a set of segments, with a grid to keep it quick
-function gcGrid(segs, cell = 6) {
-  const g = new Map(), key = (i, j, k) => i + ',' + j + ',' + k;
-  segs.forEach((s, n) => {
-    const lo = [0, 1, 2].map(i => Math.floor((Math.min(s[0][i], s[1][i]) - 0.5) / cell)), hi = [0, 1, 2].map(i => Math.floor((Math.max(s[0][i], s[1][i]) + 0.5) / cell));
-    for (let i = lo[0]; i <= hi[0]; i++) for (let j = lo[1]; j <= hi[1]; j++) for (let k = lo[2]; k <= hi[2]; k++) { const kk = key(i, j, k); let a = g.get(kk); if (!a) g.set(kk, a = []); a.push(n); }
-  });
-  return { g, cell, segs, key };
-}
-function gcDist(G, p) {
-  const c = G.cell, i0 = Math.floor(p[0] / c), j0 = Math.floor(p[1] / c), k0 = Math.floor(p[2] / c);
-  let best = Infinity;
-  for (let r = 0; r <= 2 && best > r * c * 0.7; r++) {
-    for (let i = i0 - r; i <= i0 + r; i++) for (let j = j0 - r; j <= j0 + r; j++) for (let k = k0 - r; k <= k0 + r; k++) {
-      if (r && Math.max(Math.abs(i - i0), Math.abs(j - j0), Math.abs(k - k0)) !== r) continue;
-      const a = G.g.get(G.key(i, j, k)); if (!a) continue;
-      for (const n of a) {
-        const [A, B] = G.segs[n], ab = [B[0] - A[0], B[1] - A[1], B[2] - A[2]], ap = [p[0] - A[0], p[1] - A[1], p[2] - A[2]], L2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
-        const t = L2 > 0 ? Math.max(0, Math.min(1, (ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / L2)) : 0, dx = ap[0] - ab[0] * t, dy = ap[1] - ab[1] * t, dz = ap[2] - ab[2] * t, d = dx * dx + dy * dy + dz * dz;
-        if (d < best) best = d;
-      }
-    }
-  }
-  return Math.sqrt(best);
-}
-// Compare the parsed program with the toolpaths. ctx: { ops: [{ name, tool, P, axis }], o, S, inch, aMax, travel }
-function gcCompare(prog, ctx) {
-  const out = { issues: [], perOp: [], stats: {} }, add = (sev, msg, extra) => out.issues.push({ sev, msg, ...extra });
-  const tol = ctx.tol || 0.02, o = ctx.o, mmF = ctx.inch ? 25.4 : 1;
-  const toS = (p, mv) => gcToStock(p, mv.rot, mv.tilt, o, ctx.S);
-  let gi = 0;
-  // the program's operations in order against the toolpaths
-  const want = ctx.ops;
-  if (prog.ops.length !== want.length) add('error', `The program has ${prog.ops.length} operations, the setup has ${want.length}`);
-  for (const e of want) {
-    const g = prog.ops.find((x, i) => i >= gi && x.name === gcClean(e.name));
-    if (!g) { add('error', `${e.name}: not in the program`); continue; }
-    gi = prog.ops.indexOf(g) + 1;
-    const rec = { name: e.name, ok: true, lines: g.moves.length ? g.moves[0].ln : g.ln };
-    const P = e.P;
-    // tool: the T number in the program against the tool the operation uses
-    if (g.moves.length && g.moves[0].tool !== e.toolN) { add('error', `${e.name}: runs with T${g.moves[0].tool}, the operation uses T${e.toolN}`); rec.ok = false; }
-    // holes: one cycle per hole, at the right place, depth and R plane
-    if (P.holes && P.holes.length && !e.skipHoles) {
-      const cyc = g.moves.filter(m => m.k === 'cycle');
-      if (cyc.length !== P.holes.length) { add('error', `${e.name}: ${cyc.length} drilled positions in the program, ${P.holes.length} holes in the operation`); rec.ok = false; }
-      let maxXY = 0, maxZ = 0, maxR = 0;
-      const n = Math.min(cyc.length, P.holes.length);
-      for (let i = 0; i < n; i++) {
-        const c = cyc[i], h = P.holes[i], bot = h.bottom || [h.x, h.y, h.z], rr = h.r && h.r.length ? h.r : [h.x, h.y, h.r];
-        const pa = toS([c.x, c.y, c.z], c), pr = toS([c.x, c.y, c.r], c), mine = h.bottom ? bot : [h.x, h.y, h.z];
-        const dxy = Math.hypot(pa[0] - mine[0], pa[1] - mine[1], pa[2] - mine[2]);
-        maxXY = Math.max(maxXY, dxy);
-        const rp = h.bottom ? h.r : [h.x, h.y, h.r];
-        maxR = Math.max(maxR, Math.hypot(pr[0] - rp[0], pr[1] - rp[1], pr[2] - rp[2]));
-      }
-      rec.holeDev = +maxXY.toFixed(4); rec.holeRDev = +maxR.toFixed(4);
-      if (maxXY > tol) { add('error', `${e.name}: a hole bottom is ${maxXY.toFixed(3)} mm from where the operation puts it`); rec.ok = false; }
-      if (maxR > Math.max(tol, 0.01)) { add('error', `${e.name}: a cycle R plane is ${maxR.toFixed(3)} mm off`); rec.ok = false; }
-      const mode = e.mode, gwant = { drill: 81, peck: 83, chip: 73, spot: 81, ream: 85, tap: 84 }[mode];
-      if (gwant && cyc.some(c => c.g !== gwant && !(mode === 'drill' && c.g === 81))) { add('warn', `${e.name}: cycle G${cyc[0].g} for a ${mode} operation (expected G${gwant})`); }
-      if (mode === 'tap' && cyc.some(c => c.g !== 84)) { add('error', `${e.name}: tapping is not G84`); rec.ok = false; }
-      out.perOp.push(rec);
-      continue;
-    }
-    // everything else: the cut and rapid segments, in the part's frame, against the toolpath
-    const G = { feed: [], rapid: [] }, E = { feed: [], rapid: [] }, gv = { feed: [], rapid: [] };
-    const known = m => m.from && m.to && !m.from.some(v => v == null) && !m.to.some(v => v == null);
-    let lenG = [0, 0], lenE = [0, 0], fs = new Set();
-    const seg = (a, b, into, kind, store, k) => { const L = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]); if (L < 1e-9) return 0; into[kind].push([a, b]); return L; };
-    for (const m of g.moves) {
-      if (m.k === 'rapid' || m.k === 'feed') {
-        if (!known(m)) continue;
-        const a = toS(m.from, m), b = toS(m.to, m), kind = m.k;
-        const L = seg(a, b, G, kind); lenG[kind === 'feed' ? 0 : 1] += L; gv[kind].push(a, b);
-        if (kind === 'feed' && m.f) fs.add(Math.round(m.f * 10) / 10);
-      } else if (m.k === 'spin') {
-        const k = Math.max(1, Math.ceil(Math.max(Math.abs(m.rot1.a - m.rot0.a), Math.abs(m.rot1.b - m.rot0.b), Math.abs(m.rot1.c - m.rot0.c))));
-        let prev = gcToStock(m.pos.map((v, i) => v), m.rot0, null, o, ctx.S) ;
-        for (let q = 1; q <= k; q++) {
-          const f = q / k, rot = { a: m.rot0.a + (m.rot1.a - m.rot0.a) * f, b: m.rot0.b + (m.rot1.b - m.rot0.b) * f, c: m.rot0.c + (m.rot1.c - m.rot0.c) * f };
-          const b = gcToStock(m.pos, rot, null, o, ctx.S), L = seg(prev, b, G, 'feed'); lenG[0] += L; gv.feed.push(b); prev = b;
-        }
-        gv.feed.push(gcToStock(m.pos, m.rot0, null, o, ctx.S));
-      } else if (m.k === 'arc') {
-        let prev = toS(m.pts[0], m);
-        for (let q = 1; q < m.pts.length; q++) { if (m.pts[q][2] == null) continue; const b = toS(m.pts[q], m); const L = seg(prev, b, G, 'feed'); lenG[0] += L; gv.feed.push(b); prev = b; }
-        gv.feed.push(toS(m.pts[0], m));
-        if (m.f) fs.add(Math.round(m.f * 10) / 10);
-      }
-    }
-    for (let i = 1; i < P.m.length; i++) {
-      const a = [P.m[i - 1].x, P.m[i - 1].y, P.m[i - 1].z], b = [P.m[i].x, P.m[i].y, P.m[i].z], kind = P.m[i].r ? 'rapid' : 'feed';
-      const L = seg(a, b, E, kind); lenE[kind === 'feed' ? 0 : 1] += L;
-    }
-    const GG = { feed: gcGrid(G.feed), rapid: gcGrid(G.rapid) }, EE = { feed: gcGrid(E.feed), rapid: gcGrid(E.rapid), all: gcGrid([...E.feed, ...E.rapid]) };
-    // every vertex of one lies on the other (feed against feed, rapid against rapid)
-    const dev = (pts, grid) => { let m = 0, worst = null; if (!grid.segs.length) return pts.length ? { m: Infinity } : { m: 0 }; for (const p of pts) { const d = gcDist(grid, p); if (d > m) { m = d; worst = p; } } return { m, worst }; };
-    const ePts = { feed: [], rapid: [] };
-    for (const kind of ['feed', 'rapid']) for (const s of E[kind]) { ePts[kind].push(s[0], s[1]); }
-    // a rapid after the Z axis went home starts from a height the program never states, so only the rapids that are fully stated are held to the toolpath
-    const dGE = dev(gv.feed, EE.feed), dEG = dev(ePts.feed, GG.feed), dGR = dev(gv.rapid, EE.all), dER = { m: 0 };
-    rec.devFeed = +Math.max(dGE.m, dEG.m).toFixed(4); rec.devRapid = +dGR.m.toFixed(4);
-    rec.lenFeedG = +lenG[0].toFixed(2); rec.lenFeedE = +lenE[0].toFixed(2); rec.lenRapidG = +lenG[1].toFixed(2); rec.lenRapidE = +lenE[1].toFixed(2);
-    if (dGE.m > tol) { add('error', `${e.name}: a cut in the program is ${dGE.m.toFixed(3)} mm from the toolpath` + (dGE.worst ? ` (near X${dGE.worst[0].toFixed(2)} Y${dGE.worst[1].toFixed(2)} Z${dGE.worst[2].toFixed(2)})` : '')); rec.ok = false; }
-    if (dEG.m > tol) { add('error', `${e.name}: a toolpath cut is ${dEG.m.toFixed(3)} mm from anything in the program` + (dEG.worst ? ` (near X${dEG.worst[0].toFixed(2)} Y${dEG.worst[1].toFixed(2)} Z${dEG.worst[2].toFixed(2)})` : '')); rec.ok = false; }
-    if (dGR.m > tol * 2) { add('error', `${e.name}: a rapid move is ${dGR.m.toFixed(3)} mm off the toolpath` + (dGR.worst ? ` (near X${dGR.worst[0].toFixed(2)} Y${dGR.worst[1].toFixed(2)} Z${dGR.worst[2].toFixed(2)})` : '')); rec.ok = false; }
-    const rel = (a, b) => Math.abs(a - b) / Math.max(1, b);
-    if (rel(lenG[0], lenE[0]) > 0.004) { add('error', `${e.name}: cutting length ${lenG[0].toFixed(1)} mm in the program, ${lenE[0].toFixed(1)} mm in the toolpath`); rec.ok = false; }
-    // feeds: every F the program uses is one the toolpath asks for
-    const want = new Set(); for (let i = 1; i < P.m.length; i++) if (!P.m[i].r && P.m[i].f) want.add(P.m[i].f);
-    const slack = ctx.inch ? 0.06 * 25.4 : 0.51;
-    for (const f of fs) if (![...want].some(w => Math.abs(w - f) <= slack)) { add('error', `${e.name}: feed F${(f / mmF).toFixed(ctx.inch ? 1 : 0)} is not one the toolpath uses`); rec.ok = false; break; }
-    for (const w of want) if (![...fs].some(f => Math.abs(w - f) <= slack)) { add('error', `${e.name}: the toolpath feed ${Math.round(w)} mm/min never appears in the program`); rec.ok = false; break; }
-    out.perOp.push(rec);
-  }
-  // the machine
-  const bb = prog.bbox;
-  if (isFinite(bb[0])) {
-    const span = [bb[3] - bb[0], bb[4] - bb[1], bb[5] - bb[2]];
-    out.stats.span = span.map(v => +v.toFixed(1));
-    if (ctx.travel && ctx.travel.x) {
-      // a program may sit anywhere on the table: only its span has to fit
-      for (const [i, k] of [[0, 'x'], [1, 'y'], [2, 'z']]) if (span[i] > ctx.travel[k]) add('error', `The program spans ${span[i].toFixed(0)} mm in ${k.toUpperCase()}; this machine travels ${ctx.travel[k]} mm`);
-    }
-  }
-  if (ctx.aMax) for (const k of ['a', 'b']) { const r = prog.rotMax[k]; if (r[1] > ctx.aMax + 1e-6 || r[0] < -ctx.aMax - 1e-6) add('warn', `${k.toUpperCase()} reaches ${Math.max(r[1], -r[0]).toFixed(1)}°, past this table's ${ctx.aMax}° limit: the operations that need it are marked; turn the part over for those sides`); }
-  // tools: the order of tool changes against the order of the operations
-  const wantT = []; for (const e of want) if (wantT[wantT.length - 1] !== e.toolN) wantT.push(e.toolN);
-  const haveT = []; for (const op of prog.ops) { const m = op.moves[0]; if (m && haveT[haveT.length - 1] !== m.tool) haveT.push(m.tool); }
-  out.stats.tools = haveT;
-  return out;
-}
-// Post the program and check it, against the toolpaths it came from.
-function gcodeCheck(multi, mutate) {
-  const C = cam(), keep = C.post.multi;
-  if (multi) C.post.multi = multi;
-  try {
-    const g = postGcode();
-    if (mutate) g.text = mutate(g.text);
-    const prog = gcParse(g.text), S = camSetup(), o = camOrigin(), M = MILL_LIB[C.mill || ''] || MILL_LIB[''];
-    const want = [];
-    for (const op of C.ops.filter(op => !op.sup)) {
-      const P = toolpath(op);
-      if (!P || P.pending || P.m.length < 2) continue;
-      const t = toolOf(op.tool);
-      want.push({ name: op.name, toolN: t.n, P, mode: op.type === 'drill' ? (t.type === 'tap' ? 'tap' : t.type === 'spot' ? 'spot' : t.type === 'reamer' ? 'ream' : op.mode || 'drill') : null });
-    }
-    const cmp = gcCompare(prog, { ops: want, o, S: opAxisAny() ? S : null, inch: prog.inch, travel: M, aMax: S && S.kind === 'trunnion' ? tiltLimit() : 0 });
-    const issues = [...prog.issues.map(i => ({ ...i })), ...cmp.issues];
-    // structure checks that need the operations
-    for (const op of C.ops.filter(op => !op.sup)) {
-      const t = toolOf(op.tool);
-      if (t && !(t.rpm > 0)) issues.push({ sev: 'error', msg: `${op.name}: tool T${t.n} has no spindle speed` });
-    }
-    const errors = issues.filter(i => i.sev === 'error'), warns = issues.filter(i => i.sev === 'warn');
-    return { multi: multi || C.post.multi || 'setup', lines: g.lines, ops: prog.ops.length, tools: prog.tools, errors, warns, perOp: cmp.perOp, stats: { ...cmp.stats, moves: prog.moves.length, inch: prog.inch }, ok: !errors.length, time: Date.now() };
-  } finally { if (multi) { if (keep === undefined) delete C.post.multi; else C.post.multi = keep; } }
-}
-const opAxisAny = () => cam().ops.some(o => !o.sup && opAxis(o));
-// both ways of posting an indexed program
-function gcodeCheckAll() {
-  const r = [gcodeCheck()];
-  if (opAxisAny()) { const other = (cam().post.multi === 'g682') ? 'setup' : 'g682'; try { r.push(gcodeCheck(other)); } catch (e) { r.push({ multi: other, ok: false, errors: [{ sev: 'error', msg: 'Could not post: ' + e.message }], warns: [], perOp: [], stats: {} }); } }
-  return r;
-}
-</script>
 
 
-<script>
-function gcodeCheckHtml(r) {
-  const tick = ok => `<i class="${ok ? 'ok' : 'bad'}"></i>`;
-  if (!r.gcode) return `<div class="field"><span>G-code check</span><div class="btns"><button class="btn" data-camdo="gcheck">Read the G-code back</button></div></div>`;
-  const name = g => g.multi === 'g682' ? 'Tilted work plane (G68.2)' : (cam().ops.some(o => !o.sup && opAxis(o)) ? 'Table turned by A / B / C words' : 'Haas program');
-  const li = g => `<li>${tick(g.ok)}<span><b>${name(g)}</b><small>${g.lines} lines · ${g.stats.moves || 0} moves · ${g.tools.length} tool${g.tools.length === 1 ? '' : 's'}${g.warns.length ? ` · ${g.warns.length} note${g.warns.length === 1 ? '' : 's'}` : ''}</small></span><span class="q">${g.ok ? 'matches' : g.errors.length + ' wrong'}</span></li>`;
-  const bad = r.gcode.flatMap(g => g.errors.map(e => ({ g, e }))).slice(0, 8), notes = r.gcode.flatMap(g => g.warns).slice(0, 4);
-  return `<div class="field"><span>G-code, read back and compared with the toolpaths</span><ul class="det">${r.gcode.map(li).join('')}</ul>${bad.length ? `<ul class="mlist">${bad.map(({ g, e }) => `<li>${e.ln ? 'Line ' + e.ln + ': ' : ''}${xmlEsc(e.msg)}${r.gcode.length > 1 ? ` <small>(${g.multi === 'g682' ? 'G68.2' : 'A/B/C'})</small>` : ''}</li>`).join('')}</ul>` : ''}${notes.length ? `<ul class="mlist">${notes.map(e => `<li><small>${e.ln ? 'Line ' + e.ln + ': ' : ''}${xmlEsc(e.msg)}</small></li>`).join('')}</ul>` : ''}</div>`;
-}
-</script>
+
+
 <script>
 // ═══════════════════════════════════════════════════════════════════
 //  Rotary Finish (4th axis). The part turns on A, along X, while the tool stands straight down over
