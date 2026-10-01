@@ -24677,8 +24677,8 @@ document.addEventListener('pointerdown', e => {
 //  units unless a number says "mm" or "in".
 // ═══════════════════════════════════════════════════════════════════
 const CMDS = [
-  ['box', 'box W L H [at X Y Z] [round R]', 'A block W wide (X), L long (Y), H high (Z), standing on Z (its center at X Y). "round R" rounds its upright corners.'],
-  ['cylinder', 'cylinder D H [at X Y Z]', 'An upright round bar of diameter D and height H.'],
+  ['box', 'box W L H [at X Y Z] [round R]  ·  box 5 inches by 5 inches by 2  ·  cube 5" x 5"', 'A block W wide (X), L long (Y), H high (Z), standing on Z (its center at X Y). "round R" rounds its upright corners.'],
+  ['cylinder', 'cylinder D H [at X Y Z]  ·  cylinder 1.25 D 3 inch long', 'An upright round bar of diameter D and height H.'],
   ['tube', 'tube OD ID H [at X Y Z]', 'An upright tube: outside diameter, inside diameter, height.'],
   ['sphere', 'sphere D [at X Y Z]', 'A ball of diameter D (X Y Z is its center).'],
   ['cone', 'cone D1 D2 H [at X Y Z]', 'A cone or frustum: diameter D1 at the bottom, D2 at the top.'],
@@ -24747,11 +24747,63 @@ function cmdTop() {
   return isFinite(top) ? top : 0;
 }
 // Parse and run one command. Returns a message (thrown errors are shown as they are).
+// Plain-English sizes → the positional form the commands below take: "box 5 inches by 5 inches", cube 5" x 5",
+// "cylinder 1.25 D 3 inch long", "tube od 2 id 1.5 length 4in", "box 4 wide 2 long 1 tall". Only the part before
+// the first option word (at, round, holes…) is read. Numbers without a unit take the unit used elsewhere in the phrase.
+const CMD_SLOTS = {                                   // role → slot index (and a multiplier for radius), per shape
+  box: { w: 0, l: 1, h: 2 }, plate: { w: 0, l: 1, h: 2 }, cube: {}, cylinder: { d: 0, r: [0, 2], l: 1, h: 1 }, tube: { od: 0, d: 0, id: 1, l: 2, h: 2 },
+  sphere: { d: 0, r: [0, 2] }, cone: { h: 2, l: 2 },
+};
+const CMD_SHAPE = { block: 'box', cyl: 'cylinder', rod: 'cylinder', pipe: 'tube', ball: 'sphere' };
+const CMD_ROLE = { d: 'd', dia: 'd', diameter: 'd', 'ø': 'd', r: 'r', radius: 'r', od: 'od', outer: 'od', id: 'id', inner: 'id', w: 'w', wide: 'w', width: 'w', l: 'l', long: 'l', length: 'l', deep: 'l', depth: 'l', h: 'h', tall: 'h', high: 'h', height: 'h', thick: 'h', thickness: 'h', t: 'h' };
+const CMD_FILLER = new Set(['a', 'an', 'the', 'of', 'with', 'and', 'is', 'are', 'size', 'sized', 'shape', 'dimensions', 'that', 'measuring', 'make', 'create', 'draw', 'by', 'times', 'x', '×', '*']);
+function cmdNatural(kind, args) {
+  const shape = CMD_SHAPE[kind] || kind, slots = CMD_SLOTS[shape];
+  if (!slots) return { args };
+  const stop = args.findIndex(w => ['at', 'round', 'holes', 'module', 'm'].includes(w)), head = stop < 0 ? args : args.slice(0, stop), tail = stop < 0 ? [] : args.slice(stop);
+  // split "5x5x3" and "d1.25" / "1.25d" into tokens
+  const toks = [];
+  for (const w of head) {
+    const parts = w.split(/[x×*]/);
+    if (parts.length > 1 && parts.every(q => isFinite(cmdNum(q)))) { toks.push(...parts); continue; }
+    const m = /^(ø|dia|od|id|d|r)(\d[\d./]*[a-zµ"'″′]*)$/.exec(w) || (!isFinite(cmdNum(w)) && /^(\d[\d./]*[a-zµ"'″′]*?)(ø|dia|d|r)$/.exec(w));
+    if (m) toks.push(m[1], m[2]); else toks.push(w);
+  }
+  const num = t => /^-?[\d.]/.test(t) && isFinite(cmdNum(t)), unit = t => (/[a-zµ"'″′]+$/.exec(t) || [''])[0];
+  // each size word labels the number just before it ("3 long") or, failing that, the one just after ("length 3")
+  const items = [];
+  for (const t of toks) {
+    const last = items[items.length - 1];
+    if (num(t)) { if (last && last.pre) { last.t = t; last.pre = false; } else items.push({ t }); }
+    else if (CMD_ROLE[t]) { if (last && last.t !== undefined && !last.role) last.role = CMD_ROLE[t]; else items.push({ role: CMD_ROLE[t], pre: true }); }
+    else if (!CMD_FILLER.has(t)) throw new Error(`"${t}" is not a number or a size word`);
+  }
+  if (items.some(q => q.t === undefined)) throw new Error(`"${items.find(q => q.t === undefined).role}" needs a number`);
+  // one explicit unit anywhere: numbers without one use it
+  const us = [...new Set(items.map(q => unit(q.t)).filter(u => u in CMD_UNITS).map(u => CMD_UNITS[u]))], u0 = items.map(q => unit(q.t)).find(u => u in CMD_UNITS);
+  const mm = q => { const v = cmdNum(unit(q.t) || us.length !== 1 ? q.t : q.t + u0); return v; };
+  const out = [], free = [];
+  for (const q of items) {
+    const sl = q.role && slots[q.role];
+    if (sl === undefined) { if (q.role && shape !== 'cube') throw new Error(`a ${shape} has no "${q.role}" size`); free.push(q); continue; }
+    const [i, k] = Array.isArray(sl) ? sl : [sl, 1];
+    out[i] = mm(q) * k;
+  }
+  const want = { box: 3, plate: 3, cube: 1, cylinder: 2, tube: 3, sphere: 1, cone: 3 }[shape];
+  for (const q of free) { let i = 0; while (out[i] !== undefined) i++; out[i] = mm(q); }
+  let note = '';
+  if (shape === 'box' && out.length === 2 && out[0] > 0 && out[1] > 0) { out[2] = Math.min(out[0], out[1]); note = ` (height taken as ${fmtLs(out[2])} — add one more size to set it)`; }
+  if (shape === 'box' && out.length === 1) { out[1] = out[2] = out[0]; }
+  if (shape === 'cube') { const v = out.filter(x => x !== undefined); if (v.length > 1 && v.some(x => Math.abs(x - v[0]) > 1e-9)) return { ...cmdNatural('box', v.map(x => +x.toFixed(6) + 'mm').concat(tail)), shape: 'box' }; out.length = 0; out[0] = v[0]; }
+  for (let i = 0; i < Math.min(out.length, want || 9); i++) if (out[i] === undefined) throw new Error(`${shape} needs ${{ box: 'width, length and height', cylinder: 'a diameter and a length', tube: 'outside diameter, inside diameter and length', cone: 'D1 D2 and height' }[shape] || 'all its sizes'}`);
+  return { args: out.map(v => +v.toFixed(6) + 'mm').concat(tail), note };
+}
 function runCommand(line) {
   const raw = line.trim();
   if (!raw) return '';
   const low = cmdGlueUnits(raw.toLowerCase().replace(/[,;()\[\]]/g, ' ').replace(/\s+/g, ' ')).trim();
   let words = low.split(' ');
+  while (words.length > 1 && CMD_FILLER.has(words[0]) && !['x', '×', '*', 'by'].includes(words[0])) words.shift();      // "make a cube…"
   const head = words[0];
   if (head === 'help' || head === '?') { cmdShowHelp(); return 'Commands listed above'; }
   if (head === 'undo') { undo(); return 'Undone'; }
@@ -24770,7 +24822,8 @@ function runCommand(line) {
   let op = null;
   if (head === 'cut') { op = 'cut'; words = words.slice(1); }
   if (words[words.length - 1] === 'new') { op = 'new'; words.pop(); }
-  const kind = words[0], args = words.slice(1);
+  let kind = words[0], args = words.slice(1), note = '';
+  if (kind !== 'color' && kind !== 'colour' && kind !== 'paint') { const nr = cmdNatural(kind, args); args = nr.args; note = nr.note || ''; if (nr.shape) kind = nr.shape; }
   if (kind === 'color' || kind === 'colour' || kind === 'paint') {
     const c = COLOR_NAMES[args[0]] || (/^#?[0-9a-f]{6}$/i.test(args[0] || '') ? '#' + args[0].replace('#', '') : null);
     if (!c) throw new Error('color needs a name or #rrggbb');
@@ -24885,7 +24938,7 @@ function runCommand(line) {
   modelChanged(true);
   if (typeof refreshUI === 'function') refreshUI();
   void last;
-  return label;
+  return label + note;
 }
 // polyline X Y Z X Y Z …: a 3D polyline through typed points (design axes: X right, Y back, Z up).
 // Each number may carry a unit. "close" joins the end to the start; "sketch" draws the lines in a
