@@ -22383,6 +22383,7 @@ const bpClean = svg => svg.replace(/<rect class="bp-hitv"[^>]*\/>/g, '').replace
 BP.vp = { x: 0, y: 0, z: 1 };
 const bpShow1 = bpShow;
 bpShow = function () {
+  setTimeout(bpHist, 0);
   bpShow1();
   const page = document.getElementById('bpPage'), stage = document.querySelector('#bp .bp-stage'), r = BP.last;
   if (!page || !stage || !r) return;
@@ -22438,7 +22439,7 @@ function bpInitViewer(stage, page) {
   stage.dataset.bpv3 = '1';
   stage.classList.add('bp-stage3');
   const tools = document.createElement('div'); tools.className = 'bp-zoom';
-  tools.innerHTML = `<button class="btn" data-bpz="out" title="Zoom out">−</button><span id="bpZoomPct">100%</span><button class="btn" data-bpz="in" title="Zoom in">+</button><button class="btn" data-bpz="fit" title="Fit the sheet (double-click the background)">Fit</button><button class="btn" data-bpz="reset" title="Put every view and dimension back where Datum placed it">Reset layout</button>`;
+  tools.innerHTML = `<button class="btn" data-bpz="out" title="Zoom out">−</button><span id="bpZoomPct">100%</span><button class="btn" data-bpz="in" title="Zoom in">+</button><button class="btn" data-bpz="fit" title="Fit the sheet (double-click the background)">Fit</button><button class="btn" data-bpz="reset" title="Put every view and dimension back where Datum placed it">Reset position of all</button><span class="bp-sep"></span><button class="btn" data-bpz="undo" title="Undo (Ctrl+Z)">↶ Undo</button><button class="btn" data-bpz="redo" title="Redo (Ctrl+Shift+Z)">↷ Redo</button>`;
   stage.appendChild(tools);
   const vt = document.createElement('div'); vt.className = 'bp-viewtools'; vt.id = 'bpViewTools'; vt.hidden = true; stage.appendChild(vt);
   const zoomAt = (f, cx, cy) => { const z = Math.max(0.25, Math.min(12, BP.vp.z * f)), k = z / BP.vp.z; BP.vp.x = cx - (cx - BP.vp.x) * k; BP.vp.y = cy - (cy - BP.vp.y) * k; BP.vp.z = z; bpApplyVP(); };
@@ -22448,6 +22449,9 @@ function bpInitViewer(stage, page) {
     if (b.dataset.bpz === 'in') zoomAt(1.25, w, h); if (b.dataset.bpz === 'out') zoomAt(0.8, w, h);
     if (b.dataset.bpz === 'fit') { bpFitVP(); bpApplyVP(); }
     if (b.dataset.bpz === 'reset') { const before = snap(); doc.bpLayout = { v: {}, l: {} }; BP.selView = null; record('Reset drawing layout', before); bpShow(); }
+    if (b.dataset.bpz === 'undo') { undo(); BP.selView = null; bpShow(); }
+    if (b.dataset.bpz === 'redo') { redo(); BP.selView = null; bpShow(); }
+    bpHist();
   });
   stage.addEventListener('wheel', e => {
     e.preventDefault();
@@ -22508,6 +22512,11 @@ bpExport = function (what) {
   const svg0 = r.svg; r.svg = r.svgFile || bpClean(svg0);
   try { bpExport1(what); } finally { r.svg = svg0; }
 };
+// undo / redo buttons on the sheet follow the app's history
+function bpHist() {
+  const u = document.querySelector('[data-bpz="undo"]'), r = document.querySelector('[data-bpz="redo"]');
+  if (u) u.disabled = hist.cur <= 0; if (r) r.disabled = hist.cur >= hist.states.length - 1;
+}
 // friendlier sheet names, Letter among them
 const bpOpen1 = openBlueprint;
 openBlueprint = function () {
@@ -22523,6 +22532,9 @@ openBlueprint = function () {
 .bp-stage.bp-stage3.grabbing { cursor: grabbing; }
 .bp-stage3 #bpPage { position: absolute; left: 0; top: 0; transform-origin: 0 0; box-shadow: 0 8px 30px rgba(0,0,0,.45); }
 .bp-stage3 [data-bpd] { cursor: move; }
+.bp-zoom .bp-sep { width: 1px; align-self: stretch; background: var(--rule); margin: 0 2px; }
+.bp-zoom .btn { white-space: nowrap; }
+.bp-zoom .btn:disabled { opacity: .4; cursor: default; }
 .bp-zoom { position: absolute; left: 12px; bottom: 12px; display: flex; align-items: center; gap: 6px; background: var(--panel); border: 1px solid var(--rule); border-radius: 9px; padding: 5px 8px; z-index: 3; font-size: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.3); }
 .bp-zoom .btn { min-width: 30px; padding: 4px 8px; }
 #bpZoomPct { min-width: 42px; text-align: center; color: var(--ink-2); font-variant-numeric: tabular-nums; }
