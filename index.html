@@ -7721,6 +7721,141 @@ SHOP.dovetailFixture = {
 
 <script data-kernel>
 // ═══════════════════════════════════════════════════════════════════
+//  Deform — bend, twist, taper and warp any bodies, or flow them along a
+//  path. The bodies are cut on a lattice aligned with the world axes (so
+//  neighbouring faces split identically and stay crack-free), every vertex
+//  goes through the deformation, and each original face becomes one smooth
+//  freeform face whose normals come from the deformation's own slope.
+// ═══════════════════════════════════════════════════════════════════
+// cut a convex polygon by the plane x[ax] = c: [part at or below, part at or above]
+function deformCut(v, ax, c) {
+  const lo = [], hi = [], n = v.length;
+  for (let i = 0; i < n; i++) {
+    const a = v[i], b = v[(i + 1) % n], da = a[ax] - c, db = b[ax] - c;
+    if (da <= 0) lo.push(a); if (da >= 0) hi.push(a);
+    if ((da < 0 && db > 0) || (da > 0 && db < 0)) { const t = da / (da - db), p = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]; p[ax] = c; lo.push(p); hi.push(p); }
+  }
+  return [lo, hi];
+}
+// all the pieces of a polygon between the lattice planes x[ax] = o + k·h
+function deformSplit(v, ax, h, o) {
+  let mn = Infinity, mx = -Infinity; for (const p of v) { if (p[ax] < mn) mn = p[ax]; if (p[ax] > mx) mx = p[ax]; }
+  const k0 = Math.floor((mn - o) / h + 1e-9) + 1, k1 = Math.ceil((mx - o) / h - 1e-9) - 1, out = [];
+  let rest = v;
+  for (let k = k0; k <= k1; k++) { const [a, b] = deformCut(rest, ax, o + k * h); if (a.length >= 3) out.push(a); rest = b; if (rest.length < 3) return out; }
+  out.push(rest);
+  return out;
+}
+const deformSolve3 = (M, b) => {                       // M x = b for a 3×3, null if singular
+  const d = M[0] * (M[4] * M[8] - M[5] * M[7]) - M[1] * (M[3] * M[8] - M[5] * M[6]) + M[2] * (M[3] * M[7] - M[4] * M[6]);
+  if (Math.abs(d) < 1e-14) return null;
+  const c = [(M[4] * M[8] - M[5] * M[7]), -(M[1] * M[8] - M[2] * M[7]), (M[1] * M[5] - M[2] * M[4]), -(M[3] * M[8] - M[5] * M[6]), (M[0] * M[8] - M[2] * M[6]), -(M[0] * M[5] - M[2] * M[3]), (M[3] * M[7] - M[4] * M[6]), -(M[0] * M[7] - M[1] * M[6]), (M[0] * M[4] - M[1] * M[3])];
+  return [(c[0] * b[0] + c[1] * b[1] + c[2] * b[2]) / d, (c[3] * b[0] + c[4] * b[1] + c[5] * b[2]) / d, (c[6] * b[0] + c[7] * b[1] + c[8] * b[2]) / d];
+};
+// the deformation as a function of a point, for the bodies' own box
+function deformMap(f, ctx, src) {
+  const A = WORLD_AX[f.ax || 'X'], Bd = f.dir && f.dir !== f.ax ? WORLD_AX[f.dir] : WORLD_AX[f.ax === 'Z' ? 'X' : 'Z'], Cd = crs3(A, Bd);
+  let lo = Infinity, hi = -Infinity; const mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+  for (const b of src) for (let i = 0; i < 3; i++) { mn[i] = Math.min(mn[i], b.bb[i]); mx[i] = Math.max(mx[i], b.bb[i + 3]); }
+  const O = [(mn[0] + mx[0]) / 2, (mn[1] + mx[1]) / 2, (mn[2] + mx[2]) / 2];
+  for (const x of [mn[0], mx[0]]) for (const y of [mn[1], mx[1]]) for (const z of [mn[2], mx[2]]) { const a = dot3([x, y, z], A); lo = Math.min(lo, a); hi = Math.max(hi, a); }
+  const len = hi - lo, r0 = lo + len * Math.max(0, Math.min(1, (+f.from || 0) / 100)), r1 = lo + len * Math.max(0, Math.min(1, f.to == null ? 1 : +f.to / 100)), Lr = Math.max(1e-6, r1 - r0);
+  const oB = dot3(O, Bd), oC = dot3(O, Cd), ang = (+f.angle || 0) * Math.PI / 180, kind = f.mode || 'bend';
+  const sm = t => t * t * (3 - 2 * t), clampT = t => Math.max(0, Math.min(1, t));
+  let path = null;
+  if (kind === 'path') {
+    const { segs } = pathSegments(f.path, ctx), L = segs.reduce((a, g) => a + g.len, 0), n = Math.max(40, Math.min(1200, Math.ceil(L / (Lr / 120)))), P = [], T = [], N = [], Bn = [];
+    const up = WORLD_AX.Z; let tg0 = null;
+    for (let i = 0; i <= n; i++) {
+      let s = L * i / n, acc = 0, g = segs[segs.length - 1], loc = s - (L - g.len); for (const q of segs) { if (s <= acc + q.len + 1e-12) { g = q; loc = s - acc; break; } acc += q.len; }
+      P.push(g.at(Math.max(0, Math.min(g.len, loc)))); T.push(g.tan(Math.max(0, Math.min(g.len, loc))));
+    }
+    let n0 = sub3(up, mul3(T[0], dot3(up, T[0]))); if (len3(n0) < 0.2) n0 = sub3(WORLD_AX.X, mul3(T[0], dot3(WORLD_AX.X, T[0])));
+    N.push(nrm3(n0)); Bn.push(crs3(T[0], N[0])); tg0 = T[0];
+    for (let i = 1; i <= n; i++) { const R = XF.turn(T[i - 1], T[i]); N.push(nrm3(XF.vec(R, N[i - 1]))); Bn.push(crs3(T[i], N[i])); }
+    path = { P, T, N, Bn, L, n, fit: !!f.fit, tg0 };
+  }
+  const D = p => {
+    const a = dot3(p, A) - r0, u = dot3(p, Bd) - oB, v = dot3(p, Cd) - oC, t = clampT(a / Lr);
+    let ap = a + r0, up_ = u, vp = v, ex = null;
+    if (kind === 'twist') { const th = ang * (a <= 0 ? 0 : t), c = Math.cos(th), s = Math.sin(th); up_ = u * c - v * s; vp = u * s + v * c; }
+    else if (kind === 'taper') { const k = 1 + ((+f.scale || 1) - 1) * (a <= 0 ? 0 : t); up_ = u * k; vp = v * k; }
+    else if (kind === 'wave') {
+      const lam = Math.max(1e-6, +f.wavelength || 20), w = f.fade ? sm(Math.min(1, Math.min(Math.max(0, a), Math.max(0, Lr - a)) / (Lr * 0.25))) : (a < 0 || a > Lr ? 0 : 1), ph = a / lam * TAU + (+f.phase || 0) * Math.PI / 180;
+      up_ = u + (+f.amp || 0) * Math.sin(ph) * w; if (f.spiral) vp = v + (+f.amp || 0) * Math.cos(ph) * w;
+    } else if (kind === 'bend') {
+      if (Math.abs(ang) > 1e-7 && a > 0) {
+        const R = Lr / ang, al = ang * Math.min(1, a / Lr), ex_ = a > Lr ? a - Lr : 0, ca = Math.cos(ang), sa = Math.sin(ang);
+        const x = R * Math.sin(al) - u * Math.sin(al) + ex_ * ca, y = R * (1 - Math.cos(al)) + u * Math.cos(al) + ex_ * sa;
+        ap = r0 + x; up_ = y;                     // x along the axis from the start of the bend, y along the bend direction
+        const pa = ap, pb = oB + up_;
+        return add3(add3(mul3(A, pa), mul3(Bd, pb)), mul3(Cd, oC + vp));
+      }
+    } else if (kind === 'path') {
+      const s = f.fit ? a / Lr * path.L : a, th = ang * (a <= 0 ? 0 : t), c = Math.cos(th), si = Math.sin(th), uu = u * c - v * si, vv = u * si + v * c;
+      if (s <= 0) { const q = path.P[0], T0 = path.T[0]; return add3(add3(add3(q, mul3(T0, s)), mul3(path.N[0], uu)), mul3(path.Bn[0], vv)); }
+      if (s >= path.L) { const q = path.P[path.n], T1 = path.T[path.n]; return add3(add3(add3(q, mul3(T1, s - path.L)), mul3(path.N[path.n], uu)), mul3(path.Bn[path.n], vv)); }
+      const x = s / path.L * path.n, i = Math.min(path.n - 1, Math.floor(x)), w = x - i;
+      const Q = add3(mul3(path.P[i], 1 - w), mul3(path.P[i + 1], w)), Nn = nrm3(add3(mul3(path.N[i], 1 - w), mul3(path.N[i + 1], w))), Tt = nrm3(add3(mul3(path.T[i], 1 - w), mul3(path.T[i + 1], w))), Bb = crs3(Tt, Nn);
+      return add3(add3(Q, mul3(Nn, uu)), mul3(Bb, vv));
+    }
+    return add3(add3(mul3(A, ap), mul3(Bd, oB + up_)), mul3(Cd, oC + vp));
+  };
+  return { D, A, B: Bd, C: Cd, lo, hi, len, Lr, mn, mx, O };
+}
+function evalDeform(f, ctx, tol) {
+  const src = bodiesById(f.bodies, ctx);
+  if (!src.length) throw new Error('Pick bodies to deform');
+  if (f.mode === 'path' && !(f.path && f.path.ents && f.path.ents.length)) throw new Error('Pick a path to flow along');
+  const M = deformMap(f, ctx, src), N = { fine: 64, standard: 40, coarse: 24 }[f.res || 'standard'];
+  const size = Math.max(M.mx[0] - M.mn[0], M.mx[1] - M.mn[1], M.mx[2] - M.mn[2]);
+  const ids = [], D = M.D;
+  const out = src.map(b => {
+    // lattice spacing: finer along the axis, a little coarser across it; coarser still if the pieces would run away
+    let hA = Math.max(M.len / N, size / 160), polys = null;
+    for (let tries = 0; tries < 5; tries++) {
+      const hX = [hA, hA, hA]; hX[Math.abs(M.A[0]) > 0.5 ? 0 : Math.abs(M.A[1]) > 0.5 ? 1 : 2] = hA; for (let i = 0; i < 3; i++) if (!(Math.abs(M.A[i]) > 0.5)) hX[i] = hA * 1.6;
+      const tris = [];
+      let over = false;
+      for (const p of b.polys) {
+        let pieces = [p.v];
+        for (let ax = 0; ax < 3 && !over; ax++) pieces = pieces.flatMap(q => deformSplit(q, ax, hX[ax], 0));
+        for (const q of pieces) for (let i = 1; i + 1 < q.length; i++) tris.push([q[0], q[i], q[i + 1], p.f]);
+        if (tris.length > 160000) { over = true; break; }
+      }
+      if (!over) { polys = tris; break; }
+      hA *= 1.6;
+    }
+    if (!polys) throw new Error('That body is too detailed to deform — try Coarse');
+    // each original face becomes one freeform surface: points and normals gathered, then used for every triangle of it
+    const groups = new Map(), eps = Math.max(1e-4, size * 1e-5);
+    for (const [a, c, d, fid] of polys) {
+      let g = groups.get(fid); if (!g) groups.set(fid, g = { P: [], N: [], tris: [] });
+      const vs = [a, c, d].map(v => {
+        const q = D(v), J = [];                                                  // rows ∂D/∂x, ∂D/∂y, ∂D/∂z: together Jᵀ, so Jᵀ·n′ = n gives the normal on the far side
+        for (let k = 0; k < 3; k++) { const e = [0, 0, 0]; e[k] = eps; const hi = D(add3(v, e)), lo = D(sub3(v, e)); J.push((hi[0] - lo[0]) / (2 * eps), (hi[1] - lo[1]) / (2 * eps), (hi[2] - lo[2]) / (2 * eps)); }
+        const n1 = deformSolve3(J, Surf.normalAt(fid, v));
+        return { q, n: n1 && isFinite(n1[0] + n1[1] + n1[2]) ? nrm3(n1) : null };
+      });
+      g.tris.push(vs);
+      for (const w of vs) { g.P.push(w.q[0], w.q[1], w.q[2]); const n = w.n || [0, 1, 0]; g.N.push(n[0], n[1], n[2]); }
+    }
+    const res = [];
+    for (const [fid, g] of groups) {
+      const sid = Surf.free(Float64Array.from(g.P), Float64Array.from(g.N), Math.max(hA * 2, 1e-6), [f.id, b.id, fid, g.P.length]);
+      Surf.addMeta(sid, { feat: f.id, face: fid });
+      for (const vs of g.tris) { const v = vs.map(w => w.q), cr = crs3(sub3(v[1], v[0]), sub3(v[2], v[0])); if (len3(cr) < 1e-14) continue; res.push(CSG.poly(v, sid)); }
+    }
+    return res;
+  });
+  ctx.bodies = ctx.bodies.map(b => { const i = src.indexOf(b); if (i < 0) return b; ids.push(b.id); return mkBody(b.id, out[i]); });
+  ctx.hl[f.id] = ids;
+}
+FEATX.deform = evalDeform;
+</script>
+
+<script data-kernel>
+// ═══════════════════════════════════════════════════════════════════
 //  CAM kernel (runs in the worker): drop-cutter for 3D finishing.
 //  CAM frame: X = world x, Y = −world z, Z = world y (spindle axis up).
 // ═══════════════════════════════════════════════════════════════════
@@ -16792,7 +16927,7 @@ function syncLoftRefs(sk) {
     const k2 = arr.faceAt(s.pt); if (k2 >= 0) s.sig = regionSig(arr.regions[k2]);
   }
 }
-const usesSketch = (x, id) => (PROFILE_FEATS.has(x.type) && x.sketch === id) || (x.type === 'sweep' && x.path && x.path.sketch === id) || (x.type === 'loft' && (x.secs || []).some(s => s.sketch === id));
+const usesSketch = (x, id) => (PROFILE_FEATS.has(x.type) && x.sketch === id) || ((x.type === 'sweep' || x.type === 'deform') && x.path && x.path.sketch === id) || (x.type === 'loft' && (x.secs || []).some(s => s.sketch === id));
 function featDeps(f, ids, fromMeta) {
   const ref = r => {
     if (!r) return;
@@ -16802,7 +16937,7 @@ function featDeps(f, ids, fromMeta) {
     if (r.k === 'face' && r.f) fromMeta(r.f.m);
   };
   if (PROFILE_FEATS.has(f.type) && f.sketch) ids.add(f.sketch);
-  if (f.type === 'sweep' && f.path) ids.add(f.path.sketch);
+  if ((f.type === 'sweep' || f.type === 'deform') && f.path) ids.add(f.path.sketch);
   if (f.type === 'loft') for (const s of f.secs || []) ids.add(s.sketch);
   if (f.type === 'hole' && f.face) fromMeta(f.face.m);
   if (f.type === 'shell') for (const r of f.faces || []) fromMeta(r.m);
@@ -25787,6 +25922,52 @@ ov.addEventListener('dblclick', e => {
 const hwStyle = document.createElement('style');
 hwStyle.textContent = '#ctxmenu button:has(.mh) { pointer-events: none; font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding: 8px 10px 2px; } #ctxmenu .mk { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }';
 document.head.appendChild(hwStyle);
+
+// ── Deform: bend, twist, taper, warp — or flow any bodies along a path ──
+Object.assign(FEAT_BASE, { deform: 'Deform' });
+Object.assign(FEAT_IC, { deform: 'deform' });
+Object.assign(IC, { deform: '<path d="M2.5 14c3.5 0 3.5-9 7.5-9s4 9 7.5 9"/><path d="M3 17.5h14" opacity=".5"/>' });
+TOOL_FEATS.add('deform');
+const DEF_NAMES = { bend: 'Bend', twist: 'Twist', taper: 'Taper', wave: 'Warp', path: 'Flow along path' };
+const DEF_BT = bodyTool({});
+FEATS.deform = bodyTool({
+  label: 'Bend / Twist / Warp', title: f => DEF_NAMES[f.mode] || 'Deform',
+  init: () => ({ bodies: [], mode: 'bend', ax: 'X', dir: 'Z', angle: 90, scale: 0.5, amp: 6, wavelength: 40, phase: 0, spiral: false, fade: false, from: 0, to: 100, res: 'standard', path: null, fit: false }),
+  ready: f => f.bodies.length > 0 && (f.mode !== 'path' || !!(f.path && f.path.ents.length)),
+  need: 'Pick the bodies to deform (and a path, for Flow along path).',
+  onSet(k) { const f = CMD.f; if ((k === 'ax' || k === 'dir' || k === 'mode') && f.dir === f.ax) f.dir = f.ax === 'Z' ? 'X' : 'Z'; },
+  panel: f => {
+    const m = f.mode, AXS = [['X', 'X'], ['Y', 'Y'], ['Z', 'Z']];
+    let h = bodyPickPanel(f, 'bodies', 'Bodies') + pf.seg('Deformation', 'mode', [['bend', 'Bend'], ['twist', 'Twist'], ['taper', 'Taper'], ['wave', 'Warp'], ['path', 'Along path']]) + pf.seg(m === 'path' ? 'Length axis of the bodies' : 'Along axis', 'ax', AXS);
+    if (m === 'bend' || m === 'wave') h += pf.seg(m === 'bend' ? 'Bend toward' : 'Warp toward', 'dir', AXS.filter(a => a[0] !== f.ax));
+    if (m === 'bend') h += pf.num('Bend angle (°)', 'angle', { step: 15 });
+    if (m === 'twist') h += pf.num('Twist angle (°)', 'angle', { step: 15 });
+    if (m === 'taper') h += pf.num('End size (× the start)', 'scale', { step: 0.1, min: 0.01 });
+    if (m === 'wave') h += `<div class="row2">${pf.num('Amplitude', 'amp', { len: 1 })}${pf.num('Wavelength', 'wavelength', { len: 1, min: 0.1 })}</div>${pf.num('Phase (°)', 'phase', { step: 15 })}${pf.chk('Spiral (warp both ways)', 'spiral')}${pf.chk('Fade in and out', 'fade')}`;
+    if (m === 'path') h += pf.pick('Path', f.path ? (byId(f.path.sketch) || {}).name : 'Click a sketch curve', f.path ? f.path.ents.length + ' curve' + (f.path.ents.length === 1 ? '' : 's') : '', 'path') + pf.num('Twist along the path (°)', 'angle', { step: 15 }) + pf.chk('Stretch to fit the path', 'fit');
+    h += `<div class="row2">${pf.num('From (%)', 'from', { step: 10, min: 0 })}${pf.num('To (%)', 'to', { step: 10, min: 0 })}</div>` + pf.seg('Detail', 'res', [['coarse', 'Coarse'], ['standard', 'Standard'], ['fine', 'Fine']]);
+    return h + pf.note(m === 'path' ? 'The bodies are laid onto the path: their start sits at the path\'s start and they follow every turn. Pick a sketch curve (or chain).' : 'Faces come out as smooth freeform surfaces. Stack deformations to combine them — a twist, then a bend.');
+  },
+  move(x, y) {
+    if (CMD.step !== 'path') return DEF_BT.move(x, y);
+    const e = hoverSkEnt(x, y);
+    if (e) { const sk = byId(e.sketch); CMD.chainPrev = { sketch: e.sketch, ents: curveChain(sk, sk.ents.find(q => q.id === e.ent)).map(q => q.id) }; } else CMD.chainPrev = null;
+    requestDraw();
+  },
+  click() {
+    const c = CMD, h = hover3D;
+    if (c.step !== 'path') return DEF_BT.click();
+    if (!h || h.kind !== 'skent') return;
+    const sk = byId(h.sketch), chain = curveChain(sk, sk.ents.find(q => q.id === h.ent));
+    c.f.path = { sketch: sk.id, ents: chain.map(e => e.id) }; c.step = null; c.chainPrev = null; featSync();
+  },
+  showSketch: (f, id) => { const sk = byId(id); return !!sk && (sk.vis !== false || (f.path && f.path.sketch === id) || CMD.step === 'path'); },
+  draw() { const f = CMD.f; if (f.path) strokeSkEnts(f.path.sketch, f.path.ents, COL.accent, 3.2); if (CMD.step === 'path' && CMD.chainPrev) strokeSkEnts(CMD.chainPrev.sketch, CMD.chainPrev.ents, COL['face-hot'], 2.6); },
+  hint: c => c.step === 'path' ? 'click a sketch curve for the path (joined curves come along)' : 'click the bodies to deform',
+  sub: f => `${f.mode === 'wave' ? 'warp ' + fmtLs(f.amp) : f.mode === 'taper' ? '× ' + f.scale : f.mode === 'path' ? 'along path' : f.angle + '°'}`.trim(),
+});
+const modelToolbarHTML2 = modelToolbarHTML;
+modelToolbarHTML = function () { return modelToolbarHTML2().replace('</div><div class="rb-title">Modify</div>', `<div class="rb-col"><button class="rb-btn rb-sm ${cmdIs('deform') ? 'on' : ''}" data-act="f:deform" title="Bend, twist, taper or warp bodies — or flow them along a path">${svg('deform')}<span>Bend / Twist</span></button></div></div><div class="rb-title">Modify</div>`); };
 </script>
 
 <script>
