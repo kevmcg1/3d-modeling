@@ -3676,8 +3676,14 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .tb-right { display: flex; gap: 2px; align-items: stretch; margin-left: auto; }
 
 /* ── Main ── */
-#main { display: grid; grid-template-columns: 230px 1fr auto; min-height: 0; min-width: 0; }
-#browser { background: var(--panel); border-right: 1px solid var(--rule); min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+#main { display: grid; grid-template-columns: var(--browser-w, 230px) 1fr auto; min-height: 0; min-width: 0; }
+#browser { background: var(--panel); border-right: 1px solid var(--rule); min-height: 0; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+#brGrip { position: absolute; top: 0; bottom: 0; right: 0; width: 7px; cursor: col-resize; z-index: 5; touch-action: none; }
+#brGrip::after { content: ''; position: absolute; top: 50%; right: 2px; width: 3px; height: 34px; margin-top: -17px; border-radius: 2px; background: var(--rule); opacity: 0; transition: opacity .15s, background-color .15s; }
+#browser:hover #brGrip::after, #brGrip.drag::after { opacity: 1; }
+#brGrip:hover::after, #brGrip.drag::after { background: var(--accent); }
+body.col-drag { cursor: col-resize; user-select: none; }
+@media (max-width: 820px) { #brGrip { display: none; } }
 #brTop { flex: 1 1 auto; min-height: 90px; overflow-y: auto; }
 .sec-title {
   font: 500 10px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
@@ -3789,6 +3795,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .chk { display: flex; align-items: center; gap: 8px; font-size: 12.5px; cursor: pointer; }
 .chk input { accent-color: var(--accent); }
 .note { font-size: 12px; color: var(--muted); line-height: 1.5; }
+h3.sub { margin: 12px 0 2px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .hint { display: block; font-size: 11.5px; color: var(--muted); line-height: 1.45; margin: 2px 0 10px; }
 .hint b { color: var(--ink-2); font-weight: 600; }
 .hfield > .row2, .hfield > .field { margin-bottom: 0; }
@@ -4224,6 +4231,7 @@ table.meas tr.bad td { color: var(--danger); }
 
 <div id="main">
   <aside id="browser">
+    <div id="brGrip" role="separator" aria-orientation="vertical" title="Drag to resize this panel (double-click to reset)"></div>
     <div id="brTop"></div>
     <div id="brSplit" role="separator" aria-orientation="horizontal" title="Drag to resize the timeline"></div>
     <section id="timeline" aria-label="Timeline">
@@ -4237,6 +4245,9 @@ table.meas tr.bad td { color: var(--danger); }
     <div id="hint"></div>
     <div id="viewtools">
       <div class="dim-toggle" title="Switch between a flat 2D view and 3D (V)"><button id="btn2D">2D</button><button id="btn3D">3D</button></div>
+      <div class="dim-toggle" id="shadeToggle" role="group" aria-label="How the model is drawn">
+        <button data-shade="solid" title="Solid: lit surfaces with their edge lines">Solid</button><button data-shade="shaded" title="Shaded: smooth lit surfaces, no edge lines">Shaded</button><button data-shade="wire" title="Wireframe: edges only, see-through">Wireframe</button>
+      </div>
       <button class="vbtn" id="btnHome" title="Home view (H)"><svg viewBox="0 0 20 20"><path d="M3 9l7-6 7 6v8H3z"/></svg>Home</button>
       <button class="vbtn" id="btnFit" title="Fit all (F)"><svg viewBox="0 0 20 20"><path d="M3 7V3h4M13 3h4v4M17 13v4h-4M7 17H3v-4"/></svg>Fit</button>
       <div class="vis-group" id="visGroup" aria-label="Show in view"></div>
@@ -7516,7 +7527,7 @@ function bodyNames() {
   for (const b of MODEL.bodies || []) if (!names[b.id]) names[b.id] = 'Body ' + (++n);
   return names;
 }
-const FEAT_BASE = { sketch: 'Sketch', extrude: 'Extrude', plane: 'Plane', fillet: 'Fillet', chamfer: 'Chamfer', thread: 'Thread', point: 'Point', import: 'Import' };
+const FEAT_BASE = { sketch: 'Sketch', extrude: 'Extrude', plane: 'Plane', fillet: 'Fillet', chamfer: 'Chamfer', thread: 'Thread', point: 'Point', import: 'Import', polyline3d: 'Polyline' };
 function featName(type) {
   const base = FEAT_BASE[type] || 'Feature';
   let n = 1;
@@ -7752,6 +7763,7 @@ function applyModel(ctx, req) {
     bodyGroup.add(group);
     bodyMeshes.push({ group, me, mesh, body: b });
   }
+  if (typeof applyShade === 'function' && SHADE !== 'solid') applyShade();
   computeSceneBounds();
   refreshUI();
   clearHover3D();
@@ -9394,7 +9406,18 @@ function kpGlyph(P, k, color, big) {
   og.stroke();
   return s;
 }
+// 3D polylines: typed points joined by straight lines, with a dot at each point.
+function strokePolyline3(f, col, w) {
+  const q = f.pts.map(toScreen);
+  if (q.length < 2) return;
+  og.strokeStyle = col; og.fillStyle = col; og.lineWidth = w; og.lineJoin = 'round'; og.beginPath();
+  q.forEach((p, i) => i ? og.lineTo(p.x, p.y) : og.moveTo(p.x, p.y));
+  if (f.closed) og.closePath();
+  og.stroke();
+  for (const p of q) { og.beginPath(); og.arc(p.x, p.y, w + 0.8, 0, TAU); og.fill(); }
+}
 function drawEdgesAndPoints() {
+  for (const f of doc.features) if (f.type === 'polyline3d' && !f.sup && f.vis !== false && doc.features.indexOf(f) < activeLimit()) strokePolyline3(f, TLHOVER === f.id ? COL['face-hot'] : COL.accent, TLHOVER === f.id ? 3 : 2);
   // construction points
   for (const f of doc.features) {
     if (f.type !== 'point' || f.sup || f.vis === false || !MODEL.points[f.id]) continue;
@@ -9596,6 +9619,11 @@ const IC = {
   camcontour: '<rect x="5" y="6" width="10" height="8" rx="1.5"/><path d="M2.5 4.5h15v11h-15z" stroke-dasharray="2 1.6"/>',
   campocket: '<rect x="3" y="4" width="14" height="12" rx="1.5"/><path d="M6 7h8v6H6zM8.5 9.5h3v1h-3z" opacity=".7"/>',
   camdrill: '<path d="M10 2v11l-2 2 2 3 2-3-2-2"/><path d="M5 17h10" opacity=".5"/>',
+  cammill: '<path d="M8 2h4v7l1.5 2v3h-7v-3L8 9z"/><path d="M4 17h12" opacity=".5"/><path d="M8 5h4" opacity=".5"/>',
+  polyline3: '<path d="M3 15l4-8 4 5 6-9"/><circle cx="3" cy="15" r="1.3"/><circle cx="7" cy="7" r="1.3"/><circle cx="11" cy="12" r="1.3"/><circle cx="17" cy="3" r="1.3"/>',
+  camspot: '<path d="M10 2v8"/><path d="M7 10h6l-3 5z"/><path d="M4 17h12" opacity=".5"/><circle cx="10" cy="17" r="1.3" opacity=".7"/>',
+  campeck: '<path d="M10 2v5M10 9v3" /><path d="M8 12l2 3 2-3z"/><path d="M5 17h10M6.5 14.5h7" opacity=".5" stroke-dasharray="1.6 1.4"/>',
+  camtap: '<path d="M10 2v6"/><path d="M7.5 8h5v9l-2.5 1.5L7.5 17z"/><path d="M7.5 10.5h5M7.5 13h5M7.5 15.5h5" opacity=".6"/>',
   camparallel: '<path d="M3 5h14M3 9h14M3 13h14M17 5v4M3 9v4" /><path d="M3 17c3-3 11-3 14 0" opacity=".5"/>',
   camsim: '<path d="M6 4l10 6-10 6z"/>',
   campost: '<path d="M5 2h7l4 4v12H5z"/><path d="M8 10h5M8 13h5M8 7h2" opacity=".7"/>',
@@ -9615,7 +9643,7 @@ const SKETCH_TOOLS = [
   [['select', 'Select', 'S'], ['dim', 'Dimension', 'D'], ['line', 'Line', 'L'], ['polyline', 'Polyline', 'Y'], ['rect', 'Rectangle', 'R'], ['crect', 'Center Rect', ''], ['circle', 'Circle', 'C'], ['arc3', '3-Pt Arc', 'A'], ['carc', 'Center Arc', ''], ['poly', 'Polygon', 'G']],
   [['fillet', 'Fillet', 'I'], ['chamfer', 'Chamfer', ''], ['trim', 'Trim', 'T'], ['extend', 'Extend', 'W'], ['offset', 'Offset', 'O'], ['mirror', 'Mirror', 'M'], ['project', 'Project', 'J'], ['origin', 'Set Origin', 'Z']],
 ];
-const FEAT_IC = { sketch: 'sketch', extrude: 'extrude', plane: 'plane', fillet: 'fillet3', chamfer: 'chamfer3', thread: 'thread', point: 'point', import: 'import' };
+const FEAT_IC = { sketch: 'sketch', extrude: 'extrude', plane: 'plane', fillet: 'fillet3', chamfer: 'chamfer3', thread: 'thread', point: 'point', import: 'import', polyline3d: 'polyline3' };
 function refreshToolbar() {
   const tb = document.getElementById('toolbar');
   const btn = (act, lab, key, on, cls = '', ic) => `<button class="tb ${on ? 'on' : ''} ${cls}" data-act="${act}" title="${lab}${key ? ' (' + key + ')' : ''}">${svg(ic || (act === 'finish' ? 'finish' : act))}<span>${lab}</span></button>`;
@@ -9812,6 +9840,7 @@ function featSub(f) {
     case 'plane': return fmtLs(f.off);
     case 'thread': return f.internal === true ? 'internal' : f.internal === false ? 'external' : '';
     case 'import': return `${OP_SIGN[f.op] || ''} ${(f.file || '').split('.').pop().toUpperCase()}`.trim();
+    case 'polyline3d': return f.pts.length + ' points' + (f.closed ? ' · closed' : '');
   }
   return FEATS[f.type] && FEATS[f.type].sub ? FEATS[f.type].sub(f) : '';
 }
@@ -9859,6 +9888,18 @@ function dropIndex(ev) {
     sp.addEventListener('pointermove', move); sp.addEventListener('pointerup', up);
   });
   sp.addEventListener('dblclick', () => { tl.style.height = ''; try { localStorage.removeItem('datum.tlh'); } catch (e) { /* ignore */ } });
+  // the panel's width: drag its right edge
+  const grip = document.getElementById('brGrip'), main = document.getElementById('main');
+  const setW = w => main.style.setProperty('--browser-w', clamp(Math.round(w), 170, Math.max(170, Math.min(560, innerWidth * 0.5))) + 'px');
+  try { const w = +localStorage.getItem('datum.brw'); if (w > 0) setW(w); } catch (e) { /* storage unavailable */ }
+  grip.addEventListener('pointerdown', e => {
+    grip.setPointerCapture(e.pointerId); grip.classList.add('drag'); document.body.classList.add('col-drag');
+    const x0 = e.clientX, w0 = br.getBoundingClientRect().width;
+    const move = ev => setW(w0 + ev.clientX - x0);
+    const up = () => { grip.classList.remove('drag'); document.body.classList.remove('col-drag'); grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', up); grip.removeEventListener('pointercancel', up); try { localStorage.setItem('datum.brw', Math.round(br.getBoundingClientRect().width)); } catch (e) { /* ignore */ } };
+    grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', up); grip.addEventListener('pointercancel', up);
+  });
+  grip.addEventListener('dblclick', () => { main.style.removeProperty('--browser-w'); try { localStorage.removeItem('datum.brw'); } catch (e) { /* ignore */ } });
 })();
 (() => {
   const el = document.getElementById('tl-items');
@@ -10006,7 +10047,7 @@ function featureMenu(f, x, y) {
     null,
     { label: 'Rename…', run: () => renameFeature(f) },
     { label: f.sup ? 'Show in model' : 'Hide from model', run: () => toggleSuppress(f) },
-    ['sketch', 'plane', 'point'].includes(f.type) ? { label: f.vis === false ? 'Show ' + f.type + ' graphics' : 'Hide ' + f.type + ' graphics', run: () => { f.vis = f.vis === false; saveLocal(); refreshUI(); requestDraw(); } } : undefined,
+    ['sketch', 'plane', 'point', 'polyline3d'].includes(f.type) ? { label: f.vis === false ? 'Show ' + f.type + ' graphics' : 'Hide ' + f.type + ' graphics', run: () => { f.vis = f.vis === false; saveLocal(); refreshUI(); requestDraw(); } } : undefined,
     f.type === 'sketch' ? null : undefined,
     f.type === 'sketch' ? { label: 'Move sketch…', run: () => sketchXform(f, 'smove') } : undefined,
     f.type === 'sketch' ? { label: 'Rotate sketch…', run: () => sketchXform(f, 'srot') } : undefined,
@@ -10751,6 +10792,22 @@ document.getElementById('btnHelp').addEventListener('click', () => { document.ge
 document.getElementById('help').addEventListener('click', e => { if (e.target.id === 'help') e.currentTarget.hidden = true; });
 document.getElementById('btnHome').addEventListener('click', () => { animateView({ quat: ISO() }); setTimeout(() => fitAll(), 0); });
 document.getElementById('btnFit').addEventListener('click', () => fitAll());
+// How bodies are drawn: Solid (lit, with edge lines), Shaded (lit, no lines), Wireframe (edges only).
+let SHADE = 'solid';
+try { const v = localStorage.getItem('datum.shade'); if (v === 'shaded' || v === 'wire') SHADE = v; } catch (e) { /* storage unavailable */ }
+function applyShade() {
+  for (const m of bodyMeshes) { m.me.visible = SHADE !== 'wire'; m.group.children[1].visible = SHADE !== 'shaded'; }
+  document.querySelectorAll('#shadeToggle [data-shade]').forEach(b => { b.classList.toggle('on', b.dataset.shade === SHADE); b.setAttribute('aria-pressed', b.dataset.shade === SHADE); });
+  requestDraw();
+}
+function setShade(m) {
+  SHADE = m;
+  try { localStorage.setItem('datum.shade', m); } catch (e) { /* ignore */ }
+  applyShade();
+  toast({ solid: 'Solid: lit surfaces with edge lines', shaded: 'Shaded: smooth surfaces, no edge lines', wire: 'Wireframe: edges only' }[m]);
+}
+document.querySelectorAll('#shadeToggle [data-shade]').forEach(b => b.addEventListener('click', () => setShade(b.dataset.shade)));
+applyShade();
 document.getElementById('btn2D').addEventListener('click', () => set2D(true));
 document.getElementById('btn3D').addEventListener('click', () => set2D(false));
 document.getElementById('btnTree').addEventListener('click', () => document.getElementById('browser').classList.toggle('open'));
@@ -10866,7 +10923,7 @@ function toolParams(t) {
     if (category === 'endmill') Object.assign(p, { shankDia: d < 3 ? 3 : d <= 20 ? d : 20, loc: +(d * (d < 4 ? 3 : 2.2)).toFixed(2), oal: Math.max(38, +(d * 5 + 30).toFixed(1)) });
     if (category === 'drill' || category === 'reamer') Object.assign(p, { shankDia: d, loc: +(d * 6 + 10).toFixed(1), oal: +(d * 9 + 30).toFixed(1) });
     if (category === 'spotdrill') Object.assign(p, { shankDia: d, loc: d * 1.3, oal: Math.max(40, d * 5 + 20), pointAngle: 90 });
-    if (category === 'chamfer') Object.assign(p, { shankDia: Math.min(d, 20), oal: Math.max(50, d * 4 + 30), coneAngle: 90, tipDia: +(d * 0.12).toFixed(2) });
+    if (category === 'chamfer') Object.assign(p, { shankDia: Math.min(d, 20), oal: Math.max(50, d * 4 + 30), coneAngle: t.cone || 90, tipDia: +(d * 0.12).toFixed(2) });
     if (category === 'facemill') Object.assign(p, { inserts: Math.max(3, t.flutes || 5), bodyH: Math.max(20, d * 0.45), boreDia: Math.max(10, Math.round(d * 0.4)), holder: true });
     if (category === 'tap') { const P = isoPitch(d); Object.assign(p, { pitch: P, threadSize: `M${+d.toFixed(1)}x${P}`, shankDia: d, loc: d * 2.5, oal: d * 8 + 40, tapType: 'spiralpoint' }); }
     if (category === 'threadmill') Object.assign(p, { shankDia: Math.max(d, 6), loc: d * 1.5, oal: 60, pitch: t.pitch || 1.5 });
@@ -10907,6 +10964,7 @@ function toolFromParams(p, n) {
   const t = { n, ...toolDefaults(type, d), p: P };
   if (type === 'face') t.flutes = P.inserts; else if (P.flutes) t.flutes = P.flutes;
   if (type === 'bull') t.r = P.cornerR;
+  if (type === 'chamfer' && P.coneAngle) t.cone = P.coneAngle;
   return t;
 }
 function addBuilderTools(list, label) {
@@ -10929,7 +10987,7 @@ const OP_INFO = {
   pocket: { name: '2D Pocket', icon: 'campocket', tip: 'Clears material down to the flat faces you pick. At every depth it goes down in the middle and works outward in rings toward the walls, leaving a little on the walls; a finishing pass then takes the walls to size. Islands (like bosses) are left alone.' },
   drill: { name: 'Drill', icon: 'camdrill', tip: 'Drills every vertical hole of the chosen diameters with a Haas canned cycle: drill, spot, deep peck, chip-break peck, ream or rigid tap.' },
   parallel: { name: '3D Parallel', icon: 'camparallel', tip: 'Finishing raster over the whole part with a drop-cutter, following fillets and chamfers.' },
-  chamfer: { name: '2D Chamfer', icon: 'camchamfer', tip: 'Runs a 90° chamfer mill along 45° chamfers: the tip just below the chamfer’s edge, the cone lying on the chamfer face.' },
+  chamfer: { name: 'Conical Swarf', icon: 'camchamfer', tip: 'Lies the cone of a chamfer mill flat on a sloped face and follows its foot, so the flank cuts the whole face in one pass: a 90° mill on a 45° chamfer, a 60° mill on a 30° one, a long narrow cone on a draft wall. Rough-and-finish passes and a surface-finish target are in the panel.' },
 };
 function camDefaults() {
   return {
@@ -10946,7 +11004,7 @@ function camDefaults() {
 }
 const cam = () => doc.cam || (doc.cam = camDefaults());
 let toolOf = n => cam().tools.find(t => t.n === n) || cam().tools[0];
-const toolName = t => t.wire ? `Wire Ø${fmtLs(t.d)}` : `T${t.n} · ${isIn() ? `Ø${fmt(t.d / 25.4, 3)}"` : `Ø${+t.d}`} ${TOOL_TYPES[t.type].toLowerCase()}`;
+const toolName = t => t.wire ? `Wire Ø${fmtLs(t.d)}` : `T${t.n} · ${isIn() ? `Ø${fmt(t.d / 25.4, 3)}"` : `Ø${+t.d}`} ${t.type === 'chamfer' ? (t.cone || 90) + '° ' : ''}${TOOL_TYPES[t.type].toLowerCase()}`;
 
 // ── Part, stock and work origin (CAM absolute coordinates) ─────────
 function camPart() {
@@ -11618,6 +11676,56 @@ function pocketFinish(op, tool, st, P, area, floor, restArea) {
   }
   if (passes) P.finish = (P.finish || 0) + passes;
 }
+// ── Surface finish ─────────────────────────────────────────────────
+// The ridges a cutter leaves are arcs of its own radius R, one pitch apart: the pitch is the
+// stepover of a ball mill, or the feed per tooth along a wall. Peak to valley Rt = pitch² / 8R,
+// and for arcs the average roughness is Ra = pitch² / (18√3·R) ≈ 0.26 Rt. Estimates, not promises:
+// a worn tool, chatter or a springy part will do worse.
+const RA_K = 18 * Math.sqrt(3);
+const raOf = (pitch, R) => pitch * pitch / (RA_K * R);                 // mm
+const pitchFor = (ra, R) => Math.sqrt(ra * RA_K * R);                  // mm
+const FINISH_GRADES = [['rough', 3.2, 'Rough'], ['std', 1.6, 'Standard'], ['fine', 0.8, 'Fine'], ['mirror', 0.4, 'Mirror']];   // Ra in µm
+const fmtRa = mm => { const um = mm * 1000, uin = Math.round(um * 39.37); return isIn() ? `${uin} µin (${+um.toFixed(2)} µm)` : `${+um.toFixed(2)} µm (${uin} µin)`; };
+const fzOf = (tool, feed) => feed / Math.max(1, tool.rpm * (tool.flutes || 2));        // feed per tooth, mm
+// Everything about a swarf operation that does not depend on moves: which faces, how they
+// sit against the tool, the passes (rough stock, finish, spring) and the finish feed.
+function swarfPlan(op, tool) {
+  const extra = op.through == null ? 0.3 : op.through, R = tool.d / 2, hd = toolHalf(tool) * 180 / Math.PI;
+  const base = chamferPasses(op.faces || [], tool, extra, 0), es = [...new Set(base.map(q => q.e))], warn = [];
+  const cone = 2 * hd, ang = [...new Set(es.map(e => Math.round(2 * e.half)))].sort((a, b) => a - b);
+  const bad = es.filter(e => Math.abs(e.half - hd) > SWARF_TOL);
+  if (bad.length) warn.push(`${bad.length} face${bad.length > 1 ? 's slope' : ' slopes'} for a ${[...new Set(bad.map(e => Math.round(2 * e.half)))].join(' / ')}° cone, not this tool’s ${+cone.toFixed(1)}°: the cone cannot lie flat, so it touches only ${bad.some(e => e.half > hd) ? 'the top' : 'the foot'} and leaves the rest. Pick a ${[...new Set(bad.map(e => Math.round(2 * e.half)))].join(' / ')}° chamfer mill.`);
+  const fits = base.map(q => q.fit), worst = Math.max(0, ...fits.map(f => f.need));
+  if (worst > R - 0.1) warn.push(`The tallest face (${fmtLs(Math.max(...fits.map(f => f.H)))}) is too big for a Ø${fmtLs(tool.d)} chamfer mill: the cone runs out of width ${fmtLs(worst - R)} short.`);
+  const L = op.leave || 0, np = op.passes || 1, rs = op.roughStock == null ? 0.15 : op.roughStock;
+  const leaves = np >= 2 && rs > 0 ? (np >= 3 ? [L + rs, L, L] : [L + rs, L]) : np >= 3 ? [L, L] : [L];
+  const Rc = fits.length ? fits.reduce((a, f) => a + f.mid, 0) / fits.length : R * 0.7, fzNow = fzOf(tool, tool.feed);
+  let finishFeed = tool.feed;
+  if (op.ra > 0) finishFeed = Math.min(tool.feed, pitchFor(op.ra / 1000, Rc) * Math.max(1, tool.rpm * (tool.flutes || 2)));
+  return { passes: base, faces: es.length, angles: ang.length ? ang.map(a => a + '°').join(' / ') + ' cone' : '', warn, leaves, finishFeed, Rc, ra: raOf(fzOf(tool, finishFeed), Rc), raFull: raOf(fzNow, Rc) };
+}
+// The Surface finish block of an operation panel: the finish the cutter should leave and
+// the numbers behind it.
+function finishBlock(op, tool) {
+  const grades = (ra, offLabel) => `<div class="field"><span>Surface finish target (Ra)</span><div class="seg">${offLabel ? `<button data-opra="0" class="${!ra ? 'on' : ''}" title="Cut at the tool’s own feed">${offLabel}</button>` : ''}${FINISH_GRADES.map(([k, um, nm]) => `<button data-opra="${um}" class="${ra === um ? 'on' : ''}" title="${um} µm · ${Math.round(um * 39.37)} µin">${nm}</button>`).join('')}</div></div>`;
+  if (op.type === 'parallel') {
+    if (tool.type !== 'ball') return '<p class="note">Use a ball mill for 3D finishing: its scallop, and so the finish, follows from the stepover.</p>';
+    const R = tool.d / 2, so = Math.max(0.05, op.stepover), ra = raOf(so, R), rt = so * so / (8 * R);
+    return grades(op.ra || 0) + `<dl class="kv"><dt>Stepover for the target</dt><dd>${op.ra > 0 ? fmtLs(pitchFor(op.ra / 1000, R), 3) : '—'}</dd><dt>Scallop height</dt><dd>${fmtLs(rt, 4)}</dd><dt>Expected finish</dt><dd>≈ ${fmtRa(ra)} Ra</dd></dl><small class="hint">From the scallop between passes: stepover²/(18√3·R). A worn ball or a deflecting tool will be rougher.</small>`;
+  }
+  if (op.type === 'chamfer') {
+    const sw = swarfPlan(op, tool);
+    if (!sw.faces) return '';
+    return grades(op.ra || 0, 'Tool feed') + `<div class="field"><span>Passes</span><div class="seg">${[[1, 'Single'], [2, 'Rough + finish'], [3, '+ spring pass']].map(([k, l]) => `<button data-opset="passes:${k}" class="${(op.passes || 1) === k ? 'on' : ''}" title="${k === 1 ? 'One pass to size' : k === 2 ? 'Leave stock, then take it off with a light pass' : 'Then repeat the finish pass to cut off what the tool sprang away from'}">${l}</button>`).join('')}</div></div>`
+      + ((op.passes || 1) >= 2 ? `<div class="row2">${num('opRough', op.roughStock == null ? 0.15 : op.roughStock, 'Stock before finish', 0.05)}</div>` : '')
+      + `<dl class="kv"><dt>Finish pass feed</dt><dd>${fmtRate(sw.finishFeed)}${sw.finishFeed < tool.feed - 0.5 ? ' (slowed for the target)' : ''}</dd><dt>Feed per tooth</dt><dd>${fmtLs(fzOf(tool, sw.finishFeed), 4)}</dd><dt>Feed-mark finish</dt><dd>≈ ${fmtRa(sw.ra)} Ra</dd></dl><small class="hint">The ridges the teeth leave at this feed, the best the geometry allows: runout, deflection and a worn edge add to it. A rough-and-finish pair, with a spring pass, takes off what the tool pushed away.</small>`;
+  }
+  if ((op.type === 'contour' || op.type === 'pocket') && tool.type !== 'ball') {
+    const fz = fzOf(tool, tool.feed);
+    return `<dl class="kv"><dt>Wall finish (feed marks)</dt><dd>≈ ${fmtRa(raOf(fz, tool.d / 2))} Ra</dd><dt>Feed per tooth</dt><dd>${fmtLs(fz, 4)}</dd></dl><small class="hint">From the feed marks of Ø${fmtLs(tool.d)}: a lower feed per tooth, or a finishing pass, gives a smoother wall.</small>`;
+  }
+  return '';
+}
 const GEN = {
   face(op, tool, st, part, P) {
     // Straight passes, one stroke right across the stock at each stepover (radial
@@ -11892,20 +12000,22 @@ const GEN = {
     }
     P.rapid(P.cur[0], P.cur[1], safe);
   },
+  // Conical swarf: a chamfer mill lies its cone flat on a sloped face and follows its foot, so the
+  // whole face is cut by the flank in one pass. Works for any cone: 90° on a 45° chamfer, 60° on a
+  // 30° one, 120° on a shallow one, or a long narrow cone for a draft wall.
   chamfer(op, tool, st, part, P) {
     const refs = op.faces || [];
-    if (!refs.length) { P.warn.push('Pick the chamfer faces.'); return; }
-    if (tool.type !== 'chamfer') P.warn.push('This operation is meant for a 90° chamfer mill.');
-    const extra = op.through == null ? 0.3 : op.through, rt = cutRadius(tool, 0), off = rt + extra + (op.leave || 0);
-    const passes = chamferPasses(refs, off);
-    if (!passes.length) { P.warn.push('No 45° chamfers on the chosen faces.'); return; }
-    const tall = Math.max(...passes.map(q => q.h));
-    if (rt + extra + tall > tool.d / 2 - 0.1) P.warn.push(`The chamfer (${fmtLs(tall)}) is too big for a Ø${fmtLs(tool.d)} chamfer mill.`);
+    if (!refs.length) { P.warn.push('Pick the faces to swarf.'); return; }
+    if (tool.type !== 'chamfer') P.warn.push('Conical swarf needs a chamfer mill: its cone is what lies on the face.');
+    const extra = op.through == null ? 0.3 : op.through, rt = cutRadius(tool, 0), R = tool.d / 2, th = Math.tan(toolHalf(tool));
+    const sw = swarfPlan(op, tool);
+    if (!sw.passes.length) { P.warn.push('None of the chosen faces is a sloped planar or conical face.'); return; }
+    for (const w of sw.warn) P.warn.push(w);
     const g = camGeom(), G = g.fineG || g.G, stamp = new Int32Array(G.T.length), tz = 0.05 + (g.fineG ? 0.02 : Math.max(0.02, shownTol));
     G.q = G.q || 0;
-    const R = tool.d / 2, cuts = (p, z) => {
+    const cuts = (p, z) => {
       for (const fr of [0.3, 0.55, 0.8, 1]) {
-        const rr = R * fr, ch = Math.max(0, rr - rt);                // 90° cone: as high as it is wide past the tip
+        const rr = R * fr, ch = Math.max(0, rr - rt) / th;              // the cone: as high as the radius past the tip needs
         G.q++;
         if (dropCutter(G, p.x, p.y, rr, false, stamp, z + ch + tz) - ch > z + tz) return true;
       }
@@ -11918,28 +12028,32 @@ const GEN = {
         if (d <= 0.1) pts.pop(); else pts[pts.length - 1] = add2(b, mul2(sub2(a, b), 0.1 / d));
       }
     };
-    let trimmed = 0;
-    for (const ps of passes) {
-      if (dst2(ps.pts[0], ps.pts[ps.pts.length - 1]) < 1e-3) continue;   // closed loops have no ends
-      const z = ps.z - extra, n0 = ps.pts.length, L0 = ps.pts.slice();
-      trimEnd(ps.pts, z); ps.pts.reverse(); trimEnd(ps.pts, z); ps.pts.reverse();
-      if (ps.pts.length !== n0 || ps.pts.some((p, i) => dst2(p, L0[i] || p) > 1e-9)) trimmed++;
-    }
-    if (trimmed) P.warn.push(`${trimmed} chamfer end${trimmed > 1 ? 's stop' : ' stops'} short where the cone would touch the next face — a round tool cannot finish that corner.`);
     const safe = st.z1 + cam().safe, ret = st.z1 + cam().retract;
-    let cur = null;
-    while (passes.length) {
-      let bi = 0;
-      if (cur) passes.forEach((q, i) => { if (dst2(q.pts[0], cur) < dst2(passes[bi].pts[0], cur)) bi = i; });
-      const ps = passes.splice(bi, 1)[0], s = ps.pts[0], z = ps.z - extra;
-      if (!cur) P.rapid(s.x, s.y, safe); else P.rapid(P.cur[0], P.cur[1], ret);
-      P.rapid(s.x, s.y, ret);
-      P.plunge(s.x, s.y, z);
-      for (let i = 1; i < ps.pts.length; i++) P.feed(ps.pts[i].x, ps.pts[i].y, z);
-      P.rapid(P.cur[0], P.cur[1], ret);
-      cur = ps.pts[ps.pts.length - 1];
-    }
+    let cur = null, trimmed = 0;
+    sw.leaves.forEach((leave, li) => {
+      const passes = chamferPasses(refs, tool, extra, leave), last = li === sw.leaves.length - 1;
+      const f = last ? sw.finishFeed : tool.feed;
+      for (const ps of passes) {
+        if (dst2(ps.pts[0], ps.pts[ps.pts.length - 1]) < 1e-3) continue;   // closed loops have no ends
+        const n0 = ps.pts.length, L0 = ps.pts.slice();
+        trimEnd(ps.pts, ps.z); ps.pts.reverse(); trimEnd(ps.pts, ps.z); ps.pts.reverse();
+        if (li === 0 && (ps.pts.length !== n0 || ps.pts.some((p, i) => dst2(p, L0[i] || p) > 1e-9))) trimmed++;
+      }
+      while (passes.length) {
+        let bi = 0;
+        if (cur) passes.forEach((q, i) => { if (dst2(q.pts[0], cur) < dst2(passes[bi].pts[0], cur)) bi = i; });
+        const ps = passes.splice(bi, 1)[0], s0 = ps.pts[0], z = ps.z;
+        if (!cur) P.rapid(s0.x, s0.y, safe); else P.rapid(P.cur[0], P.cur[1], ret);
+        P.rapid(s0.x, s0.y, ret);
+        P.plunge(s0.x, s0.y, z);
+        for (let i = 1; i < ps.pts.length; i++) P.feed(ps.pts[i].x, ps.pts[i].y, z, f);
+        P.rapid(P.cur[0], P.cur[1], ret);
+        cur = ps.pts[ps.pts.length - 1];
+      }
+    });
+    if (trimmed) P.warn.push(`${trimmed} swarf end${trimmed > 1 ? 's stop' : ' stops'} short where the cone would touch the next face — a round tool cannot finish that corner.`);
     P.rapid(P.cur[0], P.cur[1], safe);
+    P.info = `${sw.faces} face${sw.faces > 1 ? 's' : ''} at ${sw.angles} · ${sw.leaves.length} pass${sw.leaves.length > 1 ? 'es' : ''}${sw.ra ? ` · feed marks ≈ ${fmtRa(sw.ra)} Ra` : ''}`;
   },
   parallel(op, tool, st, part, P, res) {
     if (!res) { P.pending = true; return; }
@@ -11988,23 +12102,30 @@ function drillIndexed(op, tool, st, part, P) {
     drillCycleMoves(P, { ...cy, ret: 'G98' }, d => at(hh.p, d), Rh, bot, H, tool, tap);
   }
 }
-// A 45° chamfer facing up (planar or conical): the edge where it meets the wall below,
-// as polylines in the machine XY, each point with the chamfer's outward direction there.
-function chamferEdge(mesh, fid) {
-  const VP = mesh.VP, loops = faceLoops(mesh, fid);
+// A planar or conical face looking up and out (a chamfer, a draft, a countersink): the edge
+// where it meets what is below it, as polylines in the machine XY, each point with the face's
+// outward direction there. `half` is the slope wanted, as the half angle of the cone that lies
+// flat on the face (its angle off the tool axis: 45° for a chamfer); 'any' takes every
+// constant slope. The result carries the face's own half angle.
+const SWARF_TOL = 2.5;                                                // degrees
+function chamferEdge(mesh, fid, half = 45) {
+  const VP = mesh.VP, loops = faceLoops(mesh, fid), srf = Surf.list[fid];
+  if (half === 'any' && srf.t !== 'P' && srf.t !== 'K') return null;
   let zmin = Infinity, zmax = -Infinity;
   for (const L of loops) for (const e of L) for (const v of [e.a, e.b]) { zmin = Math.min(zmin, VP[v][1]); zmax = Math.max(zmax, VP[v][1]); }
   if (!(zmax - zmin > 1e-4)) return null;
   const low = v => Math.abs(VP[v][1] - zmin) < 1e-4, segs = [];
-  let walls = 0;
+  let walls = 0, floor = false;
   for (const L of loops) for (const e of L) if (low(e.a) && low(e.b)) {
     segs.push([e.a, e.b]);
     const nb = e.nb >= 0 && Surf.list[e.nb];
     if (nb && ((nb.t === 'P' && Math.abs(nb.n[1]) < 0.02) || (nb.t === 'C' && Math.abs(nb.dir[1]) > 0.999))) walls++;
+    else if (nb && nb.t === 'P' && nb.n[1] > 0.98) floor = true;             // a floor right at its foot
   }
   if (!segs.length) return null;
-  const n0 = Surf.normalAt(fid, VP[segs[0][0]]);
-  if (!(n0[1] > 0.68 && n0[1] < 0.74)) return null;                   // 45° and facing up
+  const n0 = Surf.normalAt(fid, VP[segs[0][0]]), deg = Math.asin(clamp(n0[1], -1, 1)) * 180 / Math.PI;
+  if (half === 'any' ? !(deg > 3 && deg < 80) : Math.abs(deg - half) > SWARF_TOL) return null;
+  if (half === 'any') for (const L of loops) for (const e of L) if (Math.abs(Surf.normalAt(fid, VP[e.a])[1] - n0[1]) > 0.03) return null;   // the slope must hold all over
   const byA = new Map(segs.map(s => [s[0], s])), used = new Set(), lines = [];
   for (const s0 of segs) {
     if (used.has(s0)) continue;
@@ -12014,15 +12135,29 @@ function chamferEdge(mesh, fid) {
     while (s && !used.has(s)) { used.add(s); ids.push(s[1]); s = byA.get(s[1]); }
     lines.push(ids);
   }
-  return { zlow: zmin, zhigh: zmax, walls, lines: lines.map(ids => ids.map(i => { const v = VP[i], n = Surf.normalAt(fid, v), l = Math.hypot(n[0], n[2]) || 1; return { p: P2(v[0], -v[2]), n: P2(n[0] / l, -n[2] / l) }; })) };
+  return { zlow: zmin, zhigh: zmax, walls, floor, half: deg, lines: lines.map(ids => ids.map(i => { const v = VP[i], n = Surf.normalAt(fid, v), l = Math.hypot(n[0], n[2]) || 1; return { p: P2(v[0], -v[2]), n: P2(n[0] / l, -n[2] / l) }; })) };
 }
 const isChamferFace = (mesh, fid) => { const e = chamferEdge(mesh, fid); return !!e && e.walls > 0 && e.zhigh - e.zlow <= 12; };
-function chamferPasses(refs, off) {
+// ── Conical swarf: the flank of a cone lying on a sloped face ──────
+// Half angle of a chamfer mill's cone, off its axis (radians). Unset means 90° included.
+const toolHalf = tool => (tool.cone || 90) * Math.PI / 360;
+// How one pass sits on a face. The tip goes x below the foot of the face and the axis stands
+// D out from the foot along the face's outward direction. D is the least that keeps the cone
+// off the wall below the foot and off the whole face above it: rt + x·tan(h) when the cone
+// lies flat on the face (h = f), more when the face is flatter than the cone so only its top
+// touches. `leave` is the stock left square to the face.
+function swarfFit(tool, e, extra, leave) {
+  const rt = tool.d * 0.06, th = Math.tan(toolHalf(tool)), f = e.half * Math.PI / 180, H = e.zhigh - e.zlow, x = e.floor ? -0.02 : extra;      // with a floor at its foot the tip rides just above it
+  const D = rt + x * th + Math.max(0, H * (th - Math.tan(f))) + (leave || 0) / Math.cos(f);
+  return { D, x, H, rt, need: rt + (x + H) * th, mid: rt + (x + H / 2) * th };    // need: cone radius at the top of the face
+}
+function chamferPasses(refs, tool, extra, leave) {
   const out = [];
   for (const ref of refs) {
-    const r = findFace(visibleBodies(), ref), e = r && chamferEdge(r.mesh, r.fid);
+    const r = findFace(visibleBodies(), ref), e = r && chamferEdge(r.mesh, r.fid, 'any');
     if (!e) continue;
-    for (const line of e.lines) out.push({ z: e.zlow, h: e.zhigh - e.zlow, pts: line.map(q => add2(q.p, mul2(q.n, off))) });
+    const fit = swarfFit(tool, e, extra, leave);
+    for (const line of e.lines) out.push({ z: e.zlow - fit.x, h: fit.H, e, fit, pts: line.map(q => add2(q.p, mul2(q.n, fit.D))) });
   }
   // passes that meet end to end at one height run as one (a chamfer round a rounded corner)
   for (let merged = true; merged;) {
@@ -12093,7 +12228,7 @@ function toolpath(op) {
   const P = new Path(op, tool);
   try { GEN[op.type](op, tool, st, part, P, res); } catch (e) { console.error(e); P.warn.push('Could not generate this toolpath.'); }
   if (op.safeLinks) P.m = safeRapids(P.m, st.z1 + cam().retract);
-  if (res) P.info = `${res.lines} passes over ${res.tris.toLocaleString()} triangles · ${Math.round(res.ms || 0)} ms`;
+  if (res) P.info = `${res.lines} passes over ${res.tris.toLocaleString()} triangles · ${Math.round(res.ms || 0)} ms${op.type === 'parallel' && tool.type === 'ball' ? ` · ≈ ${fmtRa(raOf(Math.max(0.05, op.stepover), tool.d / 2))} Ra` : ''}`;
   c = TP.get(op.id) || {};
   c.key = key; c.path = P; TP.set(op.id, c);
   return P;
@@ -12210,7 +12345,7 @@ function cutRadius(tool, h) {
   if (t === 'ball') return h >= R ? R : Math.sqrt(Math.max(0, R * R - (R - h) * (R - h)));
   if (t === 'drill' || t === 'reamer') return Math.min(R, h * Math.tan(59 * Math.PI / 180) + 1e-3);
   if (t === 'spot') return Math.min(R, h + 1e-3);
-  if (t === 'chamfer') return Math.min(R, tool.d * 0.06 + h);
+  if (t === 'chamfer') return Math.min(R, tool.d * 0.06 + h * Math.tan((tool.cone || 90) * Math.PI / 360));   // cone = included angle
   if (t === 'bull') { const rc = tool.r || tool.d * 0.1; return h >= rc ? R : R - rc + Math.sqrt(Math.max(0, rc * rc - (rc - h) * (rc - h))); }
   if (t === 'tap' || t === 'threadmill') return 0;                 // they only cut threads into existing walls
   return R;                                                          // flat, face mill
@@ -12403,7 +12538,7 @@ class StockModel {
     let e1 = Math.abs(ux) < 0.9 ? [0, uz, -uy] : [-uz, 0, ux];
     const l1 = Math.hypot(e1[0], e1[1], e1[2]); e1 = [e1[0] / l1, e1[1] / l1, e1[2] / l1];
     const e2 = [uy * e1[2] - uz * e1[1], uz * e1[0] - ux * e1[2], ux * e1[1] - uy * e1[0]];
-    const t = tool.type, hc = t === 'drill' || t === 'reamer' ? R / Math.tan(59 * Math.PI / 180) : t === 'spot' || t === 'chamfer' || t === 'ball' ? R : t === 'bull' ? (tool.r || tool.d * 0.1) : 0;
+    const t = tool.type, hc = t === 'drill' || t === 'reamer' ? R / Math.tan(59 * Math.PI / 180) : t === 'chamfer' ? Math.max(0.1, (R - tool.d * 0.06) / Math.tan((tool.cone || 90) * Math.PI / 360)) : t === 'spot' || t === 'ball' ? R : t === 'bull' ? (tool.r || tool.d * 0.1) : 0;
     const hs = hc > 0 ? [0, hc * 0.5, hc, hc + 2 * R] : [0, 2 * R], out = [];
     for (const hh of hs) {
       const r = Math.max(1e-3, cutRadius(tool, hh)), n = r < 0.01 ? 1 : 12;
@@ -13083,12 +13218,56 @@ function downloadGcode() {
 
 // ── Operations: add / edit / remove ────────────────────────────────
 const CAMUI = { view: 'overview', op: null };
-function camAddOp(type) {
+// The four ways to drill, each its own button in the Drilling ribbon panel.
+const DRILL_KINDS = {
+  spot: { name: 'Spot Drill', tool: 'spot', mode: 'spot' },
+  peck: { name: 'Peck Drill', tool: 'drill', mode: 'peck' },
+  drill: { name: 'Drill', tool: 'drill', mode: 'drill' },
+  tap: { name: 'Tap', tool: 'tap', mode: 'drill' },
+};
+// The library tool of this type nearest the wanted diameter, or a new one added to the library.
+function camToolOfType(type, d, extra) {
+  const C = cam(), lib = C.tools.filter(t => t.type === type);
+  const t = lib.find(x => Math.abs(x.d - d) < 0.011) || (!d && lib[0]);
+  if (t) return t;
+  const nt = { n: nextToolN(), ...toolDefaults(type, d || 6), ...(extra || {}) };
+  C.tools.push(nt); C.tools.sort((a, b) => a.n - b.n);
+  return nt;
+}
+// What a drilling button sets up: the tool, the hole sizes it takes and the cycle.
+function drillKindSetup(kind) {
+  const hs = camHoles(), ds = [...new Set(hs.map(h => +h.d.toFixed(2)))].sort((a, b) => a - b);
+  if (kind === 'spot') {
+    const spot = cam().tools.filter(t => t.type === 'spot').sort((a, b) => b.d - a.d)[0];
+    const small = ds.filter(d => d <= 16.001), raw = Math.min(12, Math.max(6, (small.length ? small[small.length - 1] : 6) + 2)), spotD = isIn() ? [6.35, 9.525, 12.7].find(x => x >= raw - 0.01) || 12.7 : raw;
+    const t = spot || camToolOfType('spot', spotD);
+    return { tool: t.n, diams: ds.filter(d => d <= 16.001).length ? ds.filter(d => d <= 16.001) : ds, depth: +Math.max(0.3, (ds[0] || 3) / 2 - 0.2).toFixed(2), through: 0, dwell: 0.3, peck: 1 };
+  }
+  if (kind === 'tap') {
+    // the tap whose tap-drill size is among the holes in the part
+    let best = null;
+    for (const [nom, pitch] of ISO_PITCH) for (const d of ds) if (Math.abs(d - (nom - 1.0825 * pitch)) < 0.3 && (!best || nom < best.nom)) best = { nom, pitch, d };
+    if (!best) best = { nom: 6, pitch: 1, d: 5 };
+    const t = cam().tools.find(x => x.type === 'tap' && Math.abs(x.d - best.nom) < 0.011) || camToolOfType('tap', best.nom, { p: { category: 'tap', dia: best.nom, pitch: best.pitch, threadSize: `M${best.nom}x${best.pitch}`, tapType: 'spiralpoint' } });
+    const mine = ds.filter(d => Math.abs(d - best.d) < 0.3);
+    return { tool: t.n, diams: mine.length ? mine : ds, through: 0.5 };
+  }
+  // drill / peck: the library drill that fits a hole in the part, else a new one for the smallest hole
+  const lib = cam().tools.filter(t => t.type === 'drill').find(t => ds.some(d => Math.abs(d - t.d) < 0.05));
+  const d = lib ? lib.d : ds[0] || 8, t = lib || camToolOfType('drill', d);
+  const mine = ds.filter(x => Math.abs(x - t.d) < 0.05);
+  const o = { tool: t.n, diams: mine.length ? mine : ds, through: 1, peck: +Math.max(1, t.d).toFixed(1) };
+  if (kind === 'peck') o.mode = 'peck';
+  return o;
+}
+function camAddOp(type, kind) {
   if (SIM.on) simStop();
   const C = cam(), before = snap();
   const pick = t => (C.tools.find(x => x.type === t) || C.tools[0]).n;
-  const n = C.ops.filter(o => o.type === type).length + 1;
-  const base = { id: C.next++, type, name: OP_INFO[type].name + (n > 1 ? ' ' + n : '') };
+  const dk = type === 'drill' && DRILL_KINDS[kind];
+  const label = dk ? dk.name : OP_INFO[type].name;
+  const n = C.ops.filter(o => dk ? o.type === 'drill' && o.kind === kind : o.type === type).length + 1;
+  const base = { id: C.next++, type, name: label + (n > 1 ? ' ' + n : '') };
   const defs = {
     face: { tool: pick('face'), stepover: 0.7, stepdown: 1, leave: 0, pattern: 'zigzag', dir: 'auto' },
     contour: { tool: pick('flat'), side: 'outside', stepdown: 2, leave: 0, through: 0.5, faces: [] },
@@ -13098,7 +13277,9 @@ function camAddOp(type) {
     chamfer: { tool: pick('chamfer'), through: 0.3, leave: 0, faces: [] },
   };
   const op = { ...base, ...defs[type] };
-  if (type === 'drill') { const hs = camHoles(), t = toolOf(op.tool); op.diams = [...new Set(hs.filter(h => Math.abs(h.d - t.d) < 0.05).map(h => +h.d.toFixed(2)))]; if (!op.diams.length) op.diams = [...new Set(hs.map(h => +h.d.toFixed(2)))]; }
+  if (type === 'chamfer' && !C.tools.some(t => t.type === 'chamfer')) op.tool = camToolOfType('chamfer', stdChamfer()[3] || 12, { cone: 90 }).n;   // a cone is what lies on the face
+  if (dk) Object.assign(op, { kind, mode: dk.mode }, drillKindSetup(kind));
+  else if (type === 'drill') { const hs = camHoles(), t = toolOf(op.tool); op.diams = [...new Set(hs.filter(h => Math.abs(h.d - t.d) < 0.05).map(h => +h.d.toFixed(2)))]; if (!op.diams.length) op.diams = [...new Set(hs.map(h => +h.d.toFixed(2)))]; }
   C.ops.push(op);
   record('Add ' + op.name, before);
   CAMUI.view = 'op'; CAMUI.op = op.id;
@@ -13111,9 +13292,17 @@ function camEdit(op, key, val) {
   record(`Edit ${op.name} ${key}`, before);
   camRefresh();
 }
+// A surface-finish target (Ra, µm; 0 = none). A 3D finish takes its stepover from it.
+function camSetFinish(op, um) {
+  const before = snap(), tool = toolOf(op.tool);
+  op.ra = um;
+  if (op.type === 'parallel' && um > 0 && tool.type === 'ball') op.stepover = Math.max(0.05, +pitchFor(um / 1000, tool.d / 2).toFixed(3));
+  record(`Edit ${op.name} surface finish`, before);
+  camRefresh();
+}
 function camToggleFace(op, h) {
   const s = Surf.list[h.fid];
-  if (op.type === 'chamfer') { if (!chamferEdge(h.mesh, h.fid)) { toast('Pick a 45° chamfer face.'); return; } }
+  if (op.type === 'chamfer') { if (!chamferEdge(h.mesh, h.fid, 'any')) { toast('Pick a sloped flat or conical face (a chamfer, draft or countersink).'); return; } }
   else if (s.t !== 'P' || Math.abs(s.n[1]) < 0.999) { toast('Pick a flat, horizontal face.'); return; }
   const fi = faceInfo(h.mesh, h.fid), ref = faceRef(h.mesh, h.fid, fi.on);
   const i = op.faces.findIndex(r => { const f = findFace(visibleBodies(), r); return f && f.fid === h.fid; });
@@ -13124,7 +13313,7 @@ function camToggleFace(op, h) {
 function camMove(x, y) {
   const op = CAMUI.view === 'op' && opById(CAMUI.op);
   if (op && op.type === 'chamfer') {
-    const h = pick3D(x, y, { faces: true }), ok = h && h.kind === 'face' && !!chamferEdge(h.mesh, h.fid);
+    const h = pick3D(x, y, { faces: true }), ok = h && h.kind === 'face' && !!chamferEdge(h.mesh, h.fid, 'any');
     setHover3D(ok ? h : null); ov.className = ok ? 'pointer' : 'default'; return;
   }
   if (op && (op.type === 'pocket' || op.type === 'contour')) {
@@ -13200,7 +13389,7 @@ function camToolbar() {
     <div class="tb-group">${btn('sim', 'Simulate', v === 'sim', 'camsim')}${btn('post', 'G-code', v === 'post', 'campost')}${btn('measure', 'Measure', CMD && CMD.type === 'measure', 'measure')}</div>`;
 }
 function camAction(a) {
-  if (a.startsWith('add:')) { camAddOp(a.slice(4)); return; }
+  if (a.startsWith('add:')) { const [t, k] = a.slice(4).split(':'); camAddOp(t, k); return; }
   if (a === 'measure') { cmdMeasure(); return; }
   if (a === 'auto') AUTO.hl = null;
   if (a === 'autoprog') { autoProgram(); return; }
@@ -13256,7 +13445,7 @@ function camOpMenu(op, x, y) {
 }
 // ── Right panel views ──────────────────────────────────────────────
 // Length fields show display units; setN converts them back to mm.
-const CAM_LEN = new Set(['stSide', 'stTop', 'stBot', 'camSafe', 'camRet', 'opSd', 'opLeave', 'opThrough', 'opLw', 'opLf', 'opPeck', 'opSoL', 'opRest', 'opFs', 'opPkI', 'opPkJ', 'opPkK', 'opRpl', 'opS22', 'opS52', 'opDepth']);
+const CAM_LEN = new Set(['stSide', 'stTop', 'stBot', 'camSafe', 'camRet', 'opSd', 'opLeave', 'opThrough', 'opLw', 'opLf', 'opPeck', 'opSoL', 'opRest', 'opFs', 'opRough', 'opPkI', 'opPkJ', 'opPkK', 'opRpl', 'opS22', 'opS52', 'opDepth']);
 const num = (id, v, lab, step = 'any', extra = '') => CAM_LEN.has(id)
   ? `<label class="field"><span>${lab} (${uName()})</span><input type="number" id="${id}" data-cam-input="1" data-len="1" step="any" value="${uval(+v)}" ${extra}></label>`
   : `<label class="field"><span>${lab}</span><input type="number" id="${id}" data-cam-input="1" step="${step}" value="${+(+v).toFixed(4)}" ${extra}></label>`;
@@ -13318,6 +13507,7 @@ function camPanel() {
       <div class="tool-top"><b>T${t.n}</b><select data-tf="type">${Object.entries(TOOL_TYPES).map(([k, l]) => `<option value="${k}" ${t.type === k ? 'selected' : ''}>${l}</option>`).join('')}</select><button class="icon-btn" data-tdel="${t.n}" title="Remove tool">×</button></div>
       <div class="row3">${['d', 'flutes', 'rpm'].map(k => `<label class="field"><span>${{ d: 'Ø ' + uName(), flutes: t.type === 'face' ? 'Inserts' : 'Flutes', rpm: 'RPM' }[k]}</span><input type="number" data-tf="${k}" value="${k === 'd' ? uval(t.d) : t[k]}" step="any" min="0"></label>`).join('')}</div>
       <div class="row2">${['feed', 'plunge'].map(k => `<label class="field"><span>${k === 'feed' ? 'Feed' : 'Plunge'} ${uRate()}</span><input type="number" data-tf="${k}" value="${uval(t[k], 1)}" step="any" min="0.1"></label>`).join('')}</div>
+      ${t.type === 'chamfer' ? `<label class="field"><span>Cone angle (included, °) — the wall it lies flat on is ${+((t.cone || 90) / 2).toFixed(1)}° off the tool axis</span><input type="number" data-tf="cone" list="coneAngles" value="${t.cone || 90}" step="1" min="10" max="150"><datalist id="coneAngles">${[20, 30, 45, 60, 82, 90, 100, 120].map(a => `<option value="${a}">`).join('')}</datalist></label>` : ''}
       <div class="tool-code" data-tcode="${t.n}" title="Tool Builder code — click to copy">${esc(toolCode(t))}</div></div></div>`).join('');
     const groups = {};
     (ToolModel.COMMON || []).forEach((c, i) => { if (ToolModel.isLathe(c.p) || c.p.category === 'insert') return; (groups[c.g] = groups[c.g] || []).push(`<option value="${i}">${esc(c.n)}</option>`); });
@@ -13357,10 +13547,18 @@ function camPanel() {
       f += `<div class="field"><span>Hole diameters (click holes in the view too)</span><div class="chips">${ds.map(d => { const n = hl.filter(h => Math.abs(h.d - d) < 0.02).length, on = op.diams.some(x => Math.abs(x - d) < 0.02); return `<button class="chip ${on ? 'on' : ''}" data-dia="${d}">${fmtDia(d)} <small>×${n}</small></button>`; }).join('') || '<span class="note">No vertical holes found.</span>'}</div></div>
         ${drillCycleFields(op)}`;
     }
-    if (op.type === 'chamfer') { const faces = (op.faces || []).length; f += `<div class="field"><span>Chamfer faces</span><div class="pick ${faces ? '' : 'empty'}"><span>${faces ? 'Click a face again to remove it' : 'Click 45° chamfer faces'}</span><span class="n">${faces}</span></div></div>
-      <div class="row2">${num('opThrough', op.through, 'Tip below edge', 0.05)}${num('opLeave', op.leave, 'Leave', 0.05)}</div>`; }
+    if (op.type === 'chamfer') {
+      const faces = (op.faces || []).length, tl = toolOf(op.tool), cone = tl.cone || 90, sw = faces ? swarfPlan(op, tl) : null;
+      const want = sw ? [...new Set(sw.passes.map(q => Math.round(2 * q.e.half)))] : [];
+      const fits = want.filter(a => C.tools.some(t => t.type === 'chamfer' && Math.abs((t.cone || 90) - a) <= 2 * SWARF_TOL));
+      f += `<div class="field"><span>Faces to swarf</span><div class="pick ${faces ? '' : 'empty'}"><span>${faces ? 'Click a face again to remove it' : 'Click the sloped faces: chamfers, drafts, countersinks'}</span><span class="n">${faces}</span></div></div>
+      <p class="note">${tl.type === 'chamfer' ? `The ${cone}° cone lies flat on a face sloping ${+(cone / 2).toFixed(1)}° off vertical.` : 'Pick a chamfer mill (its cone angle is set in the Tool Library).'}${want.length ? ` These faces want a ${want.join(' / ')}° cone.` : ''}</p>
+      ${want.length && !want.every(a => Math.abs(cone - a) <= 2 * SWARF_TOL) ? `<div class="btns">${want.filter(a => Math.abs(cone - a) > 2 * SWARF_TOL).map(a => { const m = C.tools.find(t => t.type === 'chamfer' && Math.abs((t.cone || 90) - a) <= 2 * SWARF_TOL); return m ? `<button class="btn" data-usecone="${m.n}">Use T${m.n} · ${m.cone || 90}°</button>` : `<button class="btn" data-addcone="${a}">Add a ${a}° chamfer mill</button>`; }).join('')}</div>` : ''}
+      <div class="row2">${num('opThrough', op.through, 'Tip below edge', 0.05)}${num('opLeave', op.leave, 'Leave', 0.05)}</div>`;
+    }
     if (op.type === 'parallel') f += `<div class="row3">${num('opSoL', op.stepover, 'Stepover', 0.05)}${num('opLeave', op.leave, 'Leave', 0.05)}<div class="field"><span>Direction</span><div class="seg"><button data-opset="angle:0" class="${!op.angle ? 'on' : ''}">X</button><button data-opset="angle:90" class="${op.angle === 90 ? 'on' : ''}">Y</button></div></div></div>
       <label class="chk"><input type="checkbox" id="opOverrun" ${op.overrun ? 'checked' : ''}> Run the tool past the part edges</label>`;
+    { const fb = ['parallel', 'chamfer', 'contour', 'pocket'].includes(op.type) ? finishBlock(op, toolOf(op.tool)) : ''; if (fb) f += `<h3 class="sub">Surface finish</h3>${fb}`; }
     const warn = P && P.warn.length ? P.warn.map(w => `<p class="note err-note">${w}</p>`).join('') : '';
     const info = P && P.pending ? '<p class="note"><span class="spin"></span> Computing the 3D toolpath in the background…</p>' : stats ? `<dl class="kv"><dt>Cutting</dt><dd>${fmtRun(stats.feedLen)}</dd><dt>Rapids</dt><dd>${fmtRun(stats.rapidLen)}</dd><dt>Machining time</dt><dd>${fmtTime(stats.min)}</dd>${P.info ? `<dt>Detail</dt><dd>${P.info}</dd>` : ''}</dl>` : '';
     return `<div class="pn-head"><h2 id="opNameH" title="Double-click to rename">${op.name}</h2><span class="tag">${OP_INFO[op.type].name}</span></div><div class="pn-body">
@@ -13448,7 +13646,7 @@ function bindCamPanel() {
   // tools
   panel.querySelectorAll('.tool-card').forEach(card => {
     const t = C.tools.find(x => x.n === +card.dataset.tool);
-    card.querySelectorAll('[data-tf]').forEach(inp => inp.addEventListener('change', () => { const k = inp.dataset.tf, v = k === 'type' ? inp.value : ['d', 'feed', 'plunge'].includes(k) ? fromU(parseFloat(inp.value)) : parseFloat(inp.value); if (k !== 'type' && !(v > 0)) return; setup(() => { t[k] = v; if (k === 'd' || k === 'type') delete t.p; }, `Tool T${t.n} ${k}`)(); }));
+    card.querySelectorAll('[data-tf]').forEach(inp => inp.addEventListener('change', () => { const k = inp.dataset.tf, v = k === 'type' ? inp.value : ['d', 'feed', 'plunge'].includes(k) ? fromU(parseFloat(inp.value)) : parseFloat(inp.value); if (k !== 'type' && !(v > 0)) return; setup(() => { t[k] = k === 'cone' ? clamp(v, 10, 150) : v; if (k === 'd' || k === 'type' || k === 'cone') delete t.p; }, `Tool T${t.n} ${k}`)(); }));
   });
   // 3D pictures of each cutter, drawn one per frame so the panel appears at once.
   const imgs = [...panel.querySelectorAll('[data-thumb]')];
@@ -13462,15 +13660,25 @@ function bindCamPanel() {
   const op = CAMUI.view === 'op' && opById(CAMUI.op);
   if (op) {
     const ot = document.getElementById('opTool'); if (ot) ot.addEventListener('change', () => camEdit(op, 'tool', +ot.value));
-    const map = { opSo: 'stepover', opSoL: 'stepover', opSd: 'stepdown', opLeave: 'leave', opThrough: 'through', opLw: 'leaveWall', opLf: 'leaveFloor', opPeck: 'peck', opRest: 'restD', opFs: 'finishStock' };
-    for (const [id, k] of Object.entries(map)) setN(id, v => camEdit(op, k, k === 'leave' || k === 'leaveWall' || k === 'leaveFloor' || k === 'through' || k === 'restD' || k === 'finishStock' ? Math.max(0, v) : Math.max(0.01, v)));
+    const map = { opSo: 'stepover', opSoL: 'stepover', opSd: 'stepdown', opLeave: 'leave', opThrough: 'through', opLw: 'leaveWall', opLf: 'leaveFloor', opPeck: 'peck', opRest: 'restD', opFs: 'finishStock', opRough: 'roughStock' };
+    for (const [id, k] of Object.entries(map)) setN(id, v => {
+      const val = k === 'leave' || k === 'leaveWall' || k === 'leaveFloor' || k === 'through' || k === 'restD' || k === 'finishStock' || k === 'roughStock' ? Math.max(0, v) : Math.max(0.01, v);
+      if (k === 'stepover' && op.type === 'parallel' && op.ra) { const before = snap(); op.ra = 0; op.stepover = val; record(`Edit ${op.name} stepover`, before); camRefresh(); }   // a typed stepover replaces the target
+      else camEdit(op, k, val);
+    });
     ck('opFinish', v => camEdit(op, 'finish', v));
     const cyc = document.getElementById('opCycle'); if (cyc) cyc.addEventListener('change', () => camEdit(op, 'mode', cyc.value));
     const drillMap = { opPkI: 'peckFirst', opPkJ: 'peckReduce', opPkK: 'peckMin', opRpl: 'rPlane', opS22: 'chipBack', opS52: 's52', opDepth: 'depth' };
     for (const [id, k] of Object.entries(drillMap)) setN(id, v => camEdit(op, k, Math.max(k === 'rPlane' ? 0.2 : k === 'chipBack' ? 0.01 : 0, v)));
     setN('opDwell', v => camEdit(op, 'dwell', Math.max(0, v)));
     setN('opTapJ', v => camEdit(op, 'tapJ', clamp(Math.round(v), 1, 4)));
-    panel.querySelectorAll('[data-opset]').forEach(b => b.addEventListener('click', () => { const [k, v] = b.dataset.opset.split(':'); camEdit(op, k, k === 'angle' ? +v : v); }));
+    panel.querySelectorAll('[data-opset]').forEach(b => b.addEventListener('click', () => { const [k, v] = b.dataset.opset.split(':'); camEdit(op, k, k === 'angle' || k === 'passes' ? +v : v); }));
+    panel.querySelectorAll('[data-opra]').forEach(b => b.addEventListener('click', () => camSetFinish(op, +b.dataset.opra)));
+    panel.querySelectorAll('[data-usecone]').forEach(b => b.addEventListener('click', () => camEdit(op, 'tool', +b.dataset.usecone)));
+    panel.querySelectorAll('[data-addcone]').forEach(b => b.addEventListener('click', () => {
+      const before = snap(), cur = toolOf(op.tool), t = { n: nextToolN(), ...toolDefaults('chamfer', cur.type === 'chamfer' ? cur.d : 12), cone: +b.dataset.addcone };
+      C.tools.push(t); C.tools.sort((a, b2) => a.n - b2.n); op.tool = t.n; record(`Add T${t.n} (${t.cone}° chamfer mill)`, before); camRefresh();
+    }));
     panel.querySelectorAll('[data-opbool]').forEach(b => b.addEventListener('click', () => { const [k, v] = b.dataset.opbool.split(':'); camEdit(op, k, v === '1'); }));
     panel.querySelectorAll('[data-dia]').forEach(b => b.addEventListener('click', () => { const d = +b.dataset.dia, ds = op.diams.slice(), i = ds.findIndex(x => Math.abs(x - d) < 0.02); if (i >= 0) ds.splice(i, 1); else ds.push(d); camEdit(op, 'diams', ds); }));
     ck('opOverrun', v => camEdit(op, 'overrun', v));
@@ -14886,10 +15094,10 @@ function autoPlan(R) {
   let nextN = nextToolN();
   // a library tool if one suits, else a new one (shared between steps)
   const pick = (type, d, exact, extra) => {
-    const lib = C.tools.filter(t => t.type === type);
+    const lib = C.tools.filter(t => t.type === type && (type !== 'chamfer' || Math.abs((t.cone || 90) - ((extra && extra.cone) || 90)) <= 2 * SWARF_TOL));
     const t = exact ? lib.find(t => Math.abs(t.d - d) < 0.011) : lib.filter(t => t.d <= d + 1e-9).sort((a, b) => b.d - a.d)[0];
     if (t) return { n: t.n, t, isNew: false };
-    const k = type + ':' + (+d.toFixed(3));
+    const k = type + ':' + (+d.toFixed(3)) + (extra && extra.cone ? ':' + extra.cone : '');
     if (!newTools.has(k)) newTools.set(k, { n: nextN++, t: { ...toolDefaults(type, d), ...(extra || {}) }, isNew: true });
     const r = newTools.get(k); r.t.n = r.n;
     return r;
@@ -15038,13 +15246,18 @@ function autoPlan(R) {
   for (const x of sideSteps.sort((a, b) => a.rank - b.rank || a.i - b.i)) step(x.s);
   // 6 · 3D finishing over fillets, chamfers and slopes, last
   // 5c · 45° chamfers: a 90° chamfer mill along each one
-  const cfs = (R.groups.get('chamfer') ? R.groups.get('chamfer').faces : []).filter(f => { const e = chamferEdge(f.mesh, f.fid); return e && e.walls > 0; });
-  if (cfs.length) {
-    const tall = Math.max(...cfs.map(f => { const e = chamferEdge(f.mesh, f.fid); return e.zhigh - e.zlow; })), need = (tall + 0.3 + 0.6) / 0.44;
-    const lib = C.tools.filter(t => t.type === 'chamfer' && t.d * 0.44 >= tall + 0.9).sort((a, b) => a.d - b.d)[0];
-    const tool = lib ? { n: lib.n, t: lib, isNew: false } : pick('chamfer', stdChamfer().find(x => x >= need) || Math.ceil(need), true);
-    step({ key: 'chamfer', type: 'chamfer', title: `Chamfer ${cfs.length} face${cfs.length > 1 ? 's' : ''}`, why: `A 90° chamfer mill runs along each 45° chamfer (up to ${fmtLs(tall)}): the tip ${fmtLs(0.3)} below the chamfer’s edge, the cone lying on the chamfer.`, tool, faces: cfs,
-      op: { faces: cfs.map(refOf), through: 0.3, leave: 0 }, covered: coveredBy(o => o.type === 'chamfer') });
+  // Conical swarf: sloped faces with a wall at their foot, a cone of the matching angle for each slope
+  const swarfOf = f => { const e = chamferEdge(f.mesh, f.fid, 'any'); return e && (e.walls > 0 || e.floor) && e.zhigh - e.zlow <= 12 && e.half >= 10 && e.half <= 75 ? e : null; };
+  const cfs = ['chamfer', 'incline'].flatMap(k => R.groups.get(k) ? R.groups.get(k).faces : []).filter(f => swarfOf(f));
+  const byCone = new Map();
+  for (const f of cfs) { const a = Math.round(2 * swarfOf(f).half); if (!byCone.has(a)) byCone.set(a, []); byCone.get(a).push(f); }
+  for (const [cone, fs] of [...byCone].sort((p, q) => p[0] - q[0])) {
+    const th = Math.tan(cone * Math.PI / 360), tall = Math.max(...fs.map(f => { const e = swarfOf(f); return e.zhigh - e.zlow; })), need = ((tall + 0.3) * th + 0.6) / 0.44;
+    const lib = C.tools.filter(t => t.type === 'chamfer' && Math.abs((t.cone || 90) - cone) <= 2 * SWARF_TOL && t.d * 0.44 >= (tall + 0.3) * th + 0.6).sort((a, b) => a.d - b.d)[0];
+    const tool = lib ? { n: lib.n, t: lib, isNew: false } : pick('chamfer', stdChamfer().find(x => x >= need) || Math.ceil(need), true, { cone });
+    step({ key: cone === 90 ? 'chamfer' : 'swarf' + cone, type: 'chamfer', title: cone === 90 ? `Chamfer ${fs.length} face${fs.length > 1 ? 's' : ''}` : `Swarf ${fs.length} face${fs.length > 1 ? 's' : ''} at ${cone}°`,
+      why: `A ${cone}° chamfer mill lies its cone flat on ${cone === 90 ? 'each 45° chamfer' : 'each face'} (up to ${fmtLs(tall)} tall): the tip ${fmtLs(0.3)} below the foot of the face, the flank cutting the whole face in one pass.`, tool, faces: fs,
+      op: { faces: fs.map(refOf), through: 0.3, leave: 0 }, covered: coveredBy(o => o.type === 'chamfer' && Math.abs((toolOf(o.tool).cone || 90) - cone) <= 2 * SWARF_TOL) });
   }
   const ffAll = ['fillet', 'chamfer', 'incline', 'other'].flatMap(k => R.groups.get(k) ? R.groups.get(k).faces : []).filter(f => !cfs.some(c => c.fid === f.fid && c.mesh === f.mesh));
   if (ffAll.length) {
@@ -15231,7 +15444,7 @@ const pointed = t => t.type === 'drill' || t.type === 'spot' || t.type === 'cham
 // Height above the tip at which a pointed tool reaches radius rr.
 function coneHeight(t, rr) {
   if (t.type === 'spot') return rr;
-  if (t.type === 'chamfer') return Math.max(0, rr - t.d * 0.06);
+  if (t.type === 'chamfer') return Math.max(0, rr - t.d * 0.06) / Math.tan((t.cone || 90) * Math.PI / 360);
   return rr / Math.tan(59 * Math.PI / 180);                  // 118° drill point
 }
 // Does the segment a→b (machine XY) come within r of the region the Clipper paths
@@ -15982,6 +16195,7 @@ function bindFeatPanel() {
     featSync();
   }));
   panel.querySelectorAll('[data-fc]').forEach(b => b.addEventListener('change', () => { CMD.f[b.dataset.fc] = b.checked; featSync(); }));
+  panel.querySelectorAll('[data-ft]').forEach(t => t.addEventListener('change', () => { if (D.text) D.text(CMD.f, t.dataset.ft, t.value); featSync(); }));
   panel.querySelectorAll('[data-fstep]').forEach(b => b.addEventListener('click', () => {
     const s = b.dataset.fstep; CMD.step = CMD.step === s && s !== D.home ? D.home || null : s;
     setHover3D(null); refreshPanel(); updateHint(); rebuildPlanes(); requestDraw();
@@ -16112,6 +16326,32 @@ FEATS.coil = {
     + pf.note('Springs, threads-by-sweep and helical grooves. The center is measured in the base plane; the coil rises along its normal.'),
   hint: () => 'set the size, pitch and turns in the panel',
   sub: f => `${OP_SIGN[f.op] || ''} ${+f.turns} turns`.trim(),
+};
+
+// ── 3D polyline: any points you give it ───────────────────────────
+// Stored as model points (x, up, -y); shown and edited as X right, Y back, Z up.
+const designPt = q => [q[0], -q[2], q[1]];
+FEATS.polyline3d = {
+  label: 'Polyline', need: 'Give the polyline at least two points.',
+  init: () => ({ pts: [], closed: false, vis: true }),
+  ready: f => f.pts.length >= 2,
+  panel: f => `<label class="field"><span>Points: X Y Z on each line (${uName()}, or add a unit: 12mm, 1.5cm, 1/2in, 5ft)</span><textarea data-ft="pts" rows="9" spellcheck="false" style="font-family:var(--mono);font-size:12px;width:100%;resize:vertical">${f.pts.map(q => designPt(q).map(v => +uval(v).toFixed(4)).join('  ')).join('\n')}</textarea></label>`
+    + pf.chk('Closed (join the last point to the first)', 'closed')
+    + pf.note('X right, Y back, Z up. Click out of the box to apply. Commas and brackets are fine: (0, 0, 0).'),
+  text(f, key, txt) {
+    if (key !== 'pts') return;
+    const pts = [];
+    for (const line of txt.split('\n')) {
+      const ws = cmdGlueUnits(line.toLowerCase().replace(/[,;()\[\]]/g, ' ').replace(/\s+/g, ' ')).trim().split(' ').filter(Boolean);
+      if (!ws.length) continue;
+      const v = ws.map(cmdNum);
+      if (v.some(x => !isFinite(x)) || (v.length !== 3 && v.length !== 2)) { toast(`“${line.trim()}” is not a point — give X Y Z.`); return; }
+      pts.push(mPt(v[0], v[1], v[2] || 0));
+    }
+    f.pts = pts;
+  },
+  hint: () => 'edit the points in the panel',
+  sub: f => f.pts.length + ' points',
 };
 
 // ── Hole ───────────────────────────────────────────────────────────
@@ -16665,7 +16905,7 @@ const SimWorker = {
     if (!this.init()) return false;
     const tools = [], ti = new Map(), opIx = new Map(), axes = [], axIx = new Map(), D = new Float64Array(segs.length * 8), I = new Int32Array(segs.length * 4);
     segs.forEach((s, i) => {
-      let k = ti.get(s.tool); if (k === undefined) { k = tools.length; tools.push({ d: s.tool.d, type: s.tool.type, r: s.tool.r }); ti.set(s.tool, k); }
+      let k = ti.get(s.tool); if (k === undefined) { k = tools.length; tools.push({ d: s.tool.d, type: s.tool.type, r: s.tool.r, cone: s.tool.cone }); ti.set(s.tool, k); }
       let o = opIx.get(s.op); if (o === undefined) { o = opIx.size; opIx.set(s.op, o); }
       D.set([s.a.x, s.a.y, s.a.z, s.b.x, s.b.y, s.b.z, s.t0, s.t1], i * 8);
       let x = -1;
@@ -17888,7 +18128,7 @@ function liveHint() {
   const t = LIVE.tool, n = LIVE.sel.size;
   if (t === 'spaste') return LIVE.placing ? 'move the copy into place and click (or type X / Y, or Paste in place)' : 'adjust X / Y, then OK (Enter) or Cancel (Esc)';
   if (t === 'mirror') return LIVE.step === 'line' ? 'click the line to mirror across' : !n ? 'click the curves to mirror, or click inside a closed face' : !LIVE.line ? `${n} picked — Pick mirror line, or mirror across the sketch X / Y axis` : 'OK (Enter) keeps it, Cancel (Esc) puts it back';
-  if (LIVE.step === 'base') return `click the ${t === 'array' ? 'center of the pattern' : t === 'srot' ? 'center of rotation' : t === 'smove' ? 'point to move from (the anchor) — it snaps to ends, centers and midpoints' : 'base point'}`;
+  if (LIVE.step === 'base') return `click the ${t === 'array' ? 'center of the pattern' : t === 'srot' ? 'center of rotation' : t === 'smove' ? 'point to move from (the anchor) — any vertex on any shape or sketch' : 'base point'}`;
   if (LIVE.placing) return t === 'smove' ? 'click the point to move the anchor to (it snaps to what stays put), or type To X / Y' : t === 'srot' ? 'turn with the mouse, click to set (or type the angle)' : 'drag to size, click to set (or type the factor)';
   if (!n) return 'click the curves to change, or click inside a closed face';
   if ((t !== 'array' || S.arr.kind === 'circ') && !LIVE.base) return `${n} picked — now “Pick ${t === 'array' || t === 'srot' ? 'center' : t === 'smove' ? 'from point' : 'base point'}” in the panel`;
@@ -17929,18 +18169,25 @@ try { S.snapOther = localStorage.getItem('datum.snapother') !== '0'; S.angSnap =
 const skPtCache = { key: null, list: [] };
 // Ends, centers and midpoints of the other visible sketches lying in a parallel plane
 // (sketching over another sketch in the top view), brought into this sketch's plane.
+// Everything else in the model, as points on this sketch's plane: the points of every other
+// sketch (any orientation, dropped straight onto this plane), 3D polylines, construction
+// points and every vertex, edge midpoint, hole center and face center of every body.
 function otherSketchPoints(sk) {
-  const pl = planeOf(sk), others = doc.features.filter(f => f.type === 'sketch' && f !== sk && !f.sup && f.vis !== false && Math.abs(dot3(planeOf(f).n, pl.n)) > 0.9999);
-  const key = JSON.stringify(pl) + '|' + others.map(f => f.id + ':' + (f._v || 0) + ':' + JSON.stringify(planeOf(f))).join(';');
+  const pl = planeOf(sk), others = doc.features.filter(f => f.type === 'sketch' && f !== sk && !f.sup && f.vis !== false);
+  const bodies = visibleBodies(), lines = doc.features.filter(f => f.type === 'polyline3d' && !f.sup && f.vis !== false);
+  const key = JSON.stringify(pl) + '|' + others.map(f => f.id + ':' + (f._v || 0) + ':' + JSON.stringify(planeOf(f))).join(';') + '|' + bodies.map(b => b.id + ':' + b.bb.map(v => +v.toFixed(3)).join(',')).join(';') + '|' + lines.map(f => f.id + JSON.stringify(f.pts)).join(';') + '|' + Object.keys(MODEL.points).join(',');
   if (skPtCache.key === key) return skPtCache.list;
-  const list = [];
+  const list = [], at = P3 => planeFrom3(pl, P3);
   for (const f of others) {
-    const fp = planeOf(f), to = q => planeFrom3(pl, planeTo3(fp, q));
+    const fp = planeOf(f), to = q => at(planeTo3(fp, q));
     for (const e of f.ents) {
       if (e.type === 'line') list.push({ p: to(e.a), k: 'xend', es: [] }, { p: to(e.b), k: 'xend', es: [] }, { p: to(G.mid(e)), k: 'xmid', es: [] });
       else { list.push({ p: to(e.c), k: 'xcen', es: [] }); if (e.type === 'arc') for (const q of G.ends(e)) list.push({ p: to(q), k: 'xend', es: [] }); }
     }
   }
+  for (const f of lines) for (const P of f.pts) list.push({ p: at(P), k: 'xend', es: [] });
+  for (const P of Object.values(MODEL.points || {})) if (P) list.push({ p: at(P), k: 'xend', es: [] });
+  try { for (const kp of allKeyPoints(bodies)) list.push({ p: at(kp.P), k: kp.k === 'edge' ? 'xmid' : kp.k === 'center' ? 'xcen' : 'xend', es: [] }); } catch (e) { /* bodies not ready */ }
   skPtCache.key = key; skPtCache.list = list;
   return list;
 }
@@ -21683,8 +21930,8 @@ camToolbar = function () {
   return h;
 };
 const camAddOpW = camAddOp;
-camAddOp = function (type) {
-  if (type !== 'wire') { camAddOpW(type); return; }
+camAddOp = function (type, kind) {
+  if (type !== 'wire') { camAddOpW(type, kind); return; }
   if (SIM.on) simStop();
   const C = cam(), before = snap(), n = C.ops.filter(o => o.type === 'wire').length + 1;
   const op = { id: C.next++, type: 'wire', name: OP_INFO.wire.name + (n > 1 ? ' ' + n : ''), tool: 'W', what: 'all', skims: 1 };
@@ -21797,7 +22044,7 @@ const FA_MAP = {
   fillet: 'border-top-left', trim: 'scissors', extend: 'arrows-left-right-to-line', offset: 'clone', mirror: 'arrows-left-right', project: 'diagram-project', cons: 'link', del: 'trash-can',
   sketch: 'pen-ruler', extrude: 'arrow-up-from-bracket', plane: 'layer-group', finish: 'check', body: 'cube', eye: 'eye', eyeoff: 'eye-slash', origin: 'crosshairs', origin2: 'location-crosshairs',
   chamfer: 'diamond', fillet3: 'circle-half-stroke', chamfer3: 'diamond', thread: 'screwdriver', point: 'circle-dot', marker: 'flag', blueprint: 'compass-drafting', measure: 'ruler',
-  camsetup: 'sliders', camtools: 'screwdriver-wrench', camface: 'grip-lines', camcontour: 'route', campocket: 'inbox', camdrill: 'arrow-down-long', camparallel: 'water', camsim: 'play', campost: 'file-code',
+  camsetup: 'sliders', camtools: 'screwdriver-wrench', camface: 'grip-lines', camcontour: 'route', campocket: 'inbox', camdrill: 'arrow-down-long', cammill: 'industry', camspot: 'bullseye', campeck: 'arrows-down-to-line', camtap: 'screwdriver', camparallel: 'water', camsim: 'play', campost: 'file-code',
   import: 'file-import', auto: 'wand-magic-sparkles', export: 'file-export', autoprog: 'robot', verify: 'shield-halved', camchamfer: 'diamond', camthread: 'screwdriver',
   revolve: 'rotate', sweep: 'wave-square', loft: 'shapes', coil: 'arrows-spin', hole: 'ring', shell: 'box-open', pattern: 'table-cells', patternc: 'circle-nodes', mirror3: 'arrows-left-right',
   combine: 'object-group', move: 'up-down-left-right', rotate: 'rotate-right', scale: 'maximize', split: 'object-ungroup', create: 'plus', modify: 'pen', construct: 'ruler-combined', array: 'table-cells',
@@ -21993,20 +22240,29 @@ function skmvCancel() {
   PLANES = planesOnly().planes; touch(f); modelChanged(true);
   refreshPanel();
 }
-// what is under the mouse to snap to: the sketch's own points (for "from"),
-// or anything that stays put — bodies, other sketches, the origin (for "to")
-function skmvPickAt(x, y, which) {
-  const m = P2(x, y), px = 12;
-  let best = null;
-  const consider = (P, k, lab) => { const d = dst2(toScreen(P), m); if (d < px && (!best || d < best.d)) best = { P, k, lab, d }; };
-  const SKN = { end: 'Endpoint', mid: 'Midpoint', cen: 'Center', quad: 'Quadrant', int: 'Intersection', org: 'Sketch origin' };
-  if (which === 'from') for (const q of skmvPts(SKMV.f, skmvPlane())) consider(q.P, q.k === 'cen' ? 'center' : q.k === 'mid' ? 'edge' : 'vertex', SKN[q.k] || 'Point');
-  else {
-    consider([0, 0, 0], 'vertex', 'Origin');
-    for (const g of doc.features) if (g.type === 'sketch' && g !== SKMV.f && !g.sup && g.vis !== false) for (const q of skmvPts(g, planeOf(g))) if (q.k !== 'int' && q.k !== 'org') consider(q.P, q.k === 'cen' ? 'center' : q.k === 'mid' ? 'edge' : 'vertex', (SKN[q.k] || 'Point') + ' of ' + g.name);
-    const kp = pickKeyPoint(x, y, visibleBodies());
-    if (kp) { const d = dst2(toScreen(kp.P), m); if (!best || d <= best.d + 2) best = { P: kp.P, k: kp.k, lab: KP_LABEL[kp.k], d }; }
+// Every point a move can start from or land on: this sketch's own points, the origin, the
+// points of every other sketch and 3D polyline, construction points and every vertex, edge
+// midpoint, hole center and face center of every body, anywhere in the model.
+const SKN = { end: 'Endpoint', mid: 'Midpoint', cen: 'Center', quad: 'Quadrant', int: 'Intersection', org: 'Sketch origin' };
+const skmvKind = k => k === 'cen' ? 'center' : k === 'mid' ? 'edge' : 'vertex';
+function skmvCandidates() {
+  const out = [{ P: [0, 0, 0], k: 'vertex', lab: 'Origin' }];
+  for (const q of skmvPts(SKMV.f, skmvPlane())) out.push({ P: q.P, k: skmvKind(q.k), lab: (SKN[q.k] || 'Point') + ' of ' + SKMV.f.name + ' (moves with it)', own: true });
+  for (const g of doc.features) {
+    if (g.sup || g.vis === false || g === SKMV.f || doc.features.indexOf(g) >= activeLimit()) continue;
+    if (g.type === 'sketch') for (const q of skmvPts(g, planeOf(g))) out.push({ P: q.P, k: skmvKind(q.k), lab: (SKN[q.k] || 'Point') + ' of ' + g.name });
+    else if (g.type === 'polyline3d') g.pts.forEach((P, i) => out.push({ P, k: 'vertex', lab: `Point ${i + 1} of ${g.name}` }));
+    else if (g.type === 'point' && MODEL.points[g.id]) out.push({ P: MODEL.points[g.id], k: 'vertex', lab: g.name });
   }
+  return out;
+}
+function skmvPickAt(x, y, which) {
+  const m = P2(x, y), px = 14;
+  let best = null;
+  const consider = c => { const d = dst2(toScreen(c.P), m); if (d < px && (!best || d < best.d)) best = { ...c, d }; };
+  for (const c of skmvCandidates()) consider(c);
+  const kp = pickKeyPoint(x, y, visibleBodies());
+  if (kp) { const d = dst2(toScreen(kp.P), m); if (!best || d <= best.d + 2) best = { P: kp.P, k: kp.k, lab: KP_LABEL[kp.k] || 'Point', d }; }
   return best;
 }
 // ── the arrows ──
@@ -22044,7 +22300,8 @@ function skmvDraw() {
   og.restore();
   if (SKMV.pick) {
     // every point that can be picked, faintly; the one under the mouse, bold
-    if (SKMV.pick === 'from') for (const q of skmvPts(SKMV.f, skmvPlane())) if (q.k !== 'int') kpGlyph(q.P, q.k === 'cen' ? 'center' : q.k === 'mid' ? 'edge' : 'vertex', COL.snap, false);
+    for (const c of skmvCandidates()) if (viewDepth(c.P) < Infinity) kpGlyph(c.P, c.k, c.own ? COL.snap : COL.muted, false);
+    for (const kp of allKeyPoints(visibleBodies())) if (viewDepth(kp.P) < Infinity) kpGlyph(kp.P, kp.k, COL.muted, false);
     if (SKMV.hover) { kpGlyph(SKMV.hover.P, SKMV.hover.k, COL.accent, true); const s = toScreen(SKMV.hover.P); label(SKMV.hover.lab, s.x + 12, s.y - 10); }
   }
 }
@@ -22057,7 +22314,7 @@ ov.addEventListener('pointerdown', e => {
   if (SKMV.pick) {
     const h = skmvPickAt(x, y, SKMV.pick);
     e.stopImmediatePropagation();
-    if (!h) { toast(SKMV.pick === 'from' ? 'Click an end, center or midpoint of the sketch' : 'Click a vertex, edge midpoint, hole or face center, or a point of another sketch'); return; }
+    if (!h) { toast('Click any vertex, edge midpoint, hole or face center on any shape, or any point of any sketch'); return; }
     const Pu = w2u(h.P);
     if (SKMV.pick === 'from') { SKMV.from = sub3(Pu, SKMV.d); SKMV.fromK = h.lab.toLowerCase(); SKMV.pick = 'to'; toast(`From the ${h.lab.toLowerCase()} — now click the point to move it to`); }
     else { SKMV.d = sub3(Pu, SKMV.from); SKMV.pick = null; skmvPreview(true); toast(`Moved to the ${h.lab.toLowerCase()}`); }
@@ -22435,21 +22692,29 @@ function sheetRibbonHTML() {
   return rbPanel('Setup Sheet', [['sheetfill', 'Rebuild from Program', '', 'campost'], ['tocam', 'Manufacture', '', 'camsetup']], 2);
 }
 
+const DRILL_ICON = { spot: 'camspot', peck: 'campeck', drill: 'camdrill', tap: 'camtap' };
 // ── Manufacture ──
 camToolbar = function () {
   const v = CAMUI.view, wire = typeof isWire === 'function' && isWire();
   const op = k => OP_INFO[k] ? ['add:' + k, OP_INFO[k].name, '', OP_INFO[k].icon] : null;
-  const D2 = ['face', 'contour', 'pocket', 'drill', 'chamfer'], D3 = ['parallel'], known = new Set([...D2, ...D3, 'wire']);
+  const D2 = ['face', 'contour', 'pocket', 'chamfer'], D3 = ['parallel'], known = new Set([...D2, ...D3, 'drill', 'wire']);
+  const drilling = Object.entries(DRILL_KINDS).map(([k, d]) => ['add:drill:' + k, d.name.replace(' Drill', ''), '', DRILL_ICON[k]]);
   const other = Object.keys(OP_INFO).filter(k => !known.has(k));
   const P = (title, items, big) => rbPanel(title, items, big, 'data-cam');
+  const mach = [['mach:mill', 'Mill', '', 'cammill', !wire], ['mach:wire', 'Wire EDM', '', 'camwire', wire]];
   return P('Setup', [['setup', 'Setup', '', 'camsetup', v === 'setup'], ['tools', 'Tool Library', '', 'camtools', v === 'tools']], 1)
+    + P('Machine', mach, 2)
     + (wire ? '' : P('Automate', [['autoprog', 'Auto Program', '', 'autoprog', v === 'report'], ['auto', 'Auto Detect', '', 'auto', v === 'auto'], ['verify', 'Verify', '', 'verify']], 1))
-    + (wire ? P('Wire EDM', [op('wire')], 1) : P('2D', D2.map(op), 2) + P('3D', D3.map(op), 1) + P('Other', other.map(op), 1))
+    + (wire ? P('Wire EDM', [op('wire')], 1) : P('2D', D2.map(op), 2) + P('Drilling', drilling, 4) + P('3D', D3.map(op), 1) + P('Other', other.map(op), 1))
     + P('Actions', [['sim', 'Simulate', '', 'camsim', v === 'sim'], ['post', 'Post G-code', '', 'campost', v === 'post'], ['ws:sheet', 'Setup Sheet', '', 'blueprint']], 1)
     + P('Inspect', [['measure', 'Measure', 'M', 'measure', CMD && CMD.type === 'measure']], 1);
 };
 const camActionRb0 = camAction;
-camAction = function (a) { if (a === 'ws:sheet') { setWorkspace('sheet'); return; } camActionRb0(a); };
+camAction = function (a) {
+  if (a === 'ws:sheet') { setWorkspace('sheet'); return; }
+  if (a.startsWith('mach:')) { if (SIM.on) simStop(); CAMUI.view = 'overview'; if ((a.slice(5) === 'wire') !== isWire()) setMachine(a.slice(5)); return; }
+  camActionRb0(a);
+};
 </script>
 
 <script>
@@ -23450,6 +23715,7 @@ const CMDS = [
   ['hole', 'hole D [depth] at X Y', 'Drills down from the top of the part at X Y; no depth = right through.'],
   ['pocket', 'pocket W L depth at X Y [round R]', 'Cuts a pocket down from the top of the part.'],
   ['gear', 'gear TEETH [module M] [width W]', 'A spur gear (module 2 and 10 wide unless given).'],
+  ['polyline', 'polyline X Y Z  X Y Z  … [close] [sketch]', 'A 3D polyline through any points you type, three numbers each (a 2D X Y pair also works). "close" joins the last point to the first; "sketch" makes a sketch instead when the points lie in one plane, so it can be extruded.'],
   ['fillet', 'fillet R', 'Rounds every edge of the last thing made.'],
   ['chamfer', 'chamfer C', 'Bevels every edge of the last thing made.'],
   ['array', 'array N SPACING [x|y]', 'Repeats the last thing made N times along X (or Y).'],
@@ -23459,18 +23725,49 @@ const CMDS = [
   ['sample', 'sample NAME', 'Opens a sample part by name (e.g. sample heat sink).'],
   ['clear', 'clear', 'Starts an empty design.'],
   ['undo', 'undo / redo', 'Takes the last step back (or forward).'],
-  ['units', 'units mm|in', 'Shows and types sizes in millimeters or inches.'],
+  ['units', 'units mm|in', 'Shows and types sizes in millimeters or inches. Any size may carry its own unit: 12mm, 1.5cm, 2m, 250um, 1/2in, 3", 40mil, 5ft, 5\'6".'],
   ['help', 'help', 'Lists every command.'],
 ];
 const CMDX = { hist: [], hi: -1, sel: 0 };
 const COLOR_NAMES = { red: '#d9443a', blue: '#2f6fe0', green: '#2ea052', orange: '#f29b1d', yellow: '#e8c547', black: '#2a2f36', white: '#f2f4f7', gray: '#9aa3ad', grey: '#9aa3ad', purple: '#8c5bd8', brass: '#c9a24a', copper: '#c07040', steel: '#b7bec5', aluminum: '#c3cad2', wood: '#a0703f' };
-// "12", "12mm", "0.5in", "1/2in"
+// Lengths the box understands, in millimeters per unit.
+const CMD_UNITS = {
+  mm: 1, millimeter: 1, millimeters: 1, millimetre: 1, millimetres: 1,
+  cm: 10, centimeter: 10, centimeters: 10, centimetre: 10, centimetres: 10,
+  m: 1000, meter: 1000, meters: 1000, metre: 1000, metres: 1000,
+  um: 0.001, 'µm': 0.001, micron: 0.001, microns: 0.001, micrometer: 0.001, micrometers: 0.001,
+  in: 25.4, inch: 25.4, inches: 25.4, '"': 25.4, '″': 25.4,
+  ft: 304.8, foot: 304.8, feet: 304.8, "'": 304.8, '′': 304.8,
+  mil: 0.0254, mils: 0.0254, thou: 0.0254,
+};
+// "12", "12mm", "1.5cm", "2m", "0.5in", "1/2in", '3"', "40mil", "5ft", "5'6\"", "5ft6in", "250um"
+// -> millimeters. A bare number is in the display units; inches follow feet ("5'6" is 5 ft 6 in).
+// NaN if it is not a length.
 function cmdNum(t) {
-  const m = /^(-?[\d.]+(?:\/[\d.]+)?)(mm|in|")?$/i.exec(String(t).trim());
-  if (!m) return NaN;
-  const v = m[1].includes('/') ? m[1].split('/').reduce((a, b) => +a / +b) : +m[1];
-  if (!isFinite(v)) return NaN;
-  return m[2] ? (m[2].toLowerCase() === 'mm' ? v : v * 25.4) : fromU(v);
+  const str = String(t).trim().toLowerCase().replace(/''/g, '"').replace(/^\+/, '');
+  if (!str) return NaN;
+  const re = /(-?[\d.]+(?:\/[\d.]+)?)\s*([a-zµ"'″′]*)/gy;
+  let m, end = 0, total = 0, sign = 1, first = true, sawFeet = false;
+  while (end < str.length && (re.lastIndex = end, m = re.exec(str))) {
+    let v = m[1].includes('/') ? m[1].split('/').reduce((a, b) => +a / +b) : +m[1];
+    if (!isFinite(v)) return NaN;
+    if (first) { if (v < 0 || m[1].startsWith('-')) sign = -1; first = false; }
+    v = Math.abs(v);
+    const u = m[2];
+    let mm;
+    if (u) { if (!(u in CMD_UNITS)) return NaN; mm = v * CMD_UNITS[u]; sawFeet = CMD_UNITS[u] === 304.8; }
+    else mm = sawFeet ? v * 25.4 : fromU(v);
+    total += mm; end = re.lastIndex;
+    if (!u && !sawFeet) break;
+  }
+  return end === str.length ? sign * total : NaN;
+}
+// Gather "10 mm", "1/2 in", "5 ft 6 in" into single words so they read as one length.
+function cmdGlueUnits(s) {
+  const U = 'millimeters?|millimetres?|centimeters?|centimetres?|meters?|metres?|micrometers?|microns?|mm|cm|um|µm|inches|inch|in|feet|foot|ft|mils?|thou';
+  return s.replace(new RegExp(`(\\d)\\s+(${U})(?![a-zµ0-9])`, 'g'), '$1$2')
+    .replace(/(\d)\s+(["″'′])/g, '$1$2')
+    .replace(/(ft|feet|foot|'|′)\s+(\d[\d.\/]*(?:in|inch|inches|"|″)(?![a-zµ0-9]))/g, '$1$2');
 }
 function cmdTop() {
   // the highest point of the design (machine Z), or 0 with nothing there
@@ -23482,14 +23779,14 @@ function cmdTop() {
 function runCommand(line) {
   const raw = line.trim();
   if (!raw) return '';
-  const low = raw.toLowerCase().replace(/,/g, ' ').replace(/\s+/g, ' ');
+  const low = cmdGlueUnits(raw.toLowerCase().replace(/[,;()\[\]]/g, ' ').replace(/\s+/g, ' ')).trim();
   let words = low.split(' ');
   const head = words[0];
   if (head === 'help' || head === '?') { cmdShowHelp(); return 'Commands listed above'; }
   if (head === 'undo') { undo(); return 'Undone'; }
   if (head === 'redo') { redo(); return 'Redone'; }
   if (head === 'clear' || head === 'new' && words.length === 1) { loadDoc({ features: [], next: 1 }, 'New design'); return 'Empty design'; }
-  if (head === 'units') { const u = words[1]; if (u !== 'mm' && u !== 'in') throw new Error('units mm or units in'); if (isIn() !== (u === 'in')) setUnits(u); return 'Units: ' + (u === 'in' ? 'inches' : 'millimeters'); }
+  if (head === 'units') { const u = { mm: 'mm', millimeters: 'mm', millimeter: 'mm', in: 'in', inch: 'in', inches: 'in' }[words[1]]; if (!u) throw new Error('units mm or units in'); if (isIn() !== (u === 'in')) setUnits(u); return 'Units: ' + (u === 'in' ? 'inches' : 'millimeters'); }
   if (head === 'sample') {
     const q = raw.slice(6).trim().toLowerCase(), s = SAMPLES.find(x => x.name.toLowerCase() === q) || SAMPLES.find(x => x.name.toLowerCase().includes(q));
     if (!s) throw new Error('No sample called "' + q + '"');
@@ -23510,6 +23807,7 @@ function runCommand(line) {
     if (!b) throw new Error('there is no body to color');
     setBodyColor(b.id, c); return 'Colored ' + (b.name || 'the last body') + ' ' + args[0];
   }
+  if (kind === 'polyline' || kind === 'pline' || kind === 'poly' || kind === 'polyline3d') return cmdPolyline(args);
   // named options: at X Y Z · round R · holes D · module M · width W · depth D
   const opt = {}, pos = [];
   for (let i = 0; i < args.length; i++) {
@@ -23618,6 +23916,57 @@ function runCommand(line) {
   void last;
   return label;
 }
+// polyline X Y Z X Y Z …: a 3D polyline through typed points (design axes: X right, Y back, Z up).
+// Each number may carry a unit. "close" joins the end to the start; "sketch" draws the lines in a
+// sketch instead when the points are all in one plane, ready to extrude or sweep.
+function cmdPolyline(args) {
+  let closed = false, asSketch = false;
+  const nums = [];
+  for (const w of args) {
+    if (w === 'close' || w === 'closed' || w === 'c') { closed = true; continue; }
+    if (w === 'sketch') { asSketch = true; continue; }
+    const v = cmdNum(w);
+    if (!isFinite(v)) throw new Error(`"${w}" is not a number`);
+    nums.push(v);
+  }
+  const per = nums.length % 3 === 0 ? 3 : nums.length % 2 === 0 ? 2 : 0;
+  if (!per || nums.length < 2 * per) throw new Error('polyline needs X Y Z for at least two points (e.g. polyline 0 0 0  50 0 0  50 30 20)');
+  const pts = [];
+  for (let i = 0; i < nums.length; i += per) pts.push(per === 3 ? [nums[i], nums[i + 1], nums[i + 2]] : [nums[i], nums[i + 1], 0]);
+  if (UIX.ws !== 'design') setWorkspace('design');
+  if (S.sk) finishSketch();
+  if (CMD) cancelCmd();
+  if (!closed && pts.length > 2 && dist3(pts[0], pts[pts.length - 1]) < 1e-9) closed = true;
+  const before = snap();
+  let label;
+  if (asSketch) {
+    // the plane through the points: origin at the first, x along the first segment, normal from the first bend
+    const o = pts[0], u = nrm3(sub3(pts.find(q => dist3(q, o) > 1e-9) || [1, 0, 0], o));
+    let n = null;
+    for (const q of pts) { const c = crs3(u, sub3(q, o)); if (len3(c) > 1e-6 * (1 + len3(sub3(q, o)))) { n = nrm3(c); break; } }
+    if (!n) throw new Error('those points are on one line — they do not make a plane to sketch on');
+    const off = Math.max(...pts.map(q => Math.abs(dot3(sub3(q, o), n))));
+    if (off > 1e-4) throw new Error(`those points are not in one plane (${fmtLs(off)} out) — leave off "sketch" for a 3D polyline`);
+    const v = crs3(n, u), K = modelKit(doc.next), lc = q => { const d = sub3(q, o); return [dot3(d, u), dot3(d, v)]; };
+    const ents = [], seq = closed && dist3(pts[0], pts[pts.length - 1]) > 1e-9 ? pts.concat([pts[0]]) : pts;
+    for (let i = 0; i + 1 < seq.length; i++) { const a = lc(seq[i]), b = lc(seq[i + 1]); if (Math.hypot(a[0] - b[0], a[1] - b[1]) > 1e-9) ents.push(K.L(a[0], a[1], b[0], b[1])); }
+    const mo = mPt(...o), mu = mDir(...u), mv = mDir(...v);
+    K.sketch({ o: mo, u: mu, v: mv, n: crs3(mu, mv) }, ents);
+    const add = K.features.filter(f => !doc.features.includes(f));
+    for (const f of add) { f.name = featName(f.type); insertFeature(f); }
+    doc.next = Math.max(doc.next, K.nid());
+    label = `Sketch polyline, ${seq.length - 1} line${seq.length > 2 ? 's' : ''}`;
+  } else {
+    const f = { id: newId(), type: 'polyline3d', name: '', pts: pts.map(q => mPt(...q)), closed, vis: true };
+    f.name = featName('polyline3d');
+    insertFeature(f);
+    label = `Polyline, ${pts.length} points${closed ? ', closed' : ''}`;
+  }
+  record(label, before);
+  modelChanged(true);
+  if (typeof refreshUI === 'function') refreshUI();
+  return label;
+}
 // The last feature that made or cut something (skipping sketches).
 function cmdLastFeature(anyTool) {
   for (let i = doc.features.length - 1; i >= 0; i--) { const f = doc.features[i]; if (f.sup) continue; if (anyTool ? TOOL_FEATS.has(f.type) : f.type !== 'sketch' && f.type !== 'plane' && f.type !== 'point') return f; }
@@ -23640,7 +23989,7 @@ function cmdSuggest(v) {
 (() => {
   const vp = document.getElementById('viewport'), bar = document.createElement('div');
   bar.id = 'cmdbar';
-  bar.innerHTML = '<div id="cmdSug" hidden></div><div class="cmd-in"><svg viewBox="0 0 20 20"><path d="M4 6l4 4-4 4M10 15h6"/></svg><input id="cmdIn" type="text" spellcheck="false" autocomplete="off" placeholder="Type a command — box 100 60 20 · cylinder 30 50 · hole 8 at 20 10 · help"><span class="cmd-key" title="Press / to type a command">/</span></div><div id="cmdMsg"></div>';
+  bar.innerHTML = '<div id="cmdSug" hidden></div><div class="cmd-in"><svg viewBox="0 0 20 20"><path d="M4 6l4 4-4 4M10 15h6"/></svg><input id="cmdIn" type="text" spellcheck="false" autocomplete="off" placeholder="Type a command — box 100 60 20 · cylinder 1.5in 2in · polyline 0 0 0  50 0 0  50 30 20 · help"><span class="cmd-key" title="Press / to type a command">/</span></div><div id="cmdMsg"></div>';
   vp.appendChild(bar);
   const inp = bar.querySelector('#cmdIn'), sug = bar.querySelector('#cmdSug'), msg = bar.querySelector('#cmdMsg');
   let msgT = 0;
@@ -23665,7 +24014,12 @@ function cmdSuggest(v) {
       inp.value = CMDX.hist[CMDX.hi] || ''; sug.hidden = true;
     }
   });
-  inp.addEventListener('input', () => { CMDX.sel = 0; cmdSuggest(inp.value); });
+  inp.addEventListener('input', () => {
+    CMDX.sel = 0; cmdSuggest(inp.value);
+    // show how a length with a unit was read: 1/2in = 0.5000" (12.7 mm)
+    const last = cmdGlueUnits(inp.value.toLowerCase().replace(/[,;()\[\]]/g, ' ').replace(/\s+/g, ' ')).trim().split(' ').pop();
+    if (/\d/.test(last) && /[a-zµ"'″′]/.test(last)) { const v = cmdNum(last); if (isFinite(v)) say(`${last} = ${fmtLs(v)}${isIn() ? ` (${+v.toFixed(3)} mm)` : ` (${+(v / 25.4).toFixed(4)} in)`}`); }
+  });
   inp.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== inp) sug.hidden = true; }, 150));
   sug.addEventListener('mousedown', e => { const r = e.target.closest('[data-cmd]'); if (!r) return; e.preventDefault(); inp.value = r.dataset.cmd + ' '; inp.focus(); cmdSuggest(inp.value); });
   // "/" puts the cursor in the box from anywhere
@@ -23956,10 +24310,30 @@ const TipArt = (() => {
   const dot = (p, col = C.sk, r = 2.2) => `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${r}" fill="${col}"/>`;
   const txt = (p, s, col = C.dim, size = 8) => `<text x="${p[0].toFixed(1)}" y="${p[1].toFixed(1)}" font-size="${size}" font-family="Inter, system-ui, sans-serif" font-weight="600" fill="${col}" text-anchor="middle">${s}</text>`;
   // 2D sketch views: a grid, and shapes in plain screen coordinates
-  const grid = () => { let g = ''; for (let x = 10; x < W; x += 12) g += `<line x1="${x}" y1="4" x2="${x}" y2="${H - 4}" stroke="${C.grid}" stroke-width="0.8"/>`; for (let y = 9; y < H; y += 12) g += `<line x1="4" y1="${y}" x2="${W - 4}" y2="${y}" stroke="${C.grid}" stroke-width="0.8"/>`; return g; };
+  const grid = () => { let g = ''; for (let x = 10; x < W; x += 12) g += `<line x1="${x}" y1="4" x2="${x}" y2="${H - 4}" stroke="${C.grid}" stroke-width="0.8"/>`; for (let y = 9; y < H; y += 12) g += `<line x1="4" y1="${y}" x2="${W - 4}" y2="${y}" stroke="${C.grid}" stroke-width="0.8"/>`; return `<g data-grid="1">${g}</g>`; };
   const sk = (d, col = C.sk, w = 1.6, extra = '') => `<path d="${d}" fill="none" stroke="${col}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" ${extra}/>`;
   const fillP = (d, col = 'rgba(47,123,232,.14)') => `<path d="${d}" fill="${col}" stroke="none"/>`;
-  const wrap = body => `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg"><rect width="${W}" height="${H}" rx="8" fill="#f6f8fb"/>${body}</svg>`;
+  // The drawing is measured and moved to the middle of its frame (shrunk a little if it
+  // would touch the edge). A sketch grid stays put behind it; badges (text) are left out
+  // of the measuring so a tick in the corner does not pull the picture off center.
+  const wrap = body => {
+    const grid = (/<g data-grid="1">[\s\S]*?<\/g>/.exec(body) || [''])[0], art = body.replace(grid, '');
+    let g = art;
+    try {
+      const NS = 'http://www.w3.org/2000/svg', m = document.createElementNS(NS, 'svg');
+      m.setAttribute('viewBox', `0 0 ${W} ${H}`); m.setAttribute('width', W); m.setAttribute('height', H);
+      m.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden';
+      m.innerHTML = `<g>${art.replace(/<text[\s\S]*?<\/text>/g, '')}</g>`;
+      document.body.appendChild(m);
+      const b = m.firstChild.getBBox();
+      m.remove();
+      if (b.width > 1 && b.height > 1) {
+        const k = Math.min(1, (W - 14) / b.width, (H - 14) / b.height), cx = b.x + b.width / 2, cy = b.y + b.height / 2;
+        g = `<g transform="translate(${(W / 2 - cx * k).toFixed(2)},${(H / 2 - cy * k).toFixed(2)}) scale(${k.toFixed(3)})">${art}</g>`;
+      }
+    } catch (e) { /* no layout available: draw it where it was made */ }
+    return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg"><rect width="${W}" height="${H}" rx="8" fill="#f6f8fb"/>${grid}${g}</svg>`;
+  };
   // a sheet-like plane (parallelogram) at height z
   const plane = (z, s = 26, col = 'rgba(47,123,232,.10)') => poly([P(-s, -s, z), P(s, -s, z), P(s, s, z), P(-s, s, z)], col, C.accL, 0.7, 'stroke-dasharray="3 2"');
   const B = (w = 30, d = 22, h = 14) => box(-w / 2, -d / 2, 0, w, d, h);
@@ -24042,6 +24416,12 @@ const TIP_ART = (() => {
     'add:contour': [iso(() => box(-16, -12, 0, 32, 24, 12, 's')), iso(() => box(-13, -9, 0, 26, 18, 12) + line([P(-17, -13, 6), P(17, -13, 6), P(17, 13, 6), P(-17, 13, 6), P(-17, -13, 6)], C.acc, 1.6))],
     'add:pocket': [iso(() => box(-16, -12, 0, 32, 24, 12)), iso(() => box(-16, -12, 0, 32, 24, 12) + poly([P(-9, -6, 12), P(9, -6, 12), P(9, 6, 12), P(-9, 6, 12)], '#7d8896') + [0, 3, 6].map(k => line([P(-k, -k * 0.6, 12.2), P(k, -k * 0.6, 12.2), P(k, k * 0.6, 12.2), P(-k, k * 0.6, 12.2), P(-k, -k * 0.6, 12.2)], C.acc, 1.1)).join(''))],
     'add:drill': [iso(() => B()), iso(() => B() + ell(-7, 0, 14, 3.5, C.hole) + ell(7, 0, 14, 3.5, C.hole) + line([P(7, 0, 30), P(7, 0, 14)], C.cut, 1.4, 'stroke-dasharray="3 2"') + poly([P(6, 0, 36), P(8, 0, 36), P(8, 0, 22), P(7, 0, 19), P(6, 0, 22)], '#c9a24a', C.line, 0.6))],
+    'add:drill:spot': [iso(() => B()), iso(() => B() + ell(-7, 0, 14, 2, C.hole) + ell(7, 0, 14, 2, C.hole) + poly([P(6, 0, 28), P(8, 0, 28), P(8, 0, 20), P(7, 0, 16), P(6, 0, 20)], '#c9a24a', C.line, 0.6))],
+    'add:drill:peck': [iso(() => B()), iso(() => B() + ell(0, 0, 14, 3.5, C.hole) + line([P(0, 0, 34), P(0, 0, 22)], C.cut, 1.4, 'stroke-dasharray="3 2"') + line([P(0, 0, 22), P(0, 0, 10)], C.acc, 1.4) + poly([P(-1, 0, 30), P(1, 0, 30), P(1, 0, 20), P(0, 0, 17), P(-1, 0, 20)], '#c9a24a', C.line, 0.6))],
+    'add:drill:drill': [iso(() => B()), iso(() => B() + ell(0, 0, 14, 3.5, C.hole) + line([P(0, 0, 34), P(0, 0, 14)], C.cut, 1.4, 'stroke-dasharray="3 2"') + poly([P(-1, 0, 36), P(1, 0, 36), P(1, 0, 22), P(0, 0, 19), P(-1, 0, 22)], '#c9a24a', C.line, 0.6))],
+    'add:drill:tap': [iso(() => B() + ell(0, 0, 14, 2.6, C.hole)), iso(() => B() + ell(0, 0, 14, 3.4, C.hole) + [16, 19, 22].map(z => line([P(-2, 0, z), P(2, 0, z - 1)], C.acc, 1)).join('') + poly([P(-1.6, 0, 36), P(1.6, 0, 36), P(1.6, 0, 22), P(-1.6, 0, 22)], '#8f99a6', C.line, 0.6))],
+    'mach:mill': [iso(() => box(-16, -12, 0, 32, 24, 12, 's')), iso(() => box(-16, -12, 0, 32, 24, 12, 's') + cyl(4, 2, 10, 3, 18, 'a'))],
+    'mach:wire': [iso(() => box(-16, -12, 0, 32, 24, 8, 's')), iso(() => box(-16, -12, 0, 32, 24, 8, 's') + line([P(-6, -6, 8.2), P(6, -6, 8.2), P(6, 6, 8.2), P(-6, 6, 8.2), P(-6, -6, 8.2)], '#c9a24a', 1.8) + line([P(6, 6, 0), P(6, 6, 20)], '#c9a24a', 1))],
     'add:chamfer': [iso(() => B() + line([P(15, -11, 14), P(15, 11, 14)], C.warn, 2.4)), iso(() => box(-15, -11, 0, 30, 22, 11) + poly([P(-15, -11, 11), P(12, -11, 11), P(12, -11, 14), P(-15, -11, 14)], C.l) + poly([P(-15, -11, 14), P(12, -11, 14), P(12, 11, 14), P(-15, 11, 14)], C.top) + poly([P(12, -11, 14), P(15, -11, 11), P(15, 11, 11), P(12, 11, 14)], C.accT, C.acc))],
     'add:parallel': [iso(() => box(-16, -12, 0, 32, 24, 6) + ell(0, 0, 6, 11, C.top)), iso(() => box(-16, -12, 0, 32, 24, 6) + ell(0, 0, 6, 11, C.top) + [-8, -4, 0, 4, 8].map(y => line([P(-16, y, 7), P(-8, y, 8), P(0, y, 11), P(8, y, 8), P(16, y, 7)], C.acc, 1)).join(''))],
     'add:wire': [iso(() => box(-16, -12, 0, 32, 24, 8, 's')), iso(() => box(-16, -12, 0, 32, 24, 8, 's') + line([P(-6, -6, 8.2), P(6, -6, 8.2), P(6, 6, 8.2), P(-6, 6, 8.2), P(-6, -6, 8.2)], '#c9a24a', 1.8) + line([P(6, 6, 0), P(6, 6, 20)], '#c9a24a', 1))],
@@ -24121,7 +24501,13 @@ const TIP_TXT = {
   'add:contour': ['Cut round the part’s outline (or chosen faces).', ['Outside, inside or through cut-outs.', 'Set the depth steps and lead-in.']],
   'add:pocket': ['Clear pockets and floors: down in the middle, out ring by ring, then a finish pass on the walls.', ['Click the floor faces.', 'Set stepover, stepdown and the stock left for finishing.']],
   'add:drill': ['Drill holes with a Haas canned cycle (G81, G82, G83, G73, G85, G84).', ['Pick the hole diameters (or click holes).', 'Pick the cycle; every setting is explained in the panel.']],
-  'add:chamfer': ['Break edges with a chamfer mill along 45° chamfers.', ['Click the chamfer faces.', 'Set how far the tip goes below the edge.']],
+  'add:drill:spot': ['Start every hole with a short spot drill so the drills do not wander.', ['Takes every hole diameter in the part.', 'Set the depth and the dwell at the bottom.']],
+  'add:drill:peck': ['Deep holes: drill in pecks and pull out to clear the chips (G83, or G73 chip-break).', ['Pick the hole diameters.', 'Set the peck depth.']],
+  'add:drill:drill': ['Straight drilling for shallow holes (G81).', ['Pick the hole diameters (or click holes).', 'Set the breakthrough past through holes.']],
+  'add:drill:tap': ['Rigid tap threaded holes (G84): feed is exactly the thread pitch per turn.', ['Picks the tap that matches the tap-drilled holes.', 'Set the retract speed.']],
+  'mach:mill': ['Program the part for the Haas mill.', ['Click to work in Mill mode.']],
+  'mach:wire': ['Program the part for the wire EDM: openings and outside cut straight through.', ['Click to switch to Wire EDM.', 'Pick what to cut and the number of skims.']],
+  'add:chamfer': ['Lie the cone of a chamfer mill flat on a sloped face: the flank cuts the whole face in one pass, at any angle.', ['Click the sloped faces (chamfers, drafts, countersinks).', 'Pick a chamfer mill with the matching cone angle.', 'Choose rough-and-finish passes and a surface-finish target.']],
   'add:parallel': ['Finish curved surfaces with back-and-forth passes.', ['Pick the ball mill.', 'Set the stepover and direction.']],
   'add:wire': ['Cut the part’s openings and outline with the EDM wire.', ['Choose what to cut and how many skims.']],
   jaws: ['Make custom soft jaws that hold the part upside down for the second operation.', ['Pick the face that goes down and how deep it sits.', 'Set the jaw width, clearance offset and pocket shape.', 'Test fit: the part flips and drops in, every point is checked.']],
