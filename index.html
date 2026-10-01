@@ -3744,9 +3744,10 @@ body.col-drag { cursor: col-resize; user-select: none; }
 #dimbox input.locked { border-color: var(--accent); color: var(--accent); }
 
 #toast {
-  position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); padding: 7px 14px; border-radius: 6px;
-  background: var(--ink); color: var(--panel); font-size: 12.5px; box-shadow: var(--shadow); pointer-events: none;
-  transition: opacity .2s; opacity: 0; max-width: calc(100% - 32px);
+  position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 20; box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center; text-align: center; min-height: 38px; min-width: 200px; padding: 8px 18px; border-radius: 12px;
+  background: color-mix(in srgb, var(--ink) 94%, transparent); color: var(--panel); font-size: 12.5px; box-shadow: 0 8px 28px rgba(0,0,0,.28); pointer-events: none;
+  backdrop-filter: blur(8px); transition: opacity .2s; opacity: 0; max-width: min(520px, calc(100% - 28px));
 }
 #toast.show { opacity: 1; }
 #busy { position: absolute; right: 12px; bottom: 12px; font: 11px var(--mono); color: var(--muted); display: flex; align-items: center; gap: 6px; pointer-events: none; }
@@ -3953,7 +3954,7 @@ body.jaws-on #viewtools, body.jaws-on #hint, body.jaws-on #mouseLegend, body.jaw
 
 #ctxmenu {
   position: fixed; z-index: 50; background: var(--panel); border: 1px solid var(--rule); border-radius: 7px;
-  box-shadow: var(--shadow); padding: 4px; min-width: 150px;
+  box-shadow: var(--shadow); padding: 4px; min-width: 150px; max-height: calc(100vh - 16px); overflow-y: auto;
 }
 #ctxmenu button { display: block; width: 100%; text-align: left; border: 0; background: transparent; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 12.5px; }
 #ctxmenu button:hover { background: var(--accent-soft); }
@@ -7684,7 +7685,9 @@ function tolForZoom() { const L = 2 * Math.round(Math.log2(Math.max(ppu(), 1e-6)
 let levelTimer = 0;
 function scheduleLevelCheck() {
   clearTimeout(levelTimer);
-  levelTimer = setTimeout(() => { if (tolForZoom() !== shownTol) regen(); }, 220);
+  // While the model is exploded (or moving apart / together) a coarser mesh is not worth a full rebuild:
+  // the refit zooms out past a level step, and re-tessellating every body mid-animation is what made it stutter.
+  levelTimer = setTimeout(() => { const want = tolForZoom(); if (want !== shownTol && !(want > shownTol && typeof explOn === 'function' && explOn())) regen(); }, 220);
 }
 // Extrudes of the sketch being edited follow its regions (see resolveProfiles):
 // their stored points are moved back inside the region they refer to.
@@ -10012,7 +10015,7 @@ function showMenu(items, x, y) {
   ctxmenu.classList.remove('in'); void ctxmenu.offsetWidth; ctxmenu.classList.add('in');
   const r = ctxmenu.getBoundingClientRect();
   ctxmenu.style.left = Math.min(x, innerWidth - r.width - 8) + 'px';
-  ctxmenu.style.top = Math.min(y, innerHeight - r.height - 8) + 'px';
+  ctxmenu.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 8)) + 'px';
   ctxmenu.querySelectorAll('button').forEach(b => b.addEventListener('click', () => { ctxmenu.hidden = true; items[+b.dataset.i].run(); }));
 }
 // Select a whole sketch from the model tree or timeline: all its profiles.
@@ -14189,7 +14192,7 @@ function bindImportPanel() {
 // vertices, for watertight formats) and split per exact surface (so each
 // vertex carries the true surface normal, for rendering formats).
 function exportPart(b, name) {
-  const mesh = bodyMesh(b), part = { name, mesh };
+  const mesh = bodyMesh(b), part = { name, mesh, color: doc.colors && doc.colors[b.id] };
   let weld = null, split = null;
   Object.defineProperty(part, 'weld', { get() {
     if (weld) return weld;
@@ -14341,6 +14344,134 @@ function writeSTEP(parts, fileName) {
   return `ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('Datum faceted B-rep export'),'2;1');\nFILE_NAME('${fileName}','${date}',(''),(''),'Datum','Datum','');\nFILE_SCHEMA(('AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }'));\nENDSEC;\nDATA;\n` +
     E.map((s, i) => `#${i + 1}=${s};`).join('\n') + '\nENDSEC;\nEND-ISO-10303-21;\n';
 }
+
+// ── More formats ────────────────────────────────────────────────────
+const colRGB = h => { const m = /^#?([0-9a-f]{6})$/i.exec(h || ''); const n = m ? parseInt(m[1], 16) : 0xb4bec9; return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+const colF = h => colRGB(h).map(c => +(c / 255).toFixed(4));
+// PLY: binary, vertex colors
+function writePLY(parts) {
+  const nv = parts.reduce((a, p) => a + p.weld.V.length, 0), nt = parts.reduce((a, p) => a + p.weld.T.length / 3, 0);
+  const head = new TextEncoder().encode(`ply\nformat binary_little_endian 1.0\ncomment Datum export, millimeters, Z up\nelement vertex ${nv}\nproperty float x\nproperty float y\nproperty float z\nproperty uchar red\nproperty uchar green\nproperty uchar blue\nelement face ${nt}\nproperty list uchar int vertex_indices\nend_header\n`);
+  const buf = new ArrayBuffer(head.length + nv * 15 + nt * 13), dv = new DataView(buf);
+  new Uint8Array(buf).set(head);
+  let o = head.length, base = 0;
+  for (const p of parts) {
+    const rgb = colRGB(p.color);
+    for (const v of p.weld.V) { const z = zUp(v); for (let k = 0; k < 3; k++) dv.setFloat32(o + k * 4, z[k], true); for (let k = 0; k < 3; k++) dv.setUint8(o + 12 + k, rgb[k]); o += 15; }
+    const T = p.weld.T;
+    for (let t = 0; t < T.length; t += 3) { dv.setUint8(o, 3); for (let k = 0; k < 3; k++) dv.setInt32(o + 1 + k * 4, T[t + k] + base, true); o += 13; }
+    base += p.weld.V.length;
+  }
+  return buf;
+}
+// GLB (binary glTF 2.0): meters, Y up, smooth normals, base color per body
+function writeGLB(parts) {
+  const bin = [], views = [], acc = [], meshes = [], nodes = [], mats = [];
+  let off = 0;
+  const push = (arr, target) => { const u8 = new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength); views.push({ buffer: 0, byteOffset: off, byteLength: u8.length, target }); bin.push(u8); off += u8.length; return views.length - 1; };
+  parts.forEach((p, i) => {
+    const { V, N, T } = p.split, pos = new Float32Array(V.length * 3), nor = new Float32Array(V.length * 3), idx = new Uint32Array(T);
+    const mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+    V.forEach((v, j) => { for (let k = 0; k < 3; k++) { const x = v[k] * 0.001; pos[j * 3 + k] = x; nor[j * 3 + k] = N[j][k]; mn[k] = Math.min(mn[k], pos[j * 3 + k]); mx[k] = Math.max(mx[k], pos[j * 3 + k]); } });
+    const a = acc.length;
+    acc.push({ bufferView: push(pos, 34962), componentType: 5126, count: V.length, type: 'VEC3', min: mn, max: mx });
+    acc.push({ bufferView: push(nor, 34962), componentType: 5126, count: V.length, type: 'VEC3' });
+    acc.push({ bufferView: push(idx, 34963), componentType: 5125, count: idx.length, type: 'SCALAR' });
+    mats.push({ name: p.name, pbrMetallicRoughness: { baseColorFactor: [...colRGB(p.color).map(c => +Math.pow(c / 255, 2.2).toFixed(4)), 1], metallicFactor: 0.1, roughnessFactor: 0.6 }, doubleSided: true });
+    meshes.push({ name: p.name, primitives: [{ attributes: { POSITION: a, NORMAL: a + 1 }, indices: a + 2, material: i }] });
+    nodes.push({ name: p.name, mesh: i });
+  });
+  const json = JSON.stringify({ asset: { version: '2.0', generator: 'Datum' }, scene: 0, scenes: [{ nodes: nodes.map((_, i) => i) }], nodes, meshes, materials: mats, accessors: acc, bufferViews: views, buffers: [{ byteLength: off }] });
+  const jb = new TextEncoder().encode(json), jlen = (jb.length + 3) & ~3, blen = (off + 3) & ~3, total = 12 + 8 + jlen + 8 + blen;
+  const out = new Uint8Array(total), dv = new DataView(out.buffer);
+  dv.setUint32(0, 0x46546C67, true); dv.setUint32(4, 2, true); dv.setUint32(8, total, true);
+  dv.setUint32(12, jlen, true); dv.setUint32(16, 0x4E4F534A, true); out.set(jb, 20); out.fill(0x20, 20 + jb.length, 20 + jlen);
+  const bo = 20 + jlen; dv.setUint32(bo, blen, true); dv.setUint32(bo + 4, 0x004E4942, true);
+  let q = bo + 8; for (const u8 of bin) { out.set(u8, q); q += u8.length; }
+  return out.buffer;
+}
+// zip (stored, no compression) for 3MF
+const CRC_T = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+const crc32 = u8 => { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC_T[(c ^ u8[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+function zipStore(files) {
+  const enc = new TextEncoder(), chunks = [], central = [];
+  let off = 0;
+  for (const f of files) {
+    const nm = enc.encode(f.name), data = typeof f.data === 'string' ? enc.encode(f.data) : f.data, crc = crc32(data), n = data.length;
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(12, 0x21, true);
+    lh.setUint32(14, crc, true); lh.setUint32(18, n, true); lh.setUint32(22, n, true); lh.setUint16(26, nm.length, true);
+    chunks.push(new Uint8Array(lh.buffer), nm, data);
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(14, 0x21, true);
+    ch.setUint32(16, crc, true); ch.setUint32(20, n, true); ch.setUint32(24, n, true); ch.setUint16(28, nm.length, true); ch.setUint32(42, off, true);
+    central.push(new Uint8Array(ch.buffer), nm);
+    off += 30 + nm.length + n;
+  }
+  const cdSize = central.reduce((a, c) => a + c.length, 0), end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true); end.setUint32(12, cdSize, true); end.setUint32(16, off, true);
+  return new Blob([...chunks, ...central, new Uint8Array(end.buffer)], { type: 'application/octet-stream' });
+}
+// 3MF: the 3D-printing interchange format (millimeters, Z up, colors)
+function write3MF(parts) {
+  const hex = h => '#' + colRGB(h).map(c => c.toString(16).padStart(2, '0')).join('').toUpperCase() + 'FF';
+  const objs = parts.map((p, i) => {
+    const { V, T } = p.weld;
+    return `<object id="${i + 2}" name="${xmlEsc(p.name)}" type="model" pid="1" pindex="${i}"><mesh><vertices>${V.map(v => { const z = zUp(v); return `<vertex x="${nf(z[0])}" y="${nf(z[1])}" z="${nf(z[2])}"/>`; }).join('')}</vertices><triangles>${(() => { let o = ''; for (let t = 0; t < T.length; t += 3) o += `<triangle v1="${T[t]}" v2="${T[t + 1]}" v3="${T[t + 2]}"/>`; return o; })()}</triangles></mesh></object>`;
+  }).join('');
+  const model = `<?xml version="1.0" encoding="UTF-8"?>\n<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"><metadata name="Application">Datum</metadata><resources><basematerials id="1">${parts.map((p, i) => `<base name="${xmlEsc(p.name)}" displaycolor="${hex(p.color)}"/>`).join('')}</basematerials>${objs}</resources><build>${parts.map((_, i) => `<item objectid="${i + 2}"/>`).join('')}</build></model>`;
+  return zipStore([
+    { name: '[Content_Types].xml', data: '<?xml version="1.0" encoding="UTF-8"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>' },
+    { name: '_rels/.rels', data: '<?xml version="1.0" encoding="UTF-8"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>' },
+    { name: '3D/3dmodel.model', data: model },
+  ]);
+}
+// COLLADA 1.4: meters, Z up, smooth normals
+function writeDAE(parts) {
+  const geoms = parts.map((p, i) => {
+    const { V, N, T } = p.split, id = 'g' + i;
+    return `<geometry id="${id}" name="${xmlEsc(p.name)}"><mesh><source id="${id}-pos"><float_array id="${id}-pos-a" count="${V.length * 3}">${V.map(v => zUp(v).map(x => nf(x * 0.001)).join(' ')).join(' ')}</float_array><technique_common><accessor source="#${id}-pos-a" count="${V.length}" stride="3"><param name="X" type="float"/><param name="Y" type="float"/><param name="Z" type="float"/></accessor></technique_common></source><source id="${id}-nor"><float_array id="${id}-nor-a" count="${N.length * 3}">${N.map(v => zUp(v).map(x => nf(+x.toFixed(6))).join(' ')).join(' ')}</float_array><technique_common><accessor source="#${id}-nor-a" count="${N.length}" stride="3"><param name="X" type="float"/><param name="Y" type="float"/><param name="Z" type="float"/></accessor></technique_common></source><vertices id="${id}-v"><input semantic="POSITION" source="#${id}-pos"/></vertices><triangles material="m${i}" count="${T.length / 3}"><input semantic="VERTEX" source="#${id}-v" offset="0"/><input semantic="NORMAL" source="#${id}-nor" offset="0"/><p>${T.join(' ')}</p></triangles></mesh></geometry>`;
+  }).join('');
+  const effects = parts.map((p, i) => `<effect id="e${i}"><profile_COMMON><technique sid="t"><phong><diffuse><color>${colF(p.color).join(' ')} 1</color></diffuse></phong></technique></profile_COMMON></effect>`).join('');
+  const mats = parts.map((p, i) => `<material id="m${i}" name="${xmlEsc(p.name)}"><instance_effect url="#e${i}"/></material>`).join('');
+  const nodes = parts.map((p, i) => `<node id="n${i}" name="${xmlEsc(p.name)}"><instance_geometry url="#g${i}"><bind_material><technique_common><instance_material symbol="m${i}" target="#m${i}"/></technique_common></bind_material></instance_geometry></node>`).join('');
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<COLLADA xmlns="http://www.collada.org/2005/11/COLLADASchema" version="1.4.1"><asset><contributor><authoring_tool>Datum</authoring_tool></contributor><unit name="meter" meter="1"/><up_axis>Z_UP</up_axis></asset><library_effects>${effects}</library_effects><library_materials>${mats}</library_materials><library_geometries>${geoms}</library_geometries><library_visual_scenes><visual_scene id="scene">${nodes}</visual_scene></library_visual_scenes><scene><instance_visual_scene url="#scene"/></scene></COLLADA>\n`;
+}
+// X3D (web / VRML successor): Y up, millimeters
+function writeX3D(parts) {
+  const shapes = parts.map(p => {
+    const { V, T } = p.weld;
+    return `<Shape DEF="${safeName(p.name)}"><Appearance><Material diffuseColor="${colF(p.color).join(' ')}"/></Appearance><IndexedFaceSet solid="true" coordIndex="${(() => { let o = []; for (let t = 0; t < T.length; t += 3) o.push(T[t], T[t + 1], T[t + 2], -1); return o.join(' '); })()}"><Coordinate point="${V.map(v => v.map(nf).join(' ')).join(' ')}"/></IndexedFaceSet></Shape>`;
+  }).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<X3D profile="Interchange" version="3.3"><head><meta name="generator" content="Datum"/><meta name="units" content="millimeters, Y up"/></head><Scene>\n${shapes}\n</Scene></X3D>\n`;
+}
+// OFF: the plain Object File Format (Z up, millimeters)
+function writeOFF(parts) {
+  const V = [], F = []; let base = 0;
+  for (const p of parts) { for (const v of p.weld.V) V.push(zUp(v).map(nf).join(' ')); const T = p.weld.T; for (let t = 0; t < T.length; t += 3) F.push(`3 ${T[t] + base} ${T[t + 1] + base} ${T[t + 2] + base}`); base += p.weld.V.length; }
+  return `OFF\n${V.length} ${F.length} 0\n${V.join('\n')}\n${F.join('\n')}\n`;
+}
+// AMF: additive manufacturing file (XML, millimeters, Z up)
+function writeAMF(parts) {
+  const objs = parts.map((p, i) => {
+    const { V, T } = p.weld, c = colF(p.color);
+    return `<material id="${i}"><metadata type="name">${xmlEsc(p.name)}</metadata><color><r>${c[0]}</r><g>${c[1]}</g><b>${c[2]}</b></color></material>\n<object id="${i}"><metadata type="name">${xmlEsc(p.name)}</metadata><mesh><vertices>${V.map(v => { const z = zUp(v); return `<vertex><coordinates><x>${nf(z[0])}</x><y>${nf(z[1])}</y><z>${nf(z[2])}</z></coordinates></vertex>`; }).join('')}</vertices><volume materialid="${i}">${(() => { let o = ''; for (let t = 0; t < T.length; t += 3) o += `<triangle><v1>${T[t]}</v1><v2>${T[t + 1]}</v2><v3>${T[t + 2]}</v3></triangle>`; return o; })()}</volume></mesh></object>`;
+  }).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<amf unit="millimeter" version="1.1"><metadata type="cad">Datum</metadata>\n${objs}\n</amf>\n`;
+}
+// DXF: 3DFACE entities, one layer per body (Z up, millimeters)
+function writeDXF(parts) {
+  const L = ['0', 'SECTION', '2', 'ENTITIES'];
+  for (const p of parts) {
+    const { V, T } = p.weld, layer = safeName(p.name);
+    for (let t = 0; t < T.length; t += 3) {
+      L.push('0', '3DFACE', '8', layer);
+      [T[t], T[t + 1], T[t + 2], T[t + 2]].forEach((vi, k) => { const z = zUp(V[vi]); z.forEach((x, j) => L.push(String(10 * (j + 1) + k), nf(x))); });
+    }
+  }
+  L.push('0', 'ENDSEC', '0', 'EOF');
+  return L.join('\n') + '\n';
+}
 const EXPORT_FORMATS = [
   { g: 'CAD — SolidWorks, Fusion, Onshape, FreeCAD', list: [
     ['step', 'STEP', 'step', 'AP214 solid — SolidWorks opens it with File → Open. Flat faces stay whole; curved faces are faceted.', writeSTEP],
@@ -14349,6 +14480,18 @@ const EXPORT_FORMATS = [
     ['stl', 'STL', 'stl', 'Binary triangles, millimeters, Z up', writeSTLbin],
     ['stla', 'STL (text)', 'stl', 'ASCII STL for older tools', writeSTLtxt],
     ['obj', 'OBJ', 'obj', 'Wavefront mesh with normals, an object per body', writeOBJ],
+    ['3mf', '3MF', '3mf', 'The modern 3D-printing format: millimeters, body colors', write3MF],
+    ['ply', 'PLY', 'ply', 'Binary polygon file with body colors', writePLY],
+  ] },
+  { g: 'Web, game engines, AR / VR, Blender', list: [
+    ['glb', 'glTF binary', 'glb', 'GLB 2.0 with smooth normals and colors — Blender, Unity, Unreal, three.js, Quick Look', writeGLB],
+    ['dae', 'COLLADA', 'dae', 'Collada 1.4: Blender, SketchUp, Maya, game tools', writeDAE],
+    ['x3d', 'X3D', 'x3d', 'Open web 3D standard (VRML successor)', writeX3D],
+  ] },
+  { g: 'Other interchange', list: [
+    ['amf', 'AMF', 'amf', 'Additive manufacturing XML, with colors', writeAMF],
+    ['off', 'OFF', 'off', 'Plain Object File Format, for MeshLab and research tools', writeOFF],
+    ['dxf', 'DXF (3D faces)', 'dxf', 'AutoCAD and most CAD/CAM tools, a layer per body', writeDXF],
   ] },
   { g: 'Datum', list: [
     ['datum', 'Datum model', 'json', 'The full editable feature history', null],
@@ -14356,29 +14499,30 @@ const EXPORT_FORMATS = [
 ];
 const EXPORT_TOL = { draft: 0.05, standard: 0.01, fine: 0.002 };
 const EXP = { q: 'standard', skip: new Set(), name: '' };
-function openExport() {
-  const bodies = visibleBodies(), names = bodyNames();
+function openExport(only = null) {
+  const names = bodyNames(), all = visibleBodies(), bodies = only ? all.concat(MODEL.bodies.filter(b => only.includes(b.id) && !all.includes(b))).filter(b => only.includes(b.id)) : all;
   if (!EXP.name) { const imp = doc.features.find(f => f.type === 'import'); EXP.name = imp ? imp.file.replace(/\.[^.]+$/, '') : 'model'; }
+  const nameVal = only ? (bodies.length === 1 ? names[bodies[0].id] || 'Body' : EXP.name) : EXP.name, local = { name: nameVal };
   const card = document.getElementById('modalCard');
-  card.innerHTML = `<div class="m-head"><h3>Export</h3><button class="x" data-mx title="Close">×</button></div>
-    <p class="note">${bodies.length ? `${bodies.length} visible bod${bodies.length === 1 ? 'y' : 'ies'} · millimeters. Hidden bodies are left out.` : 'There are no visible bodies — only the Datum model can be saved.'}</p>
-    <div class="m-opts"><label class="field" style="min-width:200px"><span>File name</span><input type="text" id="expName" value="${xmlEsc(EXP.name)}"></label>
+  card.innerHTML = `<div class="m-head"><h3>${only ? 'Export ' + (bodies.length === 1 ? xmlEsc(names[bodies[0].id] || 'body') : 'selected bodies') : 'Export'}</h3><button class="x" data-mx title="Close">×</button></div>
+    <p class="note">${only ? 'Only this body is exported · millimeters.' : bodies.length ? `${bodies.length} visible bod${bodies.length === 1 ? 'y' : 'ies'} · millimeters. Hidden bodies are left out.` : 'There are no visible bodies — only the Datum model can be saved.'}</p>
+    <div class="m-opts"><label class="field" style="min-width:200px"><span>File name</span><input type="text" id="expName" value="${xmlEsc(nameVal)}"></label>
     <div class="field"><span>Curve quality</span><div class="seg">${[['draft', 'Draft'], ['standard', 'Standard'], ['fine', 'Fine']].map(([k, l]) => `<button data-expq="${k}" class="${EXP.q === k ? 'on' : ''}">${l} <small>${EXPORT_TOL[k]}</small></button>`).join('')}</div></div></div>
-    ${bodies.length > 1 ? `<div class="m-opts">${bodies.map(b => `<label class="chk"><input type="checkbox" data-expb="${b.id}" ${EXP.skip.has(b.id) ? '' : 'checked'}> ${xmlEsc(names[b.id] || 'Body')}</label>`).join('')}</div>` : ''}
-    ${EXPORT_FORMATS.map(g => `<div class="m-sec">${g.g}</div><div class="fmt-grid">${g.list.map(([k, n, ext, d]) => `<button class="fmt" data-exp="${k}"><b>${n}<small>.${ext}</small></b><span>${d}</span></button>`).join('')}</div>`).join('')}`;
+    ${!only && bodies.length > 1 ? `<div class="m-opts">${bodies.map(b => `<label class="chk"><input type="checkbox" data-expb="${b.id}" ${EXP.skip.has(b.id) ? '' : 'checked'}> ${xmlEsc(names[b.id] || 'Body')}</label>`).join('')}</div>` : ''}
+    ${EXPORT_FORMATS.filter(g => !only || g.g !== 'Datum').map(g => `<div class="m-sec">${g.g}</div><div class="fmt-grid">${g.list.map(([k, n, ext, d]) => `<button class="fmt" data-exp="${k}"><b>${n}<small>.${ext}</small></b><span>${d}</span></button>`).join('')}</div>`).join('')}`;
   const m = document.getElementById('modal');
   m.hidden = false;
   card.querySelector('[data-mx]').addEventListener('click', closeModal);
   card.querySelectorAll('[data-expq]').forEach(b => b.addEventListener('click', () => { EXP.q = b.dataset.expq; card.querySelectorAll('[data-expq]').forEach(x => x.classList.toggle('on', x === b)); }));
   card.querySelectorAll('[data-expb]').forEach(c => c.addEventListener('change', () => { const id = +c.dataset.expb; c.checked ? EXP.skip.delete(id) : EXP.skip.add(id); }));
-  document.getElementById('expName').addEventListener('input', e => { EXP.name = e.target.value; });
-  card.querySelectorAll('[data-exp]').forEach(b => b.addEventListener('click', () => runExport(b.dataset.exp)));
+  document.getElementById('expName').addEventListener('input', e => { local.name = e.target.value; if (!only) EXP.name = e.target.value; });
+  card.querySelectorAll('[data-exp]').forEach(b => b.addEventListener('click', () => runExport(b.dataset.exp, only ? { only, base: local.name } : undefined)));
 }
 function closeModal() { document.getElementById('modal').hidden = true; }
 document.getElementById('modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
-async function runExport(key) {
-  const spec = EXPORT_FORMATS.flatMap(g => g.list).find(x => x[0] === key);
-  const base = (EXP.name || 'model').trim().replace(/[\\/:*?"<>|]+/g, '_') || 'model';
+async function runExport(key, opts = {}) {
+  const { only = null } = opts, spec = EXPORT_FORMATS.flatMap(g => g.list).find(x => x[0] === key);
+  const base = (opts.base || EXP.name || 'model').trim().replace(/[\\/:*?"<>|]+/g, '_') || 'model';
   if (key === 'datum') { closeModal(); saveFile(base + '.datum.json'); return; }
   const tol = EXPORT_TOL[EXP.q];
   closeModal();
@@ -14387,7 +14531,7 @@ async function runExport(key) {
   try {
     const ctx = await Kernel.evalAsync(tol, activeLimit());
     const names = bodyNames();
-    const bodies = ctx.bodies.filter(b => !(doc.hidden && doc.hidden[b.id]) && !EXP.skip.has(b.id));
+    const bodies = ctx.bodies.filter(b => only ? only.includes(b.id) : !(doc.hidden && doc.hidden[b.id]) && !EXP.skip.has(b.id));
     if (!bodies.length) { toast('There are no bodies to export.'); return; }
     const parts = bodies.map((b, i) => exportPart(b, names[b.id] || 'Body ' + (i + 1)));
     const file = base + '.' + spec[2];
@@ -14399,6 +14543,31 @@ async function runExport(key) {
   } catch (e) { console.error(e); toast('Export failed: ' + (e.message || e)); }
   finally { setBusy(false); }
 }
+// ── Right-click a body (in the view or in the Bodies list) → export it on its own ──
+function bodyExportMenu(id, x, y) {
+  const names = bodyNames(), nm = xmlEsc(names[id] || 'Body'), base = names[id] || 'Body';
+  const items = [{ label: `Export ${nm}…`, run: () => openExport([id]) }, null];
+  for (const g of EXPORT_FORMATS) for (const [k, n, ext] of g.list) if (k !== 'datum') items.push({ label: `Export as ${n} <small style="opacity:.55">.${ext}</small>`, run: () => runExport(k, { only: [id], base }) });
+  showMenu(items, x, y);
+}
+(() => {
+  let rc = null;
+  const live = () => !S.sk && !CMD && UIX.ws === 'design';
+  ov.addEventListener('pointerdown', e => { rc = e.button === 2 ? { ...local(e) } : null; });
+  ov.addEventListener('pointerup', e => {
+    if (!rc || e.button !== 2) return;
+    const { x, y } = local(e), r0 = rc; rc = null;
+    if (Math.hypot(x - r0.x, y - r0.y) > 3 || !live()) return;
+    const h = pick3D(x, y, { faces: true });
+    if (!h || h.body == null) return;
+    if (SELMODE === 'body' && !(sel3D && sel3D.kind === 'body' && sel3D.body === h.body)) { sel3D = { kind: 'body', body: h.body, fid: h.fid, mesh: h.mesh, point: h.point }; selProfiles.length = 0; selEdges.length = 0; rebuildHighlights(); refreshPanel(); requestDraw(); }
+    bodyExportMenu(h.body, e.clientX, e.clientY);
+  });
+  document.addEventListener('contextmenu', e => {
+    const li = e.target.closest && e.target.closest('li[data-body]');
+    if (li && !CMD && !S.sk && UIX.ws === 'design') bodyExportMenu(+li.dataset.body, e.clientX, e.clientY);
+  });
+})();
 </script>
 <script>
 // ═══════════════════════════════════════════════════════════════════
@@ -21435,7 +21604,7 @@ function explCompute() {
   const ms = bodyMeshes.filter(m => m.group.visible !== false && !(doc.hidden && doc.hidden[m.body.id]));
   EXPL.offs = new Map();
   if (ms.length < 2) return;
-  const info = ms.map(m => { const b = new THREE.Box3(); const P = m.mesh.pos; for (let i = 0; i < P.length; i += 3) b.expandByPoint(new THREE.Vector3(P[i], P[i + 1], P[i + 2])); return { m, b, c: b.getCenter(new THREE.Vector3()), sz: b.getSize(new THREE.Vector3()) }; });
+  const info = ms.map(m => { const q = m.body.bb, b = q && q.length >= 6 ? new THREE.Box3(new THREE.Vector3(q[0], q[1], q[2]), new THREE.Vector3(q[3], q[4], q[5])) : (() => { const bx = new THREE.Box3(), P = m.mesh.pos; for (let i = 0; i < P.length; i += 3) bx.expandByPoint(new THREE.Vector3(P[i], P[i + 1], P[i + 2])); return bx; })(); return { m, b, c: b.getCenter(new THREE.Vector3()), sz: b.getSize(new THREE.Vector3()) }; });
   const all = new THREE.Box3(); info.forEach(i => all.union(i.b));
   const C = all.getCenter(new THREE.Vector3()), S = all.getSize(new THREE.Vector3()), size = Math.max(S.x, S.y, S.z);
   // up/down: in the order the parts are stacked, spaced so no two layers share a height
@@ -21475,7 +21644,7 @@ frame = function (now) {
     const step = dt / (REDUCED() ? 0.01 : 0.9);
     EXPL.t = EXPL.target > EXPL.t ? Math.min(EXPL.target, EXPL.t + step) : Math.max(EXPL.target, EXPL.t - step);
     motionApply();
-    if (EXPL.t === 0 && EXPL.target === 0) { EXPL.offs = new Map(); motionApply(); explBar(); }
+    if (EXPL.t === 0 && EXPL.target === 0) { EXPL.offs = new Map(); motionApply(); explBar(); scheduleLevelCheck(); }
     requestDraw();
   } else EXPL.last = now;
   frameE(now);
@@ -21498,7 +21667,7 @@ function explDrawLabels() {
   const items = [];
   for (const m of bodyMeshes) {
     const o = EXPL.offs.get(m.body.id); if (!o) continue;
-    const bb = m._bbc || (m._bbc = (() => { const b = new THREE.Box3(), P = m.mesh.pos; for (let i = 0; i < P.length; i += 3) b.expandByPoint(new THREE.Vector3(P[i], P[i + 1], P[i + 2])); return b.getCenter(new THREE.Vector3()); })());
+    const bb = m._bbc || (m._bbc = (() => { const q = m.body.bb; if (q && q.length >= 6) return new THREE.Vector3((q[0] + q[3]) / 2, (q[1] + q[4]) / 2, (q[2] + q[5]) / 2); const b = new THREE.Box3(), P = m.mesh.pos; for (let i = 0; i < P.length; i += 3) b.expandByPoint(new THREE.Vector3(P[i], P[i + 1], P[i + 2])); return b.getCenter(new THREE.Vector3()); })());
     const k = e * EXPL.amt, a = toScreen([bb.x + o[0] * k, bb.y + o[1] * k, bb.z + o[2] * k]);
     let d = sub2(a, C); const L = Math.hypot(d.x, d.y); d = L > 1 ? mul2(d, 1 / L) : P2(1, 0);
     items.push({ id: m.body.id, a, x: a.x + d.x * 46, y: a.y + d.y * 30, right: d.x >= 0, t: explLabel(m.body.id) });
@@ -21581,7 +21750,7 @@ loadDoc = function (d, msg) { EXPL.t = 0; EXPL.target = 0; EXPL.offs = new Map()
 const modelChangedE = modelChanged;
 modelChanged = function (immediate) { if (EXPL.target > 0) EXPL.recompute = true; return modelChangedE(immediate); };
 // bodies rebuilt while exploded: fresh offsets for the new meshes
-setInterval(() => { if (EXPL.target > 0 && (EXPL.recompute || [...EXPL.offs.keys()].some(id => !bodyMeshOf(id)) || bodyMeshes.some(m => !EXPL.offs.has(m.body.id)))) { EXPL.recompute = false; explCompute(); motionApply(); requestDraw(); } }, 400);
+setInterval(() => { if (EXPL.target > 0 && (EXPL.recompute || [...EXPL.offs.keys()].some(id => !bodyMeshOf(id)) || bodyMeshes.some(m => m.group.visible !== false && !(doc.hidden && doc.hidden[m.body.id]) && !EXPL.offs.has(m.body.id)))) { EXPL.recompute = false; explCompute(); motionApply(); requestDraw(); } }, 400);
 // the gizmo stays away while the model is apart
 const gzActiveE = gzActive;
 gzActive = () => !explOn() && gzActiveE();
