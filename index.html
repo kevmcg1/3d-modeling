@@ -7757,6 +7757,212 @@ SHOP.dovetailFixture = {
     return [plate, slide, ...bx.map(x => K.bolt(x, 0, P.hd, zt + cap + P.hd * 0.9, zb - 12))];
   },
 };
+// DRIVE-BEGIN
+// ── Axles, pulleys, sprockets and belt drives ──
+// Every wheel here is a lathe profile (radius, distance along the axis) so it stays light; the toothed ones are one polygon prism.
+const ORI_OPTS = [['x', 'Axis along X (on a shaft)'], ['z', 'Axis up (lying flat)']];
+const keyW = d => d <= 8 ? 2 : d <= 10 ? 3 : d <= 12 ? 4 : d <= 17 ? 5 : d <= 22 ? 6 : d <= 30 ? 8 : d <= 38 ? 10 : d <= 44 ? 12 : d <= 50 ? 14 : d <= 58 ? 16 : d <= 65 ? 18 : 20;
+// the frame of a wheel whose axis runs along X (resting on the table) or straight up: radial "up" is +v
+function drvFrame(P, K, rmax) {
+  const ax = P.ori === 'z' ? 'z' : 'x', cu = 0, cv = ax === 'z' ? 0 : rmax;
+  return {
+    ax, cu, cv,
+    turn: (a0, pts) => K.turn(ax, cu, cv, a0, pts),
+    cyl: (r, a0, a1) => K.cyl(ax, cu, cv, r, a0, a1),
+    hole: (u, v, r, a0, a1) => K.cyl(ax, cu + u, cv + v, r, a0, a1),
+    poly: (pts, a0, a1) => K.poly(ax, pts.map(([u, v]) => [cu + u, cv + v]), a0, a1),
+    box: (u0, u1, v0, v1, a0, a1) => ax === 'x' ? K.box(a0, a1, cu + u0, cu + u1, cv + v0, cv + v1) : K.box(cu + u0, cu + u1, cv + v0, cv + v1, a0, a1),
+    radV: (r, a, v0, v1) => ax === 'x' ? K.cyl('z', a, cu, r, cv + v0, cv + v1) : K.cyl('y', a, cu, r, cv + v0, cv + v1),
+    radU: (r, a, u0, u1) => ax === 'x' ? K.cyl('y', cv, a, r, cu + u0, cu + u1) : K.cyl('x', cv, a, r, cu + u0, cu + u1),
+  };
+}
+// the bore, its keyway (up) and a set screw (sideways) for a hub spanning a0..a1
+function drvBore(D, P, a0, a1, ha, rh) {
+  const rb = P.bore / 2, cuts = [D.cyl(rb, a0 - 1, a1 + 1)];
+  if (P.key) { const kw = keyW(P.bore); cuts.push(D.box(-kw / 2, kw / 2, rb - 0.5, rb + kw * 0.4 + 0.3, a0 - 1, a1 + 1)); }
+  if (P.screw) cuts.push(D.radU(Math.min(4, Math.max(1.5, P.bore * 0.12)), ha, rb - 0.5, rh + 1));
+  return cuts;
+}
+// a ring of lightening holes through a web between radii r0 and r1
+function drvHoles(D, P, r0, r1, a0, a1) {
+  if (P.lh !== 'holes' || r1 - r0 < 10) return [];
+  const n = Math.max(4, Math.min(8, Math.round(Math.PI * (r0 + r1) / (r1 - r0) / 1.7))), rc = (r0 + r1) / 2, rr = (r1 - r0) * 0.5 - 3, out = [];
+  for (let i = 0; i < n; i++) { const t = TAU * (i + 0.5) / n; out.push(D.hole(rc * Math.cos(t), rc * Math.sin(t), rr, a0, a1)); }
+  return out;
+}
+const LH_OPTS = [['none', 'Solid web'], ['holes', 'Lightening holes']];
+
+// ── Axles & shafts ──
+SHOP.axle = {
+  name: 'Stepped axle', grp: 'Axles & shafts', drive: 1, parts: [['Axle', SHOP_COL.steel]],
+  p: [['L', 'Length', 200, 'len'], ['D', 'Main Ø', 25, 'len'], ['jd', 'End journal Ø', 20, 'len'], ['jl', 'Journal length', 30, 'len'], ['cd', 'Shoulder Ø (0 = none)', 35, 'len'], ['cw', 'Shoulder width', 8, 'len'], ['sx', 'Shoulder position', 70, 'len'], ['key', 'Keyway', true, 'chk'], ['kl', 'Keyway length', 50, 'len'], ['rg', 'Circlip grooves', true, 'chk'], ['ch', 'End chamfer', 1.5, 'len'], ['cen', 'Centre holes', true, 'chk']],
+  build(P, K) {
+    const L = P.L, R = P.D / 2, rj = Math.min(P.jd / 2, R), jl = Math.min(P.jl, L * 0.4), rc = P.cd > P.D ? P.cd / 2 : 0, ch = Math.min(P.ch, rj * 0.5);
+    const cw = Math.min(P.cw, L / 4), cx = rc ? Math.max(jl, Math.min(P.sx, L - jl - cw)) : 0, zc = Math.max(R, rc), segs = [];
+    const jour = (x0, x1, dir) => {                                                  // an end journal, optionally with a circlip groove
+      if (!P.rg || x1 - x0 < 8) return segs.push([x0, x1, rj]);
+      const g0 = dir < 0 ? x0 + (x1 - x0) * 0.5 : x1 - (x1 - x0) * 0.5 - 1.1;
+      segs.push([x0, g0, rj], [g0, g0 + 1.1, Math.max(0.5, rj - 0.7)], [g0 + 1.1, x1, rj]);
+    };
+    jour(0, jl, -1);
+    if (rc) segs.push([jl, cx, R], [cx, cx + cw, rc], [cx + cw, L - jl, R]); else segs.push([jl, L - jl, R]);
+    jour(L - jl, L, 1);
+    const pts = [[0, 0]];
+    segs.forEach(([x0, x1, r], i) => {
+      if (i === 0) pts.push([Math.max(0, r - ch), 0], [r, ch]); else pts.push([r, x0]);
+      if (i === segs.length - 1) pts.push([r, x1 - ch], [Math.max(0, r - ch), x1], [0, x1]); else pts.push([r, x1]);
+    });
+    const cuts = [];
+    if (P.key) {
+      const kw = keyW(P.D), x0 = jl + 6; let x1 = Math.min(L - jl - 6, x0 + P.kl); if (rc && cx > x0) x1 = Math.min(x1, cx - 2);
+      if (x1 - x0 > kw + 1) cuts.push(K.poly('z', K.slot(x0 + kw / 2, x1 - kw / 2, 0, kw), zc + R - kw * 0.5, zc + R + 1));
+    }
+    if (P.cen) { const c = Math.min(2.5, rj * 0.3); for (const [x, s] of [[0, 1], [L, -1]]) cuts.push(K.turnX(0, zc, x, [[0, -s], [c + 1, -s], [c, 0], [c * 0.4, s * c * 1.1], [c * 0.4, s * c * 2.6], [0, s * c * 2.6]])); }
+    return [K.sub(K.turnX(0, zc, 0, pts), ...cuts)];
+  },
+};
+SHOP.wheelAxle = {
+  name: 'Wheel and axle set', grp: 'Axles & shafts', drive: 1, parts: [['Axle', SHOP_COL.steel], ['Wheel L', SHOP_COL.alu], ['Wheel R', SHOP_COL.alu], ['Tyre L', SHOP_COL.black], ['Tyre R', SHOP_COL.black], ['Collar L', SHOP_COL.brass], ['Collar R', SHOP_COL.brass]],
+  p: [['L', 'Axle length', 180, 'len'], ['d', 'Axle Ø', 12, 'len'], ['Dw', 'Wheel Ø', 90, 'len'], ['ww', 'Wheel width', 22, 'len'], ['tt', 'Tyre thickness', 6, 'len'], ['sp', 'Wheel spacing', 120, 'len'], ['lh', 'Wheel web', 'holes', 'sel', LH_OPTS]],
+  build(P, K) {
+    const rw = P.Dw / 2, zc = rw, r = P.d / 2, ww = P.ww, tt = Math.min(P.tt, rw * 0.3), hub = Math.max(r * 2.2, 10), x1 = (P.L - P.sp) / 2, x2 = x1 + P.sp, rim = rw - tt;
+    const axle = K.turnX(0, zc, 0, [[0, 0], [r - 0.8, 0], [r, 0.8], [r, P.L - 0.8], [r - 0.8, P.L], [0, P.L]]);
+    const wheel = (xa, dir) => {                                                    // a wheel standing on its inner face at xa (dir +1) or its outer face
+      const x0 = dir > 0 ? xa : xa - ww, web = Math.min(ww, 7);
+      const body = K.turnX(0, zc, x0, [[0, 0], [hub, 0], [hub, (ww - web) / 2], [rim - 4, (ww - web) / 2], [rim - 4, 0], [rim, 0], [rim, ww], [rim - 4, ww], [rim - 4, (ww + web) / 2], [hub, (ww + web) / 2], [hub, ww], [0, ww]]);
+      const cuts = [K.cylX(0, zc, r, x0 - 1, x0 + ww + 1)];
+      if (P.lh === 'holes' && rim - 4 - hub > 12) { const n = 6, rc = (hub + rim - 4) / 2, rr = (rim - 4 - hub) / 2 - 3; for (let i = 0; i < n; i++) { const t = TAU * (i + 0.5) / n; cuts.push(K.cylX(rc * Math.sin(t), zc + rc * Math.cos(t), rr, x0 - 1, x0 + ww + 1)); } }
+      return K.sub(body, ...cuts);
+    };
+    const tyre = x0 => K.turnX(0, zc, x0, [[rim, 0], [rw - 1.5, 0], [rw, 1.5], [rw, ww - 1.5], [rw - 1.5, ww], [rim, ww]]);
+    const collar = x0 => K.sub(K.turnX(0, zc, x0, [[0, 0], [r + 5, 0], [r + 5, 7], [0, 7]]), K.cylX(0, zc, r, x0 - 1, x0 + 8));
+    return [axle, wheel(x1, -1), wheel(x2, 1), tyre(x1 - ww), tyre(x2), collar(x1 - ww - 8), collar(x2 + ww + 1)];
+  },
+};
+
+// ── Pulleys & sprockets ──
+// V-belt sections: [label, pitch width, groove depth, groove spacing, edge to centre, height above the pitch line]
+const VBELT = { z: ['Z / SPZ', 8.5, 11, 12, 8, 2], a: ['A / SPA', 11, 13.75, 15, 10, 2.75], b: ['B / SPB', 14, 17.5, 19, 12.5, 3.5], c: ['C / SPC', 19, 23.8, 25.5, 17, 4.8] };
+const VBELT_OPTS = Object.entries(VBELT).map(([k, v]) => [k, v[0]]);
+// a V-groove rim profile: points (radius, axial) for the grooves of an n-groove sheave starting at xr0
+function vGroovePts(sec, n, pd, xr0, rmin) {
+  const [, wp, dep, e, f, hb] = VBELT[sec], R = pd / 2 + hb, tn = Math.tan(17 * Math.PI / 180), rg = Math.max(R - dep, rmin), wt = wp / 2 + hb * tn, wb = Math.max(0.5, wp / 2 - (pd / 2 - rg) * tn), pts = [];
+  for (let i = 0; i < n; i++) { const c = xr0 + f + i * e; pts.push([R, c - wt], [rg, c - wb], [rg, c + wb], [R, c + wt]); }
+  return { pts, R, rg, W: (n - 1) * e + 2 * f };
+}
+SHOP.vPulley = {
+  name: 'V-belt pulley', grp: 'Pulleys & sprockets', drive: 1, parts: [['Pulley', SHOP_COL.iron]],
+  p: [['sec', 'Belt section', 'a', 'sel', VBELT_OPTS], ['n', 'Grooves', 1, 'int'], ['pd', 'Pitch Ø', 100, 'len'], ['bore', 'Bore Ø', 19, 'len'], ['hd', 'Hub Ø', 38, 'len'], ['hl', 'Hub length', 40, 'len'], ['key', 'Keyway', true, 'chk'], ['screw', 'Set screw', true, 'chk'], ['lh', 'Web', 'holes', 'sel', LH_OPTS], ['ori', 'Orientation', 'x', 'sel', ORI_OPTS]],
+  build(P, K) {
+    const n = Math.max(1, Math.min(6, Math.round(P.n))), [, wp, dep, e, f, hb] = VBELT[P.sec], R = P.pd / 2 + hb, W = (n - 1) * e + 2 * f, rbot = R - dep;
+    const rh = Math.max(P.hd / 2, P.bore / 2 + 4), ri = Math.max(rh + 3, rbot - 5);
+    if (rbot - 2 < rh) throw new Error('The bore and hub are too large for this pitch diameter');
+    const wt = Math.min(W, Math.max(8, W * 0.45)), hl = Math.max(P.hl, wt), L = Math.max(W, hl), xr0 = (L - W) / 2, xr1 = xr0 + W, xh0 = (L - hl) / 2, xh1 = xh0 + hl, xw0 = L / 2 - wt / 2, xw1 = L / 2 + wt / 2;
+    const g = vGroovePts(P.sec, n, P.pd, xr0, ri + 1), D = drvFrame(P, K, R);
+    const pts = [[0, xh0], [rh, xh0], [rh, xw0], [ri, xw0], [ri, xr0], [R - 1, xr0], [R, xr0 + 1], ...g.pts, [R, xr1 - 1], [R - 1, xr1], [ri, xr1], [ri, xw1], [rh, xw1], [rh, xh1], [0, xh1]];
+    return [K.sub(D.turn(0, pts), ...drvBore(D, P, xh0, xh1, (xh0 + xh1) / 2, rh), ...drvHoles(D, P, rh, ri, xw0 - 1, xw1 + 1))];
+  },
+};
+SHOP.flatPulley = {
+  name: 'Flat-belt pulley (crowned)', grp: 'Pulleys & sprockets', drive: 1, parts: [['Pulley', SHOP_COL.iron]],
+  p: [['pd', 'Outer Ø', 120, 'len'], ['W', 'Face width', 50, 'len'], ['crown', 'Crown height', 0.8, 'len'], ['rim', 'Rim thickness', 7, 'len'], ['bore', 'Bore Ø', 25, 'len'], ['hd', 'Hub Ø', 48, 'len'], ['hl', 'Hub length', 50, 'len'], ['key', 'Keyway', true, 'chk'], ['screw', 'Set screw', true, 'chk'], ['lh', 'Web', 'holes', 'sel', LH_OPTS], ['ori', 'Orientation', 'x', 'sel', ORI_OPTS]],
+  build(P, K) {
+    const R = P.pd / 2, W = P.W, rh = Math.max(P.hd / 2, P.bore / 2 + 4), ri = Math.max(rh + 3, R - P.rim), cr = Math.min(P.crown, 3);
+    if (ri + 2 > R) throw new Error('The bore and hub are too large for this outer diameter');
+    const wt = Math.min(W, 9), hl = Math.max(P.hl, wt), L = Math.max(W, hl), xr0 = (L - W) / 2, xr1 = xr0 + W, xh0 = (L - hl) / 2, xh1 = xh0 + hl, xw0 = L / 2 - wt / 2, xw1 = L / 2 + wt / 2, D = drvFrame(P, K, R);
+    const pts = [[0, xh0], [rh, xh0], [rh, xw0], [ri, xw0], [ri, xr0], [R - cr - 1, xr0], [R - cr, xr0 + 1], [R, L / 2], [R - cr, xr1 - 1], [R - cr - 1, xr1], [ri, xr1], [ri, xw1], [rh, xw1], [rh, xh1], [0, xh1]];
+    return [K.sub(D.turn(0, pts), ...drvBore(D, P, xh0, xh1, (xh0 + xh1) / 2, rh), ...drvHoles(D, P, rh, ri, xw0 - 1, xw1 + 1))];
+  },
+};
+// toothed-belt profiles: [label, pitch, pitch-line offset, tooth depth, gap width as a fraction of the pitch]
+const TBELT = { gt2: ['GT2 2 mm', 2, 0.254, 0.75, 0.55], gt3: ['GT2 3 mm', 3, 0.381, 1.14, 0.55], mxl: ['MXL 2.032 mm', 2.032, 0.254, 0.51, 0.55], htd3: ['HTD 3M', 3, 0.381, 1.14, 0.58], t5: ['T5 5 mm', 5, 0.5, 1.2, 0.5], htd5: ['HTD 5M', 5, 0.5715, 2.06, 0.58] };
+const TBELT_OPTS = Object.entries(TBELT).map(([k, v]) => [k, v[0]]);
+const timingOD = (b, z) => TBELT[b][1] * z / Math.PI - 2 * TBELT[b][2];
+// the tooth outline of a timing pulley as polygon points in the plane
+function timingPts(b, z) {
+  const [, p, , td, gf] = TBELT[b], ro = timingOD(b, z) / 2, step = TAU / z, u0 = gf / 2 * step, pts = [];
+  for (let k = 0; k < z; k++) for (const s of [-1, -0.75, -0.4, 0, 0.4, 0.75, 1]) { const a = k * step + s * u0, r = ro - td * Math.sqrt(Math.max(0, 1 - s * s)); pts.push([r * Math.cos(a), r * Math.sin(a)]); }
+  return pts;
+}
+SHOP.timingPulley = {
+  name: 'Timing pulley (GT2 / HTD / T5)', grp: 'Pulleys & sprockets', drive: 1, parts: [['Pulley', SHOP_COL.alu]],
+  p: [['belt', 'Belt profile', 'gt2', 'sel', TBELT_OPTS], ['z', 'Teeth', 30, 'int'], ['bw', 'Belt width', 6, 'len'], ['bore', 'Bore Ø', 8, 'len'], ['hd', 'Hub Ø', 16, 'len'], ['hl', 'Hub length', 8, 'len'], ['fl', 'Flanges', true, 'chk'], ['key', 'Keyway', false, 'chk'], ['screw', 'Set screw', true, 'chk'], ['ori', 'Orientation', 'x', 'sel', ORI_OPTS]],
+  build(P, K) {
+    const z = Math.max(10, Math.min(120, Math.round(P.z))), ro = timingOD(P.belt, z) / 2, td = TBELT[P.belt][3], rin = ro - td - 0.5, rf = ro + 2, fth = 1.2, tw = P.bw + 1.5;
+    const rh = Math.min(Math.max(P.hd / 2, P.bore / 2 + 2), rin - 1);
+    if (P.bore / 2 + 1 > rin) throw new Error('The bore is too large for this tooth count');
+    const hl = P.hl, D = drvFrame(P, K, P.fl ? rf : ro);
+    const teeth = D.poly(timingPts(P.belt, z), hl, hl + tw + (P.fl ? 2 * fth : 0));
+    const rest = P.fl ? [[0, 0], [rh, 0], [rh, hl], [rf, hl], [rf, hl + fth], [rin, hl + fth], [rin, hl + fth + tw], [rf, hl + fth + tw], [rf, hl + 2 * fth + tw], [0, hl + 2 * fth + tw]] : [[0, 0], [rh, 0], [rh, hl + 1], [0, hl + 1]];
+    return [K.sub(K.add(teeth, D.turn(0, rest)), ...drvBore(D, P, 0, hl + tw + (P.fl ? 2 * fth : 0), hl / 2, rh))];
+  },
+};
+// roller chain: [label, pitch, roller Ø, tooth width]
+const CHAINS = { c25: ['#25 (1/4")', 6.35, 3.3, 2.8], c35: ['#35 (3/8")', 9.525, 5.08, 4.3], c40: ['#40 (1/2")', 12.7, 7.92, 7.2], c50: ['#50 (5/8")', 15.875, 10.16, 8.9], c60: ['#60 (3/4")', 19.05, 11.91, 11.7], c80: ['#80 (1")', 25.4, 15.88, 14.6] };
+const CHAIN_OPTS = Object.entries(CHAINS).map(([k, v]) => [k, v[0]]);
+const sprocketRp = (c, z) => CHAINS[c][1] / (2 * Math.sin(Math.PI / z));
+const sprocketRo = (c, z) => CHAINS[c][1] * (0.6 + 1 / Math.tan(Math.PI / z)) / 2;
+function sprocketPts(c, z) {
+  const [, p, dr] = CHAINS[c], rp = sprocketRp(c, z), ro = sprocketRo(c, z), rs = dr / 2 + 0.1, step = TAU / z, pts = [], psi = 78 * Math.PI / 180;
+  for (let k = 0; k < z; k++) {
+    const th = k * step, er = [Math.cos(th), Math.sin(th)], et = [-Math.sin(th), Math.cos(th)], C = [rp * er[0], rp * er[1]];
+    for (let i = 0; i <= 8; i++) { const s = -psi + 2 * psi * i / 8; pts.push([C[0] + rs * (-Math.cos(s) * er[0] + Math.sin(s) * et[0]), C[1] + rs * (-Math.cos(s) * er[1] + Math.sin(s) * et[1])]); }
+    for (const d of [-0.07, 0.07]) { const a = th + step / 2 + d * step; pts.push([ro * Math.cos(a), ro * Math.sin(a)]); }
+  }
+  return pts;
+}
+SHOP.sprocket = {
+  name: 'Chain sprocket', grp: 'Pulleys & sprockets', drive: 1, parts: [['Sprocket', SHOP_COL.ground]],
+  p: [['chain', 'Roller chain', 'c40', 'sel', CHAIN_OPTS], ['z', 'Teeth', 18, 'int'], ['bore', 'Bore Ø', 19, 'len'], ['hd', 'Hub Ø', 36, 'len'], ['hl', 'Hub length', 25, 'len'], ['key', 'Keyway', true, 'chk'], ['screw', 'Set screw', true, 'chk'], ['lh', 'Plate', 'holes', 'sel', LH_OPTS], ['ori', 'Orientation', 'x', 'sel', ORI_OPTS]],
+  build(P, K) {
+    const z = Math.max(8, Math.min(80, Math.round(P.z))), ro = sprocketRo(P.chain, z), rp = sprocketRp(P.chain, z), tw = CHAINS[P.chain][3], root = rp - CHAINS[P.chain][2] / 2 - 0.2;
+    const rh = Math.min(Math.max(P.hd / 2, P.bore / 2 + 4), root - 3), hl = P.hl;
+    if (P.bore / 2 + 3 > root) throw new Error('The bore is too large for this tooth count');
+    const D = drvFrame(P, K, ro), plate = D.poly(sprocketPts(P.chain, z), hl, hl + tw), hub = D.turn(0, [[0, 0], [rh, 0], [rh, hl + 1], [0, hl + 1]]);
+    return [K.sub(K.add(plate, hub), ...drvBore(D, P, 0, hl + tw, hl / 2, rh), ...drvHoles(D, P, rh + 1, root - 2, hl - 1, hl + tw + 1))];
+  },
+};
+SHOP.ropeSheave = {
+  name: 'Rope sheave', grp: 'Pulleys & sprockets', drive: 1, parts: [['Sheave', SHOP_COL.brass]],
+  p: [['D', 'Outer Ø', 80, 'len'], ['rope', 'Rope Ø', 8, 'len'], ['W', 'Width', 26, 'len'], ['bore', 'Bore Ø', 12, 'len'], ['key', 'Keyway', false, 'chk'], ['screw', 'Set screw', false, 'chk'], ['lh', 'Web', 'holes', 'sel', LH_OPTS], ['ori', 'Orientation', 'x', 'sel', ORI_OPTS]],
+  build(P, K) {
+    const R = P.D / 2, rr = P.rope / 2 * 1.06, Rc = R - rr * 0.4, W = Math.max(P.W, rr * 2.6), a = W / 2, t0 = Math.acos(-0.4), pts = [[0, 0], [R - 1.5, 0], [R, 1.5], [R, a - rr * Math.sin(t0)]];
+    for (let i = 0; i <= 12; i++) { const t = -t0 + 2 * t0 * i / 12; pts.push([Rc - rr * Math.cos(t), a + rr * Math.sin(t)]); }
+    pts.push([R, W - 1.5], [R - 1.5, W], [0, W]);
+    const rb = P.bore / 2, hr = Math.max(rb + 6, 14), D = drvFrame(P, K, R);
+    if (R - rr * 1.4 - hr < 3) throw new Error('The bore is too large for this sheave');
+    return [K.sub(D.turn(0, pts), ...drvBore(D, P, 0, W, a, hr), ...drvHoles(D, P, hr, R - rr * 1.4 - 2, -1, W + 1))];
+  },
+};
+
+// ── Belt drive: two V pulleys on shafts joined by a belt, standing on a base plate ──
+SHOP.beltDrive = {
+  name: 'V-belt drive', grp: 'Drives', drive: 1, parts: [['Drive shaft', SHOP_COL.steel], ['Driven shaft', SHOP_COL.steel], ['Drive pulley', SHOP_COL.iron], ['Driven pulley', SHOP_COL.iron], ['Belt', SHOP_COL.black], ['Base plate', SHOP_COL.blue]],
+  p: [['d1', 'Drive pulley pitch Ø', 80, 'len'], ['d2', 'Driven pulley pitch Ø', 160, 'len'], ['cd', 'Centre distance', 220, 'len'], ['sec', 'Belt section', 'a', 'sel', VBELT_OPTS], ['sd', 'Shaft Ø', 19, 'len'], ['plate', 'Base plate', true, 'chk']],
+  build(P, K) {
+    const [, wp, dep, , f, hb] = VBELT[P.sec], r1 = P.d1 / 2, r2 = P.d2 / 2, cd = P.cd, tn = Math.tan(17 * Math.PI / 180);
+    if (cd <= r1 + r2 + hb * 2) throw new Error('The pulleys would touch: increase the centre distance');
+    const z0 = P.plate ? 12 : 0, zp = z0 + 22, W = 2 * f, hubR = P.sd / 2 + 7, sh = zp + W + 30;
+    const sheave = (cx, pd) => {
+      const R = pd / 2 + hb, rbot = R - dep, ri = Math.max(hubR + 3, rbot - 5), g = vGroovePts(P.sec, 1, pd, 0, ri + 1);
+      if (rbot - 2 < hubR) throw new Error('The shaft is too large for this pulley');
+      const prof = [[0, 0], [hubR, 0], [hubR, 7], [ri, 7], [ri, 0], [R - 1, 0], [R, 1], ...g.pts, [R, W - 1], [R - 1, W], [ri, W], [ri, W - 7], [hubR, W - 7], [hubR, W], [0, W]];
+      return K.sub(K.turn('z', cx, 0, zp, prof), K.cyl('z', cx, 0, P.sd / 2, zp - 1, zp + W + 1));
+    };
+    const rp1 = r1, rp2 = r2, gam = Math.acos((rp1 - rp2) / cd), N = 28, loop = rr1 => {        // the belt centre-line offset by the belt's half thickness
+      const out = [], a = rp1 + rr1, b = rp2 + rr1;
+      for (let i = 0; i <= N; i++) { const t = gam + (TAU - 2 * gam) * i / N; out.push([a * Math.cos(t), a * Math.sin(t)]); }
+      for (let i = 0; i <= N; i++) { const t = -gam + 2 * gam * i / N; out.push([cd + b * Math.cos(t), b * Math.sin(t)]); }
+      return out;
+    };
+    const tb = (dep - hb) * 0.5, ti = (dep - hb) * 0.55, wb = Math.max(2, 2 * (wp / 2 - ti * tn) - 0.4), zb = zp + f - wb / 2;
+    const belt = K.sub(K.poly('z', loop(tb * 0.55), zb, zb + wb), K.poly('z', loop(-ti), zb - 1, zb + wb + 1));
+    const px = [-r1 - 30, cd + r2 + 30], py = Math.max(r1, r2) + 30;
+    const plate = P.plate ? K.sub(K.box(px[0], px[1], -py, py, 0, z0), ...[[px[0] + 12, -py + 12], [px[0] + 12, py - 12], [px[1] - 12, -py + 12], [px[1] - 12, py - 12]].map(([x, y]) => K.cyl('z', x, y, 4.5, -1, z0 + 1))) : null;
+    return [K.cyl('z', 0, 0, P.sd / 2, z0, sh), K.cyl('z', cd, 0, P.sd / 2, z0, sh), sheave(0, P.d1), sheave(cd, P.d2), belt, plate];
+  },
+};
+// DRIVE-END
 </script>
 
 <script data-kernel>
@@ -25998,7 +26204,7 @@ const TIP_TXT = {
 const PARAM_TYPES = new Set(['gear', 'screw']);                         // features whose bodies open a parameter panel
 Object.assign(FEAT_BASE, { screw: 'Screw' });
 Object.assign(FEAT_IC, { screw: 'screw' });
-Object.assign(IC, { phys: '<path d="M10 2v3M10 5L6.5 13"/><circle cx="6" cy="14.4" r="2.1"/><path d="M10 5l4.5 5.5" opacity=".55"/><circle cx="15.2" cy="11.6" r="1.5" opacity=".55"/><path d="M3 18h14"/>', screw: '<path d="M5 3h10v3H5zM7 6v2M8 8l4 1.4M8 10.4l4 1.4M8 12.8l4 1.4M8 15.2l2.4.8"/><path d="M10 6v10.5" opacity=".001"/>', vise: '<path d="M2.5 15.5h15M4 15.5V8h3.5v7.5M12.5 15.5V8H16v7.5M7.5 11.5h5"/>' });
+Object.assign(IC, { phys: '<path d="M10 2v3M10 5L6.5 13"/><circle cx="6" cy="14.4" r="2.1"/><path d="M10 5l4.5 5.5" opacity=".55"/><circle cx="15.2" cy="11.6" r="1.5" opacity=".55"/><path d="M3 18h14"/>', screw: '<path d="M5 3h10v3H5zM7 6v2M8 8l4 1.4M8 10.4l4 1.4M8 12.8l4 1.4M8 15.2l2.4.8"/><path d="M10 6v10.5" opacity=".001"/>', vise: '<path d="M2.5 15.5h15M4 15.5V8h3.5v7.5M12.5 15.5V8H16v7.5M7.5 11.5h5"/>', pulley: '<circle cx="6.5" cy="11.5" r="4"/><circle cx="6.5" cy="11.5" r="1"/><circle cx="14.5" cy="6" r="2.6"/><circle cx="14.5" cy="6" r=".7"/><path d="M9 8.5L12.4 4.6M7.6 15.4L16.8 7.6"/>' });
 Object.assign(MENU_IC, { 'hw:screw': 'screw' });
 TOOL_FEATS.add('screw');
 const HW_COLOR = { socket: '#2b2d31', lowsocket: '#2b2d31', button: '#2b2d31', flat: '#2b2d31', set: '#2b2d31', pan: '#b9bec5', cheese: '#b9bec5', shoulder: '#4b4f56', hex: '#b9bec5', flange: '#b9bec5', carriage: '#b9bec5', stud: '#b9bec5', nut: '#b9bec5', jam: '#b9bec5', nylock: '#4a6fa5', flangenut: '#b9bec5', squarenut: '#b9bec5', capnut: '#c8a24a', washer: '#d4d8dd', washerL: '#d4d8dd', lockwasher: '#8b9097' };
@@ -26107,11 +26313,13 @@ FEATS.shop = {
   ...HW_PLACE,
   sub: f => SHOP[f.kind].name,
 };
-HW_MENUS.shop = () => { const out = []; let g = null; for (const [k, v] of Object.entries(SHOP)) { if (v.grp !== g) { if (g) out.push(null); g = v.grp; out.push({ label: `<span class="mh">${v.grp}</span>`, run() {} }); } out.push({ label: `<span>${v.name}</span>`, run: () => cmdFeat('shop', null, { kind: k }) }); } return out; };
-const HW_BTNS = { fast: ['Fasteners', 'screw', 'Screws, bolts, nuts and washers — any size', k => CMD && CMD.type === 'feat' && CMD.kind === 'screw'], shop: ['Workholding', 'vise', 'Vises, clamps, parallels and fixtures', k => CMD && CMD.type === 'feat' && CMD.kind === 'shop'], phys: ['Physics lab', 'phys', 'Swinging sticks, a marble tower and a drone, simulated live', () => PHY.el && !PHY.el.hidden] };
-const hwRibbon = () => `<section class="rb-panel" aria-label="Hardware"><div class="rb-body">${Object.entries(HW_BTNS).map(([k, [lab, ic, tip, on]]) => `<button class="rb-btn rb-big ${on(k) ? 'on' : ''}" data-act="hw:${k}" title="${tip}">${svg(ic)}<span>${lab}</span></button>`).join('')}</div><div class="rb-title">Hardware &amp; sim</div></section>`;
+const shopMenu = want => () => { const out = []; let g = null; for (const [k, v] of Object.entries(SHOP)) { if (!!v.drive !== want) continue; if (v.grp !== g) { if (g) out.push(null); g = v.grp; out.push({ label: `<span class="mh">${v.grp}</span>`, run() {} }); } out.push({ label: `<span>${v.name}</span>`, run: () => cmdFeat('shop', null, { kind: k }) }); } return out; };
+HW_MENUS.shop = shopMenu(false);
+HW_MENUS.drive = shopMenu(true);
+const HW_BTNS = { fast: ['Fasteners', 'screw', 'Screws, bolts, nuts and washers — any size', k => CMD && CMD.type === 'feat' && CMD.kind === 'screw'], shop: ['Workholding', 'vise', 'Vises, clamps, parallels and fixtures', k => CMD && CMD.type === 'feat' && CMD.kind === 'shop' && !(SHOP[CMD.f && CMD.f.kind] || {}).drive], drive: ['Axles & pulleys', 'pulley', 'Axles, V-belt, flat and timing pulleys, chain sprockets, rope sheaves and belt drives', k => CMD && CMD.type === 'feat' && CMD.kind === 'shop' && !!(SHOP[CMD.f && CMD.f.kind] || {}).drive], phys: ['Physics lab', 'phys', 'Swinging sticks, a marble tower and a drone, simulated live', () => PHY.el && !PHY.el.hidden] };
+const hwRibbon = () => `<section class="rb-panel" style="--h:${rbHue('hardware')}" aria-label="Hardware"><div class="rb-body">${Object.entries(HW_BTNS).map(([k, [lab, ic, tip, on]]) => `<button class="rb-btn rb-big ${on(k) ? 'on' : ''}" data-act="hw:${k}" title="${tip}">${svg(ic)}<span>${lab}</span></button>`).join('')}</div><div class="rb-title">Hardware &amp; sim</div></section>`;
 const modelToolbarHTML1 = modelToolbarHTML;
-modelToolbarHTML = function () { return modelToolbarHTML1().replace('<section class="rb-panel" aria-label="Inspect">', hwRibbon() + '<section class="rb-panel" aria-label="Inspect">'); };
+modelToolbarHTML = function () { return modelToolbarHTML1().replace(/<section class="rb-panel"[^>]*aria-label="Inspect">/, m => hwRibbon() + m); };
 const featAction1 = featAction;
 featAction = function (a) {
   if (a.startsWith('hw:')) {
@@ -27430,6 +27638,15 @@ SAMPLES.push({ axes: 'model', name: 'Workholding table', desc: 'A 6 in vise, 1-2
   [['vise', 0, 0], ['block123', -170, 10], ['toeClamp', 140, 0], ['dovetailFixture', 0, 110], ['parallels', -170, 80], ['cClamp', 170, 90]].forEach(([kd, x, y], i) => k.features.push({ id: k.nid(), type: 'shop', name: kd + (i + 1), ...FEATS.shop.init(), kind: kd, cx: x, cy: y }));
   return k.doc();
 } });
+// axles, pulleys and drives: every item is a parametric Workholding-style part, so click one to change any size
+const driveSample = (name, desc, items) => SAMPLES.push({ axes: 'model', name, desc, make() {
+  const k = sampleKit(), colors = {};
+  items.forEach(([kd, x, y, extra], i) => { const f = { id: k.nid(), type: 'shop', name: SHOP[kd].name.replace(/[^A-Za-z0-9]+/g, '').slice(0, 10) + (i + 1), ...FEATS.shop.init(), ...shopDefaults(kd), kind: kd, cx: x, cy: y, ...(extra || {}) }; k.features.push(f); SHOP[kd].parts.forEach(([, c], j) => { colors[j ? f.id + j / 1000 : f.id] = c; }); });
+  return { ...k.doc(), colors };
+} });
+driveSample('Belt drive', 'Two V pulleys on shafts, a belt and a base plate: change the pitch diameters, centre distance or belt section.', [['beltDrive', 0, 0]]);
+driveSample('Pulley and sprocket set', 'A V-belt pulley, a flat-belt pulley, a GT2 timing pulley, a chain sprocket and a rope sheave laid out for comparison.', [['vPulley', 0, 0, { ori: 'z', n: 2 }], ['flatPulley', 170, 0, { ori: 'z' }], ['timingPulley', 0, 140, { ori: 'z', z: 40 }], ['sprocket', 110, 140, { ori: 'z' }], ['ropeSheave', 210, 140, { ori: 'z' }]]);
+driveSample('Cart axle and shafts', 'A wheel-and-axle set beside a stepped, keyed axle with a shoulder and circlip grooves.', [['wheelAxle', 0, 0], ['axle', 0, 110]]);
 SAMPLES.push({ axes: 'model', name: 'Deform gallery', desc: 'The same bar bent, twisted, tapered and warped. Edit any deform to change its angle, axis or range.', make() {
   const k = sampleKit(), mk = (y, mode, extra) => { const s = k.sketch(k.XZ, k.rect(-40, y - 6, 40, y + 6), { k: 'origin', w: 'XZ' }), e = k.extrude(s, [P2(0, y)], 8, 'new'); k.features.push({ id: k.nid(), type: 'deform', name: mode, ...FEATS.deform.init(), bodies: [e.id], mode, ax: 'X', dir: 'Z', ...extra }); };
   mk(-45, 'bend', { angle: 60 }); mk(-15, 'twist', { angle: 120 }); mk(15, 'taper', { scale: 0.35 }); mk(45, 'wave', { amp: 5, wavelength: 40 });
