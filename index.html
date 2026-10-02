@@ -27382,25 +27382,29 @@ const TIP_TXT = {
     card.style.left = clamp(x, 8, innerWidth - w - 8) + 'px'; card.style.top = y + 'px';
   };
   const show = () => {
-    const k = keyOf(el), art = TIP_ART[k], tx = TIP_TXT[k] || [];
-    const label = el.dataset.tipTitle || el.getAttribute('data-tip') || el.textContent || '', name = label.replace(/\s*\(.*\)$/, '').trim(), key = (/\(([^)]+)\)$/.exec(label) || [])[1];
-    const pic = art ? `<div class="tip-pics"><figure>${TipArt.wrap(art[0]())}<figcaption>Before</figcaption></figure><span class="tip-arr">→</span><figure>${TipArt.wrap(art[1]())}<figcaption>After</figcaption></figure></div>` : '';
-    card.innerHTML = `<div class="tip-head"><b>${name}</b>${key ? `<span class="kbd">${key}</span>` : ''}</div>${tx[0] ? `<p class="tip-what">${tx[0]}</p>` : ''}${pic}${tx[1] ? `<div class="tip-more"><div class="tip-step">How to use it</div><ol>${tx[1].map(s => `<li>${s}</li>`).join('')}</ol></div>` : ''}`;
+    if (!el || !document.contains(el)) return;
+    const k = keyOf(el), art = TIP_ART[k], { name, key, tx } = tipInfoFor(el, k);
+    const hue = (el.closest('.rb-panel') || el).style.getPropertyValue('--h') || '';
+    const grp = (el.closest('.rb-panel') || {}).getAttribute ? (el.closest('.rb-panel').getAttribute('aria-label') || '') : '';
+    const ic = el.querySelector('svg');
+    const pic = art ? `<div class="tip-pics"><figure>${TipArt.wrap(art[0]())}<figcaption>Before</figcaption></figure><span class="tip-arr">→</span><figure>${TipArt.wrap(art[1]())}<figcaption>After</figcaption></figure></div>`
+      : ic && el.closest('#toolbar') ? `<div class="tip-plate" style="--h:${hue || 214}">${ic.outerHTML}</div>` : '';
+    card.innerHTML = `<div class="tip-head"><b>${name}</b>${key ? `<span class="kbd">${key}</span>` : ''}${grp ? `<span class="tip-group">${grp}</span>` : ''}</div>${tx[0] ? `<p class="tip-what">${tx[0]}</p>` : ''}${pic}${tx[1] ? `<div class="tip-more"><div class="tip-step">How to use it</div><ol>${tx[1].map(s => `<li>${s}</li>`).join('')}</ol></div><div class="tip-hold">Keep hovering for the steps</div>` : ''}`;
     card.hidden = false; place();
     const small = document.getElementById('tip'); if (small) small.classList.remove('show');       // the card takes over from the one-line label
     requestAnimationFrame(() => card.classList.add('in'));
     // step 2: keep holding and it grows the how-to
-    if (tx[1]) t2 = setTimeout(() => { card.classList.add('more'); requestAnimationFrame(place); setTimeout(place, 260); }, 1800);
+    if (tx[1]) t2 = setTimeout(() => { card.classList.add('more'); requestAnimationFrame(place); setTimeout(place, 260); }, 1400);
   };
   document.addEventListener('pointerover', e => {
-    const b = e.target.closest && e.target.closest('#toolbar button, #toolbar [data-act], #toolbar [data-cam]');
+    const b = e.target.closest && e.target.closest('#toolbar button:not(.rb-arrow), #toolbar [data-act], #toolbar [data-cam], #topbar button:not(.rb-arrow), #viewtools button, #visGroup button, [data-selmode], #simbar button, #simbar .play, #phy .phy-bar button');
     if (b === el) return;
     hide();
     if (!b || e.pointerType === 'touch') return;
     el = b;
     // the card replaces the browser's own tooltip
     if (b.title) { b.dataset.tipTitle = b.title; b.removeAttribute('title'); }
-    t1 = setTimeout(show, 1000);
+    t1 = setTimeout(show, 550);
   });
   document.addEventListener('pointerdown', hide, true);
   document.addEventListener('keydown', hide, true);
@@ -30004,7 +30008,7 @@ PHY_SIMS.shop = ['Haas VF & touch-off', phyShop];
 // the Manufacture ribbon gets a Shop floor group
 {
   const tb0 = camToolbar, act0 = camAction;
-  camToolbar = function () { return tb0() + rbPanel('Shop floor', [['lab:shop', 'Haas VF & Touch-off', '', 'cammill'], ['lab:chips', 'Chips & Cutting', '', 'camparallel'], ['lab:fluid', 'Coolant Flow', '', 'camdrill'], ['lab:mech', 'Mechanics', '', 'camtools'], ['lab:lathe', 'CNC Turning & Live Tooling', '', 'camcontour']], 2, 'data-cam'); };
+  camToolbar = function () { return tb0() + rbPanel('Shop floor', [['lab:shop', 'Haas VF & Touch-off', '', 'labshop'], ['lab:chips', 'Chips & Cutting', '', 'labchips'], ['lab:fluid', 'Coolant Flow', '', 'labfluid'], ['lab:mech', 'Mechanics', '', 'labmech'], ['lab:lathe', 'CNC Turning & Live Tooling', '', 'lablathe']], 2, 'data-cam'); };
   camAction = function (a) { if (a.startsWith('lab:')) { physicsOpen(a.slice(4)); return; } act0(a); };
 }
 PHY_SIMS.lathe = ['CNC turning', phyLathe];
@@ -30023,5 +30027,504 @@ PHY_SIMS.hose = ['Hose & jet', phyHose];
 
 // LAB-END
 </script>
+<!-- RIB2-BEGIN -->
+<style>
+/* ═════ RIB2: ribbon layout, hover cards for everything, step-by-step side panels ═════ */
+.ribbon-wrap { position: relative; border-top: 1px solid var(--rule); background: color-mix(in srgb, var(--panel-2) 45%, var(--panel)); min-width: 0; }
+.ribbon { border-top: 0; padding: 7px 10px 0; gap: 6px; scrollbar-width: none; scroll-behavior: smooth; justify-content: flex-start; }
+.ribbon::-webkit-scrollbar { display: none; }
+.rb-arrow { position: absolute; top: 0; bottom: 0; width: 30px; z-index: 3; display: flex; align-items: center; justify-content: center; border: 0; padding: 0; cursor: pointer; color: var(--ink-2); opacity: 0; pointer-events: none; transition: opacity .2s ease; }
+.rb-arrow svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; padding: 4px; box-sizing: content-box; border-radius: 50%; background: var(--panel); box-shadow: 0 1px 6px rgba(0,0,0,.25); }
+.rb-arrow.l { left: 0; background: linear-gradient(90deg, var(--panel) 25%, transparent); }
+.rb-arrow.r { right: 0; background: linear-gradient(270deg, var(--panel) 25%, transparent); }
+.rb-arrow.show { opacity: 1; pointer-events: auto; }
+.rb-arrow:hover svg { color: var(--accent); }
+
+/* groups: one height, one gutter, one title bar */
+.rb-panel { padding: 7px 8px 0; margin: 0; border-right: 0; border-radius: 10px 10px 0 0; box-shadow: inset 0 0 0 1px hsl(var(--h) 45% 50% / .13); }
+.rb-body { gap: 4px; padding-bottom: 6px; align-items: stretch; }
+.rb-panel .rb-title { margin: 0 -8px; padding: 0 8px; height: 19px; display: flex; align-items: center; justify-content: center; font-size: 9.5px; letter-spacing: .1em; }
+.rb-big { width: auto; min-width: 62px; max-width: 86px; height: 62px; padding: 5px 5px 3px; gap: 5px; justify-content: flex-start; }
+.rb-big svg { width: 25px; height: 25px; }
+.rb-big > span { display: flex; align-items: flex-start; justify-content: center; height: 26px; font-size: 11px; line-height: 1.17; overflow: hidden; }
+.rb-col { justify-content: space-between; gap: 1px; min-width: 86px; }
+.rb-sm { height: 20px; padding: 0 8px 0 5px; gap: 7px; }
+.rb-sm svg { width: 15px; height: 15px; }
+.rb-btn { position: relative; }
+.rb-btn:focus-visible { outline-offset: -2px; }
+
+/* tighter and tighter until it all fits (each level builds on the one before); past the last the ribbon scrolls */
+.ribbon:is([data-dens="1"], [data-dens="2"], [data-dens="3"]) { gap: 4px; padding-left: 6px; padding-right: 6px; }
+.ribbon:is([data-dens="1"], [data-dens="2"], [data-dens="3"]) .rb-panel { padding-left: 5px; padding-right: 5px; }
+.ribbon:is([data-dens="1"], [data-dens="2"], [data-dens="3"]) .rb-panel .rb-title { margin: 0 -5px; padding: 0 5px; }
+.ribbon:is([data-dens="1"], [data-dens="2"], [data-dens="3"]) .rb-body { gap: 2px; }
+.ribbon:is([data-dens="1"], [data-dens="2"], [data-dens="3"]) .rb-big { min-width: 54px; max-width: 74px; padding-left: 3px; padding-right: 3px; }
+.ribbon:is([data-dens="1"], [data-dens="2"], [data-dens="3"]) .rb-big > span { font-size: 10.5px; }
+.ribbon:is([data-dens="1"], [data-dens="2"], [data-dens="3"]) .rb-col { min-width: 0; }
+.ribbon:is([data-dens="1"], [data-dens="2"], [data-dens="3"]) .rb-sm { padding: 0 5px 0 4px; gap: 5px; font-size: 11px; }
+.ribbon:is([data-dens="2"], [data-dens="3"]) { gap: 3px; padding-left: 4px; padding-right: 4px; }
+.ribbon:is([data-dens="2"], [data-dens="3"]) .rb-panel { padding-left: 4px; padding-right: 4px; }
+.ribbon:is([data-dens="2"], [data-dens="3"]) .rb-panel .rb-title { margin: 0 -4px; padding: 0 4px; letter-spacing: .06em; font-size: 9px; }
+.ribbon:is([data-dens="2"], [data-dens="3"]) .rb-body { gap: 1px; }
+.ribbon:is([data-dens="2"], [data-dens="3"]) .rb-big { min-width: 48px; max-width: 64px; padding-left: 2px; padding-right: 2px; }
+.ribbon:is([data-dens="2"], [data-dens="3"]) .rb-big > span { font-size: 10px; }
+.ribbon:is([data-dens="2"], [data-dens="3"]) .rb-sm { padding: 0 4px 0 3px; gap: 4px; font-size: 10.5px; }
+/* last resort before scrolling: groups drop their small labels one at a time, widest saving first */
+.rb-panel.cmp .rb-sm > span { display: none; }
+.rb-panel.cmp .rb-sm { width: 28px; padding: 0; justify-content: center; }
+.rb-panel.cmp .rb-sm svg { width: 16px; height: 16px; }
+@media (max-width: 820px) {
+  .rb-sm > span { display: none; }
+  .rb-sm { width: 28px; padding: 0; justify-content: center; }
+  .rb-arrow { display: none; }
+}
+
+/* hover card: icon plate when a tool has no before / after drawing, and a compact card for small buttons */
+.tip-plate { display: flex; align-items: center; justify-content: center; height: 78px; border-radius: 10px; border: 1px solid var(--rule); background: linear-gradient(160deg, hsl(var(--h, 214) 70% 92%), hsl(var(--h, 214) 60% 97%)); }
+.tip-plate svg { width: 44px; height: 44px; fill: none; stroke: hsl(var(--h, 214) 60% 36%); stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+:root[data-theme="dark"] .tip-plate { background: linear-gradient(160deg, hsl(var(--h, 214) 40% 24%), hsl(var(--h, 214) 32% 17%)); }
+:root[data-theme="dark"] .tip-plate svg { stroke: hsl(var(--h, 214) 85% 78%); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .tip-plate { background: linear-gradient(160deg, hsl(var(--h, 214) 40% 24%), hsl(var(--h, 214) 32% 17%)); } :root:not([data-theme="light"]) .tip-plate svg { stroke: hsl(var(--h, 214) 85% 78%); } }
+.tip-group { margin-left: auto; font: 600 9.5px var(--font); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.tip-hold { margin-top: 8px; font-size: 10.5px; color: var(--muted); text-align: center; }
+#tipcard.more .tip-hold { display: none; }
+
+/* side panels: one look */
+#panel { scrollbar-width: thin; }
+.pn-head { padding: 15px 16px 12px; align-items: center; border-bottom: 0; position: sticky; top: 0; z-index: 4; background: var(--panel); }
+.pn-head h2 { font-size: 15px; font-weight: 650; letter-spacing: -.005em; }
+.pn-head .tag { padding: 2px 8px; border-radius: 99px; background: var(--panel-2); border: 1px solid var(--rule); letter-spacing: .05em; font-size: 9.5px; white-space: nowrap; }
+.pn-body { padding: 4px 16px 16px; gap: 13px; }
+.field > span { font: 600 10px var(--font); letter-spacing: .07em; }
+.field input[type="number"], .field input[type="text"], .field select { border-radius: 7px; padding: 7px 9px; transition: border-color .15s, box-shadow .15s; }
+.field input:focus, .field select:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.seg { border-radius: 8px; }
+.pick { border-radius: 8px; }
+.btn { border-radius: 8px; padding: 8px 10px; }
+.btn.primary { box-shadow: 0 1px 0 rgba(255,255,255,.18) inset, 0 2px 8px color-mix(in srgb, var(--accent) 35%, transparent); }
+.note { line-height: 1.55; }
+.pn-body > .btns:last-child { position: sticky; bottom: 0; z-index: 3; margin: 2px -16px -16px; padding: 12px 16px 14px; background: linear-gradient(180deg, transparent, var(--panel) 28%); }
+.divider { margin: 4px 0; }
+
+/* the step-by-step card */
+.guide { margin: 0 16px 6px; border: 1px solid var(--rule); border-radius: 12px; background: var(--panel-2); overflow: hidden; }
+.guide-head { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 11px; border: 0; background: transparent; cursor: pointer; text-align: left; font-size: 12px; color: var(--ink); }
+.guide-head .gic { width: 22px; height: 22px; border-radius: 7px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; flex: none; }
+.guide-head .gic svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.guide-head b { font-weight: 650; flex: 1; }
+.guide-head .gn { font: 600 10px var(--mono); color: var(--muted); letter-spacing: .03em; }
+.guide-head .gv { width: 8px; height: 8px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg) translate(-2px, -2px); transition: transform .2s; flex: none; margin-left: 2px; }
+.guide.shut .guide-head .gv { transform: rotate(-45deg) translate(-1px, -1px); }
+.guide-bar { height: 3px; background: var(--rule); }
+.guide-bar i { display: block; height: 100%; background: var(--accent); border-radius: 0 3px 3px 0; transition: width .35s cubic-bezier(.2,.7,.2,1); }
+.guide-steps { list-style: none; margin: 0; padding: 6px 8px 8px; position: relative; }
+.guide.shut .guide-steps { display: none; }
+.guide-steps li { display: flex; gap: 10px; padding: 6px 4px; border-radius: 8px; position: relative; font-size: 12px; line-height: 1.4; color: var(--muted); }
+.guide-steps li + li::before { content: ''; position: absolute; left: 14px; top: -8px; height: 12px; width: 2px; background: var(--rule); }
+.guide-steps li.done + li::before { background: var(--accent); opacity: .55; }
+.guide-steps .sn { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font: 700 10.5px var(--font); background: var(--panel); border: 1.5px solid var(--rule); color: var(--muted); position: relative; z-index: 1; }
+.guide-steps li > div { min-width: 0; padding-top: 2px; }
+.guide-steps li > div > b { font-weight: 600; display: block; color: var(--ink-2); }
+.guide-steps li p b { font-weight: 600; color: var(--ink); }
+.guide-steps li p { margin: 3px 0 0; font-size: 11.5px; color: var(--muted); line-height: 1.5; display: none; }
+.guide-steps li.now { background: var(--accent-soft); color: var(--ink); }
+.guide-steps li.now .sn { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+.guide-steps li.now > div > b { color: var(--ink); }
+.guide-steps li.now p { display: block; color: var(--ink-2); }
+.guide-steps li.done .sn { background: color-mix(in srgb, var(--ok) 16%, var(--panel)); border-color: var(--ok); color: var(--ok); }
+.guide-steps li.done .sn svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.guide-steps li.done > div > b { color: var(--ink-2); font-weight: 500; }
+.guide-steps li.opt > div > b::after { content: 'optional'; margin-left: 7px; font: 600 8.5px var(--font); letter-spacing: .07em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--rule); border-radius: 99px; padding: 1px 5px; vertical-align: 1px; }
+.guide-steps li:not(.now):hover p { display: block; }
+.guide-steps kbd, .guide-steps .kbd { font-size: 10px; }
+.guide-steps li.skip .sn { background: transparent; border-style: dashed; }
+#tipcard { z-index: 95; }
+.guide.plain .guide-steps li { color: var(--ink-2); }
+.guide.plain .guide-steps li p { display: none; }
+.guide.plain .guide-steps li > div > b { font-weight: 500; }
+.guide.plain .guide-steps { counter-reset: gs; }
+.phy-card .guide { flex: none; margin: 0 0 2px; font-size: 12px; background: color-mix(in srgb, var(--panel-2) 80%, transparent); }
+</style>
+<script>
+// ═════ RIB2: the ribbon fits itself to the window, every button explains itself, and every side panel walks you through its steps ═════
+// drawn icons for the shop-floor group
+Object.assign(IC, {
+  labshop: '<path d="M2.5 16.5h15"/><path d="M4 16.5V9h4v7.5M12 16.5V9h4v7.5"/><path d="M8 12.5h4"/><path d="M10 3v4M8 5l2 2 2-2"/>',
+  labchips: '<path d="M3 15c3-1 3-6 6-6s2 4-1 4"/><path d="M11 6c2-2 5-1 5 1.5s-3 3-4.5 2"/><path d="M4 18h12" opacity=".5"/>',
+  labfluid: '<path d="M10 2.5C7 6.5 5 9 5 12a5 5 0 0010 0c0-3-2-5.5-5-9.5z"/><path d="M8 12.5a2.2 2.2 0 002 2.2" opacity=".6"/>',
+  labmech: '<circle cx="7" cy="8" r="3.2"/><circle cx="7" cy="8" r=".9"/><path d="M7 3.2v1.3M7 11.5v1.3M2.2 8h1.3M10.5 8h1.3"/><circle cx="14.5" cy="13.5" r="2.5"/><path d="M14.5 10.2v1M14.5 15.8v1M11.2 13.5h1M17 13.5h1" opacity=".7"/>',
+  lablathe: '<path d="M2.5 10h4.5M13 10h4.5"/><rect x="7" y="6" width="6" height="8" rx="1"/><path d="M9 3l1 3M10.5 3l.5 3" opacity=".6"/><path d="M4 16.5h12"/>',
+});
+// ── 1. help for the buttons the first hover cards never covered ──
+const RB_TXT = {
+  'f:deform': ['Bend, twist, taper or warp a body — or flow it along a path.', ['Pick the bodies to deform.', 'Choose Bend, Twist, Taper, Warp or Flow along a path.', 'Set the amount and the axis, then OK.']],
+  'hw:fast': ['Screws, bolts, nuts and washers in any metric or inch size.', ['Choose the kind (socket cap, hex, nut, washer…) and the size.', 'Change the drive, head or length if you need to.', 'Place it on a hole or a point, then OK.']],
+  'hw:shop': ['Vises, toe clamps, parallels, 1-2-3 blocks and fixtures to hold the part.', ['Pick the item from the list.', 'Set its size and where it sits — or place it on a point.', 'OK. Fixtures also show up in the Manufacture view.']],
+  'hw:drive': ['Axles, V-belt, flat and timing pulleys, sprockets, sheaves and belt drives.', ['Pick an axle, pulley or drive.', 'Set the diameters, tooth counts and centre distance.', 'Place it, then run it in the Physics lab.']],
+  'hw:phys': ['The physics lab: swinging sticks, marble tower, drone, water, hoses, chips and more.', ['Pick an experiment.', 'Press play and adjust the sliders.', 'Drag things with the mouse to poke at them.']],
+  stress: ['Stress analysis with Fusion-style colour maps: von Mises, displacement, safety factor.', ['Pick the material.', 'Click the faces that are held fixed.', 'Add loads: force, pressure, torque or gravity.', 'Solve, then read the colour map and probe any point.']],
+  'mach:umc400': ['Haas UMC-400 5-axis machine. Its trunnion table loads into the view.', ['Click it to make it the machine.', 'The Ø230 platter, cradle and C drive appear with their real hole patterns.', 'Tilted operations post as B and C; the setup checks fit and travel.']],
+  'add:drill:cbore': ['Counterbore every matching hole: a flat-bottomed larger pocket for a screw head.', ['Pick the counterbore tool.', 'Choose the holes (or leave Auto).', 'Set the depth, then simulate.']],
+  'add:drill:bsf': ['Back spot-face: the tool reaches through the hole and cuts the underside flat.', ['Pick the back spot-face tool.', 'Choose the holes and the depth.', 'Simulate to check the tool clears the part.']],
+  'add:engrave': ['Engrave text or an imported image — straight, on an arc or wrapped on a surface.', ['Type the text (or load an image).', 'Pick the face and the font size.', 'Set the depth and the tool, then simulate.']],
+  'lab:shop': ['The Haas VF shop floor, with the table, vise and tool touch-off lesson.', ['Pick the machine.', 'Follow the touch-off steps: edge finder, tool setter, verify.', 'Try it on the sample part.']],
+  'lab:chips': ['Chip physics: how material comes off for aluminum, steel, stainless and brass.', ['Pick the material and cutter.', 'Press play and watch the chips curl, break and fly.', 'Change speed and feed to see the chips change.']],
+  'lab:fluid': ['Coolant flow: real water — a hose, a jet and a flood across the part.', ['Pick an experiment.', 'Press play.', 'Move the nozzle and change the pressure.']],
+  'lab:mech': ['Mechanics: levers, pulleys, gears and linkages you can push around.', ['Pick an experiment.', 'Press play.', 'Drag parts with the mouse.']],
+  'lab:lathe': ['CNC turning with live tooling, shown with chips and the turret.', ['Pick the part.', 'Press play to turn it.', 'Switch to live tooling to mill on the spindle.']],
+  'mach:mill': ['Haas VF three-axis mill.', ['Click it to make it the machine.', 'Operations post for a VF control.']],
+  'mach:wire': ['Wire EDM: cuts straight through the part with a charged wire.', ['Click it to make it the machine.', 'Only through shapes can be cut.', 'Add a Wire contour and set the skims.']],
+};
+for (const k in RB_TXT) if (!TIP_TXT[k]) TIP_TXT[k] = RB_TXT[k];
+// the info for one button: what it is called, what it does, how it is used
+const BTN_TXT = {
+  btnUndo: ['Step back one change. Every edit, in Design and Manufacture, is undoable.', null],
+  btnRedo: ['Bring back the change you just undid.', null],
+  btnFile: ['Save, open, import, export and open sample parts.', ['Choose Open to load a file or drop one on the page.', 'Export gives STEP, STL, DXF and the G-code program.', 'Samples opens ready-made parts to try things on.']],
+  btnHelp: ['Keyboard shortcuts, mouse buttons and settings.', null],
+  btnTree: ['Show or hide the model browser and timeline.', null],
+  btn2D: ['Flat view straight onto the sketch plane.', null], btn3D: ['The ordinary 3D view: orbit, pan and zoom.', null],
+  btnHome: ['Go back to the standard isometric view.', null], btnFit: ['Zoom to fit everything in the window.', null],
+  btnExplode: ['Pull the bodies apart to see them separately, then put them back.', null],
+  'ws:design': ['Model: sketch, extrude, fillet, add hardware and check the part.', ['Start with Create Sketch (K).', 'Turn the sketch into solids with Extrude or Revolve.', 'Switch to Manufacture when the part is done.']],
+  'ws:cam': ['Manufacture: set up stock and tools, add operations, simulate and post G-code.', ['Click Setup for stock and work origin.', 'Add operations, or let Auto Program add them.', 'Simulate, then post the program.']],
+  'ws:sheet': ['Setup sheet: the printable page for the operator — tools, times and notes.', null],
+  'vis:part': ['Show or hide the solid bodies.', null], 'vis:sketches': ['Show or hide the sketches.', null], 'vis:planes': ['Show or hide the origin planes and axes.', null],
+  'sel:body': ['Clicks pick whole bodies.', null], 'sel:face': ['Clicks pick single faces — to sketch on, offset from, or machine.', null],
+  sbPlay: ['Play or pause the simulation.', null], sbCode: ['Show the G-code line by line as the simulation runs.', null],
+};
+function tipInfoFor(b, k) {
+  const d = b.dataset, k2 = d.ws ? 'ws:' + d.ws : d.vis ? 'vis:' + d.vis : d.selmode ? 'sel:' + d.selmode : d.phy ? 'phy:' + d.phy : b.id;
+  let tx = TIP_TXT[k] || BTN_TXT[k2] || BTN_TXT[b.id];
+  const sp = b.querySelector(':scope > span:not(.rip-wrap)'), raw = b.dataset.tipTitle || b.getAttribute('title') || b.dataset.tip || '';
+  const name = (sp && sp.textContent.trim()) || raw.replace(/\s*\(.*\)$/, '').trim() || b.textContent.trim() || b.getAttribute('aria-label') || '';
+  const key = (/\(([^)]+)\)$/.exec(raw) || [])[1];
+  if (!tx && /^add:/.test(k) && typeof OP_INFO !== 'undefined') {
+    const o = OP_INFO[k.split(':')[1]];
+    if (o) tx = [o.tip, ['Pick the tool and what to cut (or leave it on Auto).', 'Set the depths and the stepover.', 'Check the path in the view, then Simulate.']];
+  }
+  if (!tx && raw && raw.replace(/\s*\(.*\)$/, '') !== name) tx = [raw.replace(/\s*\(.*\)$/, ''), null];
+  return { name, key, tx: tx || [null, null] };
+}
+
+// ── 2. the ribbon fits itself ──
+(() => {
+  const nav = document.getElementById('toolbar'); if (!nav) return;
+  const wrap = document.createElement('div'); wrap.className = 'ribbon-wrap';
+  nav.parentNode.insertBefore(wrap, nav); wrap.appendChild(nav);
+  const mk = (cls, d) => { const b = document.createElement('button'); b.className = 'rb-arrow ' + cls; b.type = 'button'; b.setAttribute('aria-label', cls === 'l' ? 'Scroll tools left' : 'Scroll tools right'); b.tabIndex = -1; b.innerHTML = `<svg viewBox="0 0 20 20"><path d="${d}"/></svg>`; wrap.appendChild(b); return b; };
+  const L = mk('l', 'M12 5l-5 5 5 5'), R = mk('r', 'M8 5l5 5-5 5');
+  const arrows = () => { const o = nav.scrollWidth > nav.clientWidth + 2; L.classList.toggle('show', o && nav.scrollLeft > 4); R.classList.toggle('show', o && nav.scrollLeft < nav.scrollWidth - nav.clientWidth - 4); };
+  let raf = 0;
+  const fits = () => nav.scrollWidth <= nav.clientWidth + 1;
+  const fit = () => {
+    raf = 0; if (!nav.clientWidth) return;
+    nav.style.scrollBehavior = 'auto';
+    const ps = [...nav.querySelectorAll('.rb-panel')]; ps.forEach(p => p.classList.remove('cmp'));
+    let d = 0; for (; d <= 2; d++) { nav.dataset.dens = d; if (fits()) break; }
+    if (d > 2) {
+      nav.dataset.dens = 2;
+      // drop the small labels of the groups that gain the most, one group at a time
+      const gain = ps.filter(p => p.querySelector('.rb-sm')).map(p => { const w0 = p.offsetWidth; p.classList.add('cmp'); const g = w0 - p.offsetWidth; p.classList.remove('cmp'); return [g, p]; }).sort((a, b) => b[0] - a[0]);
+      for (const [g, p] of gain) { if (g < 6) continue; p.classList.add('cmp'); if (fits()) break; }
+    }
+    nav.scrollLeft = Math.min(nav.scrollLeft, Math.max(0, nav.scrollWidth - nav.clientWidth)); nav.style.scrollBehavior = '';
+    arrows();
+  };
+  const soon = () => { if (!raf) raf = requestAnimationFrame(fit); };
+  new MutationObserver(soon).observe(nav, { childList: true });
+  addEventListener('resize', soon);
+  if (window.ResizeObserver) new ResizeObserver(soon).observe(wrap);
+  nav.addEventListener('scroll', arrows, { passive: true });
+  L.addEventListener('click', () => nav.scrollBy({ left: -nav.clientWidth * 0.6 })); R.addEventListener('click', () => nav.scrollBy({ left: nav.clientWidth * 0.6 }));
+  nav.addEventListener('wheel', e => { if (nav.scrollWidth > nav.clientWidth && Math.abs(e.deltaY) > Math.abs(e.deltaX)) { nav.scrollLeft += e.deltaY; e.preventDefault(); } }, { passive: false });
+  document.fonts && document.fonts.ready && document.fonts.ready.then(soon);
+  soon();
+  window.ribFit = fit;
+})();
+
+// ── 3. step-by-step guides for the side panels ──
+const GUIDE = { shut: (() => { try { const v = localStorage.getItem('datum.guideShut'); return v == null ? innerWidth <= 820 : v === '1'; } catch (e) { return false; } })() };
+const gS = (t, d, done, opt) => ({ t, d, done, opt });
+const guideSafe = f => { try { return !!f(); } catch (e) { return false; } };
+const toolpathReady = op => { try { const P = toolpath(op); return !!(P && !P.pending && P.moves && P.moves.length); } catch (e) { return false; } };
+const GD = {
+  start: ['Getting started', () => [
+    gS('Start a sketch', 'Press <span class="kbd">K</span> or click <b>Create Sketch</b>, then click a plane.'),
+    gS('Draw a closed shape', 'Rectangles, circles and lines. Type a size and press Tab for the next value.'),
+    gS('Extrude it', 'Finish the sketch (Enter), then pull the shape into a solid with <b>Extrude</b>.'),
+    gS('Refine it', 'Fillet and chamfer edges, add holes and threads, pattern features.', null, true),
+    gS('Machine it', 'Switch to <b>Manufacture</b> for toolpaths, simulation and G-code.', null, true)]],
+  idle: ['What next?', () => [
+    gS('Pick something', 'Click a face, edge, profile or plane. Double-click a face to sketch on it.', () => selEdges.length || selProfiles.length || sel3D),
+    gS('Change it', 'Extrude, fillet, hole, shell… every tool in the ribbon works on what you picked.', null, true),
+    gS('Check it', 'Measure distances or run a stress analysis from the <b>Inspect</b> group.', null, true),
+    gS('Machine it', 'Switch to <b>Manufacture</b> to add stock, tools and operations.', null, true)]],
+  pickPlane: ['Create a sketch', () => [
+    gS('Choose where to draw', 'Click an <b>origin plane</b>, a <b>construction plane</b> or any <b>flat face</b>.'),
+    gS('Draw', 'Line, rectangle, circle, arc… from the ribbon.'),
+    gS('Finish the sketch', 'Press <span class="kbd">Enter</span> or click <b>Finish Sketch</b>.'),
+    gS('Extrude or revolve it', 'Click the shaded profile and use Extrude or Revolve.')]],
+  sketch: ['Drawing steps', () => {
+    const arr = arrOf(S.sk), np = arr.regions.length, nd = (S.sk.dims || []).length;
+    return [
+      gS('Pick a drawing tool', (typeof TOOL_HELP !== 'undefined' && TOOL_HELP[S.tool]) || 'Choose a tool from the ribbon.', () => S.sk.ents && S.sk.ents.length || S.tool !== 'select'),
+      gS('Close the shape', 'Join the last point to the first so the profile shades in.', () => np > 0),
+      gS('Add dimensions', 'Use <b>Dimension</b> to fix sizes; the sketch re-solves with each one.', () => nd > 0, true),
+      gS('Finish the sketch', 'Press <span class="kbd">Enter</span> or click <b>Finish sketch</b>.'),
+      gS('Extrude or revolve it', 'The closed profiles are ready to turn into a solid.')];
+  }],
+  extrude: ['Extrude steps', () => {
+    const f = CMD.f;
+    return [
+      gS('Pick the profiles', 'Click the shaded regions you want to extrude. Click again to remove one.', () => f.pts.length > 0),
+      gS('Set how far', 'Drag the arrow in the view, or type a distance. Choose <b>Up to next</b> or <b>Through all</b> if you prefer.', () => f.pts.length > 0 && (f.extent && f.extent !== 'dist' || Math.abs(f.dist) > 0), true),
+      gS('Choose New body, Join or Cut', 'Join adds to a body, Cut removes material, Hole drills circles.', null, true),
+      gS('Confirm', 'Press <b>OK</b> or <span class="kbd">Enter</span>.')];
+  }],
+  edge: ['Fillet / chamfer steps', () => [
+    gS('Click the edges', 'Click straight or circular edges. Click again to remove one.', () => CMD.f.edges.length > 0),
+    gS('Set the size', 'The radius (fillet) or distance (chamfer), in the units shown.', () => CMD.f.edges.length > 0 && CMD.f.size > 0, true),
+    gS('Confirm', 'Press <b>OK</b>.')],
+  ],
+  thread: ['Thread steps', () => [
+    gS('Click a cylindrical face', 'A shaft for an external thread, a hole for an internal one.', () => !!CMD.f.face),
+    gS('Choose size and pitch', 'ISO coarse is picked for you; pick another pitch, hand or length if you need to.', null, true),
+    gS('Confirm', 'Press <b>OK</b>.')]],
+  offset: ['Offset plane steps', () => [
+    gS('Pick a reference', 'Click a plane or a flat face.', () => !!CMD.base),
+    gS('Type the distance', 'Positive moves along the normal, negative the other way.', () => !!CMD.base && CMD.off != null),
+    gS('Confirm', 'Press <b>OK</b>.')]],
+  point: ['Construction point steps', () => [
+    gS('Hover a body', 'Vertices, edge midpoints, circle centers and face centers light up.'),
+    gS('Click to place', 'Points follow their geometry when the model changes.'),
+    gS('Use it', 'As a snap target in sketches, an origin for Set Origin, or the work origin in Manufacture.', null, true)]],
+  import: ['Import steps', () => [
+    gS('Check the model', 'Faces and patches found are listed here.'),
+    gS('Set the scale and position', 'Choose the units and where the part sits.', null, true),
+    gS('Confirm', 'Press <b>OK</b>.')]],
+  measure: ['Measure steps', () => {
+    const a = !!(CMD && CMD.a), m = (typeof MEASURE !== 'undefined') && MEASURE.list.length > 0;
+    return [
+      gS('Click the first point', 'Points lock onto endpoints, midpoints, centers, quadrants, intersections, perpendiculars and tangents. Use the snap bar to toggle the ones you do not want.', () => a || m),
+      gS('Click the second point', 'The distance appears with its X, Y and Z parts.', () => m),
+      gS('Read or copy it', 'Copy the distance, or keep measuring — earlier ones are listed below.', null, true)];
+  }],
+  stress: ['Stress analysis steps', () => {
+    let s = {}; try { s = stressSetup(); } catch (e) { }
+    const nc = (s.cons || []).filter(c => c.faces && c.faces.length).length, nl = (s.loads || []).filter(l => (l.faces && l.faces.length) || l.at).length, R = typeof STRESS !== 'undefined' && STRESS.result;
+    return [
+      gS('Choose the material', 'Aluminum, steel, titanium, plastics… or enter your own modulus and yield.', () => !!s.mat),
+      gS('Fix some faces', 'Add a <b>Constraint</b> and click the faces that are held: bolt holes, a clamped end.', () => nc > 0),
+      gS('Apply loads', 'Add a <b>Load</b> — force, pressure, torque or bearing — and click the faces it acts on.', () => nl > 0),
+      gS('Solve', 'Press <b>Solve</b>. A coarse mesh is quick; refine it to check the answer converges.', () => !!R),
+      gS('Read the colour map', 'Switch between von Mises, displacement and safety factor. Click the part to probe a point.', () => !!R, true)];
+  }],
+  'cam:overview': ['Manufacture steps', () => {
+    const C = cam(), n = C.ops.length;
+    return [
+      gS('Set up the stock', 'Click <b>Setup</b>: stock size, material and the work origin (G54).', () => !!C.setupDone || n > 0),
+      gS('Check the tools', 'Open the <b>Tool Library</b>; speeds and feeds follow the material.', () => n > 0, true),
+      gS('Add operations', 'Face, contour, pocket, drill… or try <b>Auto Program</b>.', () => n > 0),
+      gS('Simulate', 'Watch the stock being cut, with chips and a collision check.', () => !!(typeof SIM !== 'undefined' && SIM.on)),
+      gS('Post the G-code', 'Click <b>Post</b> to see the program for the machine.')];
+  }],
+  'cam:setup': ['Setup steps', () => [
+    gS('Stock size', 'How much extra material there is on the sides, top and bottom.'),
+    gS('Material', 'Changing it re-derives every tool’s speeds and feeds.'),
+    gS('Work origin', 'Choose the corner or a construction point as G54.'),
+    gS('Clearances', 'Set the clearance and retract heights above the stock.', null, true),
+    gS('Done', 'Click <b>Done</b> to go back to the operations.')]],
+  'cam:tools': ['Tool library steps', () => [
+    gS('Pick or add a tool', 'Each operation uses one tool from this list.'),
+    gS('Check its size and flutes', 'Diameter, flutes and stick-out set the feed.'),
+    gS('Review speeds and feeds', 'They are worked out from the material; you can override them.', null, true),
+    gS('Done', 'Click <b>Done</b> to go back.')]],
+  'cam:sim': ['Simulation steps', () => [
+    gS('Press play', 'Watch the stock being removed. Chips fly off with the cut.'),
+    gS('Scrub the timeline', 'Drag to any moment; use the speed slider to slow down.', null, true),
+    gS('Look for problems', 'Collisions and gouges show in red.'),
+    gS('End the simulation', 'Click <b>End</b> to go back to the operations.')]],
+  'cam:post': ['G-code steps', () => [
+    gS('Check the program', 'Every line is shown with its tool change and coordinates.'),
+    gS('Copy or save it', 'Download the file for the control.'),
+    gS('Prove it out', 'Run it in simulation or dry-run on the machine first.', null, true)]],
+  'cam:auto': ['Auto Detect steps', () => [
+    gS('Review what was found', 'Holes, pockets, faces and contours are listed.'),
+    gS('Add the operations', 'Pick the ones you want.'),
+    gS('Check the result', 'Simulate and tweak any operation by clicking it.', null, true)]],
+  'cam:report': ['Verify steps', () => [
+    gS('Wait for the check', 'Every move is checked for collisions and gouges.'),
+    gS('Read the findings', 'Each issue says what is wrong and where.'),
+    gS('Fix and re-verify', 'Click an operation to change it, then verify again.', null, true)]],
+  'cam:jaws': ['Soft jaws steps', () => [
+    gS('Look at the pocket', 'The jaws are bored to the shape of the part.'),
+    gS('Set the grip depth', 'How much of the part sits in the jaws.'),
+    gS('Done', 'Click <b>Done</b> to go back.')]],
+  op: ['Operation steps', () => {
+    const op = opById(CAMUI.op);
+    return [
+      gS('Pick the tool', 'The tool and its speeds and feeds come from the library.', () => !!op && op.tool != null),
+      gS('Choose what to cut', 'Click faces or holes in the view — or leave it on automatic.', () => !!op, true),
+      gS('Set depths and stepover', 'Stepdown, stepover and stock to leave for the finish.', null, true),
+      gS('Check the toolpath', 'The path draws in the view as soon as it is ready.', () => !!op && toolpathReady(op)),
+      gS('Simulate', 'Press <b>Simulate</b> on the operation list to watch it cut.', null, true)];
+  }],
+  'op:wire': ['Wire contour steps', () => [
+    gS('Choose what to cut', 'Openings and the outside, or openings only.'),
+    gS('Set the skims', 'Each skim pass removes the last of the rough pass.', null, true),
+    gS('Check the conditions', 'Wire diameter, spark gap and the S numbers.', null, true),
+    gS('Check the path', 'Only shapes that go right through can be cut.', () => { try { const op = opById(CAMUI.op); return !!op && toolpathReady(op); } catch (e) { return false; } })]],
+  sheet: ['Setup sheet steps', () => [
+    gS('Rebuild from the program', 'Fills in tools, times and notes from the operations.'),
+    gS('Add notes', 'Material, fixture and anything the operator needs.', null, true),
+    gS('Print or save', 'Use the browser’s print command.')]],
+};
+
+// features that had no hover how-to
+const fRdy = () => { try { const D = FEATS[CMD.kind]; return !D.ready || !!D.ready(CMD.f); } catch (e) { return false; } };
+GD['feat:pattern'] = ['Pattern', () => {
+  const k = CMD.f.kind;
+  return [
+    gS('Pick what to copy', 'Click a feature or face in the view (or switch to Bodies in the panel).', fRdy),
+    gS(k === 'mirror' ? 'Choose the mirror plane' : k === 'circ' ? 'Choose the axis' : 'Choose the direction', k === 'mirror' ? 'Pick an origin plane or a flat face.' : k === 'circ' ? 'Pick an edge, axis or sketch line the copies turn around.' : 'Pick an axis, edge or line the copies run along. Add a second direction for a grid.', null, true),
+    gS(k === 'mirror' ? 'Join the result' : 'Set count and spacing', k === 'mirror' ? 'Merge the mirrored copy with the original if you want one body.' : 'The part updates live as you type.', null, true),
+    gS('Confirm', 'Press <b>OK</b>.')];
+}];
+GD['feat:polyline3d'] = ['Polyline', () => [
+  gS('Type the points', 'One X Y Z per line; units can be added (12mm, 1/2in).', () => CMD.f.pts.length >= 2),
+  gS('Close it', 'Tick Closed to join the last point to the first.', null, true),
+  gS('Confirm', 'Press <b>OK</b>. Use it as a sweep path.')]];
+GD['feat:screw'] = ['Fastener', () => [
+  gS('Choose the kind', 'Socket cap, hex, button, nut, washer… in the list at the top.'),
+  gS('Choose the size', 'Metric or inch — the thread pitch and head follow. Pick Custom for any size.'),
+  gS('Set length and details', 'Length, thread, drive and point type; every parameter can be edited.', null, true),
+  gS('Put it in place', 'Use <b>Place on a point</b> and click a hole center, or type the position.', () => !!CMD.f && (CMD.f.cx || CMD.f.cy || CMD.f.off) ? true : false),
+  gS('Confirm', 'Press <b>OK</b>.')]];
+GD['feat:shop'] = ['Workholding & drives', () => {
+  const dr = !!((typeof SHOP !== 'undefined' && SHOP[CMD.f.kind]) || {}).drive;
+  return [
+    gS(dr ? 'Choose the axle, pulley or drive' : 'Choose the item', dr ? 'Axles, V-belt, flat and timing pulleys, sprockets and belt drives.' : 'Vises, toe clamps, parallels, 1-2-3 blocks, fixtures.'),
+    gS('Set its size', dr ? 'Diameters, tooth counts, belt width, centre distance.' : 'Length, width, jaw opening and so on.', null, true),
+    gS('Put it in place', 'Which way it points, where it sits — or <b>Place on a point</b>.', () => !!CMD.f && (CMD.f.cx || CMD.f.cy || CMD.f.off) ? true : false, true),
+    gS('Confirm', 'Press <b>OK</b>.' + (dr ? ' Then try it in the Physics lab.' : ''))];
+}];
+
+// features: the how-to from the hover card, then the confirmation
+function featGuide(kind, f) {
+  const k = 'f:' + kind, tx = TIP_TXT[k] || TIP_TXT[kind];
+  const D = FEATS[kind];
+  const rdy = () => { try { return !D || !D.ready || !!D.ready(f); } catch (e) { return false; } };
+  const steps = (tx && tx[1] ? tx[1] : ['Fill in the settings below.']).map((t, i) => gS(t, '', i === 0 ? rdy : null, i > 0));
+  steps.push(gS('Confirm', 'Press <b>OK</b>.'));
+  return steps;
+}
+function guideKey() {
+  if (CMD) {
+    if (CMD.type === 'measure' || CMD.type === 'stress') return CMD.type;
+    return CMD.type === 'feat' ? 'feat:' + CMD.kind : CMD.type;
+  }
+  if (S.sk) return 'sketch';
+  if (UIX.ws === 'sheet') return 'sheet';
+  if (UIX.ws === 'cam') {
+    const v = CAMUI.view;
+    if (v === 'op') { const op = opById(CAMUI.op); return op && op.type === 'wire' ? 'op:wire' : 'op'; }
+    return 'cam:' + v;
+  }
+  return doc.features.length ? 'idle' : 'start';
+}
+const GUIDE_TITLE = { 'feat:revolve': 'Revolve', 'feat:sweep': 'Sweep', 'feat:loft': 'Loft', 'feat:coil': 'Coil', 'feat:hole': 'Hole', 'feat:gear': 'Gear', 'feat:shell': 'Shell', 'feat:pattern': 'Pattern', 'feat:combine': 'Combine', 'feat:split': 'Split body', 'feat:move': 'Move / Copy', 'feat:rotate': 'Rotate', 'feat:scale': 'Scale', 'feat:deform': 'Deform', 'feat:screw': 'Fastener', 'feat:shop': 'Workholding & drives' };
+function guideFor(key) {
+  if (GD[key]) return { title: GD[key][0], steps: GD[key][1]() };
+  if (key === 'edge') return null;
+  if (key.startsWith('feat:')) {
+    const kind = key.slice(5);
+    if (!CMD || !CMD.f) return null;
+    const t = GUIDE_TITLE[key] || ((FEATS[kind] && FEATS[kind].label) || 'Steps');
+    const extra = kind === 'shop' || kind === 'screw' ? { 'f:shop': 1 } : null; void extra;
+    return { title: t + ' steps', steps: featGuide(kind, CMD.f) };
+  }
+  return null;
+}
+function guideHTML(g, plain) {
+  const st = g.steps.map(s => ({ ...s, ok: s.done ? guideSafe(s.done) : null }));
+  // the active step is the first one still waiting on something, else the last (confirm)
+  let now = plain ? -1 : st.findIndex(s => s.done && !s.ok && !s.opt);
+  if (now < 0 && !plain) now = st.findIndex(s => s.done && !s.ok);
+  if (now < 0 && !plain) { now = st.findIndex(s => !s.done && !s.opt); if (now < 0) now = st.length - 1; }
+  // everything the user has clearly passed (ahead of the active step with a check) is done; steps without a test before the active one are done too
+  const donec = st.filter((s, i) => s.ok || (i < now && !(s.opt && !s.done))).length;
+  const li = st.map((s, i) => {
+    const cls = i === now ? 'now' : s.ok ? 'done' : i < now ? (s.opt && !s.done ? 'skip' : 'done') : 'todo';
+    const mark = cls === 'done' ? '<svg viewBox="0 0 12 12"><path d="M2.5 6.5l2.5 2.5 4.5-5.5"/></svg>' : i + 1;
+    return `<li class="${cls} ${s.opt ? 'opt' : ''}"><span class="sn">${mark}</span><div><b>${s.t}</b>${s.d ? `<p>${s.d}</p>` : ''}</div></li>`;
+  }).join('');
+  return `<section class="guide ${plain ? 'plain' : ''} ${GUIDE.shut ? 'shut' : ''}" aria-label="${g.title}"><button class="guide-head" type="button" aria-expanded="${!GUIDE.shut}"><span class="gic"><svg viewBox="0 0 16 16"><path d="M3 4h2M3 8h2M3 12h2M7.5 4H13M7.5 8H13M7.5 12H11"/></svg></span><b>Step by step</b><span class="gn">${plain ? st.length + ' steps' : Math.min(donec + 1, st.length) + ' / ' + st.length}</span><i class="gv"></i></button>${plain ? '' : `<div class="guide-bar"><i style="width:${Math.round(donec / st.length * 100)}%"></i></div>`}<ol class="guide-steps">${li}</ol></section>`;
+}
+(() => {
+  const panel = document.getElementById('panel'); if (!panel) return;
+  let deco = false;
+  const obs = new MutationObserver(() => decorate());
+  function decorate() {
+    if (deco) return; deco = true; obs.disconnect();
+    try {
+      for (const g of panel.querySelectorAll(':scope > .guide')) g.remove();
+      if (!panel.hidden && panel.firstElementChild) {
+        const g = guideFor(guideKey());
+        if (g) {
+          const t = document.createElement('div'); t.innerHTML = guideHTML(g);
+          const el = t.firstElementChild, head = panel.querySelector(':scope > .pn-head');
+          head ? head.after(el) : panel.prepend(el);
+          el.querySelector('.guide-head').addEventListener('click', () => { GUIDE.shut = !GUIDE.shut; try { localStorage.setItem('datum.guideShut', GUIDE.shut ? '1' : '0'); } catch (e) { } el.classList.toggle('shut', GUIDE.shut); el.querySelector('.guide-head').setAttribute('aria-expanded', !GUIDE.shut); });
+        }
+      }
+    } catch (e) { console.warn('guide', e); }
+    deco = false; obs.observe(panel, { childList: true });
+  }
+  obs.observe(panel, { childList: true });
+  const refreshPanel0G = refreshPanel;
+  refreshPanel = function () { refreshPanel0G(); decorate(); };
+  window.guideRefresh = decorate;
+  decorate();
+})();
+try { refreshToolbar(); if (window.ribFit) ribFit(); } catch (e) { }
+
+// ── 4. the physics & shop lab: its tabs explain themselves, and its card starts with the steps ──
+const PHY_GUIDE = {
+  sticks: ['Pick a setup', 'Choose one stick, a double or triple pendulum, a chain or a wave.', 'Drag any joint with the mouse and let go.', 'Change gravity and air drag; switch on Trails to see the path.', 'Kick sends it flying.'],
+  marbles: ['Watch the run', 'Marbles drop in at the top and roll down the track.', 'Set how often one is released with Pop every.', 'Change gravity to slow or speed it up.', 'Pop a marble to send one now.'],
+  drone: ['Take off', 'Press T or the Take off button.', 'Climb with Space, descend with Shift; tilt with W A S D; turn with Q E.', 'Or turn on Autopilot to fly the gates.', 'Land when you are done.'],
+  chips: ['Pick the material', 'Aluminum, steel, stainless, titanium, cast iron, brass or acetal.', 'Set the cutting speed, feed and rake angle.', 'Watch the chip: continuous, segmented or broken.', 'Turn on flood coolant, tool wear or the shear plane to see their effect.'],
+  fluid: ['Pick a scene', 'Dam break, wave tank, a jug pouring, a sloshing tank or a coolant jet.', 'Choose the liquid and how it is drawn.', 'Change viscosity and gravity.', 'Drag in the tank to push the fluid, or add a block of it.'],
+  mech: ['Pick a demo', 'Newton’s cradle, a crank-slider engine, tool chatter, a rolling race or a gear train.', 'Lift and release, or drag parts with the mouse.', 'Change gravity and bounciness.'],
+  shop: ['Choose the machine', 'A Haas VF-1, 2, 3 or 4.', 'Pick the touch-off tool: edge finder or probe.', 'Jog with the handwheel buttons; change the step size.', 'Touch the stock on X, Y and Z and set the work offset.'],
+  lathe: ['Pick the part', 'The part in the model, or the demo stepped shaft.', 'Set the surface speed and the roughing depth.', 'Turn on groove, thread, drilling or cut-off.', 'Add live-tool cross holes, bolt circle or flats, then watch it cut.'],
+  waterjet: ['Pick the material', 'Steel, stainless, aluminum, granite, glass, composites, foam…', 'Set the thickness and the pump pressure.', 'Watch the jet: the cut quality and speed update.', 'Slow it down to see the taper and the lag in the jet.'],
+  hose: ['Pick a scene', 'A faucet into a sink, a garden hose, a pressure washer or a jet through a slot.', 'Set the pressure (exit speed) and the nozzle.', 'Aim up, down, left and right.', 'Change the liquid and how it is drawn.'],
+};
+const PHY_TAB_TXT = { sticks: 'Swinging sticks: single, double and triple pendulums, chains and waves.', marbles: 'A marble tower: marbles rolling down a track.', drone: 'Fly a quadcopter by hand or let the autopilot take the gates.', chips: 'How a cutter makes chips in different materials.', fluid: 'Position-based water: dam breaks, waves, jugs and coolant.', mech: 'Newton’s cradle, engines, chatter, rolling races and gear trains.', shop: 'Haas VF mills with an edge finder and probe for the touch-off lesson.', lathe: 'CNC turning with live tooling.', waterjet: 'Abrasive waterjet cutting in many materials and thicknesses.', hose: 'Faucets, hoses, pressure washers and jets as real water.' };
+for (const k in PHY_TAB_TXT) if (!BTN_TXT['phy:' + k]) BTN_TXT['phy:' + k] = [PHY_TAB_TXT[k], (PHY_GUIDE[k] || []).slice(1, 4)];
+(() => {
+  let card = null, deco = false, obs = null;
+  const decor = () => {
+    if (deco) return; card = document.getElementById('phyCard'); if (!card) return;
+    deco = true; obs.disconnect();
+    try {
+      for (const g of card.querySelectorAll(':scope > .guide')) g.remove();
+      const G = typeof PHY !== 'undefined' && PHY_GUIDE[PHY.id];
+      if (G && !(PHY.el && PHY.el.hidden)) {
+        const t = document.createElement('div'); t.innerHTML = guideHTML({ title: G[0], steps: [G[0] + ': ' + G[1], ...G.slice(2)].map(x => gS(x, '')) }, true);
+        const el = t.firstElementChild; card.prepend(el);
+        el.querySelector('.guide-head').addEventListener('click', () => { GUIDE.shut = !GUIDE.shut; try { localStorage.setItem('datum.guideShut', GUIDE.shut ? '1' : '0'); } catch (e) { } el.classList.toggle('shut', GUIDE.shut); });
+      }
+    } catch (e) { console.warn('guide', e); }
+    deco = false; obs.observe(card, { childList: true });
+  };
+  obs = new MutationObserver(decor);
+  const wait = () => { const c = document.getElementById('phyCard'); if (c) { card = c; obs.observe(c, { childList: true }); decor(); } else setTimeout(wait, 400); };
+  const po = physicsOpen; physicsOpen = function (id) { po.apply(this, arguments); wait(); decor(); };
+})();
+</script>
+<!-- RIB2-END -->
 </body>
 </html>
