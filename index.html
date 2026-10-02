@@ -27417,6 +27417,23 @@ SAMPLES.push({ axes: 'model', name: 'Bent plate for engraving', desc: 'A plate a
   k.features.push({ id: k.nid(), type: 'deform', name: 'Bend', ...FEATS.deform.init(), bodies: [e1.id], mode: 'bend', ax: 'X', dir: 'Z', angle: 32 });
   return k.doc();
 } });
+// assortments: a row of every fastener, a workholding table, and the four deformations side by side
+SAMPLES.push({ axes: 'model', name: 'Fastener assortment', desc: 'Screws, nuts and washers of different heads and drives in a row: click any to change a parameter.', make() {
+  const k = sampleKit(), kinds = ['socket', 'button', 'flat', 'pan', 'hex', 'flange', 'carriage', 'set'], sizes = ['M6', 'M8', 'M5', 'M4', 'M10', 'M8', 'M6', 'M6'];
+  kinds.forEach((kd, i) => k.features.push({ id: k.nid(), type: 'screw', name: 'Screw ' + (i + 1), ...FEATS.screw.init(), kind: kd, size: sizes[i], d: +sizes[i].slice(1), pitch: { M4: 0.7, M5: 0.8, M6: 1, M8: 1.25, M10: 1.5 }[sizes[i]], L: 25, cx: (i - 3.5) * 24, cy: 0 }));
+  ['nut', 'nylock', 'washer', 'lockwasher'].forEach((kd, i) => k.features.push({ id: k.nid(), type: 'screw', name: kd, ...FEATS.screw.init(), kind: kd, size: 'M8', d: 8, pitch: 1.25, L: 6, cx: (i - 1.5) * 24, cy: 40 }));
+  return k.doc();
+} });
+SAMPLES.push({ axes: 'model', name: 'Workholding table', desc: 'A 6 in vise, 1-2-3 blocks, toe clamps and a dovetail fixture: everything in a manual room, parametric.', make() {
+  const k = sampleKit();
+  [['vise', 0, 0], ['block123', -170, 10], ['toeClamp', 140, 0], ['dovetailFixture', 0, 110], ['parallels', -170, 80], ['cClamp', 170, 90]].forEach(([kd, x, y], i) => k.features.push({ id: k.nid(), type: 'shop', name: kd + (i + 1), ...FEATS.shop.init(), kind: kd, cx: x, cy: y }));
+  return k.doc();
+} });
+SAMPLES.push({ axes: 'model', name: 'Deform gallery', desc: 'The same bar bent, twisted, tapered and warped. Edit any deform to change its angle, axis or range.', make() {
+  const k = sampleKit(), mk = (y, mode, extra) => { const s = k.sketch(k.XZ, k.rect(-40, y - 6, 40, y + 6), { k: 'origin', w: 'XZ' }), e = k.extrude(s, [P2(0, y)], 8, 'new'); k.features.push({ id: k.nid(), type: 'deform', name: mode, ...FEATS.deform.init(), bodies: [e.id], mode, ax: 'X', dir: 'Z', ...extra }); };
+  mk(-45, 'bend', { angle: 60 }); mk(-15, 'twist', { angle: 120 }); mk(15, 'taper', { scale: 0.35 }); mk(45, 'wave', { amp: 5, wavelength: 40 });
+  return k.doc();
+} });
 
 // ── CNC turning and live tooling (Haas ST style): the profile comes from a body of the model or a demo shaft ──
 // Program Z runs from the face (0) toward the chuck (negative); X is the diameter, as on the control.
