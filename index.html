@@ -16019,14 +16019,14 @@ const SAMPLES = [
   { axes: 6, name: 'T-slot plate', make: sTSlotPlate, desc: 'Two T-slots whose undercut roofs face down, with holes from the top, leaning beside the slots, and in an end and the front.' },
   { axes: 6, name: 'Arch bridge', make: sArchBridge, desc: 'A passage underneath whose roof faces down, with holes leaning up into it, down through both legs and in the end.' },
 ];
-const AXIS_WHAT = { 3: '3-axis', 4: '4-axis (3 + one rotary)', 5: '5-axis', 6: '6-axis (robot / multi-setup)' };
+const AXIS_WHAT = { wire: 'Wire EDM (through cuts only)', 3: '3-axis', 4: '4-axis (3 + one rotary)', 5: '5-axis', 6: '6-axis (robot / multi-setup)' };
 function openSamples() {
   const card = document.getElementById('modalCard');
   let prev = null;
   try { prev = JSON.parse(localStorage.getItem('datum.prev') || 'null'); } catch (e) { prev = null; }
   card.innerHTML = `<div class="m-head"><h3>Sample parts</h3><button class="x" data-mx title="Close">×</button></div>
     <p class="note">Each sample is a normal, editable feature history. Open one, then try <b>Manufacture → Auto Detect</b> to see what it takes to machine it.</p>
-    ${['motion', 'model', 3, 4, 5, 6].map(a => `<div class="m-sec">${AXIS_WHAT[a]}</div><div class="sample-grid">${SAMPLES.map((s, i) => s.axes === a ? `<button class="sample" data-sample="${i}"><span class="axis-badge a${a}">${a === 'model' || a === 'motion' ? a : a + '-axis'}</span><b>${s.name}</b><span>${s.desc}</span></button>` : '').join('')}</div>`).join('')}
+    ${['motion', 'model', 3, 'wire', 4, 5, 6].map(a => `<div class="m-sec">${AXIS_WHAT[a]}</div><div class="sample-grid">${SAMPLES.map((s, i) => s.axes === a ? `<button class="sample" data-sample="${i}"><span class="axis-badge a${a}">${a === 'model' || a === 'motion' ? a : a === 'wire' ? 'wire EDM' : a + '-axis'}</span><b>${s.name}</b><span>${s.desc}</span></button>` : '').join('')}</div>`).join('')}
     ${prev && prev.features && prev.features.length ? `<div class="m-sec">Your work</div><div class="sample-grid"><button class="sample" data-restore><b>Restore last session</b><span>${prev.features.length} feature${prev.features.length === 1 ? '' : 's'} from the last time Datum was open.</span></button></div>` : ''}`;
   document.getElementById('modal').hidden = false;
   card.querySelector('[data-mx]').addEventListener('click', closeModal);
@@ -16268,7 +16268,7 @@ function autoPlan(R) {
           let area = loopRises(rg.outer, f.z, true) ? [orient(cP(rg.outer), true)] : cDiff(cOffset(rect, r + 1), silhouetteAbove(f.z));
           const isl = rg.holes.filter(h => loopRises(h, f.z, false));
           if (isl.length) area = cDiff(area, isl.map(h => orient(cP(h), true)));
-          if (!cOffset(area, -r).length) return false;
+          if (!cOffset(area, -(r + 0.3)).length) return false;
         }
       }
       return true;
@@ -16277,7 +16277,7 @@ function autoPlan(R) {
     const sizes = [...new Set([...stdFlat(), ...C.tools.filter(t => t.type === 'flat').map(t => t.d)])].sort((a, b) => b - a);
     const fitsAny = d => {
       const r = d / 2, rect = [cP([P2(R.st.x0, R.st.y0), P2(R.st.x1, R.st.y0), P2(R.st.x1, R.st.y1), P2(R.st.x0, R.st.y1)])];
-      for (const f of R.floors) { const all = faceRegion(f.mesh, f.fid); if (!all) continue; for (const rg of all.parts) { if (!floorPartMachinable(rg, f.z)) continue; let area = loopRises(rg.outer, f.z, true) ? [orient(cP(rg.outer), true)] : cDiff(cOffset(rect, r + 1), silhouetteAbove(f.z)); const isl = rg.holes.filter(h => loopRises(h, f.z, false)); if (isl.length) area = cDiff(area, isl.map(h => orient(cP(h), true))); if (cOffset(area, -r).length) return true; } }
+      for (const f of R.floors) { const all = faceRegion(f.mesh, f.fid); if (!all) continue; for (const rg of all.parts) { if (!floorPartMachinable(rg, f.z)) continue; let area = loopRises(rg.outer, f.z, true) ? [orient(cP(rg.outer), true)] : cDiff(cOffset(rect, r + 1), silhouetteAbove(f.z)); const isl = rg.holes.filter(h => loopRises(h, f.z, false)); if (isl.length) area = cDiff(area, isl.map(h => orient(cP(h), true))); if (cOffset(area, -(r + 0.3)).length) return true; } }
       return false;
     };
     const dSmall = sizes.find(d => d <= maxByCorner && fits(d)) || 1;
@@ -27436,6 +27436,87 @@ SAMPLES.push({ axes: 'model', name: 'Deform gallery', desc: 'The same bar bent, 
   return k.doc();
 } });
 
+// ── thirty more 3-axis parts: every feature is cut from the top, so one setup does the lot ──
+{
+  const poly = (k, pts) => pts.map((p, i) => k.L(p[0], p[1], pts[(i + 1) % pts.length][0], pts[(i + 1) % pts.length][1]));
+  const ngon = (k, cx, cy, r, n, rot = 0) => poly(k, Array.from({ length: n }, (_, i) => [cx + r * Math.cos(rot + i * 2 * Math.PI / n), cy + r * Math.sin(rot + i * 2 * Math.PI / n)]));
+  const rotRect = (k, cx, cy, w, h, a) => { const c = Math.cos(a), s = Math.sin(a); return poly(k, [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]].map(([x, y]) => [cx + x * c - y * s, cy + x * s + y * c])); };
+  const disc = (k, r, h) => { const s = k.sketch(k.XZ, [k.C(0, 0, r)], { k: 'origin', w: 'XZ' }); return k.extrude(s, [P2(0, 0)], h, 'new'); };
+  const grid = (xs, ys) => xs.flatMap(x => ys.map(y => [x, y]));
+  const S3 = [];
+  const add = (name, desc, fn) => S3.push({ axes: 3, name, desc, make: () => { const k = sampleKit(); fn(k); return k.doc(); } });
+  add('Motor mount plate', 'Adjustment slots at the corners and a big center bore: slot milling, boring, one setup.', k => { kBox(k, -50, -40, 50, 40, 10); for (const [x, y] of grid([-38, 38], [-30, 30])) kCut(k, 10, k.rrect(x - 6, y - 3, x + 6, y + 3, 3), [P2(x, y)], 10); kHole(k, [0, 0, 10], [0, 0, 1], 30, 10); });
+  add('Pillow block', 'A Ø22 bearing bore with two counterbored mounting holes.', k => { kBox(k, -40, -20, 40, 20, 25); kHole(k, [0, 0, 25], [0, 0, 1], 22, 25); for (const x of [-30, 30]) { kHole(k, [x, 0, 25], [0, 0, 1], 14, 5); kHole(k, [x, 0, 25], [0, 0, 1], 8.4, 25); } });
+  add('Spacer ring', 'A round spacer with a Ø20 bore and three holes on a circle.', k => { disc(k, 30, 6); kHole(k, [0, 0, 6], [0, 0, 1], 20, 6); for (let i = 0; i < 3; i++) { const a = Math.PI / 2 + i * 2 * Math.PI / 3; kHole(k, [24 * Math.cos(a), 24 * Math.sin(a), 6], [0, 0, 1], 5, 6); } });
+  add('Flat L-bracket', 'An L-shaped plate profile with four holes: contour and drill.', k => { const s = k.sketch(k.XZ, poly(k, [[-50, -30], [50, -30], [50, -10], [-20, -10], [-20, 30], [-50, 30]]), { k: 'origin', w: 'XZ' }); k.extrude(s, [P2(-30, 0)], 8, 'new'); for (const [x, y] of [[-35, 20], [-35, 0], [0, -20], [35, -20]]) kHole(k, [x, y, 8], [0, 0, 1], 6, 8); });
+  add('Cable clip strip', 'Five U-slots along a bar for cable clips.', k => { kBox(k, -60, -15, 60, 15, 12); for (const x of [-48, -24, 0, 24, 48]) { kCut(k, 12, k.rect(x - 4.5, -2, x + 4.5, 16), [P2(x, 8)], 12); kCut(k, 12, [k.C(x, -2, 4.5)], [P2(x, -2)], 12); } });
+  add('Hex nut tray', 'Six hexagonal pockets sized for M8 nuts.', k => { kBox(k, -45, -30, 45, 30, 14); for (const [x, y] of grid([-28, 0, 28], [-15, 15])) kCut(k, 14, ngon(k, x, y, 7.4, 6), [P2(x, y)], 8); });
+  add('Ladder plate', 'A row of six through slots: slotting and tight spacing.', k => { kBox(k, -60, -30, 60, 30, 8); for (const x of [-50, -30, -10, 10, 30, 50]) kCut(k, 8, k.rrect(x - 3, -20, x + 3, 20, 3), [P2(x, 0)], 8); });
+  add('Serpentine coolant plate', 'A winding channel between two port holes: a long, continuous pocket.', k => {
+    kBox(k, -50, -35, 50, 35, 15);
+    const R = [[-40, -25, 40, -19], [34, -25, 40, -5], [-40, -11, 40, -5], [-40, -11, -34, 9], [-40, 3, 40, 9], [34, 3, 40, 23], [-40, 17, 40, 23]];
+    for (const [a, b, c, d] of R) kCut(k, 15, k.rect(a, b, c, d), [P2((a + c) / 2, (b + d) / 2)], 6);
+    kHole(k, [-37, -22, 15], [0, 0, 1], 8, 15); kHole(k, [-37, 20, 15], [0, 0, 1], 8, 15);
+  });
+  add('Gear blank', 'A disc with a hub, a keyed bore and six lightening holes.', k => { disc(k, 40, 10); kJoin(k, 10, [k.C(0, 0, 15)], [P2(0, 0)], 6); kHole(k, [0, 0, 16], [0, 0, 1], 16, 16); kCut(k, 16, k.rect(-2.5, 7, 2.5, 11), [P2(0, 9)], 16); for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; kHole(k, [26 * Math.cos(a), 26 * Math.sin(a), 10], [0, 0, 1], 10, 10); } });
+  add('Control knob blank', 'A knurl-ring groove, a bore and three finger pockets.', k => { disc(k, 30, 12); kCut(k, 12, [k.C(0, 0, 26), k.C(0, 0, 22)], [P2(24, 0)], 3); kHole(k, [0, 0, 12], [0, 0, 1], 8, 12); for (let i = 0; i < 3; i++) { const a = i * 2 * Math.PI / 3; kCut(k, 12, [k.C(14 * Math.cos(a), 14 * Math.sin(a), 6)], [P2(14 * Math.cos(a), 14 * Math.sin(a))], 4); } });
+  add('Phone stand', 'A slot for the phone, a cable notch and a rear pocket.', k => { kBox(k, -40, -30, 40, 30, 20, 4); kCut(k, 20, k.rrect(-35, -5, 35, 5, 2), [P2(0, 0)], 14); kCut(k, 20, k.rrect(-30, 12, 30, 24, 3), [P2(0, 18)], 8); kCut(k, 20, k.rect(-8, -31, 8, -20), [P2(0, -25)], 8); });
+  add('Engraving name plate', 'A rounded plate with a shallow recessed panel: ready for the Engrave operation.', k => { kBox(k, -70, -25, 70, 25, 6, 5); kCut(k, 6, k.rrect(-58, -14, 58, 14, 3), [P2(0, 0)], 0.8); for (const [x, y] of grid([-63, 63], [-18, 18])) kHole(k, [x, y, 6], [0, 0, 1], 4, 6); });
+  add('Cam plate', 'An obround slot, two stepped round pockets and a mounting hole.', k => { kBox(k, -50, -35, 50, 35, 10); kCut(k, 10, k.rrect(-30, -5, 30, 5, 5), [P2(0, 0)], 10); for (const x of [-25, 25]) { kCut(k, 10, [k.C(x, 22, 12)], [P2(x, 22)], 4); kHole(k, [x, 22, 6], [0, 0, 1], 6, 6); } kHole(k, [0, -24, 10], [0, 0, 1], 6, 10); });
+  add('Jig plate, seven sizes', 'Holes from Ø3 to Ø12 in a row: tool changes and size sorting.', k => { kBox(k, -60, -25, 60, 25, 12); [3, 4, 5, 6, 8, 10, 12].forEach((d, i) => kHole(k, [-54 + i * 18, 0, 12], [0, 0, 1], d, 12)); });
+  add('Motor face plate', 'A pilot boss, a center bore and four holes on a Ø66 circle.', k => { kBox(k, -40, -40, 40, 40, 12, 4); kJoin(k, 12, [k.C(0, 0, 19)], [P2(0, 0)], 3); kHole(k, [0, 0, 15], [0, 0, 1], 14, 15); for (const [x, y] of grid([-23.3, 23.3], [-23.3, 23.3])) kHole(k, [x, y, 12], [0, 0, 1], 5.5, 12); });
+  add('Soft jaw', 'Two stepped round pockets and counterbored mounting holes, cut into a block of aluminum.', k => { kBox(k, -55, -14, 55, 14, 30); for (const [x, r] of [[-24, 17], [26, 14]]) { kCut(k, 30, [k.C(x, 0, r)], [P2(x, 0)], 10); kCut(k, 20, [k.C(x, 0, r - 4)], [P2(x, 0)], 6); } for (const x of [-47, 47]) { kHole(k, [x, 0, 30], [0, 0, 1], 11, 6); kHole(k, [x, 0, 30], [0, 0, 1], 6.6, 30); } });
+  add('Tapped block', 'M6, M8 and M10 tap-drill holes, some blind: a drilling and tapping job.', k => { kBox(k, -40, -25, 40, 25, 25); for (const [x, y] of grid([-30, -10], [-15, 15])) kHole(k, [x, y, 25], [0, 0, 1], 5, 15); for (const x of [10, 30]) kHole(k, [x, -12, 25], [0, 0, 1], 6.8, 18); kHole(k, [20, 12, 25], [0, 0, 1], 8.5, 25); });
+  add('Battery tray', 'Four round pockets joined by a wire channel.', k => { kBox(k, -45, -25, 45, 25, 22, 4); for (const x of [-33, -11, 11, 33]) kCut(k, 22, [k.C(x, 0, 7.5)], [P2(x, 0)], 16); kCut(k, 22, k.rect(-33, -2, 33, 2), [P2(0, 0)], 4); });
+  add('Pen tray', 'A long rounded pocket with two deeper wells.', k => { kBox(k, -80, -20, 80, 20, 18, 6); kCut(k, 18, k.rrect(-70, -12, 70, 12, 6), [P2(0, 0)], 14); for (const x of [-45, 45]) kCut(k, 4, [k.C(x, 0, 8)], [P2(x, 0)], 3); });
+  add('Coaster with grooves', 'Three concentric ring grooves, each a few tenths deep.', k => { disc(k, 45, 8); for (const [ro, ri] of [[40, 36], [30, 26], [20, 16]]) kCut(k, 8, [k.C(0, 0, ro), k.C(0, 0, ri)], [P2((ro + ri) / 2, 0)], 1.5); });
+  add('Sensor housing', 'A pocket, a wire slot out one side and four screw holes in the wall.', k => { kBox(k, -35, -25, 35, 25, 25, 3); kCut(k, 25, k.rrect(-28, -18, 28, 18, 2), [P2(0, 0)], 18); kCut(k, 25, k.rect(26, -4, 36, 4), [P2(32, 0)], 12); for (const [x, y] of grid([-31.5, 31.5], [-21.5, 21.5])) kHole(k, [x, y, 25], [0, 0, 1], 3.4, 25); });
+  add('Pin grid plate', 'A 5 × 5 grid of Ø4 holes: a lot of identical drilling.', k => { kBox(k, -30, -30, 30, 30, 10); for (const [x, y] of grid([-20, -10, 0, 10, 20], [-20, -10, 0, 10, 20])) kHole(k, [x, y, 10], [0, 0, 1], 4, 10); });
+  add('Hinge leaf', 'Counterbored screw holes and a relief pocket along one edge.', k => { kBox(k, -40, -15, 40, 15, 5, 2); for (const x of [-28, 0, 28]) { kHole(k, [x, 0, 5], [0, 0, 1], 9, 2.5); kHole(k, [x, 0, 5], [0, 0, 1], 5, 5); } kCut(k, 5, k.rect(-36, 10, 36, 16), [P2(0, 13)], 1.5); });
+  add('Star slot disc', 'Three radial slots at 120° and a center hole, cut with a rotated pattern.', k => { disc(k, 45, 10); for (let i = 0; i < 3; i++) { const a = i * 2 * Math.PI / 3 + Math.PI / 2, cx = 25 * Math.cos(a), cy = 25 * Math.sin(a); kCut(k, 10, rotRect(k, cx, cy, 30, 8, a), [P2(cx, cy)], 10); } kHole(k, [0, 0, 10], [0, 0, 1], 14, 10); });
+  add('Stepped pocket', 'Four nested pockets, each smaller and deeper: a staircase in the floor.', k => { kBox(k, -40, -40, 40, 40, 24); [[32, 6], [24, 6], [16, 6], [8, 3]].forEach(([h, d], i) => kCut(k, 24 - [0, 6, 12, 18][i], k.rect(-h, -h, h, h), [P2(0, 0)], d)); });
+  add('Waffle plate', 'Six rectangular pockets leave a lightweight rib grid.', k => { kBox(k, -50, -35, 50, 35, 18); for (const [x, y] of grid([-34, 0, 34], [-18, 18])) kCut(k, 18, k.rect(x - 13, y - 12, x + 13, y + 12), [P2(x, y)], 12); });
+  add('Guide rail', 'A long bar with six counterbored mounting holes along its length.', k => { kBox(k, -100, -12, 100, 12, 16); for (const x of [-85, -51, -17, 17, 51, 85]) { kHole(k, [x, 0, 16], [0, 0, 1], 11, 6); kHole(k, [x, 0, 16], [0, 0, 1], 6.6, 16); } });
+  add('Bushing plate', 'Three hole sizes, each with a counterbore: stacked tool changes.', k => { kBox(k, -55, -30, 55, 30, 16); for (const [x, d] of [[-35, 8], [0, 12], [35, 16]]) { kHole(k, [x, 0, 16], [0, 0, 1], d + 6, 4); kHole(k, [x, 0, 16], [0, 0, 1], d, 16); } });
+  add('Window frame', 'A large through window with four corner holes in the rim.', k => { kBox(k, -50, -35, 50, 35, 8, 6); kCut(k, 8, k.rrect(-36, -22, 36, 22, 4), [P2(0, 0)], 8); for (const [x, y] of grid([-43, 43], [-28, 28])) kHole(k, [x, y, 8], [0, 0, 1], 4, 8); });
+  add('Seal gland', 'A stepped bore and eight holes on a circle: a typical flange cover.', k => { disc(k, 35, 14); kHole(k, [0, 0, 14], [0, 0, 1], 40, 6); kHole(k, [0, 0, 14], [0, 0, 1], 30, 14); for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4 + Math.PI / 8; kHole(k, [28 * Math.cos(a), 28 * Math.sin(a), 14], [0, 0, 1], 5, 14); } });
+  SAMPLES.push(...S3);
+}
+
+// ── wire EDM parts: a through profile cut straight down, with a start hole in every opening ──
+{
+  const poly = (k, pts) => pts.map((p, i) => k.L(p[0], p[1], pts[(i + 1) % pts.length][0], pts[(i + 1) % pts.length][1]));
+  const wire = (k, h = 15) => { const d = k.doc(); d.cam = camDefaults(); d.cam.machine = 'wire'; d.cam.next = 2; d.cam.ops = [{ id: 1, type: 'wire', name: OP_INFO.wire.name, tool: 'W', what: 'all', skims: 2 }]; void h; return d; };
+  const addW = (name, desc, fn) => SAMPLES.push({ axes: 'wire', name, desc, make: () => { const k = sampleKit(); fn(k); return wire(k); } });
+  // a gear outline: trapezoid teeth around a root circle
+  const gearPts = (n, rr, ro, w) => { const out = []; for (let i = 0; i < n; i++) { const a = i * 2 * Math.PI / n, d = w * Math.PI / n; for (const [r, da] of [[rr, -1.0 * d * 1.0], [ro, -0.55 * d], [ro, 0.55 * d], [rr, 1.0 * d]]) out.push([r * Math.cos(a + da), r * Math.sin(a + da)]); } return out; };
+  addW('Wire-cut gear', 'A 24-tooth spur gear cut from a plate by wire, with a keyed bore: the outside profile and the bore.', k => {
+    const s = k.sketch(k.XZ, k.rect(-30, -30, 30, 30), { k: 'origin', w: 'XZ' }); k.extrude(s, [P2(0, 0)], 10, 'new');
+    kCut(k, 10, [...k.rect(-30, -30, 30, 30), ...poly(k, gearPts(24, 22, 26, 0.5))], [P2(28.5, 28.5)], 10);                       // everything outside the teeth
+    kCut(k, 10, [k.C(0, 0, 8)], [P2(0, 0)], 10); kCut(k, 10, k.rect(-2, 7, 2, 10), [P2(0, 9)], 10);
+  });
+  addW('Extrusion die', 'A die plate with a star-shaped opening, a ring-shaped bearing land and start holes for the wire.', k => {
+    const s = k.sketch(k.XZ, k.rect(-40, -30, 40, 30), { k: 'origin', w: 'XZ' }); k.extrude(s, [P2(0, 0)], 15, 'new');
+    const star = []; for (let i = 0; i < 10; i++) { const r = i % 2 ? 7 : 17, a = i * Math.PI / 5; star.push([r * Math.cos(a), r * Math.sin(a)]); }
+    kCut(k, 15, poly(k, star), [P2(0, 0)], 15); for (const [x, y] of [[-30, 20], [30, 20], [-30, -20], [30, -20]]) kHole(k, [x, y, 15], [0, 0, 1], 6, 15); kHole(k, [0, 0, 15], [0, 0, 1], 3, 15);
+  });
+  addW('Punch and die set', 'A square die window with corner radii, a start hole inside it and four dowel holes: classic wire work.', k => {
+    const s = k.sketch(k.XZ, k.rect(-45, -35, 45, 35), { k: 'origin', w: 'XZ' }); k.extrude(s, [P2(0, 0)], 20, 'new');
+    kCut(k, 20, k.rrect(-20, -12, 20, 12, 3), [P2(0, 0)], 20); kHole(k, [0, 0, 20], [0, 0, 1], 3, 20);
+    for (const [x, y] of [[-38, -28], [38, -28], [-38, 28], [38, 28]]) kHole(k, [x, y, 20], [0, 0, 1], 6, 20);
+  });
+  addW('Splined hub', 'A hub with a six-key spline bore cut by wire: the profile no drill or mill can make.', k => {
+    const s = k.sketch(k.XZ, [k.C(0, 0, 30)], { k: 'origin', w: 'XZ' }); k.extrude(s, [P2(0, 0)], 14, 'new');
+    const pts = []; for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3, c = Math.cos(a), sn = Math.sin(a); for (const [r, t] of [[11, -0.2], [16, -0.2], [16, 0.2], [11, 0.2]]) pts.push([r * Math.cos(a + t * 0.9), r * Math.sin(a + t * 0.9)]); void c; void sn; }
+    kCut(k, 14, poly(k, pts), [P2(0, 0)], 14); kHole(k, [0, 0, 14], [0, 0, 1], 3, 14);
+  });
+  addW('Puzzle fixture', 'A plate with an interlocking dovetail-ended slot pattern cut through: fine detail for the wire.', k => {
+    const s = k.sketch(k.XZ, k.rect(-50, -25, 50, 25), { k: 'origin', w: 'XZ' }); k.extrude(s, [P2(0, 0)], 12, 'new');
+    kCut(k, 12, poly(k, [[-40, -3], [-10, -3], [-6, -8], [6, -8], [10, -3], [40, -3], [40, 3], [10, 3], [6, 8], [-6, 8], [-10, 3], [-40, 3]]), [P2(0, 0)], 12);
+    kHole(k, [-30, 0, 12], [0, 0, 1], 2.5, 12);
+  });
+}
+
 // ── CNC turning and live tooling (Haas ST style): the profile comes from a body of the model or a demo shaft ──
 // Program Z runs from the face (0) toward the chuck (negative); X is the diameter, as on the control.
 function latheProfile(axis) {                                       // axis: 'Z' (the model's up), 'X' or 'Y'
@@ -27610,6 +27691,7 @@ PHY_SIMS.lathe = ['CNC turning', phyLathe];
   const rb = document.querySelector('.ribbon');
   if (rb) rb.addEventListener('wheel', e => { if (rb.scrollWidth > rb.clientWidth && Math.abs(e.deltaY) > Math.abs(e.deltaX)) { rb.scrollLeft += e.deltaY; e.preventDefault(); } }, { passive: false });
 }
+{ const st = document.createElement('style'); st.textContent = '.axis-badge.awire { background: color-mix(in srgb, #d946ef 16%, transparent); color: #c026d3; }'; document.head.appendChild(st); }
 
 // LAB-END
 </script>
