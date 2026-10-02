@@ -24621,7 +24621,7 @@ addEventListener('keydown', e => { if (e.key === 'Escape' && CAMUI.pickOrigin) {
 //  program carries the part's own contour with G41/G42 and D registers,
 //  G92 at the start point, M60 to thread and M50 to cut the wire.
 // ═══════════════════════════════════════════════════════════════════
-const WIRE_DEF = { d: 0.25, gap: 0.02, mat: 'Brass', cond: [1, 2, 3, 4] };
+const WIRE_DEF = { d: 0.25, gap: 0.02, mat: 'Brass', cond: [1, 2, 3, 4], hold: 2.54 };   // hold: the rough cut stops this far (0.100") short of closing, to secure the slug or part
 const wireOf = () => Object.assign({}, WIRE_DEF, cam().wire || {});
 const isWire = () => cam().machine === 'wire';
 IC.camwire = '<path d="M4 3h12M4 17h12"/><path d="M10 3v14"/><path d="M13 7l-3 3 3 3" opacity=".55"/>';
@@ -24693,6 +24693,12 @@ GEN.wire = (op, tool, st, part, P) => {
 const toolpathW = toolpath;
 toolpath = function (op) { return op && op.type === 'wire' ? toolpathRaw(op) : toolpathW(op); };
 // ── the program: Fanuc Robocut ──
+// where along segment cut-1 → cut (0..1) the rest of the closed run is `hold` long
+function cum0(pts, cut, hold) {
+  let rest = 0; for (let j = cut; j < pts.length; j++) rest += Math.hypot(pts[j].x - pts[j - 1].x, pts[j].y - pts[j - 1].y);
+  const seg = Math.hypot(pts[cut].x - pts[cut - 1].x, pts[cut].y - pts[cut - 1].y) || 1, tail = rest - seg;   // length after this segment
+  return Math.min(1, Math.max(0, (seg - (hold - tail)) / seg));
+}
 function postRobocut() {
   const C = cam(), w = wireOf(), o = camOrigin(), inch = isIn(), k = inch ? 1 / 25.4 : 1, dp = inch ? 4 : 3;
   const N = v => { v *= k; const s = (Math.abs(v) < 0.5 * Math.pow(10, -dp) ? 0 : v).toFixed(dp).replace(/0+$/, '').replace(/\.$/, '.'); return s === '-0.' ? '0.' : s; };
@@ -24725,11 +24731,24 @@ function postRobocut() {
       const e = rel(nom[0]);
       L.push(`${G} D${p.D} G01 X${N(e[0])} Y${N(e[1])}`);
       const pts = nom.map(q => P2(...rel(q))).filter((q, j, a) => !j || dst2(q, a[j - 1]) > 2e-4);
-      const segs = arcs && pts.length > 4 ? fitArcs(pts, 0.025) : pts.slice(1).map(q => ({ arc: false, p: q }));   // the profile is a fine mesh's outline: arcs within its 0.02 chord
-      for (const sg of segs) {
-        if (!sg.arc) L.push(`G01 X${N(sg.p.x)} Y${N(sg.p.y)}`);
-        else L.push(`${sg.ccw ? 'G03' : 'G02'} X${N(sg.p.x)} Y${N(sg.p.y)} I${N(sg.c.x - sg.from.x)} J${N(sg.c.y - sg.from.y)}`);
-      }
+      const emit = run => {
+        const segs = arcs && run.length > 4 ? fitArcs(run, 0.025) : run.slice(1).map(q => ({ arc: false, p: q }));   // the profile is a fine mesh's outline: arcs within its 0.02 chord
+        for (const sg of segs) {
+          if (!sg.arc) L.push(`G01 X${N(sg.p.x)} Y${N(sg.p.y)}`);
+          else L.push(`${sg.ccw ? 'G03' : 'G02'} X${N(sg.p.x)} Y${N(sg.p.y)} I${N(sg.c.x - sg.from.x)} J${N(sg.c.y - sg.from.y)}`);
+        }
+      };
+      // the cut that frees a slug or the part stops 0.100" short of closing (M00), so it can be glued, taped or clamped before it drops
+      const hold = pi === 0 ? Math.max(0, w.hold == null ? 2.54 : w.hold) : 0;
+      let cut = -1;
+      if (hold > 0) { let len = 0; const cum = [0]; for (let j = 1; j < pts.length; j++) { len += Math.hypot(pts[j].x - pts[j - 1].x, pts[j].y - pts[j - 1].y); cum.push(len); } if (len > hold * 2) { const at = len - hold; cut = cum.findIndex(c => c >= at); } }
+      if (cut > 0) {
+        const at = cum0(pts, cut, hold), a0 = pts[cut - 1], b0 = pts[cut], t = at, q = P2(a0.x + (b0.x - a0.x) * t, a0.y + (b0.y - a0.y) * t);
+        const dd = (u, v) => Math.hypot(u.x - v.x, u.y - v.y) > 1e-6;
+        emit([...pts.slice(0, cut), q].filter((u, j, A) => !j || dd(u, A[j - 1])));
+        L.push(`M00 (STOP ${inch ? '.100' : '2.54'} BEFORE THE ${lp.outer ? 'PART' : 'SLUG'} IS FREE - SECURE IT, THEN CYCLE START)`);
+        emit([q, ...pts.slice(cut)].filter((u, j, A) => !j || dd(u, A[j - 1])));
+      } else emit(pts);
       L.push(`G40 G01 X${N(s[0])} Y${N(s[1])}`);
       if (pi === 0 && !lp.outer && lp.passes.length > 1) L.push('M00 (REMOVE SLUG, THEN CYCLE START FOR THE SKIMS)');
     });
@@ -24788,6 +24807,7 @@ camPanel = function () {
     const mach = `<div class="field"><span>Machine</span><div class="seg"><button data-mach="mill" class="${!isWire() && cam().machine !== 'umc400' ? 'on' : ''}">Mill · Haas VF</button><button data-mach="umc400" class="${cam().machine === 'umc400' ? 'on' : ''}">5-axis · Haas UMC-400</button><button data-mach="wire" class="${isWire() ? 'on' : ''}">Wire EDM · Robocut</button></div></div>` +
       (isUMC() ? umcCard() : '') + (isWire() ? `<div class="field"><span>Wire</span><div class="seg">${[0.1, 0.15, 0.2, 0.25, 0.3].map(d => `<button data-wd="${d}" class="${Math.abs(w.d - d) < 1e-6 ? 'on' : ''}">${isIn() ? '.' + String(Math.round(d / 25.4 * 1000)).padStart(3, '0') : d}</button>`).join('')}</div></div>
         <div class="row2"><label class="field"><span>Spark gap (${uName()})</span><input type="number" id="wGap" step="${isIn() ? 0.0002 : 0.005}" min="0" value="${+toU(w.gap).toFixed(4)}"></label><div class="field"><span>Wire type</span><div class="seg"><button data-wm="Brass" class="${w.mat === 'Brass' ? 'on' : ''}">Brass</button><button data-wm="Coated" class="${w.mat === 'Coated' ? 'on' : ''}">Coated</button></div></div></div>
+        <label class="field"><span>M00 before the cut frees a slug or the part (${uName()} short of closing, 0 = off)</span><input type="number" id="wHold" step="${isIn() ? 0.005 : 0.1}" min="0" value="${+toU(w.hold == null ? 2.54 : w.hold).toFixed(4)}"></label>
         <p class="note">The wire runs straight down through the stock: only shapes that go right through can be cut. Blind pockets, steps and blind holes need the mill.</p>` : '');
     h = h.replace('<div class="pn-body">', '<div class="pn-body">' + mach);
   }
@@ -24816,6 +24836,7 @@ bindCamPanel = function () {
   panel.querySelectorAll('[data-mach]').forEach(b => b.addEventListener('click', () => setMachine(b.dataset.mach)));
   panel.querySelectorAll('[data-wd]').forEach(b => b.addEventListener('click', () => setW(w => { w.d = +b.dataset.wd; }, 'Wire Ø')));
   panel.querySelectorAll('[data-wm]').forEach(b => b.addEventListener('click', () => setW(w => { w.mat = b.dataset.wm; }, 'Wire type')));
+  const hd = document.getElementById('wHold'); if (hd) hd.addEventListener('change', () => { const v = parseFloat(hd.value); if (isFinite(v) && v >= 0) setW(w => { w.hold = fromU(v); }, 'Wire stop before close'); });
   const g = document.getElementById('wGap'); if (g) g.addEventListener('change', () => { const v = parseFloat(g.value); if (isFinite(v) && v >= 0) setW(w => { w.gap = fromU(v); }, 'Spark gap'); });
   const op = CAMUI.view === 'op' && opById(CAMUI.op);
   if (op && op.type === 'wire') {
@@ -24843,20 +24864,14 @@ renderVis = function () { renderVisX(); const b = document.getElementById('btnEx
 </script>
 
 <script>
-// the wire in the simulation: a brass wire strung between the lower and upper guides, not a cutter in a spindle
+// the wire in the simulation: just a brass wire through the stock, no guides or heads, not a cutter in a spindle
 const ToolLookBuildW = ToolLook.build;
 ToolLook.build = function (tool) {
   if (!tool || !tool.wire) return ToolLookBuildW.call(ToolLook, tool);
   const st = camStock(), H = st ? st.z1 - st.z0 + 0.5 : 30, g = new THREE.Group();
   const brass = new THREE.MeshStandardMaterial({ color: tool.mat === 'Coated' ? 0xb8872e : 0xd9b54a, metalness: 0.8, roughness: 0.3, emissive: 0x3a2a05 });
-  const head = new THREE.MeshStandardMaterial({ color: 0x3b4450, metalness: 0.4, roughness: 0.5 }), nozzle = new THREE.MeshStandardMaterial({ color: 0x9aa3ad, metalness: 0.6, roughness: 0.35 });
   const wr = Math.max(tool.d / 2, 0.08), wire = new THREE.Mesh(new THREE.CylinderGeometry(wr, wr, H + 8, 10), brass);
   wire.position.y = (H + 8) / 2 - 3; g.add(wire);
-  // the guides: a nozzle just clear of each face of the stock, on a head
-  for (const [y, s] of [[-3.5, -1], [H + 4.5, 1]]) {
-    const n = new THREE.Mesh(new THREE.CylinderGeometry(3, 5, 5, 24), nozzle); n.position.y = y; if (s < 0) n.rotation.x = Math.PI; g.add(n);
-    const h = new THREE.Mesh(new THREE.BoxGeometry(34, 12, 26), head); h.position.set(0, y + s * 8.5, 8); g.add(h);
-  }
   return g;
 };
 </script>
