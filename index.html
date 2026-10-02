@@ -24754,7 +24754,7 @@ function postRobocut() {
     });
     cur = s;
   });
-  L.push(`G00 X${N(s0[0])} Y${N(s0[1])} (RETURN TO START POINT)`, 'M45 (CUT WIRE)', 'M50', 'M30', '%');
+  L.push(`G00 X${N(s0[0])} Y${N(s0[1])} (RETURN TO START POINT)`, 'M45 (CUT WIRE)', 'M50 (DRAIN TANK)', 'M30', '%');
   void cur;
   return L.join('\n');
 }
