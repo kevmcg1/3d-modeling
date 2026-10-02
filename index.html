@@ -10463,9 +10463,10 @@ document.getElementById('visGroup').addEventListener('click', e => {
 const MOUSE_SVG = hot => `<svg viewBox="0 0 16 22"><rect class="body" x="1" y="1" width="14" height="20" rx="7"/><path class="body" d="M1 9h14M8 1v8"/>${hot === 'l' ? '<path class="hot" d="M1.6 8.4V8a6.4 6.4 0 016-6.4v6.8z"/>' : hot === 'r' ? '<path class="hot" d="M14.4 8.4V8a6.4 6.4 0 00-6-6.4v6.8z"/>' : '<rect class="hot" x="6.5" y="3" width="3" height="5" rx="1.5"/>'}</svg>`;
 function renderMouseLegend() {
   const el = document.getElementById('mouseLegend');
-  const left = S.sk ? 'Draw · select' : UIX.ws === 'cam' ? 'Pick · drag to orbit' : CMD ? 'Pick' : 'Select · drag to orbit';
-  const right = S.sk ? 'Orbit · click: end line' : 'Orbit · click: menu';
-  el.innerHTML = [['l', left], ['m', 'Pan · wheel zooms'], ['r', right]].map(([k, t]) => `<span class="ml">${MOUSE_SVG(k)}${t}</span>`).join('');
+  const dr = MOUSE.left === 'orbit' ? 'orbit' : MOUSE.left;
+  const left = S.sk ? 'Draw · select' : UIX.ws === 'cam' ? `Pick · drag to ${dr}` : CMD ? 'Pick' : `Select · drag to ${dr}`;
+  const right = S.sk ? `${MOUSE_ACT[MOUSE.right]} · click: end line` : `${MOUSE_ACT[MOUSE.right]} · click: menu`;
+  el.innerHTML = [['l', left], ['m', `${MOUSE_ACT[MOUSE.middle]} · wheel ${MOUSE.invertWheel ? 'zooms (reversed)' : 'zooms'}`], ['r', right]].map(([k, t]) => `<span class="ml">${MOUSE_SVG(k)}${t}</span>`).join('');
 }
 function action(a) {
   if (S.sk && [...SKETCH_TOOLS.flat(), ...SKETCH_XF].some(t => t[0] === a)) { setTool(a); return; }
@@ -11258,6 +11259,33 @@ function zoomAt(mx, my, f) {
   view.target.copy(P).addScaledVector(r, -sx * nf).addScaledVector(u, -sy * nf);
   requestDraw(); scheduleLevelCheck();
 }
+// ── Mouse and navigation settings: what each button does, how the orbit feels ──
+const MOUSE = Object.assign({ left: 'orbit', middle: 'pan', right: 'orbit', pivot: 'cursor', sens: 1, invertOrbit: false, invertWheel: false }, (() => { try { return JSON.parse(localStorage.getItem('datum.mouse') || '{}'); } catch (e) { return {}; } })());
+const MOUSE_ACT = { orbit: 'Orbit', pan: 'Pan', zoom: 'Zoom', none: 'Nothing' };
+function mouseSave() { try { localStorage.setItem('datum.mouse', JSON.stringify(MOUSE)); } catch (e) { /* storage unavailable */ } renderMouseLegend(); }
+function openMouseSettings() {
+  const card = document.getElementById('modalCard'), sel = (k, opts) => `<select data-ms="${k}">${opts.map(([v, l]) => `<option value="${v}" ${MOUSE[k] === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+  const full = Object.entries(MOUSE_ACT);
+  card.innerHTML = `<div class="m-head"><h3>Mouse &amp; navigation</h3><button class="x" data-mx title="Close">×</button></div>
+    <div class="ms-grid">
+      <label>Left button <small>(clicking always selects; this is what dragging does)</small></label>${sel('left', full.filter(([k]) => k !== 'none'))}
+      <label>Middle button <small>(Shift swaps orbit and pan)</small></label>${sel('middle', full)}
+      <label>Right button <small>(a click still opens the menu)</small></label>${sel('right', full)}
+      <label>Orbit around</label>${sel('pivot', [['cursor', 'The point under the cursor'], ['center', 'The center of the view']])}
+      <label>Orbit speed</label><input type="range" data-ms="sens" min="0.3" max="3" step="0.1" value="${MOUSE.sens}">
+      <label>Invert orbit</label><input type="checkbox" data-ms="invertOrbit" ${MOUSE.invertOrbit ? 'checked' : ''}>
+      <label>Reverse the wheel</label><input type="checkbox" data-ms="invertWheel" ${MOUSE.invertWheel ? 'checked' : ''}>
+    </div>
+    <div class="btns"><button class="btn" data-ms-reset>Reset to defaults</button></div>
+    <p class="note">Alt + left drag always orbits (Shift: pan). The legend at the bottom of the view shows the current assignment.</p>`;
+  document.getElementById('modal').hidden = false;
+  card.querySelector('[data-mx]').addEventListener('click', closeModal);
+  card.oninput = card.onchange = e => {
+    const t = e.target.closest('[data-ms]'); if (!t) return;
+    MOUSE[t.dataset.ms] = t.type === 'checkbox' ? t.checked : t.type === 'range' ? +t.value : t.value; mouseSave();
+  };
+  card.querySelector('[data-ms-reset]').addEventListener('click', () => { Object.assign(MOUSE, { left: 'orbit', middle: 'pan', right: 'orbit', pivot: 'cursor', sens: 1, invertOrbit: false, invertWheel: false }); mouseSave(); openMouseSettings(); });
+}
 ov.addEventListener('contextmenu', e => e.preventDefault());
 ov.addEventListener('pointerdown', e => {
   flushHover();
@@ -11266,9 +11294,13 @@ ov.addEventListener('pointerdown', e => {
   ptr = { down: true, btn: e.button, x0: x, y0: y, x, y, moved: false, nav: null, shift: e.shiftKey, vx: 0, vy: 0, t: performance.now() };
   view.spin = null; view.glide = null;
   view.glide = null;
-  ptr.pivot = orbitPivotAt(x, y);
-  if (e.button === 2) { ptr.nav = 'orbit'; return; }
-  if (e.button === 1) { e.preventDefault(); ptr.nav = e.shiftKey ? 'orbit' : 'pan'; return; }
+  ptr.pivot = MOUSE.pivot === 'center' ? null : orbitPivotAt(x, y);
+  if (e.button === 1) e.preventDefault();
+  if (e.button === 1 || e.button === 2) {
+    const act = e.button === 1 ? MOUSE.middle : MOUSE.right;
+    ptr.nav = act === 'none' ? null : e.shiftKey && (act === 'orbit' || act === 'pan') ? (act === 'orbit' ? 'pan' : 'orbit') : act;
+    return;
+  }
   if (e.button !== 0) return;
   if (e.altKey) { ptr.nav = e.shiftKey ? 'pan' : 'orbit'; return; }
   const cp = cubePick(x, y);
@@ -11291,7 +11323,7 @@ ov.addEventListener('pointermove', e => {
       ov.classList.add('nav');
       const now = performance.now(), dt = Math.max(1, now - ptr.t), a = Math.min(1, dt / 40);
       ptr.vx = ptr.vx * (1 - a) + (dx / dt) * a; ptr.vy = ptr.vy * (1 - a) + (dy / dt) * a; ptr.t = now;
-      ptr.nav === 'orbit' ? orbitAbout(dx, dy, ptr.pivot) : pan(dx, dy);
+      if (ptr.nav === 'orbit') orbitAbout(dx, dy, ptr.pivot); else if (ptr.nav === 'zoom') zoomAt(ptr.x0, ptr.y0, Math.exp(dy * 0.008)); else pan(dx, dy);
       return;
     }
     if (arrowDrag) {
@@ -11309,7 +11341,7 @@ ov.addEventListener('pointermove', e => {
       clearTimeout(regenTimer); regenTimer = setTimeout(() => regen(true), 0);
       requestDraw(); return;
     }
-    if (!S.sk && ptr.btn === 0 && ptr.moved) { ptr.nav = 'orbit'; return; }
+    if (!S.sk && ptr.btn === 0 && ptr.moved) { ptr.nav = MOUSE.left; return; }
     if (S.sk && S.box) { S.box.x1 = x; S.box.y1 = y; requestDraw(); return; }
   }
   // Pointer events can arrive several times per frame; pick (raycasts, snapping)
@@ -11355,7 +11387,7 @@ ov.addEventListener('pointerleave', () => { if (!ptr.down) { setHover3D(null); S
 ov.addEventListener('wheel', e => {
   e.preventDefault();
   const { x, y } = local(e);
-  const lg = e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0015);
+  const lg = e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0015) * (MOUSE.invertWheel ? -1 : 1);
   if (REDUCED()) { zoomAt(x, y, Math.exp(lg)); return; }
   view.zq = { x, y, log: (view.zq ? view.zq.log : 0) + lg };
   requestDraw();
@@ -11519,6 +11551,7 @@ document.getElementById('btnFile').addEventListener('click', e => {
     { label: 'New empty model', run: () => loadDoc({ features: [], next: 1 }, 'New model') },
     { label: 'Sample parts…', run: openSamples },
     { label: 'Physics lab…', run: () => physicsOpen() },
+    { label: 'Mouse & navigation…', run: openMouseSettings },
     null,
     { label: 'Open or import…  (Ctrl+O)', run: () => fileIn.click() },
     { label: 'Save (.json)  (Ctrl+S)', run: saveFile },
@@ -14620,7 +14653,7 @@ function orbitPivotAt(x, y) {
 }
 function orbitAbout(dx, dy, pivot) {
   view.anim = null;
-  const k = 0.0085, right = new THREE.Vector3(1, 0, 0).applyQuaternion(view.quat);
+  const k = 0.0085 * MOUSE.sens * (MOUSE.invertOrbit ? -1 : 1), right = new THREE.Vector3(1, 0, 0).applyQuaternion(view.quat);
   const R = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -dx * k)
     .multiply(new THREE.Quaternion().setFromAxisAngle(right, -dy * k));
   view.quat.premultiply(R).normalize();
@@ -22579,6 +22612,7 @@ openBlueprint = function () {
 .bp-stage3 [data-bpd] { cursor: move; }
 .bp-zoom .bp-sep { width: 1px; align-self: stretch; background: var(--rule); margin: 0 2px; }
 .bp-zoom .btn { white-space: nowrap; }
+.ms-grid { display: grid; grid-template-columns: 1fr minmax(140px, 220px); gap: 10px 14px; align-items: center; margin: 12px 0; font-size: 13px; } .ms-grid small { display: block; color: var(--muted); font-size: 11px; }
 .bp-zoom .btn:disabled { opacity: .4; cursor: default; }
 .bp-zoom { position: absolute; left: 12px; bottom: 12px; display: flex; align-items: center; gap: 6px; background: var(--panel); border: 1px solid var(--rule); border-radius: 9px; padding: 5px 8px; z-index: 3; font-size: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.3); }
 .bp-zoom .btn { min-width: 30px; padding: 4px 8px; }
