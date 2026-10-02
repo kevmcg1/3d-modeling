@@ -6128,7 +6128,33 @@ function evaluate(tol, limit = (typeof activeLimit === 'function' ? activeLimit(
     evalCache.set(key, { planes: { ...ctx.planes }, ext: { ...ctx.ext }, bodies: ctx.bodies.slice(), errors: { ...ctx.errors }, points: { ...ctx.points }, tools: { ...ctx.tools }, hl: { ...ctx.hl } });
     if (evalCache.size > 1500) evalCache.delete(evalCache.keys().next().value);
   }
+  finishModes(ctx, limit);
   return ctx;
+}
+// Solid / Hole bodies, applied last so a hole that is moved later still cuts where it ends up: a hole
+// cuts the bodies it overlaps (and stays as a ghost), a solid fuses with the ones it overlaps.
+function finishModes(ctx, limit) {
+  const ms = doc.features.slice(0, limit).filter(f => f.type === 'bmode' && !f.sup);
+  if (!ms.length) return;
+  const touch = (a, b) => a.bb[0] <= b.bb[3] && a.bb[3] >= b.bb[0] && a.bb[1] <= b.bb[4] && a.bb[4] >= b.bb[1] && a.bb[2] <= b.bb[5] && a.bb[5] >= b.bb[2];
+  const mk = (b, polys, o) => ({ ...b, polys, bb: bboxPolys(polys), ...o });
+  const reach = (f, b) => f.to == null || f.to === 'all' || f.to.includes(b.id);
+  const mine = f => ctx.bodies.find(b => b.id === f.body);
+  for (const f of ms) if (!mine(f)) ctx.errors[f.id] = 'That body no longer exists';
+  for (const f of ms.filter(f => f.mode === 'solid' && mine(f))) {
+    const B = mine(f); let polys = B.polys; const gone = new Set();
+    for (const b of ctx.bodies) if (b !== B && !b.hole && reach(f, b) && touch(b, B)) { polys = CSG.union(polys, b.polys); gone.add(b); }
+    if (gone.size) ctx.bodies = ctx.bodies.filter(b => !gone.has(b)).map(b => b === B ? mk(b, polys) : b);
+  }
+  const cut = ms.filter(f => f.mode === 'hole' && mine(f)).map(f => ({ f, B: mine(f) }));
+  if (!cut.length) return;
+  const isCut = new Set(cut.map(c => c.B.id));
+  ctx.bodies = ctx.bodies.map(b => {
+    if (isCut.has(b.id)) return { ...b, hole: true };
+    let polys = b.polys;
+    for (const c of cut) if (reach(c.f, b) && touch(b, c.B)) polys = CSG.subtract(polys, c.B.polys);
+    return polys === b.polys ? b : mk(b, polys);
+  });
 }
 // Planes are cheap and needed constantly by the UI — resolve without CSG.
 function planesOnly() {
@@ -7857,6 +7883,7 @@ function evalDeform(f, ctx, tol) {
   ctx.hl[f.id] = ids;
 }
 FEATX.deform = evalDeform;
+FEATX.bmode = () => {};                // Solid / Hole acts after every feature: see finishModes
 </script>
 
 <script data-kernel>
@@ -8028,7 +8055,7 @@ function packMesh(m) {
   m._pk = { VP, ids, off, pf, fe, pos: m.pos, nor: m.nor, edgePos: m.edgePos, triF: Int32Array.from(m.triF) };
   return m._pk;
 }
-const packBodies = bodies => bodies.map(b => ({ id: b.id, bb: b.bb, mesh: packMesh(meshOfPolys(b.polys)) }));
+const packBodies = bodies => bodies.map(b => ({ id: b.id, bb: b.bb, hole: b.hole, mesh: packMesh(meshOfPolys(b.polys)) }));
 function run(docStr, tol, limit) {
   doc = JSON.parse(docStr);
   const ctx = evaluate(tol, limit);
@@ -8163,13 +8190,13 @@ const Kernel = {
       for (const [i, o] of sd.upd) Surf.list[i] = o;
       if (overwrote) surfRekey();
       const c = r.ctx;
-      c.bodies = c.bodies.map(b => ({ id: b.id, bb: b.bb, mesh: unpackMesh(b.mesh) }));
+      c.bodies = c.bodies.map(b => ({ id: b.id, bb: b.bb, hole: b.hole, mesh: unpackMesh(b.mesh) }));
       return c;
     });
   },
   evalLocal(tol, limit) {
     const c = evaluate(tol, limit);
-    return { ...c, bodies: c.bodies.map(b => ({ id: b.id, bb: b.bb, polys: b.polys, mesh: meshOfPolys(b.polys) })) };
+    return { ...c, bodies: c.bodies.map(b => ({ id: b.id, bb: b.bb, hole: b.hole, polys: b.polys, mesh: meshOfPolys(b.polys) })) };
   },
   cam3d(params, tol) {
     if (!this.worker) {
@@ -8237,7 +8264,7 @@ function bodyNames() {
   for (const b of MODEL.bodies || []) if (!names[b.id]) names[b.id] = 'Body ' + (++n);
   return names;
 }
-const FEAT_BASE = { sketch: 'Sketch', extrude: 'Extrude', plane: 'Plane', fillet: 'Fillet', chamfer: 'Chamfer', thread: 'Thread', point: 'Point', import: 'Import', polyline3d: 'Polyline' };
+const FEAT_BASE = { bmode: 'Solid / Hole', sketch: 'Sketch', extrude: 'Extrude', plane: 'Plane', fillet: 'Fillet', chamfer: 'Chamfer', thread: 'Thread', point: 'Point', import: 'Import', polyline3d: 'Polyline' };
 function featName(type) {
   const base = FEAT_BASE[type] || 'Feature';
   let n = 1;
@@ -10044,7 +10071,7 @@ function solidClick(x, y, ev) {
 //  as you pick), and Cancel restores the snapshot taken at the start.
 // ═══════════════════════════════════════════════════════════════════
 const selEdges = [];                      // idle-mode edge selection [{body, ch, ref}]
-const visibleBodies = () => MODEL.bodies.filter(b => !(doc.hidden && doc.hidden[b.id]));
+const visibleBodies = () => MODEL.bodies.filter(b => !b.hole && !(doc.hidden && doc.hidden[b.id]));
 const viewDepth = P => -dot3(sub3(P, A3(camera.position)), backDir());
 // Depth of the first surface under a pixel (for hiding picks behind solids).
 function surfaceDepthAt(x, y) {
@@ -10360,7 +10387,7 @@ const SKETCH_TOOLS = [
   [['select', 'Select', 'S'], ['dim', 'Dimension', 'D'], ['line', 'Line', 'L'], ['polyline', 'Polyline', 'Y'], ['rect', 'Rectangle', 'R'], ['crect', 'Center Rect', ''], ['circle', 'Circle', 'C'], ['arc3', '3-Pt Arc', 'A'], ['carc', 'Center Arc', ''], ['poly', 'Polygon', 'G']],
   [['fillet', 'Fillet', 'I'], ['chamfer', 'Chamfer', ''], ['trim', 'Trim', 'T'], ['extend', 'Extend', 'W'], ['offset', 'Offset', 'O'], ['mirror', 'Mirror', 'M'], ['project', 'Project', 'J'], ['origin', 'Set Origin', 'Z']],
 ];
-const FEAT_IC = { sketch: 'sketch', extrude: 'extrude', plane: 'plane', fillet: 'fillet3', chamfer: 'chamfer3', thread: 'thread', point: 'point', import: 'import', polyline3d: 'polyline3' };
+const FEAT_IC = { bmode: 'extrude', sketch: 'sketch', extrude: 'extrude', plane: 'plane', fillet: 'fillet3', chamfer: 'chamfer3', thread: 'thread', point: 'point', import: 'import', polyline3d: 'polyline3' };
 function refreshToolbar() {
   const tb = document.getElementById('toolbar');
   const btn = (act, lab, key, on, cls = '', ic) => `<button class="tb ${on ? 'on' : ''} ${cls}" data-act="${act}" title="${lab}${key ? ' (' + key + ')' : ''}">${svg(ic || (act === 'finish' ? 'finish' : act))}<span>${lab}</span></button>`;
@@ -17033,6 +17060,7 @@ function featDeps(f, ids, fromMeta) {
   };
   if (PROFILE_FEATS.has(f.type) && f.sketch) ids.add(f.sketch);
   if ((f.type === 'sweep' || f.type === 'deform') && f.path) ids.add(f.path.sketch);
+  if (f.type === 'bmode') for (const b of [f.body, ...(Array.isArray(f.to) ? f.to : [])]) ids.add(Math.floor(b));
   if (f.type === 'loft') for (const s of f.secs || []) ids.add(s.sketch);
   if (f.type === 'hole' && f.face) fromMeta(f.face.m);
   if (f.type === 'shell') for (const r of f.faces || []) fromMeta(r.m);
@@ -26053,6 +26081,46 @@ ov.addEventListener('dblclick', e => {
 const hwStyle = document.createElement('style');
 hwStyle.textContent = '#ctxmenu button:has(.mh) { pointer-events: none; font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding: 8px 10px 2px; } #ctxmenu .mk { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }';
 document.head.appendChild(hwStyle);
+
+// ── Solid / Hole: a body marked Hole cuts the bodies it overlaps (and stays as a ghost); a Solid fuses with them ──
+const holeMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6, transparent: true, opacity: 0.3, depthWrite: false, roughness: 0.6, metalness: 0 });
+const bodyMatFor0 = bodyMatFor;
+bodyMatFor = id => (MODEL && MODEL.bodies.some(b => b.id === id && b.hole) ? holeMat : bodyMatFor0(id));
+const bmodeOf = id => doc.features.find(f => f.type === 'bmode' && f.body === id);
+function bmodePanel(id) {
+  const f = bmodeOf(id), names = bodyNames(), others = MODEL.bodies.filter(b => b.id !== id && !b.hole).map(b => [b.id, names[b.id] || 'Body']);
+  const all = !f || !Array.isArray(f.to);
+  let h = `<div class="field"><span>Body type</span><div class="seg"><button data-bm="solid" class="${f && f.mode === 'solid' ? 'on' : ''}" title="Fuses with the objects it overlaps">Solid</button><button data-bm="hole" class="${f && f.mode === 'hole' ? 'on' : ''}" title="Cuts the objects it overlaps, like a drill or a cutter">Hole</button></div></div>`;
+  if (f) h += `<div class="bm-to"><b>${f.mode === 'hole' ? 'Hole to:' : 'Solid to:'}</b><label class="chk"><input type="checkbox" data-bmall ${all ? 'checked' : ''}> All objects</label>${all ? '' : others.map(([b, n]) => `<label class="chk"><input type="checkbox" data-bmto="${b}" ${f.to.includes(b) ? 'checked' : ''}> ${xmlEsc(n)}</label>`).join('') || '<small class="hint">There are no other objects.</small>'}</div>`;
+  return h;
+}
+const idlePanel3 = idlePanel;
+idlePanel = function () {
+  const h = idlePanel3();
+  return sel3D && sel3D.kind === 'body' && h.includes('<div class="field"><span>Color</span>') ? h.replace('<div class="field"><span>Color</span>', bmodePanel(sel3D.body) + '<div class="field"><span>Color</span>') : h;
+};
+function bmodeSet(id, fn, label) {
+  const before = snap();
+  let f = bmodeOf(id);
+  if (!f) { f = { id: newId(), type: 'bmode', name: '', body: id, mode: 'solid', to: 'all' }; insertFeature(f); }
+  fn(f);
+  if (f.deleted) deleteFeature(f); else f.name = `${f.mode === 'hole' ? 'Hole' : 'Solid'} · ${bodyNames()[id] || 'Body'}`;
+  record(label, before); modelChanged(true); refreshUI();
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest && e.target.closest('[data-bm]');
+  if (!b || !(sel3D && sel3D.kind === 'body')) return;
+  const id = sel3D.body, f = bmodeOf(id);
+  if (f && f.mode === b.dataset.bm) { const before = snap(); deleteFeature(f); record('Normal body', before); modelChanged(true); refreshUI(); return; }   // clicking the active one turns it off
+  bmodeSet(id, g => { g.mode = b.dataset.bm; if (!g.to) g.to = 'all'; }, b.dataset.bm === 'hole' ? 'Make hole' : 'Make solid');
+});
+document.addEventListener('change', e => {
+  const t = e.target; if (!t.matches || !(sel3D && sel3D.kind === 'body')) return;
+  const id = sel3D.body;
+  if (t.matches('[data-bmall]')) bmodeSet(id, g => { g.to = t.checked ? 'all' : []; }, 'Targets');
+  else if (t.matches('[data-bmto]')) bmodeSet(id, g => { const v = +t.dataset.bmto, a = (Array.isArray(g.to) ? g.to : []).filter(x => x !== v); if (t.checked) a.push(v); g.to = a; }, 'Targets');
+});
+hwStyle.textContent += ' .bm-to { display: flex; flex-direction: column; gap: 3px; margin: -4px 0 10px; padding: 8px 10px; border: 1px solid var(--rule); border-radius: 8px; font-size: 12px; } .bm-to .chk { margin: 0; }';
 
 // ── Deform: bend, twist, taper, warp — or flow any bodies along a path ──
 Object.assign(FEAT_BASE, { deform: 'Deform' });
