@@ -4069,6 +4069,8 @@ body.ws-cam #viewport { background: linear-gradient(180deg, color-mix(in srgb, v
 .sim-check.good { color: var(--ok); }
 .sim-check.bad { color: var(--danger); }
 #gcode { width: 100%; height: 260px; resize: vertical; font: 11.5px/1.5 ui-monospace, "Cascadia Mono", Consolas, monospace; background: var(--panel-2); color: var(--ink); border: 1px solid var(--rule); border-radius: 6px; padding: 8px; white-space: pre; }
+.sbar { height: 8px; border-radius: 4px; background: var(--rule); overflow: hidden; margin: 8px 0 12px; }
+.sbar i { display: block; height: 100%; background: var(--accent); transition: width .2s; }
 .measure-big { font-size: 28px; font-weight: 700; letter-spacing: -.02em; color: var(--ink); }
 .measure-big span { color: var(--snap); }
 .mlist { margin: 0; padding-left: 18px; font-size: 12px; display: flex; flex-direction: column; gap: 3px; }
@@ -10702,6 +10704,7 @@ function action(a) {
     case 'thread': if (!(CMD && CMD.type === 'thread')) cmdThread(); break;
     case 'point': if (CMD && CMD.type === 'point') cancelCmd(); else cmdPoint(); break;
     case 'measure': cmdMeasure(); break;
+    case 'stress': cmdStress(); break;
     case 'blueprint': openBlueprint(); break;
     case 'import': fileIn.click(); break;
     case 'export': openExport(); break;
@@ -11073,6 +11076,7 @@ function refreshPanel() {
   panel.dataset.mode = mode;
   let h = '';
   if (CMD && CMD.type === 'measure') { panel.innerHTML = measurePanel(); panel.hidden = false; bindPanel(); bindMeasurePanel(); return; }
+  if (CMD && CMD.type === 'stress') { panel.innerHTML = stressPanel(); panel.hidden = false; bindPanel(); bindStressPanel(); return; }
   if (UIX.ws === 'cam') { panel.innerHTML = camPanel(); panel.hidden = false; bindCamPanel(); return; }
   if (CMD && CMD.type === 'extrude') h = extrudePanel();
   else if (CMD && CMD.type === 'offset') h = offsetPanel();
@@ -11381,7 +11385,8 @@ const hintEl = document.getElementById('hint');
 function updateHint() {
   let h;
   const k = s => `<span class="kbd">${s}</span>`;
-  if (CMD && CMD.type === 'measure') h = `<b>Measure:</b> click two points — they lock onto vertices, edge midpoints, hole centers and face centers. ${k('Esc')} to finish.`;
+  if (CMD && CMD.type === 'stress') h = STRESS.result ? `<b>Stress:</b> hover the part to read the stress and movement at that spot. ${k('Esc')} to finish.` : `<b>Stress analysis:</b> click faces to hold fixed or to load (choose the target in the panel), then run the analysis. ${k('Esc')} to finish.`;
+  else if (CMD && CMD.type === 'measure') h = `<b>Measure:</b> click two points — they lock onto vertices, edge midpoints, hole centers and face centers. ${k('Esc')} to finish.`;
   else if (UIX.ws === 'cam') { const op = CAMUI.view === 'op' && opById(CAMUI.op); h = op && (op.type === 'pocket' || op.type === 'contour') ? `<b>${op.name}:</b> click flat faces to ${op.type === 'pocket' ? 'set the floors' : 'set the boundary'}.` : op && op.type === 'drill' ? `<b>${op.name}:</b> click holes to add or remove their diameter.` : CAMUI.view === 'sim' ? '<b>Simulation:</b> orbit freely while it runs. Orange is stock still to cut, red is a gouge.' : '<b>Manufacture:</b> set up stock and tools, add operations, simulate, then post G-code.'; }
   else if (CMD && CMD.type === 'pickPlane') h = `<b>Create sketch:</b> click a plane or flat face. ${k('Esc')} cancels.`;
   else if (CMD && CMD.type === 'extrude') h = `<b>Extrude:</b> click profiles to add or remove them, drag the arrow, then ${k('Enter')} for OK.`;
@@ -14886,6 +14891,578 @@ function drawPivot() {
   og.beginPath(); og.arc(s.x, s.y, 1.6, 0, TAU); og.fillStyle = COL.accent; og.fill();
 }
 </script>
+<!-- STRESS-BEGIN -->
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  Stress analysis: pick the faces that are held fixed, the faces that
+//  carry a force or a pressure, and a material; a worker solves the
+//  linear-elastic problem on a voxel mesh and the body is painted with
+//  von Mises stress, displacement or safety factor, deformed to show how
+//  it moves. Units: mm, N, MPa (shown in lbf / psi with inch units).
+// ═══════════════════════════════════════════════════════════════════
+// material: [name, E (MPa), Poisson's ratio, yield or strength (MPa), density (kg/m³)]
+const STRESS_MATS = {
+  steel: ['Steel, mild (A36)', 200000, 0.29, 250, 7850], ss304: ['Stainless steel 304', 193000, 0.29, 215, 8000], steel4140: ['Steel 4140, heat treated', 205000, 0.29, 655, 7850],
+  al6061: ['Aluminum 6061-T6', 68900, 0.33, 276, 2700], al7075: ['Aluminum 7075-T6', 71700, 0.33, 503, 2810], ti64: ['Titanium Ti-6Al-4V', 113800, 0.34, 880, 4430],
+  brass: ['Brass C360', 97000, 0.34, 310, 8500], copper: ['Copper C110', 117000, 0.34, 70, 8940], iron: ['Cast iron, gray', 100000, 0.26, 130, 7200],
+  nylon: ['Nylon 6/6', 2900, 0.39, 70, 1140], acetal: ['Acetal (Delrin)', 3100, 0.35, 65, 1410], pla: ['PLA', 3500, 0.36, 50, 1240], petg: ['PETG', 2100, 0.38, 50, 1270], abs: ['ABS', 2300, 0.35, 40, 1050],
+  custom: ['Custom…', 70000, 0.3, 200, 2700],
+};
+const STRESS_DIRS = [['in', 'Into the face (push)'], ['out', 'Out of the face (pull)'], ['x+', '+X'], ['x-', '−X'], ['y+', '+Y'], ['y-', '−Y'], ['z+', '+Z (up)'], ['z-', '−Z (down)']];
+const STRESS_Q = [['draft', 'Draft'], ['normal', 'Normal'], ['fine', 'Fine']], STRESS_TARGET = { draft: 4000, normal: 12000, fine: 30000 };
+const STRESS = { result: null, worker: null, busy: null, probe: null, group: null, hidden: null };
+const stressSetup = () => doc.stress || (doc.stress = { mat: 'al6061', cust: { E: 70000, nu: 0.3, sy: 200, rho: 2700 }, sup: [], loads: [], grav: false, q: 'normal', active: 'sup', show: 'vm', scale: 0 });
+const stressMat = () => { const s = stressSetup(), m = STRESS_MATS[s.mat] || STRESS_MATS.steel; return s.mat === 'custom' ? { name: 'Custom', ...s.cust } : { name: m[0], E: m[1], nu: m[2], sy: m[3], rho: m[4] }; };
+const stressU = () => isIn() ? { f: 4.4482216, fn: 'lbf', s: 0.00689476, sn: 'psi' } : { f: 1, fn: 'N', s: 1, sn: 'MPa' };
+const stressNum = (v, d = 3) => { v = +v; return !isFinite(v) ? '–' : Math.abs(v) >= 1000 ? v.toFixed(0) : Math.abs(v) >= 100 ? v.toFixed(1) : +v.toPrecision(d) + ''; };
+// directions are the user's axes (X right, Y back, Z up); the model stores Y up and Z toward the viewer
+const stressDir = d => d === 'in' || d === 'out' ? d : [d[0] === 'x' ? 1 : 0, d[0] === 'z' ? 1 : 0, d[0] === 'y' ? -1 : 0].map(v => v * (d[1] === '-' ? -1 : 1));
+const stressFaces = refs => refs.map(r => findFace(visibleBodies(), r)).filter(Boolean);
+const stressAllFaces = () => { const s = stressSetup(); return [...s.sup, ...s.loads.flatMap(l => l.faces)]; };
+
+function cmdStress() {
+  if (CMD && CMD.type === 'stress') { cancelCmd(); return; }
+  if (S.sk) finishSketch();
+  if (CMD) cancelCmd();
+  stressSetup().active = stressSetup().active ?? 'sup';
+  CMD = { type: 'stress', dirty: false };
+  refreshUI(); requestDraw();
+}
+function stressLeave() {
+  if (STRESS.worker) { STRESS.worker.terminate(); STRESS.worker = null; }
+  STRESS.busy = null; stressClear(true);
+}
+const cancelCmd1S = cancelCmd;
+cancelCmd = function () { if (CMD && CMD.type === 'stress') stressLeave(); return cancelCmd1S(); };
+const camModelChanged1S = camModelChanged;
+camModelChanged = function () { camModelChanged1S(); if (STRESS.result) { stressClear(false); if (CMD && CMD.type === 'stress') toast('The model changed: run the analysis again.'); } };
+const rebuildHighlights1S = rebuildHighlights;
+rebuildHighlights = function () { rebuildHighlights1S(); if (CMD && CMD.type === 'stress') stressHL(); };
+
+const stressMats = {};
+function stressHL() {
+  if (STRESS.result) return;
+  const s = stressSetup();
+  stressMats.sup = stressMats.sup || Object.assign(selMat.clone(), { color: new THREE.Color(0x2f7df6), opacity: 0.6 });
+  stressMats.load = stressMats.load || Object.assign(selMat.clone(), { color: new THREE.Color(0xf0623d), opacity: 0.55 });
+  const add = (refs, mat) => { for (const r of stressFaces(refs)) hlGroup.add(faceMesh(r.mesh, r.fid, mat)); };
+  add(s.sup, stressMats.sup); for (const l of s.loads) add(l.faces, stressMats.load);
+}
+function stressToggle(h) {
+  const s = stressSetup(), tgt = s.active === 'sup' ? s.sup : s.loads[s.active] && s.loads[s.active].faces;
+  if (!tgt) { toast('Add a load first, or pick the fixed faces.'); return; }
+  const others = stressFaces(stressAllFaces());
+  if (others.length && others.some(r => r.body.id !== h.body)) { toast('All the faces must belong to the same body.'); return; }
+  const i = tgt.findIndex(r => { const f = findFace(visibleBodies(), r); return f && f.fid === h.fid && f.body.id === h.body; });
+  if (i >= 0) tgt.splice(i, 1); else tgt.push(faceRef(h.mesh, h.fid, faceInfo(h.mesh, h.fid).on));
+  refreshPanel(); rebuildHighlights(); requestDraw();
+}
+CMD_HANDLERS.stress = {
+  move(x, y) {
+    if (STRESS.result) { stressProbe(x, y); return; }
+    const h = pick3D(x, y, { faces: true });
+    setHover3D(h && h.kind === 'face' ? { kind: 'face', body: h.body, fid: h.fid } : null);
+    ov.className = h ? 'pointer' : 'default';
+  },
+  click(x, y) {
+    if (STRESS.result || STRESS.busy) return;
+    const h = pick3D(x, y, { faces: true });
+    if (h && h.kind === 'face') stressToggle(h);
+  },
+};
+
+// ── the solver ──
+function stressRun() {
+  const s = stressSetup(), supF = stressFaces(s.sup);
+  if (!supF.length) { toast('Pick at least one fixed face first.'); return; }
+  const body = supF[0].body, mesh = bodyMesh(body), onBody = refs => stressFaces(refs).filter(r => r.body.id === body.id);
+  const trisOf = fs => { const set = new Set(fs.map(r => r.fid)), out = []; for (let i = 0; i < mesh.triF.length; i++) if (set.has(mesh.triF[i])) out.push(i); return Int32Array.from(out); };
+  const loads = s.loads.map(l => ({ tris: trisOf(onBody(l.faces)), kind: l.kind, mag: +l.mag || 0, dir: stressDir(l.dir) })).filter(l => l.tris.length && l.mag);
+  if (!loads.length && !s.grav) { toast('Pick faces for a load, or turn on self weight.'); return; }
+  const mat = stressMat();
+  if (!(mat.E > 0) || !(mat.sy > 0)) { toast('The material needs a modulus and a yield strength.'); return; }
+  const txt = document.getElementById('stress-worker').textContent;
+  if (STRESS.worker) STRESS.worker.terminate();
+  const w = new Worker(URL.createObjectURL(new Blob([txt], { type: 'text/javascript' })));
+  STRESS.worker = w; STRESS.busy = { p: 0, msg: 'Starting' }; STRESS.result = null;
+  const pos = mesh.pos.slice(), nor = mesh.nor.slice(), edgePos = mesh.edgePos.slice();
+  w.onmessage = ev => {
+    const d = ev.data;
+    if (d.progress !== undefined) { STRESS.busy = { p: d.progress, msg: d.msg }; const bar = document.getElementById('stress-bar'), m = document.getElementById('stress-msg'); if (bar) bar.style.width = (d.progress * 100).toFixed(0) + '%'; if (m) m.textContent = d.msg; return; }
+    w.terminate(); STRESS.worker = null; STRESS.busy = null;
+    if (d.error) { toast(d.error); refreshPanel(); return; }
+    const R = d.done, size = Math.max(body.bb[3] - body.bb[0], body.bb[4] - body.bb[1], body.bb[5] - body.bb[2]);
+    STRESS.result = { ...R, body, mesh, mat, size, sf: R.maxVM > 0 ? mat.sy / R.maxVM : Infinity, auto: R.maxDisp > 0 ? Math.min(5000, Math.max(1, 0.06 * size / R.maxDisp)) : 1 };
+    if (!s.scale) s.scale = +STRESS.result.auto.toPrecision(2);
+    stressShow(); refreshPanel(); rebuildHighlights(); requestDraw();
+  };
+  w.onerror = ev => { STRESS.busy = null; STRESS.worker = null; toast('The solver stopped: ' + (ev.message || 'unknown error')); refreshPanel(); };
+  w.postMessage({ pos, nor, edgePos, mat, target: STRESS_TARGET[s.q] || 12000, sup: [trisOf(supF)], loads, grav: s.grav });
+  refreshPanel(); rebuildHighlights(); requestDraw();
+}
+
+// ── painting the body ──
+function stressColor(t, out, o) {                                    // blue → cyan → green → yellow → red
+  t = Math.min(1, Math.max(0, t)); const stops = [[0.1, 0.25, 0.95], [0.1, 0.75, 0.95], [0.25, 0.85, 0.35], [0.98, 0.9, 0.2], [0.95, 0.2, 0.15]], f = t * 4, i = Math.min(3, Math.floor(f)), u = f - i;
+  for (let k = 0; k < 3; k++) out[o + k] = stops[i][k] + (stops[i + 1][k] - stops[i][k]) * u;
+}
+function stressScale(R, show) {                                      // [value at the blue end, value at the red end, label]
+  const U = stressU();
+  if (show === 'disp') return [0, R.maxDisp, 'Displacement (' + uName() + ')', v => stressNum(toU(v), 3)];
+  if (show === 'sf') return [0, 4, 'Safety factor', v => v >= 4 ? '4+' : stressNum(v, 2)];
+  return [0, R.maxVM, 'von Mises (' + U.sn + ')', v => stressNum(v / U.s, 3)];
+}
+function stressClear(restore) {
+  if (STRESS.group) { scene.remove(STRESS.group); STRESS.group.traverse(o => { if (o.geometry) o.geometry.dispose(); }); STRESS.group = null; }
+  if (STRESS.hidden) { for (const m of bodyMeshes) if (m.body.id === STRESS.hidden) m.group.visible = true; STRESS.hidden = null; }
+  STRESS.result = null; STRESS.probe = null;
+  if (restore !== true && CMD && CMD.type === 'stress') { refreshPanel(); rebuildHighlights(); }
+  requestDraw();
+}
+function stressShow() {
+  const R = STRESS.result, s = stressSetup(); if (!R) return;
+  const bm = bodyMeshes.find(m => m.body.id === R.body.id);
+  if (STRESS.group) { scene.remove(STRESS.group); STRESS.group.traverse(o => { if (o.geometry) o.geometry.dispose(); }); }
+  if (STRESS.hidden) for (const m of bodyMeshes) if (m.body.id === STRESS.hidden) m.group.visible = true;
+  const k = +s.scale || 1, n = R.pos.length / 3, pos = new Float32Array(R.pos.length), col = new Float32Array(R.pos.length), [v0, v1] = stressScale(R, s.show);
+  for (let i = 0; i < n; i++) {
+    const dx = R.disp[i * 3], dy = R.disp[i * 3 + 1], dz = R.disp[i * 3 + 2];
+    pos[i * 3] = R.pos[i * 3] + dx * k; pos[i * 3 + 1] = R.pos[i * 3 + 1] + dy * k; pos[i * 3 + 2] = R.pos[i * 3 + 2] + dz * k;
+    let t;
+    if (s.show === 'disp') t = Math.hypot(dx, dy, dz) / (v1 || 1);
+    else if (s.show === 'sf') { const sf = R.vm[i] > 1e-9 ? R.mat.sy / R.vm[i] : 99; t = 1 - Math.min(sf, 4) / 4; }
+    else t = R.vm[i] / (v1 || 1);
+    stressColor(t, col, i * 3);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(R.nor, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const me = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0, side: THREE.DoubleSide }));
+  const ep = new Float32Array(R.edgePos.length); for (let i = 0; i < ep.length; i++) ep[i] = R.edgePos[i] + R.edgeDisp[i] * k;
+  const eg = new THREE.BufferGeometry(); eg.setAttribute('position', new THREE.BufferAttribute(ep, 3));
+  const grp = new THREE.Group(); grp.add(me, new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color: 0x1b2430, transparent: true, opacity: 0.45 })));
+  scene.add(grp); STRESS.group = grp; STRESS.me = me; STRESS.hidden = R.body.id;
+  if (bm) bm.group.visible = false;
+  requestDraw();
+}
+function stressProbe(x, y) {
+  const R = STRESS.result; if (!R || !STRESS.me) return;
+  const hit = rayAt(x, y).intersectObject(STRESS.me, false)[0];
+  if (!hit) { if (STRESS.probe) { STRESS.probe = null; requestDraw(); } return; }
+  const f = hit.face, idx = [f.a, f.b, f.c], pa = STRESS.me.geometry.attributes.position;
+  let best = idx[0], bd = Infinity; for (const i of idx) { const d = hit.point.distanceToSquared(new THREE.Vector3(pa.getX(i), pa.getY(i), pa.getZ(i))); if (d < bd) { bd = d; best = i; } }
+  STRESS.probe = { x, y, vm: R.vm[best], d: Math.hypot(R.disp[best * 3], R.disp[best * 3 + 1], R.disp[best * 3 + 2]) };
+  requestDraw();
+}
+function drawStress() {
+  if (!(CMD && CMD.type === 'stress')) return;
+  const s = stressSetup(), R = STRESS.result, U = stressU();
+  if (!R) {                                                          // load arrows
+    for (const l of s.loads) for (const [ri, r] of stressFaces(l.faces).entries()) {
+      const first = ri === 0;
+      const mesh = r.mesh, ti = mesh.triF.indexOf(r.fid); if (ti < 0) continue;
+      const n = [mesh.nor[ti * 9], mesh.nor[ti * 9 + 1], mesh.nor[ti * 9 + 2]], on = faceInfo(mesh, r.fid).on;
+      const dv = stressDir(l.dir); let d = dv === 'in' ? mul3(n, -1) : dv === 'out' ? n : dv;
+      const L = Math.max(sceneR * 0.28, 8), push = dot3(d, n) < 0, a = push ? sub3(on, mul3(d, L)) : on, b = push ? on : add3(on, mul3(d, L));
+      const A = toScreen(a), B = toScreen(b), ang = Math.atan2(B.y - A.y, B.x - A.x);
+      og.strokeStyle = '#f0623d'; og.fillStyle = '#f0623d'; og.lineWidth = 2.4;
+      og.beginPath(); og.moveTo(A.x, A.y); og.lineTo(B.x, B.y); og.stroke();
+      og.beginPath(); og.moveTo(B.x, B.y); og.lineTo(B.x - 11 * Math.cos(ang - 0.4), B.y - 11 * Math.sin(ang - 0.4)); og.lineTo(B.x - 11 * Math.cos(ang + 0.4), B.y - 11 * Math.sin(ang + 0.4)); og.closePath(); og.fill();
+      if (first) label(l.kind === 'pressure' ? fmt(l.mag / U.s, 3) + ' ' + U.sn : fmt(l.mag / U.f, 3) + ' ' + U.fn, A.x + 6, A.y - 4, '#f0623d');
+    }
+    return;
+  }
+  const [v0, v1, title, fmtV] = stressScale(R, s.show), x0 = 22, h = Math.min(240, H * 0.4), y0 = H / 2 - h / 2, w = 14;
+  const grad = og.createLinearGradient(0, y0 + h, 0, y0), tmp = [0, 0, 0];
+  for (let i = 0; i <= 8; i++) { stressColor(i / 8, tmp, 0); grad.addColorStop(i / 8, `rgb(${tmp.map(c => Math.round(c * 255)).join(',')})`); }
+  const flip = s.show === 'sf';
+  if (flip) { const g2 = og.createLinearGradient(0, y0 + h, 0, y0); for (let i = 0; i <= 8; i++) { stressColor(1 - i / 8, tmp, 0); g2.addColorStop(i / 8, `rgb(${tmp.map(c => Math.round(c * 255)).join(',')})`); } og.fillStyle = g2; } else og.fillStyle = grad;
+  og.fillRect(x0, y0, w, h); og.strokeStyle = COL.ink; og.lineWidth = 1; og.strokeRect(x0 + .5, y0 + .5, w - 1, h - 1);
+  og.font = '500 11px Inter, system-ui, sans-serif'; og.fillStyle = COL.ink;
+  for (let i = 0; i <= 5; i++) { const v = v0 + (v1 - v0) * (flip ? i : i) / 5, y = y0 + h - h * i / 5; og.fillText(fmtV(v), x0 + w + 6, y + 4); }
+  og.font = '600 11px Inter, system-ui, sans-serif'; og.fillText(title, x0, y0 - 10);
+  if (STRESS.probe) { const p = STRESS.probe; label(`${stressNum(p.vm / U.s)} ${U.sn} · ${fmtLs(p.d, 4)}`, p.x + 14, p.y - 8, COL.snap); }
+}
+const drawMeasurements1S = drawMeasurements;
+drawMeasurements = function () { drawMeasurements1S(); if (STRESS.group && !(CMD && CMD.type === 'stress')) stressClear(true); drawStress(); };
+
+// ── the panel ──
+function stressTarget(label, key, faces, active) {
+  const n = faces.length;
+  return `<div class="field"><span>${label}</span><div class="pick ${n ? '' : 'empty'} ${active ? 'act' : ''}" data-sx-act="${key}" role="button" tabindex="0"><span>${n ? n + ' face' + (n > 1 ? 's' : '') + (active ? ' · click faces to add or remove' : '') : active ? 'Click faces of the part' : 'No faces yet'}</span><span class="n">${active ? 'picking' : 'pick'}</span></div></div>`;
+}
+function stressPanel() {
+  const s = stressSetup(), U = stressU(), m = stressMat(), R = STRESS.result;
+  const head = `<div class="pn-head"><h2>Stress analysis</h2><span class="tag">static · linear</span></div>`;
+  if (STRESS.busy) return head + `<div class="pn-body"><p class="note" id="stress-msg">${STRESS.busy.msg}</p><div class="sbar"><i id="stress-bar" style="width:${(STRESS.busy.p * 100).toFixed(0)}%"></i></div><div class="btns"><button class="btn" data-sx-do="stop">Stop</button></div></div>`;
+  if (R) {
+    const sf = R.sf, col = sf >= 2 ? '#2e9d57' : sf >= 1 ? '#d8920f' : '#d93a2f', verdict = sf >= 2 ? 'Comfortable margin' : sf >= 1.2 ? 'Thin margin' : sf >= 1 ? 'Barely holds' : 'Yields: it would bend permanently or break';
+    const A = R.applied, F = Math.hypot(A[0], A[1], A[2]);
+    return head + `<div class="pn-body">
+      <div class="measure-big" style="color:${col}"><span style="color:${col}">${!isFinite(sf) ? '∞' : sf > 999 ? '>999' : stressNum(sf, 3)}</span> safety factor</div>
+      <p class="note"><b style="color:${col}">${verdict}.</b> ${R.mat.name} yields at ${stressNum(R.mat.sy / U.s)} ${U.sn}; the peak von Mises stress is ${stressNum(R.maxVM / U.s)} ${U.sn}.</p>
+      <div class="field"><span>Show</span><div class="seg">${[['vm', 'Stress'], ['disp', 'Movement'], ['sf', 'Safety factor']].map(([v, l]) => `<button data-sx-show="${v}" class="${s.show === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+      <label class="field"><span>Deformation shown × </span><input type="number" min="0" step="1" value="${s.scale}" data-sx-scale="1" data-live="1"></label>
+      <div class="btns"><button class="btn" data-sx-do="true">True scale</button><button class="btn" data-sx-do="auto">Auto</button></div>
+      <dl class="kv"><dt>Peak von Mises</dt><dd>${stressNum(R.maxVM / U.s)} ${U.sn}</dd><dt>Typical (95%)</dt><dd>${stressNum(R.p95 / U.s)} ${U.sn}</dd><dt>Largest movement</dt><dd>${fmtLs(R.maxDisp, 4)}</dd><dt>Total load</dt><dd>${stressNum(F / U.f)} ${U.fn}</dd><dt>Mass</dt><dd>${isIn() ? stressNum(R.mass / 453.592) + ' lb' : stressNum(R.mass) + ' g'}</dd><dt>Mesh</dt><dd>${R.nEl.toLocaleString()} bricks · ${fmtLs(R.h, 3)}</dd><dt>Solver</dt><dd>${R.iterations} its · residual ${R.residual.toExponential(0)}</dd></dl>
+      ${R.converged ? '' : '<p class="note err-note">The solver stopped before it settled: treat these numbers as rough, or try the Draft mesh.</p>'}
+      <p class="note">Peaks right at a fixed face, a sharp inside corner or a point-like load are inflated by the model (a fixed face is infinitely stiff): judge the safety factor away from those spots. Click the body to read a value there.</p>
+      <div class="btns"><button class="btn" data-sx-do="edit">Edit setup</button><button class="btn primary" data-do="cancel">Done</button></div></div>`;
+  }
+  const loads = s.loads.map((l, i) => {
+    const act = s.active === i, isP = l.kind === 'pressure', unit = isP ? U.sn : U.fn, val = +(l.mag / (isP ? U.s : U.f)).toPrecision(5);
+    return `<div class="divider"></div>${stressTarget('Load ' + (i + 1), i, l.faces, act)}
+      <div class="row2"><label class="field"><span>Type</span><select data-sx-l="${i}:kind">${[['force', 'Total force'], ['pressure', 'Pressure']].map(([v, t]) => `<option value="${v}" ${l.kind === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+      <label class="field"><span>${isP ? 'Pressure' : 'Force'} (${unit})</span><input type="number" min="0" step="any" value="${val}" data-sx-l="${i}:mag" data-live="1"></label></div>
+      <label class="field"><span>Direction</span><select data-sx-l="${i}:dir">${STRESS_DIRS.map(([v, t]) => `<option value="${v}" ${l.dir === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+      <div class="btns"><button class="btn" data-sx-del="${i}">Remove load ${i + 1}</button></div>`;
+  }).join('');
+  const cust = s.mat === 'custom' ? `<div class="row2"><label class="field"><span>Modulus (GPa)</span><input type="number" min="0" step="any" value="${+(s.cust.E / 1000).toPrecision(5)}" data-sx-c="E" data-live="1"></label><label class="field"><span>Poisson</span><input type="number" min="0" max="0.45" step="0.01" value="${s.cust.nu}" data-sx-c="nu" data-live="1"></label></div>
+    <div class="row2"><label class="field"><span>Yield (${U.sn})</span><input type="number" min="0" step="any" value="${+(s.cust.sy / U.s).toPrecision(5)}" data-sx-c="sy" data-live="1"></label><label class="field"><span>Density (kg/m³)</span><input type="number" min="0" step="any" value="${s.cust.rho}" data-sx-c="rho" data-live="1"></label></div>` : '';
+  const ready = s.sup.length && (s.loads.some(l => l.faces.length && +l.mag) || s.grav);
+  return head + `<div class="pn-body">
+    <p class="note">Hold some faces fixed, push on others, and see where the part is stressed and how far it moves.</p>
+    <label class="field"><span>Material</span><select data-sx="mat">${Object.entries(STRESS_MATS).map(([k, v]) => `<option value="${k}" ${s.mat === k ? 'selected' : ''}>${v[0]}</option>`).join('')}</select></label>${cust}
+    <p class="note">Modulus ${stressNum(m.E / 1000)} GPa · yield ${stressNum(m.sy / U.s)} ${U.sn} · ${m.rho} kg/m³</p>
+    ${stressTarget('Fixed faces', 'sup', s.sup, s.active === 'sup')}
+    ${loads}
+    <div class="btns"><button class="btn" data-sx-do="addload">+ Add a load</button></div>
+    <label class="chk"><input type="checkbox" data-sx-grav="1" ${s.grav ? 'checked' : ''}> Include self weight (gravity, −Z)</label>
+    <div class="field"><span>Mesh</span><div class="seg">${STRESS_Q.map(([v, l]) => `<button data-sx-q="${v}" class="${s.q === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+    ${ready ? '' : `<p class="note">${!s.sup.length ? 'Click faces to hold fixed' : 'Add a load: pick its faces, then set the force or pressure'}.</p>`}
+    <div class="btns"><button class="btn" data-do="cancel">Close</button><button class="btn primary" data-sx-do="run" ${ready ? '' : 'disabled'}>Run analysis</button></div></div>`;
+}
+function bindStressPanel() {
+  const s = stressSetup(), U = stressU(), again = () => { refreshPanel(); rebuildHighlights(); requestDraw(); };
+  panel.querySelectorAll('[data-sx-act]').forEach(el => el.addEventListener('click', () => { const v = el.dataset.sxAct; s.active = v === 'sup' ? 'sup' : +v; again(); }));
+  panel.querySelectorAll('[data-sx="mat"]').forEach(el => el.addEventListener('change', () => { s.mat = el.value; again(); }));
+  panel.querySelectorAll('[data-sx-c]').forEach(el => el.addEventListener('input', () => { const v = parseFloat(el.value), k = el.dataset.sxC; if (!isFinite(v)) return; s.cust[k] = k === 'E' ? v * 1000 : k === 'sy' ? v * U.s : v; }));
+  panel.querySelectorAll('[data-sx-l]').forEach(el => el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', () => {
+    const [i, k] = el.dataset.sxL.split(':'), l = s.loads[+i]; if (!l) return;
+    if (k === 'mag') { const v = parseFloat(el.value); if (isFinite(v)) l.mag = v * (l.kind === 'pressure' ? U.s : U.f); return; }
+    if (k === 'kind') { l.kind = el.value; l.mag = l.kind === 'pressure' ? 1 : 100; again(); return; }
+    l[k] = el.value; requestDraw();
+  }));
+  panel.querySelectorAll('[data-sx-del]').forEach(el => el.addEventListener('click', () => { const i = +el.dataset.sxDel; s.loads.splice(i, 1); s.active = s.active === 'sup' ? 'sup' : Math.min(s.active, s.loads.length - 1) < 0 ? 'sup' : Math.min(s.active, s.loads.length - 1); again(); }));
+  panel.querySelectorAll('[data-sx-grav]').forEach(el => el.addEventListener('change', () => { s.grav = el.checked; again(); }));
+  panel.querySelectorAll('[data-sx-q]').forEach(el => el.addEventListener('click', () => { s.q = el.dataset.sxQ; again(); }));
+  panel.querySelectorAll('[data-sx-show]').forEach(el => el.addEventListener('click', () => { s.show = el.dataset.sxShow; stressShow(); refreshPanel(); }));
+  panel.querySelectorAll('[data-sx-scale]').forEach(el => el.addEventListener('input', () => { const v = parseFloat(el.value); if (isFinite(v) && v >= 0) { s.scale = v; stressShow(); } }));
+  panel.querySelectorAll('[data-sx-do]').forEach(el => el.addEventListener('click', () => {
+    const a = el.dataset.sxDo, R = STRESS.result;
+    if (a === 'addload') { s.loads.push({ faces: [], kind: 'force', mag: 100, dir: 'in' }); s.active = s.loads.length - 1; again(); }
+    else if (a === 'run') stressRun();
+    else if (a === 'stop') { stressLeave(); refreshPanel(); }
+    else if (a === 'edit') stressClear(false);
+    else if (a === 'true') { s.scale = 1; stressShow(); refreshPanel(); }
+    else if (a === 'auto') { s.scale = R ? +R.auto.toPrecision(2) : 1; stressShow(); refreshPanel(); }
+  }));
+}
+</script>
+<script type="text/plain" id="stress-worker">
+// ═══════════════════════════════════════════════════════════════════
+//  Stress worker: linear-elastic static analysis on a voxel mesh.
+//  The body's triangle mesh is voxelised, each solid voxel becomes an
+//  8-node brick (with incompatible modes so slender parts bend right),
+//  the system is solved matrix-free with preconditioned conjugate
+//  gradients, and von Mises stress and displacement are sampled back
+//  onto the original surface. Units: mm, N, MPa, tonne/mm³.
+// ═══════════════════════════════════════════════════════════════════
+const say = (p, msg) => self.postMessage({ progress: p, msg });
+self.onmessage = e => {
+  try { const r = solveStress(e.data); self.postMessage({ done: r }, [r.pos.buffer, r.nor.buffer, r.edgePos.buffer, r.vm.buffer, r.disp.buffer, r.edgeDisp.buffer]); }
+  catch (err) { self.postMessage({ error: err.message || String(err) }); }
+};
+
+// the brick: 24×24 stiffness of a unit cube with E = 1 (scale by E·h), condensed over 9 incompatible modes
+function brickK(nu) {
+  const lam = nu / ((1 + nu) * (1 - 2 * nu)), mu = 1 / (2 * (1 + nu)), D = new Float64Array(36);
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) D[i * 6 + j] = lam + (i === j ? 2 * mu : 0);
+  for (let i = 3; i < 6; i++) D[i * 6 + i] = mu;
+  const sg = [-1 / Math.sqrt(3), 1 / Math.sqrt(3)], cx = [-1, 1, 1, -1, -1, 1, 1, -1], cy = [-1, -1, 1, 1, -1, -1, 1, 1], cz = [-1, -1, -1, -1, 1, 1, 1, 1];
+  const Kuu = new Float64Array(576), Kua = new Float64Array(24 * 9), Kaa = new Float64Array(81), detJ = 1 / 8;
+  const Bu = new Float64Array(6 * 24), Ba = new Float64Array(6 * 9), DB = new Float64Array(6 * 24), DA = new Float64Array(6 * 9);
+  for (const xi of sg) for (const et of sg) for (const ze of sg) {
+    Bu.fill(0); Ba.fill(0);
+    for (let a = 0; a < 8; a++) {
+      const dx = 2 * cx[a] * (1 + cy[a] * et) * (1 + cz[a] * ze) / 8, dy = 2 * cy[a] * (1 + cx[a] * xi) * (1 + cz[a] * ze) / 8, dz = 2 * cz[a] * (1 + cx[a] * xi) * (1 + cy[a] * et) / 8;
+      Bu[0 * 24 + 3 * a] = dx; Bu[1 * 24 + 3 * a + 1] = dy; Bu[2 * 24 + 3 * a + 2] = dz;
+      Bu[3 * 24 + 3 * a] = dy; Bu[3 * 24 + 3 * a + 1] = dx;
+      Bu[4 * 24 + 3 * a + 1] = dz; Bu[4 * 24 + 3 * a + 2] = dy;
+      Bu[5 * 24 + 3 * a] = dz; Bu[5 * 24 + 3 * a + 2] = dx;
+    }
+    const q = [xi, et, ze];
+    for (let m = 0; m < 3; m++) for (let d = 0; d < 3; d++) {
+      const g = 2 * (-2 * q[m]), c = 3 * m + d;
+      if (m === d) Ba[d * 9 + c] += g;
+      else { const row = (d + m === 1) ? 3 : (d + m === 3) ? 4 : 5; Ba[row * 9 + c] += g; }
+    }
+    for (let r = 0; r < 6; r++) {
+      for (let c = 0; c < 24; c++) { let s = 0; for (let k = 0; k < 6; k++) s += D[r * 6 + k] * Bu[k * 24 + c]; DB[r * 24 + c] = s; }
+      for (let c = 0; c < 9; c++) { let s = 0; for (let k = 0; k < 6; k++) s += D[r * 6 + k] * Ba[k * 9 + c]; DA[r * 9 + c] = s; }
+    }
+    for (let i = 0; i < 24; i++) {
+      for (let j = 0; j < 24; j++) { let s = 0; for (let k = 0; k < 6; k++) s += Bu[k * 24 + i] * DB[k * 24 + j]; Kuu[i * 24 + j] += s * detJ; }
+      for (let j = 0; j < 9; j++) { let s = 0; for (let k = 0; k < 6; k++) s += Bu[k * 24 + i] * DA[k * 9 + j]; Kua[i * 9 + j] += s * detJ; }
+    }
+    for (let i = 0; i < 9; i++) for (let j = 0; j < 9; j++) { let s = 0; for (let k = 0; k < 6; k++) s += Ba[k * 9 + i] * DA[k * 9 + j]; Kaa[i * 9 + j] += s * detJ; }
+  }
+  // invert Kaa (9×9, Gauss-Jordan)
+  const M = new Float64Array(81 * 2 / 1), n = 9, A = Array.from({ length: n }, (_, i) => Array.from({ length: 2 * n }, (_, j) => j < n ? Kaa[i * n + j] : (j - n === i ? 1 : 0)));
+  for (let c = 0; c < n; c++) {
+    let p = c; for (let r = c + 1; r < n; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r;
+    [A[c], A[p]] = [A[p], A[c]];
+    const pv = A[c][c]; for (let j = 0; j < 2 * n; j++) A[c][j] /= pv;
+    for (let r = 0; r < n; r++) if (r !== c) { const f = A[r][c]; if (f) for (let j = 0; j < 2 * n; j++) A[r][j] -= f * A[c][j]; }
+  }
+  const Kinv = A.map(r => r.slice(n)), T = new Float64Array(24 * 9), K = new Float64Array(576);
+  for (let i = 0; i < 24; i++) for (let j = 0; j < 9; j++) { let s = 0; for (let k = 0; k < 9; k++) s += Kua[i * 9 + k] * Kinv[k][j]; T[i * 9 + j] = s; }
+  for (let i = 0; i < 24; i++) for (let j = 0; j < 24; j++) { let s = 0; for (let k = 0; k < 9; k++) s += T[i * 9 + k] * Kua[j * 9 + k]; K[i * 24 + j] = Kuu[i * 24 + j] - s; }
+  // stress at the centre of a unit cube per unit displacement (E = 1): S = D·Bu(0)
+  const S = new Float64Array(6 * 24), B0 = new Float64Array(6 * 24);
+  for (let a = 0; a < 8; a++) {
+    const dx = 2 * cx[a] / 8, dy = 2 * cy[a] / 8, dz = 2 * cz[a] / 8;
+    B0[0 * 24 + 3 * a] = dx; B0[1 * 24 + 3 * a + 1] = dy; B0[2 * 24 + 3 * a + 2] = dz;
+    B0[3 * 24 + 3 * a] = dy; B0[3 * 24 + 3 * a + 1] = dx; B0[4 * 24 + 3 * a + 1] = dz; B0[4 * 24 + 3 * a + 2] = dy; B0[5 * 24 + 3 * a] = dz; B0[5 * 24 + 3 * a + 2] = dx;
+  }
+  for (let r = 0; r < 6; r++) for (let c = 0; c < 24; c++) { let s = 0; for (let k = 0; k < 6; k++) s += D[r * 6 + k] * B0[k * 24 + c]; S[r * 24 + c] = s; }
+  // stress at each of the eight corners: D·(Bu + Ba·R), with R = -Kaa⁻¹·Kau recovering the incompatible modes
+  const R = new Float64Array(9 * 24), SN = [];
+  for (let k = 0; k < 9; k++) for (let j = 0; j < 24; j++) { let v = 0; for (let m = 0; m < 9; m++) v -= Kinv[k][m] * Kua[j * 9 + m]; R[k * 24 + j] = v; }
+  for (let a = 0; a < 8; a++) {
+    const q = [cx[a], cy[a], cz[a]], Bn = new Float64Array(6 * 24), Bq = new Float64Array(6 * 9), out = new Float64Array(6 * 24);
+    for (let b = 0; b < 8; b++) {
+      const dx = 2 * cx[b] * (1 + cy[b] * q[1]) * (1 + cz[b] * q[2]) / 8, dy = 2 * cy[b] * (1 + cx[b] * q[0]) * (1 + cz[b] * q[2]) / 8, dz = 2 * cz[b] * (1 + cx[b] * q[0]) * (1 + cy[b] * q[1]) / 8;
+      Bn[0 * 24 + 3 * b] = dx; Bn[1 * 24 + 3 * b + 1] = dy; Bn[2 * 24 + 3 * b + 2] = dz;
+      Bn[3 * 24 + 3 * b] = dy; Bn[3 * 24 + 3 * b + 1] = dx; Bn[4 * 24 + 3 * b + 1] = dz; Bn[4 * 24 + 3 * b + 2] = dy; Bn[5 * 24 + 3 * b] = dz; Bn[5 * 24 + 3 * b + 2] = dx;
+    }
+    for (let m = 0; m < 3; m++) for (let dd = 0; dd < 3; dd++) {
+      const g = 2 * (-2 * q[m]), c = 3 * m + dd;
+      if (m === dd) Bq[dd * 9 + c] += g; else { const row = (dd + m === 1) ? 3 : (dd + m === 3) ? 4 : 5; Bq[row * 9 + c] += g; }
+    }
+    for (let r = 0; r < 6; r++) for (let c = 0; c < 24; c++) { let v = Bn[r * 24 + c]; for (let k = 0; k < 9; k++) v += Bq[r * 9 + k] * R[k * 24 + c]; Bn[r * 24 + c] = v; }
+    for (let r = 0; r < 6; r++) for (let c = 0; c < 24; c++) { let v = 0; for (let k = 0; k < 6; k++) v += D[r * 6 + k] * Bn[k * 24 + c]; out[r * 24 + c] = v; }
+    SN.push(out);
+  }
+  return { K, S, SN };
+}
+
+function solveStress(d) {
+  const { pos, nor, edgePos, mat } = d, T = pos.length / 9, E = mat.E, nu = Math.min(0.45, Math.max(0, mat.nu));
+  say(0.02, 'Preparing the mesh');
+  // volume and bounds
+  let V = 0; const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (let t = 0; t < T; t++) {
+    const o = t * 9;
+    V += (pos[o] * (pos[o + 4] * pos[o + 8] - pos[o + 5] * pos[o + 7]) - pos[o + 1] * (pos[o + 3] * pos[o + 8] - pos[o + 5] * pos[o + 6]) + pos[o + 2] * (pos[o + 3] * pos[o + 7] - pos[o + 4] * pos[o + 6])) / 6;
+    for (let k = 0; k < 9; k++) { const a = k % 3, v = pos[o + k]; if (v < lo[a]) lo[a] = v; if (v > hi[a]) hi[a] = v; }
+  }
+  V = Math.abs(V);
+  if (!(V > 0)) throw new Error('The body has no volume to analyse.');
+  const size = [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]], bbV = size[0] * size[1] * size[2];
+  let h = Math.cbrt(V / d.target);
+  h = Math.max(h, Math.cbrt(bbV / 5e6), Math.max(...size) / 400);
+  // nudge the cell size so the grid fits the bounding box (a box then comes out exact, not a cell short or long)
+  const misfit = hh => size.reduce((m, s) => { const n = Math.max(1, Math.round(s / hh)); return m + Math.abs(n * hh - s) / Math.max(s, hh); }, 0);
+  let bestH = h, bestM = misfit(h) + 0.02 * 0;
+  for (let f = 0.8; f <= 1.25; f += 0.0025) { const hh = h * f, m = misfit(hh) + 0.01 * Math.abs(f - 1); if (m < bestM) { bestM = m; bestH = hh; } }
+  h = bestH;
+  const n3 = size.map(s => Math.max(1, Math.round(s / h))), nx = n3[0], ny = n3[1], nz = n3[2];
+  const o = [0, 1, 2].map(a => lo[a] - (n3[a] * h - size[a]) / 2);
+  // ── voxelise: crossings of vertical lines through each column of cell centres
+  say(0.05, 'Voxelising');
+  const cols = new Array(nx * ny), jx = h * 0.00137, jy = h * 0.00219;
+  for (let t = 0; t < T; t++) {
+    const q = t * 9, ax = pos[q], ay = pos[q + 1], az = pos[q + 2], bx = pos[q + 3], by = pos[q + 4], bz = pos[q + 5], cx = pos[q + 6], cy = pos[q + 7], cz = pos[q + 8];
+    const den = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
+    if (Math.abs(den) < 1e-14) continue;
+    const i0 = Math.max(0, Math.floor((Math.min(ax, bx, cx) - o[0] - jx) / h - 0.5)), i1 = Math.min(nx - 1, Math.ceil((Math.max(ax, bx, cx) - o[0] - jx) / h - 0.5));
+    const j0 = Math.max(0, Math.floor((Math.min(ay, by, cy) - o[1] - jy) / h - 0.5)), j1 = Math.min(ny - 1, Math.ceil((Math.max(ay, by, cy) - o[1] - jy) / h - 0.5));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const px = o[0] + (i + 0.5) * h + jx, py = o[1] + (j + 0.5) * h + jy;
+      const l1 = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / den, l2 = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / den, l3 = 1 - l1 - l2;
+      if (l1 < 0 || l2 < 0 || l3 < 0) continue;
+      (cols[j * nx + i] || (cols[j * nx + i] = [])).push(l1 * az + l2 * bz + l3 * cz);
+    }
+  }
+  const solid = new Uint8Array(nx * ny * nz); let nEl = 0;
+  for (let c = 0; c < nx * ny; c++) {
+    const zs = cols[c]; if (!zs || zs.length < 2) continue;
+    zs.sort((a, b) => a - b);
+    for (let p = 0; p + 1 < zs.length; p += 2) {
+      const k0 = Math.max(0, Math.ceil((zs[p] - o[2]) / h - 0.5)), k1 = Math.min(nz - 1, Math.floor((zs[p + 1] - o[2]) / h - 0.5));
+      for (let k = k0; k <= k1; k++) { const id = k * nx * ny + c; if (!solid[id]) { solid[id] = 1; nEl++; } }
+    }
+  }
+  if (nEl < 8) throw new Error('The body is too thin for this mesh: use a finer mesh.');
+  if (nEl > 400000) throw new Error('The mesh would have too many elements: use a coarser mesh.');
+  // ── nodes and elements
+  const NX = nx + 1, NY = ny + 1, nodeId = new Int32Array(NX * NY * (nz + 1)).fill(-1), conn = new Int32Array(nEl * 8); let nn = 0, e = 0;
+  const cdx = [0, 1, 1, 0, 0, 1, 1, 0], cdy = [0, 0, 1, 1, 0, 0, 1, 1], cdz = [0, 0, 0, 0, 1, 1, 1, 1];
+  for (let k = 0; k < nz; k++) for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    if (!solid[(k * ny + j) * nx + i]) continue;
+    for (let a = 0; a < 8; a++) { const id = ((k + cdz[a]) * NY + j + cdy[a]) * NX + i + cdx[a]; if (nodeId[id] < 0) nodeId[id] = nn++; conn[e * 8 + a] = nodeId[id]; }
+    e++;
+  }
+  const ndof = nn * 3;
+  // ── loads and supports on the picked faces
+  say(0.1, 'Applying loads and supports');
+  const fixed = new Uint8Array(ndof), F = new Float64Array(ndof);
+  const snap = (px, py, pz) => {
+    const ix = Math.round((px - o[0]) / h), iy = Math.round((py - o[1]) / h), iz = Math.round((pz - o[2]) / h);
+    let best = -1, bd = Infinity;
+    for (let dz = -1; dz <= 1; dz++) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const a = ix + dx, b = iy + dy, c = iz + dz;
+      if (a < 0 || b < 0 || c < 0 || a > nx || b > ny || c > nz) continue;
+      const id = nodeId[(c * NY + b) * NX + a]; if (id < 0) continue;
+      const dd = (o[0] + a * h - px) ** 2 + (o[1] + b * h - py) ** 2 + (o[2] + c * h - pz) ** 2;
+      if (dd < bd) { bd = dd; best = id; }
+    }
+    return bd <= (1.8 * h) ** 2 ? best : -1;
+  };
+  const samples = (tris, fn) => {                                       // centroids of sub-triangles with their areas
+    for (const t of tris) {
+      const q = t * 9, a = [pos[q], pos[q + 1], pos[q + 2]], b = [pos[q + 3], pos[q + 4], pos[q + 5]], c = [pos[q + 6], pos[q + 7], pos[q + 8]];
+      const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+      let nxn = uy * vz - uz * vy, nyn = uz * vx - ux * vz, nzn = ux * vy - uy * vx; const A = Math.hypot(nxn, nyn, nzn) / 2;
+      if (A < 1e-12) continue;
+      nxn /= 2 * A; nyn /= 2 * A; nzn /= 2 * A;
+      if (nxn * nor[q] + nyn * nor[q + 1] + nzn * nor[q + 2] < 0) { nxn = -nxn; nyn = -nyn; nzn = -nzn; }
+      const nS = Math.max(1, Math.ceil(Math.max(Math.hypot(ux, uy, uz), Math.hypot(vx, vy, vz), Math.hypot(vx - ux, vy - uy, vz - uz)) / (h * 0.5))), w = A / (nS * nS);
+      const at = (u, v) => fn(a[0] + u * ux + v * vx, a[1] + u * uy + v * vy, a[2] + u * uz + v * vz, w, nxn, nyn, nzn);
+      for (let i = 0; i < nS; i++) for (let j = 0; j < nS - i; j++) { at((i + 1 / 3) / nS, (j + 1 / 3) / nS); if (i + j < nS - 1) at((i + 2 / 3) / nS, (j + 2 / 3) / nS); }
+    }
+  };
+  let nFixed = 0;
+  for (const tris of d.sup) samples(tris, (x, y, z) => { const id = snap(x, y, z); if (id >= 0 && !fixed[id * 3]) { fixed[id * 3] = fixed[id * 3 + 1] = fixed[id * 3 + 2] = 1; nFixed++; } });
+  if (!nFixed) throw new Error('The fixed faces did not touch the solid mesh: pick faces of the body or use a finer mesh.');
+  let applied = [0, 0, 0], appliedAbs = 0;
+  for (const L of d.loads) {
+    let area = 0; samples(L.tris, (x, y, z, w) => { area += w; });
+    if (!(area > 0)) continue;
+    const trac = (L.kind === 'pressure' ? L.mag : L.mag / area);
+    samples(L.tris, (x, y, z, w, nx_, ny_, nz_) => {
+      const id = snap(x, y, z); if (id < 0) return;
+      let dx, dy, dz;
+      if (L.dir === 'in') { dx = -nx_; dy = -ny_; dz = -nz_; } else if (L.dir === 'out') { dx = nx_; dy = ny_; dz = nz_; } else { dx = L.dir[0]; dy = L.dir[1]; dz = L.dir[2]; }
+      const f = w * trac; F[id * 3] += f * dx; F[id * 3 + 1] += f * dy; F[id * 3 + 2] += f * dz; applied[0] += f * dx; applied[1] += f * dy; applied[2] += f * dz; appliedAbs += Math.abs(f);
+    });
+  }
+  const rho = mat.rho * 1e-12, g = 9810;                                  // kg/m³ → tonne/mm³; mm/s²; gravity pulls along model −Y (up is +Y)
+  if (d.grav) for (let el = 0; el < nEl; el++) for (let a = 0; a < 8; a++) { const f = -rho * g * h * h * h / 8; F[conn[el * 8 + a] * 3 + 1] += f; applied[1] += f; appliedAbs += Math.abs(f); }
+  if (!appliedAbs) throw new Error('Add a load (or turn on self weight) first.');
+  for (let i = 0; i < ndof; i++) if (fixed[i]) F[i] = 0;
+  // ── solve K u = F by Jacobi-preconditioned conjugate gradients, never forming K
+  say(0.15, 'Solving ' + nEl.toLocaleString() + ' elements');
+  const { K: K1, S, SN } = brickK(nu), Ke = new Float64Array(576), sc = E * h;
+  for (let i = 0; i < 576; i++) Ke[i] = K1[i] * sc;
+  const diag = new Float64Array(ndof);
+  for (let el = 0; el < nEl; el++) for (let a = 0; a < 8; a++) { const n = conn[el * 8 + a] * 3; for (let c = 0; c < 3; c++) diag[n + c] += Ke[(3 * a + c) * 24 + 3 * a + c]; }
+  for (let i = 0; i < ndof; i++) if (fixed[i] || !(diag[i] > 0)) diag[i] = 1;
+  const xe = new Float64Array(24), ye = new Float64Array(24);
+  const apply = (x, y) => {
+    y.fill(0);
+    for (let el = 0; el < nEl; el++) {
+      const base = el * 8;
+      for (let a = 0; a < 8; a++) { const n = conn[base + a] * 3; xe[3 * a] = x[n]; xe[3 * a + 1] = x[n + 1]; xe[3 * a + 2] = x[n + 2]; }
+      for (let r = 0; r < 24; r++) { let s = 0; const ro = r * 24; for (let c = 0; c < 24; c++) s += Ke[ro + c] * xe[c]; ye[r] = s; }
+      for (let a = 0; a < 8; a++) { const n = conn[base + a] * 3; y[n] += ye[3 * a]; y[n + 1] += ye[3 * a + 1]; y[n + 2] += ye[3 * a + 2]; }
+    }
+    for (let i = 0; i < ndof; i++) if (fixed[i]) y[i] = x[i];
+  };
+  const u = new Float64Array(ndof), r = Float64Array.from(F), z = new Float64Array(ndof), p = new Float64Array(ndof), Ap = new Float64Array(ndof);
+  let bn = 0; for (let i = 0; i < ndof; i++) bn += F[i] * F[i]; bn = Math.sqrt(bn);
+  for (let i = 0; i < ndof; i++) { z[i] = r[i] / diag[i]; p[i] = z[i]; }
+  let rz = 0; for (let i = 0; i < ndof; i++) rz += r[i] * z[i];
+  let it = 0, rel = 1; const maxIt = d.maxIt || 6000, tol = d.tol || 1e-6;
+  for (; it < maxIt; it++) {
+    apply(p, Ap);
+    let pAp = 0; for (let i = 0; i < ndof; i++) pAp += p[i] * Ap[i];
+    if (!(pAp > 0)) break;
+    const al = rz / pAp; let rn = 0;
+    for (let i = 0; i < ndof; i++) { u[i] += al * p[i]; r[i] -= al * Ap[i]; rn += r[i] * r[i]; }
+    rel = Math.sqrt(rn) / bn;
+    if (rel < tol) { it++; break; }
+    let rz2 = 0; for (let i = 0; i < ndof; i++) { z[i] = r[i] / diag[i]; rz2 += r[i] * z[i]; }
+    const be = rz2 / rz; rz = rz2;
+    for (let i = 0; i < ndof; i++) p[i] = z[i] + be * p[i];
+    if (it % 25 === 0) say(0.15 + 0.7 * Math.min(1, Math.log10(1 / rel) / Math.log10(1 / tol)), 'Solving · iteration ' + it + ' · residual ' + rel.toExponential(1));
+  }
+  // ── stresses at the element centres, averaged to the nodes
+  say(0.88, 'Recovering stress');
+  const vmE = new Float32Array(nEl), nodeS = new Float64Array(nn * 6), cnt = new Float64Array(nn), ue = new Float64Array(24), vmOf = s => Math.sqrt(0.5 * ((s[0] - s[1]) ** 2 + (s[1] - s[2]) ** 2 + (s[2] - s[0]) ** 2) + 3 * (s[3] * s[3] + s[4] * s[4] + s[5] * s[5]));
+  for (let el = 0; el < nEl; el++) {
+    for (let a = 0; a < 8; a++) { const n = conn[el * 8 + a] * 3; ue[3 * a] = u[n]; ue[3 * a + 1] = u[n + 1]; ue[3 * a + 2] = u[n + 2]; }
+    const s = [0, 0, 0, 0, 0, 0];
+    for (let rr = 0; rr < 6; rr++) { let v = 0; for (let c = 0; c < 24; c++) v += S[rr * 24 + c] * ue[c]; s[rr] = v * E / h; }
+    vmE[el] = vmOf(s);
+    for (let a = 0; a < 8; a++) {
+      const n = conn[el * 8 + a], op = SN[a];
+      for (let rr = 0; rr < 6; rr++) { let v = 0; for (let c = 0; c < 24; c++) v += op[rr * 24 + c] * ue[c]; nodeS[n * 6 + rr] += v * E / h; }
+      cnt[n]++;
+    }
+  }
+  const nodeVM = new Float64Array(nn); let maxVM = 0;
+  for (let i = 0; i < nn; i++) { if (!cnt[i]) continue; const t = [0, 1, 2, 3, 4, 5].map(k => nodeS[i * 6 + k] / cnt[i]); nodeVM[i] = vmOf(t); if (nodeVM[i] > maxVM) maxVM = nodeVM[i]; }
+  const sorted = Float32Array.from(vmE).sort(), p95 = sorted[Math.min(nEl - 1, Math.floor(nEl * 0.95))];
+  let maxD = 0;
+  for (let i = 0; i < nn; i++) maxD = Math.max(maxD, Math.hypot(u[i * 3], u[i * 3 + 1], u[i * 3 + 2]));
+  // ── sample the nodal fields at any point of the original surface
+  say(0.93, 'Painting the surface');
+  const sample = (px, py, pz, out, oi, wantVM) => {
+    const fx = (px - o[0]) / h, fy = (py - o[1]) / h, fz = (pz - o[2]) / h;
+    let ix = Math.floor(fx), iy = Math.floor(fy), iz = Math.floor(fz);
+    for (let pass = 0; pass < 2; pass++) {
+      let ws = 0, vm = 0, ux = 0, uy = 0, uz = 0;
+      const r0 = pass ? 1 : 0;
+      for (let dz = -r0; dz <= 1 + r0; dz++) for (let dy = -r0; dy <= 1 + r0; dy++) for (let dx = -r0; dx <= 1 + r0; dx++) {
+        const a = ix + dx, b = iy + dy, c = iz + dz;
+        if (a < 0 || b < 0 || c < 0 || a > nx || b > ny || c > nz) continue;
+        const id = nodeId[(c * NY + b) * NX + a]; if (id < 0) continue;
+        const wx = pass ? 0 : 1 - Math.abs(fx - a), wy = pass ? 0 : 1 - Math.abs(fy - b), wz = pass ? 0 : 1 - Math.abs(fz - c);
+        const w = pass ? 1 / (0.05 + (fx - a) ** 2 + (fy - b) ** 2 + (fz - c) ** 2) : Math.max(0, wx) * Math.max(0, wy) * Math.max(0, wz);
+        if (w <= 0) continue;
+        ws += w; vm += w * nodeVM[id]; ux += w * u[id * 3]; uy += w * u[id * 3 + 1]; uz += w * u[id * 3 + 2];
+      }
+      if (ws > 0) { if (wantVM) out.vm[oi] = vm / ws; out.disp[oi * 3] = ux / ws; out.disp[oi * 3 + 1] = uy / ws; out.disp[oi * 3 + 2] = uz / ws; return; }
+    }
+    if (wantVM) out.vm[oi] = 0;
+  };
+  // refine the surface to about one cell per triangle so the colours follow the stress, then sample
+  const maxTris = 350000; let hd = h, nTot = 0;
+  const subs = new Int32Array(T);
+  for (let pass = 0; pass < 6; pass++) {
+    nTot = 0;
+    for (let t = 0; t < T; t++) {
+      const q = t * 9; let m = 0;
+      for (let k = 0; k < 3; k++) { const a = q + k * 3, b = q + ((k + 1) % 3) * 3; m = Math.max(m, Math.hypot(pos[a] - pos[b], pos[a + 1] - pos[b + 1], pos[a + 2] - pos[b + 2])); }
+      subs[t] = Math.max(1, Math.min(40, Math.ceil(m / hd - 1e-6))); nTot += subs[t] * subs[t];
+    }
+    if (nTot <= maxTris) break; hd *= 1.5;
+  }
+  const rp = new Float32Array(nTot * 9), rn = new Float32Array(nTot * 9); let wi = 0;
+  for (let t = 0; t < T; t++) {
+    const q = t * 9, m = subs[t];
+    const P = (i, j, out, arr) => { const u = i / m, v = j / m, w0 = 1 - u - v; for (let c = 0; c < 3; c++) out[c] = w0 * arr[q + c] + u * arr[q + 3 + c] + v * arr[q + 6 + c]; };
+    const pa = [0, 0, 0], pb = [0, 0, 0], pc = [0, 0, 0], na = [0, 0, 0], nb = [0, 0, 0], nc = [0, 0, 0];
+    const put = (i0, j0, i1, j1, i2, j2) => {
+      P(i0, j0, pa, pos); P(i1, j1, pb, pos); P(i2, j2, pc, pos); P(i0, j0, na, nor); P(i1, j1, nb, nor); P(i2, j2, nc, nor);
+      for (let c = 0; c < 3; c++) { rp[wi * 9 + c] = pa[c]; rp[wi * 9 + 3 + c] = pb[c]; rp[wi * 9 + 6 + c] = pc[c]; rn[wi * 9 + c] = na[c]; rn[wi * 9 + 3 + c] = nb[c]; rn[wi * 9 + 6 + c] = nc[c]; }
+      wi++;
+    };
+    for (let i = 0; i < m; i++) for (let j = 0; j < m - i; j++) { put(i, j, i + 1, j, i, j + 1); if (i + j < m - 1) put(i + 1, j, i + 1, j + 1, i, j + 1); }
+  }
+  const nE = edgePos.length / 6, esub = new Int32Array(nE); let eTot = 0;
+  for (let e = 0; e < nE; e++) { const q = e * 6; esub[e] = Math.max(1, Math.min(60, Math.ceil(Math.hypot(edgePos[q] - edgePos[q + 3], edgePos[q + 1] - edgePos[q + 4], edgePos[q + 2] - edgePos[q + 5]) / hd))); eTot += esub[e]; }
+  const re = new Float32Array(eTot * 6); let ei = 0;
+  for (let e = 0; e < nE; e++) { const q = e * 6, m = esub[e]; for (let k = 0; k < m; k++) for (let c = 0; c < 3; c++) { re[ei * 6 + c] = edgePos[q + c] + (edgePos[q + 3 + c] - edgePos[q + c]) * k / m; re[ei * 6 + 3 + c] = edgePos[q + c] + (edgePos[q + 3 + c] - edgePos[q + c]) * (k + 1) / m; } ei++; }
+  const res = { pos: rp, nor: rn, edgePos: re, vm: new Float32Array(nTot * 3), disp: new Float32Array(nTot * 9), edgeDisp: new Float32Array(re.length) };
+  for (let v = 0; v < nTot * 3; v++) sample(rp[v * 3], rp[v * 3 + 1], rp[v * 3 + 2], res, v, true);
+  const ed = { vm: null, disp: res.edgeDisp };
+  for (let v = 0; v < re.length / 3; v++) sample(re[v * 3], re[v * 3 + 1], re[v * 3 + 2], ed, v, false);
+  return { ...res, h, nEl, nNodes: nn, nFixed, volume: V, mass: V * rho * 1e6, maxVM, p95, maxDisp: maxD, iterations: it, residual: rel, applied, converged: rel < Math.max(tol * 20, 1e-4) };
+}
+</script>
+<!-- STRESS-END -->
 <script type="text/plain" id="import-worker">
 // ═══════════════════════════════════════════════════════════════════
 //  Import worker: parses STL / OBJ / STEP and prepares the triangles
@@ -16236,7 +16813,7 @@ function openSamples() {
     ${prev && prev.features && prev.features.length ? `<div class="m-sec">Your work</div><div class="sample-grid"><button class="sample" data-restore><b>Restore last session</b><span>${prev.features.length} feature${prev.features.length === 1 ? '' : 's'} from the last time Datum was open.</span></button></div>` : ''}`;
   document.getElementById('modal').hidden = false;
   card.querySelector('[data-mx]').addEventListener('click', closeModal);
-  card.querySelectorAll('[data-sample]').forEach(b => b.addEventListener('click', () => { const s = SAMPLES[+b.dataset.sample]; closeModal(); loadDoc(s.make(), typeof s.axes === 'string' ? `Sample: ${s.name}` : `Sample: ${s.name} (${s.axes}-axis)`); }));
+  card.querySelectorAll('[data-sample]').forEach(b => b.addEventListener('click', () => { const s = SAMPLES[+b.dataset.sample]; closeModal(); const d = s.make(); loadDoc(d, typeof s.axes === 'string' ? `Sample: ${s.name}` : `Sample: ${s.name} (${s.axes}-axis)`); if (d.openStress) setTimeout(() => { if (!(CMD && CMD.type === 'stress')) cmdStress(); }, 300); }));
   const r = card.querySelector('[data-restore]');
   if (r) r.addEventListener('click', () => { closeModal(); loadDoc(prev, 'Restored last session'); });
 }
@@ -24202,7 +24779,7 @@ modelToolbarHTML = function () {
     + rbPanel('Modify', [['fillet3', 'Fillet', 'F', 'fillet3', edge('fillet')], ['chamfer3', 'Chamfer', 'C', 'chamfer3', edge('chamfer')], f('shell', 'Shell', ''), ['thread', 'Thread', 'T', 'thread', c('thread')], f('combine', 'Combine', ''), f('split', 'Split Body', ''), f('move', 'Move / Copy', 'G'), f('rotate', 'Rotate', ''), f('scale', 'Scale', '')], 2)
     + rbPanel('Pattern', [['p:rect', 'Rectangular', '', 'pattern', pat('rect')], ['p:circ', 'Circular', '', 'patternc', pat('circ')], ['p:mirror', 'Mirror', '', 'mirror3', pat('mirror')]], 0)
     + rbPanel('Construct', [['plane', 'Offset Plane', 'P', 'plane', c('offset')], ['point', 'Point', 'O', 'point', c('point')]], 1)
-    + rbPanel('Inspect', [['measure', 'Measure', 'M', 'measure', c('measure')], ['blueprint', 'Blueprint Drawing', '', 'blueprint']], 1)
+    + rbPanel('Inspect', [['measure', 'Measure', 'M', 'measure', c('measure')], ['stress', 'Stress', '', 'stress', c('stress')], ['blueprint', 'Blueprint Drawing', '', 'blueprint']], 2)
     + rbPanel('Insert', [['import', 'Import', '', 'import'], ['export', 'Export', '', 'export']], 0);
 };
 
@@ -26392,6 +26969,7 @@ hwStyle.textContent += ' .bm-to { display: flex; flex-direction: column; gap: 3p
 // ── Deform: bend, twist, taper, warp — or flow any bodies along a path ──
 Object.assign(FEAT_BASE, { deform: 'Deform' });
 Object.assign(FEAT_IC, { deform: 'deform' });
+Object.assign(IC, { stress: '<path d="M2.5 15.5h15"/><path d="M3 12.5c4 0 9-.5 14-5"/><path d="M13.5 3v4.5M11.8 5.8l1.7 1.8 1.7-1.8"/><path d="M3 12.5v3M17 7.5v8" opacity=".5"/>' });
 Object.assign(IC, { deform: '<path d="M2.5 14c3.5 0 3.5-9 7.5-9s4 9 7.5 9"/><path d="M3 17.5h14" opacity=".5"/>' });
 TOOL_FEATS.add('deform');
 const DEF_NAMES = { bend: 'Bend', twist: 'Twist', taper: 'Taper', wave: 'Warp', path: 'Flow along path' };
@@ -27644,6 +28222,18 @@ const driveSample = (name, desc, items) => SAMPLES.push({ axes: 'model', name, d
   items.forEach(([kd, x, y, extra], i) => { const f = { id: k.nid(), type: 'shop', name: SHOP[kd].name.replace(/[^A-Za-z0-9]+/g, '').slice(0, 10) + (i + 1), ...FEATS.shop.init(), ...shopDefaults(kd), kind: kd, cx: x, cy: y, ...(extra || {}) }; k.features.push(f); SHOP[kd].parts.forEach(([, c], j) => { colors[j ? f.id + j / 1000 : f.id] = c; }); });
   return { ...k.doc(), colors };
 } });
+// stress-analysis samples: a part with its supports and loads already picked (open Stress and press Run)
+const stressSample = (name, desc, build, setup) => SAMPLES.push({ axes: 'model', name, desc, make() {
+  const k = sampleKit(); build(k);
+  const face = (x, y, z) => ({ m: null, ms: [], pt: mPt(x, y, z) });
+  return { ...k.doc(), stress: { mat: 'steel', cust: { E: 70000, nu: 0.3, sy: 200, rho: 2700 }, grav: false, q: 'normal', active: 'sup', show: 'vm', scale: 0, ...setup(face) }, openStress: true };
+} });
+stressSample('Stress: cantilever bar', 'A 100 × 10 × 10 steel bar held at one end with 100 N on the other: the textbook bending check (tip moves 0.2 mm, 60 MPa at the root).', k => kBox(k, -50, -5, 50, 5, 10),
+  f => ({ sup: [f(-50, 0, 5)], loads: [{ faces: [f(50, 0, 5)], kind: 'force', mag: 100, dir: 'z-' }] }));
+stressSample('Stress: plate with a hole', 'A steel strip pulled with 1000 N: stress piles up at the Ø10 hole (about 2.5 × the average, the classic stress concentration).', k => { kBox(k, -60, -20, 60, 20, 5); kHole(k, [0, 0, 5], [0, 0, 1], 10, 5); },
+  f => ({ sup: [f(-60, 0, 2.5)], loads: [{ faces: [f(60, 0, 2.5)], kind: 'force', mag: 1000, dir: 'out' }] }));
+stressSample('Stress: bridge under pressure', 'An aluminum beam fixed at both ends with 2 MPa pressing on its top and a Ø12 hole through the middle.', k => { kBox(k, -80, -15, 80, 15, 20); kHole(k, [0, 0, 20], [0, 0, 1], 12, 20); },
+  f => ({ mat: 'al6061', sup: [f(-80, 0, 10), f(80, 0, 10)], loads: [{ faces: [f(0, 0, 20)], kind: 'pressure', mag: 2, dir: 'in' }] }));
 driveSample('Belt drive', 'Two V pulleys on shafts, a belt and a base plate: change the pitch diameters, centre distance or belt section.', [['beltDrive', 0, 0]]);
 driveSample('Pulley and sprocket set', 'A V-belt pulley, a flat-belt pulley, a GT2 timing pulley, a chain sprocket and a rope sheave laid out for comparison.', [['vPulley', 0, 0, { ori: 'z', n: 2 }], ['flatPulley', 170, 0, { ori: 'z' }], ['timingPulley', 0, 140, { ori: 'z', z: 40 }], ['sprocket', 110, 140, { ori: 'z' }], ['ropeSheave', 210, 140, { ori: 'z' }]]);
 driveSample('Cart axle and shafts', 'A wheel-and-axle set beside a stepped, keyed axle with a shoulder and circlip grooves.', [['wheelAxle', 0, 0], ['axle', 0, 110]]);
