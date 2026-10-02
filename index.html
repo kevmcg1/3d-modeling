@@ -12935,6 +12935,8 @@ const GEN = {
         // goes back to the middle at depth (over floor it has just cut) and down again.
         const zs = levels(st.z1, floor, op.stepdown), linkRegion = cOffset(tArea, 0.002);
         let down = false;
+        // toward the middle of the pocket from a corner, to the first spot the bigger tool cleared
+        const restApproach = s0 => { const t0 = tArea[0] || [], cen = { x: t0.reduce((a, q) => a + q.X, 0) / (t0.length || 1) / CS, y: t0.reduce((a, q) => a + q.Y, 0) / (t0.length || 1) / CS }, dx = cen.x - s0.x, dy = cen.y - s0.y, L = Math.hypot(dx, dy) || 1; for (let d = 0.4; d < L; d += 0.4) { const pt = P2(s0.x + dx / L * d, s0.y + dy / L * d); if (!inPaths(pt, restArea) && inPaths(pt, tArea)) return pt; } return null; };
         // each connected piece all the way down before the next (they are apart: that needs a retract)
         for (const seqIn of ringTree(rings)) {
         if (down) { P.rapid(P.cur[0], P.cur[1], ret); down = false; }
@@ -12946,7 +12948,11 @@ const GEN = {
             const pts = here ? startAt(nd.pts, nearestIdx(nd.pts, here)) : nd.pts, s = pts[0];
             const zPrev = li ? zs[li - 1] : st.z1 + 0.5;
             let descend = false;
-            if (q === 0) {
+            const inRest = restArea && inPaths(s, restArea), ap0 = inRest ? restApproach(s) : null;
+            // a rest pass goes down where the bigger tool already cleared, then feeds into the corner at depth: never a plunge into corner stock
+            const goIn = () => { if (down) P.rapid(P.cur[0], P.cur[1], ret); else P.rapid(ap0.x, ap0.y, safe); P.rapid(ap0.x, ap0.y, ret); P.rapid(ap0.x, ap0.y, zPrev + (li ? 0.5 : 0)); P.plunge(ap0.x, ap0.y, z); P.feed(s.x, s.y, z); };
+            if (ap0 && (q === 0 || !linkAtDepth(P, s, z, linkRegion, cut, ml))) goIn();
+            else if (q === 0) {
               // a new depth: from where the tool is (on this same ring) straight down, or from above
               if (down && linkAtDepth(P, s, P.cur[2], linkRegion, seqIn.map(n => n.pts), ml)) descend = true;
               else { if (down) P.rapid(P.cur[0], P.cur[1], ret); else P.rapid(s.x, s.y, safe); P.rapid(s.x, s.y, ret); P.rapid(s.x, s.y, zPrev + (li ? 0.5 : 0)); descend = true; }
@@ -13445,6 +13451,7 @@ class StockModel {
     this.coarse = coarse;
     // ZT: slab heights are kept to the micron, so a pass at a floor may sit a hair above its slab
     const zlo = Math.min(a.z, b.z), R = tool.d / 2, ZT = 1e-3;
+    this.curR = R;
     for (let i = this.layerAbove(zlo - ZT); i < this.n; i++) {
       const Li = this.lv[i];                                        // bottom of slab i
       if (zlo > Li + ZT) continue;
@@ -13465,7 +13472,7 @@ class StockModel {
   queue(i, r, p, q) {
     // width buckets: exact for full-width cuts, 0.05 mm steps (rounded down) on a ball's flank,
     // so a raster pass stays one long path instead of thousands of short ones
-    const key = Math.abs(r - Math.round(r * 100) / 100) < 1e-9 || r > 50 ? Math.round(r * 100) : Math.max(1, Math.floor(r * 20) * 5);
+    const key = r >= (this.curR || 0) - 1e-6 || r > 50 ? Math.round(r * 1000) : Math.max(1, Math.floor(r * 20) * 50);       // the tool's own radius to the micron, a ball's flank in 0.05 steps
     let list = this.pend[i].get(key);
     if (!list) this.pend[i].set(key, list = []);
     const P0 = { X: Math.round(p.x * CS), Y: Math.round(p.y * CS) }, P1 = { X: Math.round(q.x * CS), Y: Math.round(q.y * CS) }, last = list[list.length - 1];
@@ -13495,7 +13502,7 @@ class StockModel {
       if (pend.size && this.P[i].length) {
         const swept = [];
         for (const [key, paths] of pend) {
-          const r = key / 100, co = new ClipperLib.ClipperOffset(2, Math.max(10, r * CS * 0.008));
+          const r = key / 1000, co = new ClipperLib.ClipperOffset(2, Math.max(3, r * CS * 0.0012));
           co.AddPaths(paths.map(p => simplifyOpen(p, 5)), ClipperLib.JoinType.jtRound, ClipperLib.EndType.etOpenRound);   // 5 µm: micro-segments make offsetting slow
           const out = new ClipperLib.Paths(); co.Execute(out, r * CS);
           swept.push(...out);
@@ -14655,6 +14662,7 @@ function camPanel() {
     }
     if (op.type === 'parallel') f += `<div class="row3">${num('opSoL', op.stepover, 'Stepover', 0.05)}${num('opLeave', op.leave, 'Leave', 0.05)}<div class="field"><span>Direction</span><div class="seg"><button data-opset="angle:0" class="${!op.angle ? 'on' : ''}">X</button><button data-opset="angle:90" class="${op.angle === 90 ? 'on' : ''}">Y</button></div></div></div>
       <label class="chk"><input type="checkbox" id="opOverrun" ${op.overrun ? 'checked' : ''}> Run the tool past the part edges</label>`;
+    if (op.type === 'clear') f += `<div class="row2">${num('opSo', op.stepover, 'Stepover ×Ø', 0.05)}${num('opSd', op.stepdown, 'Stepdown', 0.1)}</div><div class="row2">${num('opLw', op.leaveWall || 0, 'Leave on walls', 0.01)}</div><p class="note">${(op.areas || []).length} area${(op.areas || []).length === 1 ? '' : 's'} where material was left: ${(op.areas || []).slice(0, 4).map(a => 'down to ' + fmtLs(a.z, 2)).join(', ')}${(op.areas || []).length > 4 ? '…' : ''}</p>`;
     if (op.type === 'engrave') f += engraveFields(op);
     { const fb = ['parallel', 'chamfer', 'contour', 'pocket'].includes(op.type) ? finishBlock(op, toolOf(op.tool)) : ''; if (fb) f += `<h3 class="sub">Surface finish</h3>${fb}`; }
     const warn = P && P.warn.length ? P.warn.map(w => `<p class="note err-note">${w}</p>`).join('') : '';
@@ -14669,7 +14677,7 @@ function camPanel() {
       <dl class="kv"><dt>Material</dt><dd>${matOf().name}</dd><dt>Time</dt><dd id="simTime">—</dd></dl>
       <div class="legend"><span><i style="background:#${matOf().raw.toString(16).padStart(6, '0')}"></i>Saw-cut stock</span><span><i style="background:#${matOf().cut.toString(16).padStart(6, '0')}"></i>Machined</span><span><i style="background:var(--danger)"></i>Problem on the track</span></div>
       ${VERIFY.report && VERIFY.key === verifyKey()
-        ? `<ul class="det">${Object.entries(ISSUE_INFO).map(([k, v]) => `<li><i class="${VERIFY.report.counts[k] ? 'bad' : 'ok'}"></i><span><b>${v.name}</b></span><span class="q">${VERIFY.report.counts[k] || 'none'}</span></li>`).join('')}</ul>`
+        ? `<ul class="det">${Object.entries(ISSUE_INFO).map(([k, v]) => `<li><i class="${VERIFY.report.counts[k] ? (k === 'plunge' ? 'warn' : 'bad') : 'ok'}"></i><span><b>${v.name}</b></span><span class="q">${VERIFY.report.counts[k] || 'none'}</span></li>`).join('')}${(c => c ? `<li><i class="${c.ok ? 'ok' : 'bad'}"></i><span><b>Material left on the part</b>${c.allOk ? '' : `<small>${c.ok ? 'only corners a tool radius leaves' : 'see the Auto Program report'}</small>`}</span><span class="q">${c.allOk ? 'none' : c.clusters.filter(q => q.kind === 'uncut').length + ' area' + (c.clusters.filter(q => q.kind === 'uncut').length === 1 ? '' : 's')}</span></li>` : '')(VERIFY.report.comp)}</ul>`
         : '<p class="note">Not verified yet. <b>Verify</b> checks every move for gouges, holder hits, rapids through stock and plunges, and marks them on the track.</p><div class="btns"><button class="btn" data-camdo="reverify">Verify now</button></div>'}
       <div class="btns"><button class="btn" data-camdo="endsim">Close simulation</button></div></div>`;
   }
@@ -17439,7 +17447,7 @@ const SAMPLES = [
   { axes: 6, name: 'T-slot plate', make: sTSlotPlate, desc: 'Two T-slots whose undercut roofs face down, with holes from the top, leaning beside the slots, and in an end and the front.' },
   { axes: 6, name: 'Arch bridge', make: sArchBridge, desc: 'A passage underneath whose roof faces down, with holes leaning up into it, down through both legs and in the end.' },
 ];
-const AXIS_WHAT = { wire: 'Wire EDM (through cuts only)', 3: '3-axis', 4: '4-axis (3 + one rotary)', 5: '5-axis', 6: '6-axis (robot / multi-setup)' };
+const AXIS_WHAT = { wire: 'Wire EDM only (parts no mill can make)', 3: '3-axis', 4: '4-axis (3 + one rotary)', 5: '5-axis', 6: '6-axis (robot / multi-setup)' };
 function openSamples() {
   const card = document.getElementById('modalCard');
   let prev = null;
@@ -17880,7 +17888,7 @@ function autoApply(quiet) {
   // auto calibration: check the new program move by move, correct what it can, measure
   CAMUI.view = 'report'; VERIFY.report = null; VERIFY.progress = `Added ${ops.length} operations — checking them`;
   camRefresh();
-  waitToolpaths().then(() => verifyAndFix(m => { VERIFY.progress = m; if (CAMUI.view === 'report') refreshPanel(); })).then(rep => {
+  waitToolpaths().then(() => verifyAndFix(m => { VERIFY.progress = m; if (CAMUI.view === 'report') refreshPanel(); }, [], { complete: true })).then(rep => {
     if (rep) rep.axes = R.axes;
     if (UIX.ws === 'cam') camRefresh();
     toast(rep && rep.ok ? `Added ${ops.length} operations · verified` : `Added ${ops.length} operations · see the report`);
@@ -18323,7 +18331,7 @@ async function verifyAndFix(progress, pre = []) {
     for (const k in ISSUE_INFO) counts[k] = res.issues.filter(x => x.type === k).length;
     if (progress) progress('Measuring the finished part');
     const meas = measurePart(res);
-    VERIFY.report = { time: Date.now(), counts, issues: res.issues, fixes, rounds, meas, total: res.total, ok: !res.issues.length && meas.every(m => m.ok) };
+    VERIFY.report = { time: Date.now(), counts, issues: res.issues, fixes, rounds, meas, total: res.total, ok: !res.issues.some(i => i.type !== 'plunge') && meas.every(m => m.ok) };      // a flat mill plunging in a corner it could not ramp into is a warning, not a failure
     return VERIFY.report;
   } finally { VERIFY.busy = false; }
 }
@@ -18343,7 +18351,7 @@ async function autoProgram() {
   autoApply(true);
   say('Computing toolpaths');
   await waitToolpaths();
-  const rep = await verifyAndFix(say, presetReach());
+  const rep = await verifyAndFix(say, presetReach(), { complete: true });
   VERIFY.progress = null;
   if (rep) rep.axes = R.axes;
   CAMUI.view = 'report'; camRefresh();
@@ -18353,7 +18361,7 @@ function reportPanel() {
   const r = VERIFY.report, C = cam();
   if (!r) return `<div class="pn-head"><h2>Auto Program</h2><span class="tag">working</span></div><div class="pn-body"><p class="note"><span class="spin"></span> ${VERIFY.progress || 'Working…'}</p></div>`;
   const tick = ok => `<i class="${ok ? 'ok' : 'bad'}"></i>`;
-  const checks = Object.entries(ISSUE_INFO).map(([k, v]) => `<li>${tick(!r.counts[k])}<span><b>${v.name}</b>${r.counts[k] ? `<small>${r.counts[k]} left after correction</small>` : ''}</span><span class="q">${r.counts[k] ? r.counts[k] : 'none'}</span></li>`).join('');
+  const checks = Object.entries(ISSUE_INFO).map(([k, v]) => `<li>${r.counts[k] && k === 'plunge' ? '<i class="warn"></i>' : tick(!r.counts[k])}<span><b>${v.name}</b>${r.counts[k] ? `<small>${r.counts[k]} ${k === 'plunge' ? 'in corners a mill could not ramp into: pre-drill or enter from the side' : 'left after correction'}</small>` : ''}</span><span class="q">${r.counts[k] ? r.counts[k] : 'none'}</span></li>`).join('');
   const meas = r.meas.map(m => `<tr class="${m.ok ? '' : 'bad'}"><td>${m.name}</td><td>${isFinite(m.nominal) ? fmtLs(m.nominal) : ''}</td><td>${isFinite(m.measured) ? fmtLs(m.measured) : m.note || ''}</td><td>${m.ok ? '✓' : '✗'}</td></tr>`).join('');
   const tools = [...new Set(C.ops.filter(o => !o.sup).map(o => o.tool))].length;
   return `<div class="pn-head"><h2>Auto Program</h2><span class="tag">${r.ok ? 'verified' : 'needs attention'}</span></div><div class="pn-body">
@@ -22031,6 +22039,10 @@ function bpRequirements(bodies, bb) {
   }
   // holes on a bolt circle are located by it, not by their own centers
   for (const c of used) c.needs = c.needs.filter(n => n.t !== 'dia' && !(n.t === 'ord' && c.center.some(x => x.a === n.a && x.v === n.v))).concat([{ t: 'bcmember', ax: c.ax, d: c.d }]);
+  // a profile made of many sloped faces (gear teeth, serrations, a star) cannot be dimensioned face by face: one note
+  // that the model defines it, instead of a hundred ordinates running off the sheet
+  const slopes = [...reqs].filter(([, r]) => r.kind === 'slope');
+  if (slopes.length > 12) { for (const [k] of slopes) reqs.delete(k); reqs.set('FSLOPES', { kind: 'free', label: `Profile of ${slopes.length} sloped faces (teeth, serrations)`, count: 1, needs: [{ t: 'free' }] }); }
   return { reqs: [...reqs.values()], pats, datum, circles };
 }
 // ── building the dimensions ──
@@ -23698,7 +23710,9 @@ function bpFit(d, D, SW, SH) {
   const area = { x: M + 8, y: M + 8, w: SW - 2 * M - 16, h: SH - 2 * M - 16 - TB.h };
   const ordLen = n => 13 + 1.6 * Math.max(4, ...[...n].map(v => bpNum(v).length));
   const mTop = BP.dims ? Math.max(ordLen(D.ords.X), 8) : 6, mLeft = BP.dims ? ordLen(D.ords.Z) + 4 : 6, mTopR = BP.dims ? ordLen(D.ords.D) : 6;
-  const gapX = 34, gapY = 24;
+  // room between the views for the callouts that do not fit inside them: more of them, more room
+  const nTop = D.dia.filter(g => BP_ROUNDVIEW[g.ax] === 'top').length + D.pats.length + D.rad.length + D.cham.length, nRight = D.dia.filter(g => BP_ROUNDVIEW[g.ax] === 'right').length;
+  const gapX = 34 + Math.min(40, 4 * Math.max(0, nRight - 3)), gapY = 24 + Math.min(40, 5 * Math.max(0, nTop - 3));
   const smax = Math.min((area.w - mLeft - gapX - 8) / (W + Dp), (area.h - mTop - gapY - 14) / (Dp + H));
   const sc = BP_SCALES.find(([a, b]) => a / b <= smax) || BP_SCALES[BP_SCALES.length - 1], s = sc[0] / sc[1];
   return { W, H, Dp, M, TB, area, mTop, mLeft, mTopR, gapX, gapY, sc, s, fill: s * s * (W + Dp) * (Dp + H) / (area.w * area.h) };
@@ -23736,8 +23750,8 @@ bpSVG = function (d) {
     views[k] = { v, s: sk, X: x => vx + (x - v.x0) * sk, Y: y => vy + (v.y1 - y) * sk, box: { x0: vx - 1, y0: vy - 1, x1: vx + (v.x1 - v.x0) * sk + 1, y1: vy + (v.y1 - v.y0) * sk + 1 } };
   }
   const pv = (k, P) => { const V = BP_VIEWS[k], q = views[k]; return [q.X(dot3(P, V.R)), q.Y(dot3(P, V.U))]; };
-  const parts = { top: '', front: '', right: '' }, labels = [];
-  const lbl = (id, view, body) => { labels.push({ id, view }); return `<g data-bpd="${xmlEsc(id)}">${body}</g>`; };
+  const parts = { top: '', front: '', right: '' }, labels = [], marksOf = { top: [], front: [], right: [] }, markDone = { top: new Set(), front: new Set(), right: new Set() };
+  const lbl = (id, view, body, draw, attrs = '') => { labels.push({ id, view, draw }); return `<g data-bpd="${xmlEsc(id)}"${attrs}>${body}</g>`; };
   const off = id => LY.l[id] || [0, 0];
   for (const [k, q] of Object.entries(views)) {
     const v = q.v, path = (segs, st) => { if (!segs.length) return ''; const ch = bpChains(segs, 1e-3 * Math.max(W, H, Dp, 1)); return `<path d="${ch.map(l => 'M' + l.map(p => f2(q.X(p[0])) + ' ' + f2(q.Y(p[1]))).join('L')).join('')}" ${st}/>`; };
@@ -23749,11 +23763,12 @@ bpSVG = function (d) {
       if (seenC.has(kk) || r < 0.6) continue; seenC.add(kk);
       const e = r + Math.min(2.5, r * 0.4);
       g += `<path d="M${f2(cx - e)} ${f2(cy)}H${f2(cx + e)}M${f2(cx)} ${f2(cy - e)}V${f2(cy + e)}" stroke="${INK}" stroke-width="0.13" stroke-dasharray="3 0.8 0.6 0.8" fill="none"/>`;
+      marksOf[k].push([cx - e, cy, cx + e, cy], [cx, cy - e, cx, cy + e]); markDone[k].add(kk);
     }
     g += path(v.vis, `fill="none" stroke="${INK}" stroke-width="0.45" stroke-linecap="round" stroke-linejoin="round"`);
     const own = LY.v[k] && LY.v[k].sc, t1 = BP_VIEWS[k].label + ' VIEW', lx = q.X((v.x0 + v.x1) / 2), ly = q.box.y1 + 7;
     g += txt(lx, ly, t1, 3.2, 'middle', 'font-weight="600" letter-spacing="0.6"');
-    boxes.push({ x0: lx - tw(t1, 3.2) / 2 - 1, y0: ly - 3.4, x1: lx + tw(t1, 3.2) / 2 + 1, y1: ly + 1 });
+    { const wt = tw(t1, 3.2) + t1.length * 0.6; boxes.push({ x0: lx - wt / 2 - 1.6, y0: ly - 4.2, x1: lx + wt / 2 + 1.6, y1: ly + 1.8 }); }
     if (own) { const t2 = 'SCALE ' + bpScaleTxt(own); g += txt(lx, ly + 4, t2, 2.6); boxes.push({ x0: lx - tw(t2, 2.6) / 2 - 1, y0: ly + 1.2, x1: lx + tw(t2, 2.6) / 2 + 1, y1: ly + 5 }); }
     parts[k] += g;
   }
@@ -23787,15 +23802,17 @@ bpSVG = function (d) {
         const yB = q.box.y0 - 1.5, tx = spread(at, G);
         vals.forEach((v, i) => {
           const id = `o${a}:${bpNum(v)}`, [dx, dy] = off(id), t = v === 0 ? { X: 'X0', D: 'Y0', Z: 'Z0' }[a] : bpNum(v), L = tw(t, SZ), X = tx[i] + dx, Y = yB + dy;
-          const body = `<path d="M${f2(at[i])} ${f2(yB)}V${f2(yB - 3.5)}L${f2(X)} ${f2(Y - 7)}V${f2(Y - 8.5)}" fill="none" stroke="${INK}" stroke-width="0.15"/>` + txt(X + 0.9, Y - 9.5, t, SZ, 'start', `transform="rotate(-90 ${f2(X + 0.9)} ${f2(Y - 9.5)})"`);
-          parts[k] += lbl(id, k, body); boxes.push({ x0: X - 1.1, y0: Y - 9.8 - L, x1: X + 1.4, y1: Y - 8.5 }, { x0: Math.min(at[i], X) - 0.5, y0: Y - 8.5, x1: Math.max(at[i], X) + 0.5, y1: yB }); placed.ords[a].add(v);
+          const draw = (ox, oy) => { const X2 = X + ox, Y2 = Y + oy; return `<path d="M${f2(at[i])} ${f2(yB)}V${f2(yB - 3.5)}L${f2(X2)} ${f2(Y2 - 7)}V${f2(Y2 - 8.5)}" fill="none" stroke="${INK}" stroke-width="0.15"/>` + txt(X2 + 0.9, Y2 - 9.5, t, SZ, 'start', `transform="rotate(-90 ${f2(X2 + 0.9)} ${f2(Y2 - 9.5)})"`); };
+          const body = draw(0, 0);
+          parts[k] += lbl(id, k, body, draw, ` data-bpa="${f2(at[i])},${f2(yB)}"`); boxes.push({ x0: X - 1.1, y0: Y - 9.8 - L, x1: X + 1.4, y1: Y - 8.5 }, { x0: Math.min(at[i], X) - 0.5, y0: Y - 8.5, x1: Math.max(at[i], X) + 0.5, y1: yB }); placed.ords[a].add(v);
         });
       } else {
         const xB = q.box.x0 - 1.5, ty = spread(at.map(y => -y), G).map(y => -y);
         vals.forEach((v, i) => {
           const id = `o${a}:${bpNum(v)}`, [dx, dy] = off(id), t = v === 0 ? { X: 'X0', D: 'Y0', Z: 'Z0' }[a] : bpNum(v), L = tw(t, SZ), X = xB + dx, Y = ty[i] + dy;
-          const body = `<path d="M${f2(xB)} ${f2(at[i])}H${f2(xB - 3.5)}L${f2(X - 7)} ${f2(Y)}H${f2(X - 8.5)}" fill="none" stroke="${INK}" stroke-width="0.15"/>` + txt(X - 9.3, Y + 0.9, t, SZ, 'end');
-          parts[k] += lbl(id, k, body); boxes.push({ x0: X - 9.6 - L, y0: Y - 1.4, x1: X - 8.5, y1: Y + 1.4 }, { x0: X - 8.5, y0: Math.min(at[i], Y) - 0.5, x1: xB, y1: Math.max(at[i], Y) + 0.5 }); placed.ords[a].add(v);
+          const draw = (ox, oy) => { const X2 = X + ox, Y2 = Y + oy; return `<path d="M${f2(xB)} ${f2(at[i])}H${f2(xB - 3.5)}L${f2(X2 - 7)} ${f2(Y2)}H${f2(X2 - 8.5)}" fill="none" stroke="${INK}" stroke-width="0.15"/>` + txt(X2 - 9.3, Y2 + 0.9, t, SZ, 'end'); };
+          const body = draw(0, 0);
+          parts[k] += lbl(id, k, body, draw, ` data-bpa="${f2(xB)},${f2(at[i])}"`); boxes.push({ x0: X - 9.6 - L, y0: Y - 1.4, x1: X - 8.5, y1: Y + 1.4 }, { x0: X - 8.5, y0: Math.min(at[i], Y) - 0.5, x1: xB, y1: Math.max(at[i], Y) + 0.5 }); placed.ords[a].add(v);
         });
       }
     };
@@ -23806,6 +23823,7 @@ bpSVG = function (d) {
     // cleanest wins: the label stays off the other labels and ordinate lines, and the leader off the other
     // leaders, the labels and (as far as it can) the part's own lines.
     const leaders = [], scr = {};
+    const hidOf = k => scr['h' + k] || (scr['h' + k] = (views[k].v.hid || []).filter((_, i) => i % Math.ceil((views[k].v.hid || []).length / 2000 || 1) === 0).map(g => [views[k].X(g[0]), views[k].Y(g[1]), views[k].X(g[2]), views[k].Y(g[3])]));
     const visOf = k => scr[k] || (scr[k] = (views[k].v.vis.filter((_, i) => i % Math.ceil(views[k].v.vis.length / 3000) === 0).map(g => [views[k].X(g[0]), views[k].Y(g[1]), views[k].X(g[2]), views[k].Y(g[3])])));
     const crossS = (a, b) => {
       const d = (a[2] - a[0]) * (b[3] - b[1]) - (a[3] - a[1]) * (b[2] - b[0]);
@@ -23817,37 +23835,81 @@ bpSVG = function (d) {
     const inB = (x, y, b) => x > b.x0 && x < b.x1 && y > b.y0 && y < b.y1;
     const segBox = (g, b) => inB(g[2], g[3], b) || edges(b).some(e => crossS(g, e));
     const arrow = (x, y, tx, ty) => { const a = Math.atan2(ty - y, tx - x), q = (da, l) => `${f2(x + Math.cos(a + da) * l)} ${f2(y + Math.sin(a + da) * l)}`; return `<path d="M${f2(x)} ${f2(y)}L${q(0.22, 2.4)}L${q(-0.22, 2.4)}Z" fill="${INK}" stroke="none"/>`; };
-    const callout = (viewK, P, text) => {
-      const [px, py] = pv(viewK, P), L = tw(text, 2.7), vb = views[viewK].box, id = `c:${viewK}:${text}`, [dx, dy] = off(id);
-      const mk = (ex, ey, right) => { const x0 = right ? ex + 1 : ex - 1 - L - 3, sx = right ? ex + 3 : ex - 3; return { ex, ey, right, sx, b: { x0: x0 - 0.8, y0: ey - 3.4, x1: x0 + L + 3.8, y1: ey + 1.6 }, A: [px, py, ex, ey] }; };
+    // anchors: where the leader may land — one per hole of a group; the cleanest placement over all of them wins
+    const calloutNow = (viewK, anchors, text, self) => {
+      const L = tw(text, 2.7) * 1.1, vb = views[viewK].box, id = `c:${viewK}:${text}`, [dx, dy] = off(id);
+      const A = anchors.map(an => {
+        const [px, py] = pv(viewK, an.P), circ = an.circ;
+        // a circle's leader always aims at its center and touches the rim where it meets it, wherever the label goes;
+        // any other leader keeps its start on the part
+        const anchorOf = (ex, ey) => { if (!circ) return [px, py]; const a = Math.atan2(ey - circ.cy, ex - circ.cx); return [circ.cx + Math.cos(a) * circ.r, circ.cy + Math.sin(a) * circ.r]; };
+        const sideOf = (ex, ey) => (circ ? ex - circ.cx : ex - px) >= -1e-9;
+        const o = { px, py, anchorOf, sideOf };
+        o.mk = (ex, ey, right) => { const x0 = right ? ex + 1 : ex - 1 - L - 3, sx = right ? ex + 3 : ex - 3, [ax, ay] = anchorOf(ex, ey); return { ex, ey, right, sx, b: { x0: x0 - 0.8, y0: ey - 3.4, x1: x0 + L + 3.8, y1: ey + 1.6 }, A: [ax, ay, ex, ey], an: o }; };
+        return o;
+      });
+      const draw = (an, ex, ey, right) => { const [ax, ay] = an.anchorOf(ex, ey), sx = right ? ex + 3 : ex - 3; return `<path d="M${f2(ax)} ${f2(ay)}L${f2(ex)} ${f2(ey)}H${f2(sx)}" fill="none" stroke="${INK}" stroke-width="0.15"/>${arrow(ax, ay, ex, ey)}` + txt(right ? sx + 0.8 : sx - 0.8, ey + 0.95, text, 2.7, right ? 'start' : 'end'); };
       const put = c => {
         boxes.push(c.b); leaders.push(c.A, [c.ex, c.ey, c.sx, c.ey]);
-        parts[viewK] += lbl(id, viewK, `<path d="M${f2(px)} ${f2(py)}L${f2(c.ex)} ${f2(c.ey)}H${f2(c.sx)}" fill="none" stroke="${INK}" stroke-width="0.15"/>${arrow(px, py, c.ex, c.ey)}` + txt(c.right ? c.sx + 0.8 : c.sx - 0.8, c.ey + 0.95, text, 2.7, c.right ? 'start' : 'end'));
+        const an = c.an, redraw = (ox, oy) => { const ex = c.ex + ox, ey = c.ey + oy; return draw(an, ex, ey, an.sideOf(ex, ey)); };
+        parts[viewK] += lbl(id, viewK, draw(an, c.ex, c.ey, c.right), redraw, ` data-bpa="${f2(A[0].px)},${f2(A[0].py)}" data-bpe="${f2(c.ex)},${f2(c.ey)}"`);
         return true;
       };
-      if (LY.l[id]) { const p0 = LY.l[id]; return put(mk(px + p0[2], py + p0[3], p0[2] >= 0)); }   // placed by hand: where it was put
-      const vis = visOf(viewK);
+      if (LY.l[id]) { const p0 = LY.l[id], a0 = A[0], ex = a0.px + p0[2], ey = a0.py + p0[3]; return put(a0.mk(ex, ey, a0.sideOf(ex, ey))); }   // placed by hand: where it was put
+      const vis = visOf(viewK), hidS = BP.hidden ? hidOf(viewK) : [], mk0 = marksOf[viewK];
       let best = null;
-      for (const len of [7, 11, 16, 22, 30, 40, 55, 75, 100]) for (let a = 0; a < 24; a++) {
-        const ang = a * Math.PI / 12, ex = px + Math.cos(ang) * len + dx, ey = py + Math.sin(ang) * len + dy, c = mk(ex, ey, Math.cos(ang) >= -1e-9);
-        if (hit(c.b) || boxes.some(o => segBox(c.A, o))) continue;
-        if (Object.entries(views).some(([k2, q2]) => k2 !== viewK && c.b.x0 < q2.box.x1 + 1 && c.b.x1 > q2.box.x0 - 1 && c.b.y0 < q2.box.y1 + 1 && c.b.y1 > q2.box.y0 - 1)) continue;   // never on another view
-        if (c.b.x0 < vb.x1 && c.b.x1 > vb.x0 && c.b.y0 < vb.y1 && c.b.y1 > vb.y0 && len < 30) continue;
-        let cost = len * 0.3;
-        for (const l of leaders) if (crossS(c.A, l) || crossS([c.ex, c.ey, c.sx, c.ey], l)) cost += 60;
-        for (const l of leaders) if (segBox(l, c.b)) cost += 60;
-        for (const g of vis) { if (crossS(c.A, g)) cost += 7; if (cost < 400 && segBox(g, c.b)) cost += 60; }
-        if (!best || cost < best.cost) { c.cost = cost; best = c; }
+      // strict first: the label stands clear of every line of the part, its leader keeps off labels and view names;
+      // if nothing fits, the same search with those lines allowed at a price
+      for (const strict of [true, false]) {
+        for (const an of A) for (const len of [5, 8, 11, 15, 20, 27, 36, 48, 62, 80, 100]) for (let a = 0; a < 32; a++) {
+          const ang = a * Math.PI / 16, ex = an.px + Math.cos(ang) * len + dx, ey = an.py + Math.sin(ang) * len + dy, c = an.mk(ex, ey, an.sideOf(ex, ey)), sh = [c.ex, c.ey, c.sx, c.ey];
+          if (hit(c.b) || boxes.some(o => segBox(c.A, o) || segBox(sh, o))) continue;
+          if (Object.entries(views).some(([k2, q2]) => k2 !== viewK && c.b.x0 < q2.box.x1 + 1 && c.b.x1 > q2.box.x0 - 1 && c.b.y0 < q2.box.y1 + 1 && c.b.y1 > q2.box.y0 - 1)) continue;   // never on another view
+          if (Object.entries(views).some(([k2, q2]) => k2 !== viewK && (segBox(c.A, { x0: q2.box.x0 + 0.5, y0: q2.box.y0 + 0.5, x1: q2.box.x1 - 0.5, y1: q2.box.y1 - 0.5 }) || segBox(sh, q2.box)))) continue;       // a leader never crosses another view
+          if (reserved.some(r => r[2] !== self && r[0] > c.b.x0 - 1 && r[0] < c.b.x1 + 1 && r[1] > c.b.y0 - 1 && r[1] < c.b.y1 + 1)) continue;       // never over the point another callout has to reach
+          let cost = len * 0.35, on = 0, bad = 0;
+          for (const g of vis) if (segBox(g, c.b)) on++;
+          for (const g of mk0) if (segBox(g, c.b)) on++;
+          if (strict && on) continue;
+          cost += on * 40;
+          for (const l of leaders) if (crossS(c.A, l) || crossS(sh, l) || segBox(l, c.b)) bad++;
+          if (strict && bad) continue;
+          cost += bad * 80;
+          for (const g of hidS) if (segBox(g, c.b)) cost += 6;
+          let n = 0; for (const g of vis) if (crossS(c.A, g)) n++;
+          if (strict && n > 6) continue;
+          cost += n * 6;
+          for (const g of hidS) if (crossS(c.A, g)) cost += 1.5;
+          // a label inside its own view only when that is clearly the cleaner place; outside the view is the drawing's habit
+          if (c.b.x0 < vb.x1 && c.b.x1 > vb.x0 && c.b.y0 < vb.y1 && c.b.y1 > vb.y0) cost += 14;
+          if (len > 40) cost += (len - 40) * 0.6;
+          if (!best || cost < best.cost) { c.cost = cost; best = c; }
+        }
+        if (best) break;
       }
       return best ? put(best) : false;
     };
+    // every callout is planned first, so that no label lands on the spot another one has to point at
+    const jobs = [], reserved = [];
+    const callout = (viewK, anchors, text, ok) => { const job = { viewK, anchors, text, ok }; for (const an of anchors) { const [px, py] = pv(viewK, an.P); reserved.push([px, py, job]); } jobs.push(job); return true; };
+    // a hole the edge search did not find a circle for still gets its center mark, so every callout points at a marked hole
+    const markMissing = (view, c3, r) => {
+      const [cx, cy] = pv(view, c3), rr = r * views[view].s, kk = Math.round(cx * 10) + ',' + Math.round(cy * 10);
+      if (markDone[view].has(kk) || rr < 0.6) return; markDone[view].add(kk);
+      const e = rr + Math.min(2.5, rr * 0.4);
+      parts[view] += `<path d="M${f2(cx - e)} ${f2(cy)}H${f2(cx + e)}M${f2(cx)} ${f2(cy - e)}V${f2(cy + e)}" stroke="${INK}" stroke-width="0.13" stroke-dasharray="3 0.8 0.6 0.8" fill="none"/>`;
+      marksOf[view].push([cx - e, cy, cx + e, cy], [cx, cy - e, cx, cy + e]);
+    };
+    for (const g of D.dia) if (g.hole || g.members[0].kind === 'hole') for (const m of g.members) markMissing(BP_ROUNDVIEW[g.ax], m.c3, m.r);
     let diaN = 0;
     for (const g of D.dia) {
       const m0 = g.members[0], view = BP_ROUNDVIEW[g.ax], o1 = ['X', 'Z', 'D'].filter(a => a !== g.ax);
       const th = [45, 135, -45, -135, 90, 0, 180, -90][diaN++ % 8] * Math.PI / 180;       // each size at its own angle round the circle
       const rim = add3(m0.c3, [0, 1, 2].map(i => (BP_AX[o1[0]][i] * Math.cos(th) + BP_AX[o1[1]][i] * Math.sin(th)) * m0.r));
       const text = `${g.members.length > 1 ? g.members.length + '× ' : ''}Ø${bpNum(g.d)}${g.hole ? (g.thru ? ' THRU' : ` × ${bpNum(g.depth)} DEEP`) : ''}`;
-      if (callout(view, rim, text)) placed.dia.push(g);
+      // every hole of the group is a place the leader may land: on the rim, aimed at the center
+      const anchors = g.members.slice(0, 8).map((m, i) => { const [cx, cy] = pv(view, m.c3); return { P: i ? m.c3 : rim, circ: { cx, cy, r: m.r * views[view].s } }; });
+      callout(view, anchors, text, () => placed.dia.push(g));
     }
     for (const p of D.pats) {
       const view = BP_ROUNDVIEW[p.ax], m0 = p.holes[0];
@@ -23855,11 +23917,12 @@ bpSVG = function (d) {
       const [cx, cy] = pv(view, c3), [hx, hy] = pv(view, m0.c3), rr = Math.hypot(hx - cx, hy - cy);
       parts[view] += `<circle cx="${f2(cx)}" cy="${f2(cy)}" r="${f2(rr)}" fill="none" stroke="${INK}" stroke-width="0.13" stroke-dasharray="3 0.8 0.6 0.8"/>`;
       const text = `${p.n}× Ø${bpNum(p.d)}${p.thru ? ' THRU' : ` × ${bpNum(p.depth)} DEEP`} EQ SP ON Ø${bpNum(p.bc)} BC`;
-      if (callout(view, m0.c3, text)) placed.bc.push({ ax: p.ax, bc: p.bc, d: p.d });
+      callout(view, p.holes.slice(0, 8).map(m => { const [x1, y1] = pv(view, m.c3); return { P: m.c3, circ: { cx: x1, cy: y1, r: Math.max(0.6, m.r * views[view].s) } }; }), text, () => placed.bc.push({ ax: p.ax, bc: p.bc, d: p.d }));
     }
-    for (const g of D.rad) { const view = g.ax ? (g.ax === 'Z' ? 'top' : g.ax === 'D' ? 'front' : 'right') : 'front'; if (g.at && callout(view, g.at, `${g.n > 1 ? g.n + '× ' : ''}R${bpNum(g.r)}`)) placed.rad.push(g); }
-    for (const g of D.cham) if (g.at && callout('front', g.at, `${g.n > 1 ? g.n + '× ' : ''}${bpNum(g.s)} × 45°`)) placed.cham.push(g);
-    for (const t of D.threads) if (t.at && callout(t.ax === 'Z' ? 'front' : 'top', t.at, t.text)) placed.threads.push(t.text);
+    for (const g of D.rad) { const view = g.ax ? (g.ax === 'Z' ? 'top' : g.ax === 'D' ? 'front' : 'right') : 'front'; if (g.at) callout(view, [{ P: g.at }], `${g.n > 1 ? g.n + '× ' : ''}R${bpNum(g.r)}`, () => placed.rad.push(g)); }
+    for (const g of D.cham) if (g.at) callout('front', [{ P: g.at }], `${g.n > 1 ? g.n + '× ' : ''}${bpNum(g.s)} × 45°`, () => placed.cham.push(g));
+    for (const t of D.threads) if (t.at) callout(t.ax === 'Z' ? 'front' : 'top', [{ P: t.at }], t.text, () => placed.threads.push(t.text));
+    for (const j of jobs) if (calloutNow(j.viewK, j.anchors, j.text, j) && j.ok) j.ok();
   }
   for (const k of Object.keys(views)) svg += `<g data-bpv="${k}">${parts[k]}</g>`;
   // isometric view, top right, in greys
@@ -23884,10 +23947,10 @@ bpSVG = function (d) {
   svg += `<path d="M${f2(sx)} ${f2(sy - 3)}L${f2(sx + 7)} ${f2(sy - 4.5)}V${f2(sy + 4.5)}L${f2(sx)} ${f2(sy + 3)}Z" fill="none" stroke="${INK}" stroke-width="0.3"/><circle cx="${f2(sx + 12)}" cy="${f2(sy)}" r="4.5" fill="none" stroke="${INK}" stroke-width="0.3"/><circle cx="${f2(sx + 12)}" cy="${f2(sy)}" r="3" fill="none" stroke="${INK}" stroke-width="0.3"/>`;
   svg += `<text x="${M + 5}" y="${SH - M - 5}" font-size="2.4" fill="${INK}">${xmlEsc(`X0 Y0 Z0: the part's left, front, bottom corner · ${d.n} bod${d.n === 1 ? 'y' : 'ies'} · overall ${bpNum(W)} × ${bpNum(Dp)} × ${bpNum(H)} ${isIn() ? 'in' : 'mm'}${BP.hidden ? ' · hidden lines dashed' : ''}`)}</text>`;
   const check = BP.dims ? bpCheck(d, placed) : [];
-  return { svg: `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${SW} ${SH}" width="${SW}mm" height="${SH}mm" font-family="Inter, Helvetica, Arial, sans-serif">${svg}</svg>`, SW, SH, scale: sc, check, boxes, views, isoBox, sheet: sheetK, labels, s };
+  return { svg: `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${SW} ${SH}" width="${SW}mm" height="${SH}mm" font-family="Inter, Helvetica, Arial, sans-serif">${svg}</svg>`, SW, SH, scale: sc, check, boxes, views, isoBox, sheet: sheetK, labels, s, marks: marksOf };
 };
 // the file versions drop the invisible grab areas
-const bpClean = svg => svg.replace(/<rect class="bp-hitv"[^>]*\/>/g, '').replace(/ data-bp[dv]="[^"]*"/g, '');
+const bpClean = svg => svg.replace(/<rect class="bp-hitv"[^>]*\/>/g, '').replace(/ data-bp[dvae]="[^"]*"/g, '');
 
 // ── the viewer: pan, zoom, drag ──
 BP.vp = { x: 0, y: 0, z: 1 };
@@ -23988,6 +24051,9 @@ function bpInitViewer(stage, page) {
     if (Math.hypot(dx, dy) > 2) drag.moved = true;
     if (drag.pan) { BP.vp.x = drag.vp0.x + dx; BP.vp.y = drag.vp0.y + dy; bpApplyVP(); return; }
     const k = bpMmPerPx(); drag.mm = [dx * k, dy * k];
+    // a dimension's text moves, its leader stays on the part (a circle's keeps aiming at the center)
+    const lab = drag.dim && BP.last && BP.last.labels.find(l => l.id === drag.dim);
+    if (lab && lab.draw) { drag.el.innerHTML = lab.draw(drag.mm[0], drag.mm[1]); return; }
     drag.el.setAttribute('transform', `translate(${drag.mm[0].toFixed(2)} ${drag.mm[1].toFixed(2)})`);
     const sel = document.querySelector('#bpPage .bp-sel'); if (sel && drag.view) sel.setAttribute('transform', drag.el.getAttribute('transform'));
   });
@@ -24000,8 +24066,8 @@ function bpInitViewer(stage, page) {
     else if (dg.dim) {
       if (dg.dim.startsWith('c:')) {
         // a callout keeps its leader's start on the part; its label goes where it was dropped
-        const lead = dg.el.querySelector('path'), m = lead && /M([-\d.]+) ([-\d.]+)L([-\d.]+) ([-\d.]+)/.exec(lead.getAttribute('d'));
-        if (m) L.l[dg.dim] = [0, 0, +m[3] - +m[1] + mx, +m[4] - +m[2] + my];
+        const A = (dg.el.dataset.bpa || '').split(',').map(Number), E = (dg.el.dataset.bpe || '').split(',').map(Number);
+        if (A.length === 2 && E.length === 2) L.l[dg.dim] = [0, 0, E[0] + mx - A[0], E[1] + my - A[1]];
       } else { const o = L.l[dg.dim] || [0, 0]; L.l[dg.dim] = [o[0] + mx, o[1] + my]; }
       record('Move dimension', before);
     }
@@ -29562,7 +29628,7 @@ SAMPLES.push({ axes: 'model', name: 'Fastener assortment', desc: 'Screws, nuts a
 } });
 SAMPLES.push({ axes: 'model', name: 'Workholding table', desc: 'A 6 in vise, 1-2-3 blocks, toe clamps and a dovetail fixture: everything in a manual room, parametric.', make() {
   const k = sampleKit();
-  [['vise', 0, 0], ['block123', -170, 10], ['toeClamp', 140, 0], ['dovetailFixture', 0, 110], ['parallels', -170, 80], ['cClamp', 170, 90]].forEach(([kd, x, y], i) => k.features.push({ id: k.nid(), type: 'shop', name: kd + (i + 1), ...FEATS.shop.init(), ...shopDefaults(kd), kind: kd, cx: x, cy: y }));
+  [['vise', 0, 0], ['block123', -170, 10], ['toeClamp', 140, 0], ['dovetailFixture', 0, 110], ['parallels', -170, 80], ['cClamp', 170, 90]].forEach(([kd, x, y], i) => k.features.push({ id: k.nid(), type: 'shop', name: kd + (i + 1), ...FEATS.shop.init(), kind: kd, cx: x, cy: y }));
   return k.doc();
 } });
 SAMPLES.push({ axes: 'model', name: 'Deform gallery', desc: 'The same bar bent, twisted, tapered and warped. Edit any deform to change its angle, axis or range.', make() {
@@ -29650,6 +29716,114 @@ SAMPLES.push({ axes: 'model', name: 'Deform gallery', desc: 'The same bar bent, 
     kCut(k, 12, poly(k, [[-40, -3], [-10, -3], [-6, -8], [6, -8], [10, -3], [40, -3], [40, 3], [10, 3], [6, 8], [-6, 8], [-10, 3], [-40, 3]]), [P2(0, 0)], 12);
     kHole(k, [-30, 0, 12], [0, 0, 1], 2.5, 12);
   });
+}
+
+// ── thirty more 3-axis parts, round three: every feature is cut from the top, so one setup does the lot ──
+{
+  const poly = (k, pts) => pts.map((p, i) => k.L(p[0], p[1], pts[(i + 1) % pts.length][0], pts[(i + 1) % pts.length][1]));
+  const ngon = (k, cx, cy, r, n, rot = 0) => poly(k, Array.from({ length: n }, (_, i) => [cx + r * Math.cos(rot + i * 2 * Math.PI / n), cy + r * Math.sin(rot + i * 2 * Math.PI / n)]));
+  const rotRect = (k, cx, cy, w, h, a) => { const c = Math.cos(a), s = Math.sin(a); return poly(k, [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]].map(([x, y]) => [cx + x * c - y * s, cy + x * s + y * c])); };
+  const disc = (k, r, h) => { const s = k.sketch(k.XZ, [k.C(0, 0, r)], { k: 'origin', w: 'XZ' }); return k.extrude(s, [P2(0, 0)], h, 'new'); };
+  const grid = (xs, ys) => xs.flatMap(x => ys.map(y => [x, y]));
+  const ring = (n, r, a0 = 0) => Array.from({ length: n }, (_, i) => [r * Math.cos(a0 + i * 2 * Math.PI / n), r * Math.sin(a0 + i * 2 * Math.PI / n)]);
+  const prof = (k, pts, h, at) => { const s = k.sketch(k.XZ, poly(k, pts), { k: 'origin', w: 'XZ' }); const c = pts.reduce((a, p) => [a[0] + p[0] / pts.length, a[1] + p[1] / pts.length], [0, 0]); return k.extrude(s, [at ? P2(at[0], at[1]) : P2(c[0], c[1])], h, 'new'); };
+  const S4 = [];
+  const add = (name, desc, fn) => S4.push({ axes: 3, name, desc, make: () => { const k = sampleKit(); fn(k); return k.doc(); } });
+  add('Bearing housing', 'A stepped bearing bore, four counterbored mounting holes and a grease port.', k => { kBox(k, -45, -35, 45, 35, 24, 3); kHole(k, [0, 0, 24], [0, 0, 1], 34, 10); kHole(k, [0, 0, 24], [0, 0, 1], 26, 24); for (const [x, y] of grid([-36, 36], [-26, 26])) { kHole(k, [x, y, 24], [0, 0, 1], 12, 5); kHole(k, [x, y, 24], [0, 0, 1], 7, 24); }  });
+  add('Gusset bracket', 'A triangular plate with three mounting holes and a lightening window.', k => { prof(k, [[-45, -30], [45, -30], [-45, 35]], 8); for (const [x, y] of [[-36, -22], [36, -22], [-36, 24]]) kHole(k, [x, y, 8], [0, 0, 1], 7, 8); kCut(k, 8, poly(k, [[-30, -14], [20, -14], [-30, 18]]), [P2(-20, -8)], 8); });
+  add('Slide carriage', 'Two long guide grooves along the top and four tapped holes between them.', k => { kBox(k, -70, -25, 70, 25, 18); for (const y of [-14, 14]) kCut(k, 18, k.rect(-70.5, y - 4, 70.5, y + 4), [P2(0, y)], 5); for (const [x, y] of grid([-50, -17, 17, 50], [0])) kHole(k, [x, y, 18], [0, 0, 1], 6.8, 14); });
+  add('Flange adaptor', 'Two bolt circles around a stepped center bore: a typical pipe adaptor.', k => { disc(k, 50, 14); kHole(k, [0, 0, 14], [0, 0, 1], 36, 6); kHole(k, [0, 0, 14], [0, 0, 1], 24, 14); for (const [x, y] of ring(6, 40, 0)) kHole(k, [x, y, 14], [0, 0, 1], 6.6, 14); for (const [x, y] of ring(4, 30, Math.PI / 4)) kHole(k, [x, y, 14], [0, 0, 1], 4.5, 8); });
+  add('Window cover plate', 'A rounded viewing window and eight screw holes around its rim.', k => { kBox(k, -55, -38, 55, 38, 6, 4); kCut(k, 6, k.rrect(-38, -22, 38, 22, 6), [P2(0, 0)], 6); for (const [x, y] of [[-48, -30], [0, -32], [48, -30], [-48, 0], [48, 0], [-48, 30], [0, 32], [48, 30]]) kHole(k, [x, y, 6], [0, 0, 1], 4.5, 6); });
+  add('Index plate', 'Twelve holes on a circle and a center bore: a dividing plate.', k => { disc(k, 55, 8); kHole(k, [0, 0, 8], [0, 0, 1], 16, 8); for (const [x, y] of ring(12, 42, 0)) kHole(k, [x, y, 8], [0, 0, 1], 5, 8); });
+  add('Hex standoff block', 'A hexagonal block with a through hole, a counterbore and six cross pockets around it.', k => { const s = k.sketch(k.XZ, ngon(k, 0, 0, 30, 6), { k: 'origin', w: 'XZ' }); k.extrude(s, [P2(0, 0)], 20, 'new'); kHole(k, [0, 0, 20], [0, 0, 1], 12, 20); kHole(k, [0, 0, 20], [0, 0, 1], 20, 6); for (const [x, y] of ring(3, 22, Math.PI / 6)) kHole(k, [x, y, 20], [0, 0, 1], 5, 12); });
+  add('Spoked wheel', 'A hub and rim joined by round windows: five lightening pockets cut through.', k => { disc(k, 55, 10); kHole(k, [0, 0, 10], [0, 0, 1], 16, 10); for (const [x, y] of ring(5, 33, Math.PI / 2)) kCut(k, 10, [k.C(x, y, 12)], [P2(x, y)], 10); });
+  add('Slotted angle bracket', 'An L-profile with a long slot in each leg: slot milling on a profile.', k => { prof(k, [[-50, -25], [50, -25], [50, -5], [-20, -5], [-20, 30], [-50, 30]], 6, [0, -15]); kCut(k, 6, k.rrect(0, -21, 44, -9, 6), [P2(22, -15)], 6); kCut(k, 6, k.rrect(-45, 2, -25, 26, 6), [P2(-35, 14)], 6); kHole(k, [-40, -15, 6], [0, 0, 1], 6, 6); });
+  add('Valve manifold block', 'Six ports of three sizes on top and a shallow center pocket for a gasket.', k => { kBox(k, -50, -30, 50, 30, 30, 2); kCut(k, 30, k.rrect(-14, -10, 14, 10, 3), [P2(0, 0)], 2); for (const x of [-36, 36]) { kHole(k, [x, -16, 30], [0, 0, 1], 14, 6); kHole(k, [x, -16, 30], [0, 0, 1], 10, 22); kHole(k, [x, 16, 30], [0, 0, 1], 8, 20); } kHole(k, [0, 20, 30], [0, 0, 1], 6, 16); kHole(k, [0, -20, 30], [0, 0, 1], 6, 16); });
+  add('Idler bracket', 'Four slots at right angles around a center bore: slot milling and boring.', k => { kBox(k, -50, -50, 50, 50, 10, 6); kHole(k, [0, 0, 10], [0, 0, 1], 24, 10); for (const [x, y, w, h] of [[32, 0, 22, 10], [-32, 0, 22, 10], [0, 32, 10, 22], [0, -32, 10, 22]]) kCut(k, 10, k.rrect(x - w / 2, y - h / 2, x + w / 2, y + h / 2, 5), [P2(x, y)], 10); });
+  add('Pipe clamp plate', 'A bore with two clamping bolts either side and two relief slits cut in.', k => { kBox(k, -40, -25, 40, 25, 16, 3); kHole(k, [0, 0, 16], [0, 0, 1], 28, 16); for (const x of [-30, 30]) { kHole(k, [x, 0, 16], [0, 0, 1], 9, 4); kHole(k, [x, 0, 16], [0, 0, 1], 6.6, 16); } });
+  add('Terminal block', 'Six rectangular wire pockets, each with a screw hole beside it.', k => { kBox(k, -48, -18, 48, 18, 14, 2); for (let i = 0; i < 6; i++) { const x = -40 + i * 16; kCut(k, 14, k.rect(x - 4, -10, x + 4, 2), [P2(x, -4)], 10); kHole(k, [x, 10, 14], [0, 0, 1], 3.2, 8); } });
+  add('Key-ring tag', 'A rounded tag with a hanging hole and a recessed panel for engraving.', k => { kBox(k, -40, -22, 40, 22, 4, 8); kHole(k, [-31, 0, 4], [0, 0, 1], 6, 4); kCut(k, 4, k.rrect(-22, -14, 34, 14, 3), [P2(6, 0)], 1); });
+  add('Stair block', 'Three levels in one block: facing and stepped pockets at different depths.', k => { kBox(k, -50, -30, 50, 30, 24); kCut(k, 24, k.rect(-50.5, -30.5, 17, 30.5), [P2(-20, 0)], 8); kCut(k, 16, k.rect(-50.5, -30.5, -17, 30.5), [P2(-35, 0)], 8); for (const y of [-18, 18]) kHole(k, [34, y, 24], [0, 0, 1], 6, 14); });
+  add('Honeycomb plate', 'Seven hexagonal pockets in a close-packed pattern: repeated pocketing.', k => { kBox(k, -48, -42, 48, 42, 12, 3); for (const [x, y] of [[0, 0], ...ring(6, 24, Math.PI / 6)]) kCut(k, 12, ngon(k, x, y, 12.5, 6, 0), [P2(x, y)], 8); });
+  add('Corner radius test', 'Four square pockets with corner radii of 2, 3, 4 and 6 mm: what each tool can reach.', k => { kBox(k, -56, -26, 56, 26, 10, 2); [[-42, 2], [-14, 3], [14, 4], [42, 6]].forEach(([x, r]) => kCut(k, 10, k.rrect(x - 12, -12, x + 12, 12, r), [P2(x, 0)], 6)); });
+  add('Counterbore set', 'Four counterbored holes in four sizes: matching tools and depths.', k => { kBox(k, -48, -20, 48, 20, 16); [[-36, 5, 9, 4], [-12, 6.6, 11, 6], [12, 8.4, 15, 8], [36, 10.5, 18, 10]].forEach(([x, d, cb, dp]) => { kHole(k, [x, 0, 16], [0, 0, 1], cb, dp); kHole(k, [x, 0, 16], [0, 0, 1], d, 16); }); });
+  add('Thin-wall box', 'A deep pocket that leaves 3 mm walls: roughing and finishing without chatter.', k => { kBox(k, -40, -30, 40, 30, 24, 4); kCut(k, 24, k.rrect(-37, -27, 37, 27, 4), [P2(0, 0)], 20); });
+  add('Oval boss plate', 'A raised obround boss on a plate with a mounting hole in each end of the boss.', k => { kBox(k, -55, -30, 55, 30, 8, 3); kJoin(k, 8, k.rrect(-40, -14, 40, 14, 14), [P2(0, 0)], 8); for (const x of [-30, 30]) kHole(k, [x, 0, 16], [0, 0, 1], 8, 16); for (const [x, y] of grid([-48, 48], [-23, 23])) kHole(k, [x, y, 8], [0, 0, 1], 4.5, 8); });
+  add('Eccentric bore ring', 'A disc with an off-center bore and three holes: boring off center.', k => { disc(k, 40, 14); kHole(k, [8, 0, 14], [0, 0, 1], 30, 14); for (const [x, y] of ring(3, 32, Math.PI / 2 + 0.4)) kHole(k, [x, y, 14], [0, 0, 1], 5, 14); });
+  add('Triangle plate', 'A triangular plate with a rounded pocket, three corner holes and a center hole.', k => { prof(k, [[-45, -28], [45, -28], [0, 50]], 10); kCut(k, 10, k.rrect(-16, -12, 16, 12, 5), [P2(0, 0)], 6); for (const [x, y] of [[-36, -22], [36, -22], [0, 40]]) kHole(k, [x, y, 10], [0, 0, 1], 5, 10); kHole(k, [0, 20, 10], [0, 0, 1], 6, 10); });
+  add('Lever arm', 'A lever outline with a pivot hole, a long adjusting slot and a pin hole at the end.', k => { prof(k, [[-55, -10], [30, -22], [58, -22], [58, 22], [30, 22], [-55, 10]], 8); kHole(k, [-42, 0, 8], [0, 0, 1], 12, 8); kCut(k, 8, k.rrect(-14, -5, 30, 5, 5), [P2(8, 0)], 8); kHole(k, [48, 0, 8], [0, 0, 1], 8, 8); });
+  add('Z-bracket', 'Two stepped legs offset in height with holes in each: facing at two levels.', k => { kBox(k, -60, -20, 60, 20, 20); kCut(k, 20, k.rect(-60.5, -20.5, -5, 20.5), [P2(-30, 0)], 10); for (const x of [-45, -20]) kHole(k, [x, 0, 10], [0, 0, 1], 6.6, 10); for (const x of [20, 45]) kHole(k, [x, 0, 20], [0, 0, 1], 6.6, 20); });
+  add('Adjuster plate', 'A pivot bore and two offset slots: adjustment slots milled one beside the other.', k => { kBox(k, -50, -40, 50, 40, 8, 4); kHole(k, [-25, -20, 8], [0, 0, 1], 12, 8); kCut(k, 8, k.rrect(-8, -6, 40, 6, 6), [P2(16, 0)], 8); kCut(k, 8, k.rrect(30, 14, 42, 34, 6), [P2(36, 24)], 8); });
+  add('Board tray', 'A rectangular pocket for a circuit board, four corner holes and a cable slot.', k => { kBox(k, -50, -35, 50, 35, 16, 3); kCut(k, 16, k.rrect(-42, -27, 42, 27, 3), [P2(0, 0)], 8); for (const [x, y] of grid([-46, 46], [-31, 31])) kHole(k, [x, y, 16], [0, 0, 1], 3.5, 16); kCut(k, 8, k.rrect(-8, 20, 8, 36, 3), [P2(0, 28)], 8); });
+  add('Stepped cavity', 'A two-step cavity like the first pass of a mold: one pocket nested in another.', k => { kBox(k, -50, -38, 50, 38, 26, 3); kCut(k, 26, k.rrect(-40, -28, 40, 28, 6), [P2(0, 0)], 8); kCut(k, 18, k.rrect(-26, -16, 26, 16, 6), [P2(0, 0)], 8); });
+  add('Bottle holder', 'A round pocket for a bottle and four rubber-foot holes.', k => { disc(k, 45, 22); kCut(k, 22, [k.C(0, 0, 33)], [P2(0, 0)], 15); for (const [x, y] of ring(4, 39.5, Math.PI / 4)) kHole(k, [x, y, 22], [0, 0, 1], 5, 6); });
+  add('Sprocket blank', 'A stepped hub on a thin plate: a boss, a bore and four lightening holes.', k => { disc(k, 50, 8); kJoin(k, 8, [k.C(0, 0, 18)], [P2(0, 0)], 8); kHole(k, [0, 0, 16], [0, 0, 1], 12, 16); for (const [x, y] of ring(4, 34, Math.PI / 4)) kHole(k, [x, y, 8], [0, 0, 1], 9, 8); });
+  add('Mold half insert', 'A block with a rounded cavity, four dowel holes and two ejector holes.', k => { kBox(k, -45, -30, 45, 30, 20, 2); kCut(k, 20, k.rrect(-28, -16, 28, 16, 8), [P2(0, 0)], 10); for (const [x, y] of grid([-40, 40], [-25, 25])) kHole(k, [x, y, 20], [0, 0, 1], 6, 14); for (const x of [-12, 12]) kHole(k, [x, 0, 10], [0, 0, 1], 4, 10); });
+  SAMPLES.push(...S4);
+}
+
+// ── Wire EDM only: parts no end mill can make — dead-sharp inside corners, hairline slits, hair-thin walls, hardened steel ──
+if (!MATERIALS.toolsteel) MATERIALS.toolsteel = { name: 'Tool steel D2, 60 HRC', short: 'Hardened steel', vc: { mill: 20, face: 30, drill: 8, tap: 2 }, fz: 0.25, raw: 0x7b8088, cut: 0xc3c8cf };
+{
+  const poly = (k, pts) => pts.map((p, i) => k.L(p[0], p[1], pts[(i + 1) % pts.length][0], pts[(i + 1) % pts.length][1]));
+  const wire = (k, mat = 'toolsteel') => { const d = k.doc(); d.cam = camDefaults(); d.cam.machine = 'wire'; d.cam.material = mat; d.cam.next = 2; d.cam.ops = [{ id: 1, type: 'wire', name: OP_INFO.wire.name, tool: 'W', what: 'all', skims: 2 }]; return d; };
+  const plate = (k, x0, y0, x1, y1, h) => { const s = k.sketch(k.XZ, k.rect(x0, y0, x1, y1), { k: 'origin', w: 'XZ' }); return k.extrude(s, [P2((x0 + x1) / 2, (y0 + y1) / 2)], h, 'new'); };
+  const W2 = [];
+  // why: what makes the part wire-only, shown in the sample's description and on its card
+  const addX = (name, why, fn, mat) => { const s = { axes: 'wire', name, desc: why, make: () => { const k = sampleKit(); fn(k); return wire(k, mat); } }; W2.push(s); };
+  const start = (k, x, y, h) => kHole(k, [x, y, h], [0, 0, 1], 1.5, h);                // the wire's start hole inside a closed opening
+  addX('Sharp-corner square die', 'Wire only: a 24 mm square window with dead-sharp corners through 20 mm of hardened steel. A round cutter leaves its own radius in every corner.', k => {
+    plate(k, -40, -30, 40, 30, 20); kCut(k, 20, k.rect(-12, -12, 12, 12), [P2(0, 0)], 20); start(k, 0, 0, 20);
+  });
+  addX('Hairline slit comb', 'Wire only: ten slits 0.3 mm wide and 22 mm deep leave 1.7 mm teeth. No end mill is that thin, and none would stay straight in a cut that deep.', k => {
+    plate(k, -30, -14, 30, 14, 22);
+    for (let i = 0; i < 10; i++) { const x = -18 + i * 4; kCut(k, 22, k.rect(x - 0.15, -14.5, x + 0.15, 8), [P2(x, -3)], 22); }
+  }, 'stainless');
+  addX('Flexure hinges', 'Wire only: three notch hinges, each a 0.5 mm web left between two Ø6 round openings, 12 mm tall. Anything milled that thin would flex away from the cutter.', k => {
+    plate(k, -40, -20, 40, 20, 12);
+    for (const x of [-26, 0, 26]) for (const y of [-3.25, 3.25]) { kCut(k, 12, [k.C(x, y, 3)], [P2(x, y)], 12); start(k, x, y, 12); }
+  }, 'stainless');
+  addX('Hex broach window', 'Wire only: two hexagonal openings with sharp corners, 14 mm across the flats: the shape a hex key or a broach makes.', k => {
+    plate(k, -40, -22, 40, 22, 16);
+    for (const x of [-18, 18]) { kCut(k, 16, poly(k, Array.from({ length: 6 }, (_, i) => [x + 8.08 * Math.cos(Math.PI / 6 + i * Math.PI / 3), 8.08 * Math.sin(Math.PI / 6 + i * Math.PI / 3)])), [P2(x, 0)], 16); start(k, x, 0, 16); }
+  });
+  addX('Square-keyed bore', 'Wire only: a Ø20 bore with four square keyways, 3 mm wide and 3 mm deep, all with sharp corners: a splined-hub shape.', k => {
+    plate(k, -30, -30, 30, 30, 18);
+    kCut(k, 18, [k.C(0, 0, 10)], [P2(0, 0)], 18);
+    kCut(k, 18, k.rect(9.5, -1.5, 13, 1.5), [P2(11.5, 0)], 18); kCut(k, 18, k.rect(-13, -1.5, -9.5, 1.5), [P2(-11.5, 0)], 18); kCut(k, 18, k.rect(-1.5, 9.5, 1.5, 13), [P2(0, 11.5)], 18); kCut(k, 18, k.rect(-1.5, -13, 1.5, -9.5), [P2(0, -11.5)], 18);
+    start(k, 0, 0, 18);
+  });
+  addX('Thin-rib fin block', 'Wire only: nine ribs 0.8 mm thick and 15 mm tall, cut apart by 1.6 mm slots. A milled rib that thin and tall would chatter and bend.', k => {
+    plate(k, -26, -14, 26, 14, 15);
+    for (let i = 0; i < 9; i++) { const x = -19.2 + i * 4.8; kCut(k, 15, k.rect(x + 0.4, -14.5, x + 2, 10), [P2(x + 1.2, -2)], 15); }
+  }, 'stainless');
+  addX('Triangle window', 'Wire only: an equilateral triangular opening with three 60° corners that stay perfectly sharp, plus a dowel hole.', k => {
+    plate(k, -40, -30, 40, 30, 14);
+    kCut(k, 14, poly(k, [[-15, -9], [15, -9], [0, 17]]), [P2(0, 0)], 14); start(k, 0, 0, 14); kHole(k, [-32, 0, 14], [0, 0, 1], 6, 14); kHole(k, [32, 0, 14], [0, 0, 1], 6, 14);
+  });
+  addX('Internal gear ring', 'Wire only: an internal gear with 18 teeth, sharp at the roots. The wire follows the tooth form a cutter cannot turn round.', k => {
+    const s = k.sketch(k.XZ, [k.C(0, 0, 34)], { k: 'origin', w: 'XZ' }); k.extrude(s, [P2(0, 0)], 12, 'new');
+    const pts = []; for (let i = 0; i < 18; i++) { const a = i * 2 * Math.PI / 18, d = Math.PI / 18; for (const [r, da] of [[19, -0.95 * d], [24, -0.45 * d], [24, 0.45 * d], [19, 0.95 * d]]) pts.push([r * Math.cos(a + da), r * Math.sin(a + da)]); }
+    kCut(k, 12, poly(k, pts), [P2(0, 0)], 12); start(k, 0, 0, 12);
+  });
+  addX('Stepped split fixture', 'Wire only: one 0.3 mm kerf runs in a stepped path through a 25 mm plate and parts it into two pieces that lock back together.', k => {
+    plate(k, -40, -25, 40, 25, 25);
+    const w = 0.15; for (const [x0, y0, x1, y1] of [[-41, 8 - w, -12 + w, 8 + w], [-12 - w, -8 - w, -12 + w, 8 + w], [-12 - w, -8 - w, 12 + w, -8 + w], [12 - w, -8 - w, 12 + w, 8 + w], [12 - w, 8 - w, 41, 8 + w]]) kCut(k, 25, k.rect(x0, y0, x1, y1), [P2((x0 + x1) / 2, (y0 + y1) / 2)], 25);
+  }, 'stainless');
+  addX('Cross punch', 'Wire only: the outside of a cross-shaped punch cut from hardened tool steel with sharp inside corners that a milled punch would round.', k => {
+    plate(k, -34, -34, 34, 34, 18);
+    kCut(k, 18, [...k.rect(-34, -34, 34, 34), ...poly(k, [[-6, -20], [6, -20], [6, -6], [20, -6], [20, 6], [6, 6], [6, 20], [-6, 20], [-6, 6], [-20, 6], [-20, -6], [-6, -6]])], [P2(30, 30)], 18);
+  });
+  addX('Spiral spring', 'Wire only: a flat spring cut by a spiral slit 0.4 mm wide, 1.5 turns, through a 6 mm disc. The slit is thinner than any practical end mill.', k => {
+    const s = k.sketch(k.XZ, [k.C(0, 0, 32)], { k: 'origin', w: 'XZ' }); k.extrude(s, [P2(0, 0)], 6, 'new');
+    const c = [], L = [], R = []; for (let i = 0; i <= 40; i++) { const t = i / 40, a = 0.3 + t * 3 * Math.PI, r = 8 + t * 21, nx = Math.cos(a), ny = Math.sin(a); L.push([(r + 0.2) * nx, (r + 0.2) * ny]); R.push([(r - 0.2) * nx, (r - 0.2) * ny]); void c; }
+    kCut(k, 6, poly(k, [...L, ...R.reverse()]), [P2((L[20][0] + R[R.length - 21][0]) / 2, (L[20][1] + R[R.length - 21][1]) / 2)], 6); kHole(k, [L[0][0] * 0.96, L[0][1] * 0.96, 6], [0, 0, 1], 1.5, 6);
+  }, 'stainless');
+  addX('Slit nozzle', 'Wire only: five slits 0.4 mm wide and 12 mm long, 0.8 mm apart, through 10 mm: the orifice of a fine film nozzle.', k => {
+    plate(k, -20, -14, 20, 14, 10);
+    for (let i = 0; i < 5; i++) { const x = -4.8 + i * 2.4; kCut(k, 10, k.rect(x - 0.2, -6, x + 0.2, 6), [P2(x, 0)], 10); kHole(k, [x, 0, 10], [0, 0, 1], 0.5, 10); }
+  }, 'stainless');
+  SAMPLES.push(...W2);
 }
 
 // ── CNC turning and live tooling (Haas ST style): the profile comes from a body of the model or a demo shaft ──
@@ -30299,6 +30473,387 @@ SAMPLES.push({ axes: 'model', name: 'Cap screw: stress study', desc: 'An M10 × 
 } });
 </script>
 <!-- STUDY-END -->
+<!-- COMPLETE-BEGIN -->
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  COMPLETE: is the machined part actually the part?
+//  The checks on every move only prove nothing is touched that should not
+//  be, and the measurements only look at holes, floors and overall size.
+//  This one compares the whole simulated stock with the model, column by
+//  column: stock still standing above the part's surface (uncut floors,
+//  corners a tool radius could not reach, ribs left by a stepover that was
+//  too wide) and stock left against the outside walls. Each leftover area
+//  is listed with where it is, how much and why; an Auto Program then adds
+//  a clean-up operation for what a smaller tool can reach and checks again.
+// ═══════════════════════════════════════════════════════════════════
+async function completenessCheck(res, progress) {
+  const { model, st, part } = res;
+  if (!model || !part) return null;
+  const G = await camFineGeom(); G.q = G.q || 0;
+  const stamp = new Int32Array(G.T.length), W = st.x1 - st.x0, H = st.y1 - st.y0;
+  const h = Math.max(0.4, Math.min(1.5, Math.max(W, H) / 150)), nx = Math.max(2, Math.ceil(W / h)), ny = Math.max(2, Math.ceil(H / h)), n = nx * ny;
+  const px = new Float32Array(n), sp = new Float32Array(n), left = new Float32Array(n), flag = new Uint8Array(n);
+  const noSide = model.S.every(s => !s.length);
+  const topAt = (x, y) => {
+    if (!noSide) return model.topAt(x, y);
+    // the slabs nest (each inside the one below), so the top one holding the point is found by halving
+    const pt = { X: Math.round(x * CS), Y: Math.round(y * CS) }, inside = i => { let k = 0; for (const p of model.eff(i)) { if (ClipperLib.Clipper.PointInPolygon(pt, p)) k += cArea(p) > 0 ? 1 : -1; } return k > 0; };
+    let lo = 0, hi = model.n - 1, ans = -1;
+    while (lo <= hi) { const m = (lo + hi) >> 1; if (inside(m)) { ans = m; lo = m + 1; } else hi = m - 1; }
+    return ans < 0 ? -Infinity : model.lv[ans + 1];
+  };
+  let t0 = performance.now();
+  for (let j = 0; j < ny; j++) {
+    for (let i = 0; i < nx; i++) {
+      const x = st.x0 + (i + 0.5) * h, y = st.y0 + (j + 0.5) * h, k = j * nx + i;
+      G.q++; px[k] = dropCutter(G, x, y, 0.03, false, stamp);
+      sp[k] = topAt(x, y);
+    }
+    if (performance.now() - t0 > 8) { await yieldFrame(); t0 = performance.now(); if (progress) progress(`Comparing the stock with the part · ${Math.round(100 * j / ny)}%`); }
+  }
+  const zb = part.z0, fin = v => v > -1e8;
+  // a column is "in the part" when the part has surface there; beside the part's outline the stock should be gone down to the part's foot
+  const inPart = new Uint8Array(n); for (let k = 0; k < n; k++) inPart[k] = fin(px[k]) ? 1 : 0;
+  const near = new Uint8Array(n), reach = Math.max(1, Math.round(1.6 / h));
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    const k = j * nx + i; if (inPart[k]) continue;
+    let hit = 0;
+    for (let dj = -reach; dj <= reach && !hit; dj++) for (let di = -reach; di <= reach; di++) { const a = i + di, b = j + dj; if (a >= 0 && b >= 0 && a < nx && b < ny && inPart[b * nx + a]) { hit = 1; break; } }
+    near[k] = hit;
+  }
+  let vol = 0, ncell = 0;
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    const k = j * nx + i, s = sp[k];
+    let target, tol;
+    if (inPart[k]) {
+      target = px[k];
+      // sloped and curved surfaces: the scallops of the finishing pass and the chord of the mesh are allowed for
+      let sl = 0; for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const a = i + di, b = j + dj; if (a >= 0 && b >= 0 && a < nx && b < ny && inPart[b * nx + a]) sl = Math.max(sl, Math.abs(px[b * nx + a] - px[k]) / h); }
+      tol = 0.06 + Math.min(0.5, 0.3 * sl * h + (sl > 0.02 ? 0.05 : 0));
+    } else if (near[k]) { target = zb; tol = 0.06; } else continue;
+    if (!fin(s)) continue;
+    const d = s - target;
+    if (d > tol) { left[k] = d; flag[k] = 1; vol += d * h * h; ncell++; }
+  }
+  // connected areas of leftover
+  const id = new Int32Array(n).fill(-1), clusters = [], stack = [];
+  const tools = cam().tools.filter(t => ['flat', 'ball', 'bull'].includes(t.type) && !t.wire), rMin = tools.length ? Math.min(...tools.map(t => t.d / 2)) : 1;
+  for (let s = 0; s < n; s++) {
+    if (!flag[s] || id[s] >= 0) continue;
+    const c = { id: clusters.length, cells: [], x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity, vol: 0, zmax: 0, band: 0 };
+    stack.push(s); id[s] = c.id;
+    while (stack.length) {
+      const k = stack.pop(), i = k % nx, j = (k / nx) | 0; c.cells.push(k);
+      const x = st.x0 + (i + 0.5) * h, y = st.y0 + (j + 0.5) * h;
+      c.x0 = Math.min(c.x0, x); c.x1 = Math.max(c.x1, x); c.y0 = Math.min(c.y0, y); c.y1 = Math.max(c.y1, y);
+      c.vol += left[k] * h * h; if (left[k] > c.zmax) c.zmax = left[k]; if (!inPart[k]) c.band++;
+      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) { const a = i + di, b = j + dj; if (a < 0 || b < 0 || a >= nx || b >= ny) continue; const q = b * nx + a; if (flag[q] && id[q] < 0) { id[q] = c.id; stack.push(q); } }
+    }
+    clusters.push(c);
+  }
+  // how wide is each area (the largest circle inside it): narrow ones are what a tool's own radius leaves in a corner
+  for (const c of clusters) {
+    const set = new Set(c.cells); let frontier = c.cells.filter(k => { const i = k % nx, j = (k / nx) | 0; return [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([di, dj]) => !set.has((j + dj) * nx + i + di) || i + di < 0 || i + di >= nx); }), depth = new Map(), d = 1;
+    for (const k of frontier) depth.set(k, d);
+    while (frontier.length) {
+      const next = []; d++;
+      for (const k of frontier) { const i = k % nx, j = (k / nx) | 0; for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const a = i + di, b = j + dj; if (a < 0 || b < 0 || a >= nx || b >= ny) continue; const q = b * nx + a; if (set.has(q) && !depth.has(q)) { depth.set(q, d); next.push(q); } } }
+      frontier = next;
+    }
+    c.rIn = Math.max(...depth.values()) * h - h / 2; c.area = c.cells.length * h * h; c.cx = (c.x0 + c.x1) / 2; c.cy = (c.y0 + c.y1) / 2;
+    c.wall = c.band > c.cells.length / 2;
+    c.kind = c.rIn <= rMin * 1.15 + h ? 'corner' : 'uncut';
+  }
+  const real = clusters.filter(c => c.area >= Math.max(0.6, 0.8 * h * h));
+  real.sort((a, b) => b.vol - a.vol);
+  const total = Math.max(1, (st.x1 - st.x0) * (st.y1 - st.y0) * (st.z1 - part.z0));
+  // the floor each leftover area has to be cut to: cells grouped by the height of the part under them
+  for (const c of real) {
+    const byZ = new Map();
+    for (const k of c.cells) { const z = inPart[k] ? px[k] : zb, q = Math.round(z / 0.25) * 0.25; if (!byZ.has(q)) byZ.set(q, []); byZ.get(q).push(k); }
+    c.levels = [...byZ].map(([q, ks]) => ({ z: ks.reduce((a, k) => a + (inPart[k] ? px[k] : zb), 0) / ks.length, spread: Math.max(...ks.map(k => inPart[k] ? px[k] : zb)) - Math.min(...ks.map(k => inPart[k] ? px[k] : zb)), top: Math.max(...ks.map(k => sp[k])), n: ks.length, cells: ks }));
+    c.slope = c.levels.some(l => l.spread > 0.45);
+  }
+  // a small map of where the material is still standing, for the report
+  let thumb = '';
+  try {
+    const S = Math.max(2, Math.min(5, Math.floor(300 / Math.max(nx, ny)))), cv = document.createElement('canvas'); cv.width = nx * S; cv.height = ny * S;
+    const g = cv.getContext('2d'), dark = matchMedia('(prefers-color-scheme: dark)').matches;
+    const real2 = new Set(); for (const c of real) for (const k of c.cells) real2.add(k);
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+      const k = j * nx + i; let col = dark ? '#262c36' : '#eef1f6';
+      if (real2.has(k)) col = left[k] > 3 ? '#e8590c' : '#f59f00'; else if (inPart[k]) col = dark ? '#4c6a9a' : '#9db9e6';
+      g.fillStyle = col; g.fillRect(i * S, (ny - 1 - j) * S, S, S);
+    }
+    thumb = cv.toDataURL();
+  } catch (e) { thumb = ''; }
+  return { ok: !real.some(c => c.kind === 'uncut'), allOk: !real.length, h, tol: 0.06, vol: real.reduce((a, c) => a + c.vol, 0), clusters: real.slice(0, 60), nClusters: real.length, rMin, total, cells: ncell, grid: { nx, ny, x0: st.x0, y0: st.y0 }, thumb, at: Date.now(), key: verifyKey() };
+}
+
+// ── clearing what is left ──
+OP_INFO.clear = { name: 'Clean-up', icon: 'campocket', tip: 'Clears material the other operations left standing: each area is cut down to the part in steps, center out, with the largest tool that fits.' };
+GEN.clear = function (op, tool, st, part, P) {
+  const r = tool.d / 2, safe = st.z1 + cam().safe, ret = st.z1 + cam().retract, so = clamp(op.stepover || 0.4, 0.05, 0.9) * tool.d, ml = 0, lw = op.leaveWall || 0, areas = op.areas || [];
+  if (!areas.length) { P.warn.push('Nothing to clean up.'); return; }
+  let did = 0, skipped = 0, down = false;
+  for (const A of areas) {
+    const area = A.rings.map(rg => rg.map(p => ({ X: Math.round(p[0] * CS), Y: Math.round(p[1] * CS) })));
+    const tArea = cOffset(area, -(r + lw));
+    if (!tArea.length) { skipped++; continue; }
+    const floor = A.z + (op.leaveFloor || 0), top = Math.min(st.z1, A.top + 0.2), rings = [];
+    for (let k = 0; k < 400; k++) { const cur = k ? cOffset(tArea, -so * k) : tArea; if (!cur.length) break; rings.push(ClipperLib.Clipper.CleanPolygons(cur, 0.005 * CS).filter(p => p.length >= 3)); }
+    const zs = levels(top, floor, op.stepdown || Math.min(3, tool.d * 0.5)), linkRegion = cOffset(tArea, 0.002);
+    for (const seqIn of ringTree(rings)) {
+      if (down) { P.rapid(P.cur[0], P.cur[1], ret); down = false; }
+      zs.forEach((z, li) => {
+        const seq = seqIn, cut = [];
+        seq.forEach((nd, q) => {
+          const rho = Math.min(0.35 * r, so * nd.k), here = P.cur ? P2(P.cur[0], P.cur[1]) : null, pts = here ? startAt(nd.pts, nearestIdx(nd.pts, here)) : nd.pts, s = pts[0], zPrev = li ? zs[li - 1] : st.z1 + 0.5;
+          let descend = false;
+          if (q === 0) {
+            if (down && linkAtDepth(P, s, P.cur[2], linkRegion, seqIn.map(n => n.pts), ml)) descend = true;
+            else { if (down) P.rapid(P.cur[0], P.cur[1], ret); else P.rapid(s.x, s.y, safe); P.rapid(s.x, s.y, ret); P.rapid(s.x, s.y, zPrev + (li ? 0.5 : 0)); descend = true; }
+          } else if (!linkAtDepth(P, s, z, linkRegion, cut, ml)) { P.rapid(P.cur[0], P.cur[1], ret); P.rapid(s.x, s.y, ret); P.rapid(s.x, s.y, zPrev + 0.5); descend = true; }
+          down = true; cut.push(pts);
+          if (descend) { if (op.entry === 'ramp') { rampLoop(P, pts, P.cur[2], z, 3, rho); return; } P.plunge(s.x, s.y, z); }
+          for (let i = 1; i < pts.length; i++) P.feed(pts[i].x, pts[i].y, z);
+          P.feed(s.x, s.y, z);
+        });
+      });
+    }
+    did++;
+    if (P.cur) P.rapid(P.cur[0], P.cur[1], safe);
+    down = false;
+  }
+  if (skipped) P.warn.push(`${skipped} area${skipped > 1 ? 's are' : ' is'} narrower than the Ø${fmtD(tool.d)} tool.`);
+  P.info = `${did} area${did === 1 ? '' : 's'} cleared in ${op.stepdown ? fmtLs(op.stepdown) : 'step'} cuts, center out`;
+};
+// the polygons (in mm) of a set of grid cells
+function cellsToRings(comp, cells) {
+  const { nx, x0, y0 } = comp.grid, h = comp.h, sq = [];
+  for (const k of cells) { const i = k % nx, j = (k / nx) | 0, ax = x0 + i * h, ay = y0 + j * h; sq.push([{ X: Math.round(ax * CS), Y: Math.round(ay * CS) }, { X: Math.round((ax + h) * CS), Y: Math.round(ay * CS) }, { X: Math.round((ax + h) * CS), Y: Math.round((ay + h) * CS) }, { X: Math.round(ax * CS), Y: Math.round((ay + h) * CS) }]); }
+  const u = cBool(ClipperLib.ClipType.ctUnion, sq, null);
+  return ClipperLib.Clipper.CleanPolygons(u, 0.02 * CS).filter(p => p.length >= 3 && Math.abs(cArea(p)) > 0.3).map(p => p.map(q => [q.X / CS, q.Y / CS]));
+}
+// operations that clean up what is left; the largest tool that fits each area, from the library when one does
+function cleanupOps(comp) {
+  const C = cam(), st = camStock(), msgs = [], newTools = [];
+  const lib = C.tools.filter(t => t.type === 'flat'), libBall = C.tools.filter(t => t.type === 'ball');
+  const sizes = [...new Set([...stdFlat(), ...lib.map(t => t.d)])].filter(d => d >= 1 && d <= 20).sort((a, b) => b - a);
+  const toolFor = (type, d) => {
+    const l = (type === 'ball' ? libBall : lib).find(t => Math.abs(t.d - d) < 0.011); if (l) return l.n;
+    const key = type + d, have = newTools.find(t => t.key === key); if (have) return have.t.n;
+    const t = { ...toolDefaults(type, d), n: nextToolN() + newTools.length }; newTools.push({ key, t }); return t.n;
+  };
+  const byTool = new Map(), slopes = [];
+  for (const c of comp.clusters) {
+    if (c.kind !== 'uncut' && !(c.kind === 'corner' && c.rIn * 2 >= 1.2)) continue;
+    for (const lv of c.levels) {
+      const rings = cellsToRings(comp, lv.cells); if (!rings.length) continue;
+      const area = rings.map(rg => rg.map(p => ({ X: Math.round(p[0] * CS), Y: Math.round(p[1] * CS) })));
+      if (lv.spread > 0.45 || c.slope) { const xs = rings.flat().map(p => p[0]), ys = rings.flat().map(p => p[1]); slopes.push({ box: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], rIn: c.rIn, top: lv.top }); continue; }
+      // the largest standard end mill whose center still has room in this area
+      const d = sizes.find(d => cOffset(area, -(d / 2 + 0.02)).length);
+      if (!d) { msgs.push(`${c.cx.toFixed(1)}, ${c.cy.toFixed(1)}: narrower than the smallest end mill (Ø1)`); continue; }
+      if (!byTool.has(d)) byTool.set(d, []);
+      byTool.get(d).push({ rings, z: lv.z, top: lv.top });
+    }
+  }
+  const ops = [];
+  for (const [d, areas] of [...byTool].sort((a, b) => b[0] - a[0])) {
+    const n = toolFor('flat', d);
+    ops.push({ type: 'clear', name: `Clean-up Ø${fmtD(d)} (${areas.length} area${areas.length > 1 ? 's' : ''})`, tool: n, areas, stepover: 0.4, stepdown: +Math.min(3, d * 0.5).toFixed(2), entry: 'ramp', leaveWall: 0.02,
+      why: `Material the other operations left: ${areas.length} area${areas.length > 1 ? 's' : ''} cut down to the part with the largest end mill that fits.` });
+  }
+  if (slopes.length) {
+    const rMin = Math.min(...slopes.map(q => q.rIn)), d = [...stdBall()].reverse().find(d => d <= Math.max(1, Math.min(6, rMin * 2))) || 1, n = toolFor('ball', d);
+    const so = +Math.min(0.5, 2 * Math.sqrt(2 * (d / 2) * 0.004)).toFixed(3);
+    for (const q of slopes) ops.push({ type: 'parallel', name: `Clean-up surface Ø${fmtD(d)}`, tool: n, stepover: so, leave: 0, angle: 0, overrun: true, faces: [], box: q.box, why: 'Material left on a curved or sloped surface: a 3D finish pass over just that area.' });
+  }
+  return { ops, tools: newTools.map(t => t.t), msgs };
+}
+function addCleanup(comp) {
+  const C = cam(), plan = cleanupOps(comp), before = snap();
+  if (!plan.ops.length) return { added: [], msgs: plan.msgs };
+  for (const t of plan.tools) if (!C.tools.some(x => x.n === t.n)) C.tools.push(t);
+  C.tools.sort((a, b) => a.n - b.n);
+  const run = C.autoRun || 1, added = [];
+  for (const o of plan.ops) { C.ops.push({ id: C.next++, auto: run, ...o }); added.push(`${o.name}: ${o.why}`); }
+  record(`Clean-up: ${plan.ops.length} operation${plan.ops.length > 1 ? 's' : ''}`, before);
+  return { added, msgs: plan.msgs, tools: plan.tools.length };
+}
+// 3D clean-up passes are limited to the area they were made for
+const parallelParams1C = parallelParams;
+parallelParams = function (op, tool, part) {
+  const p = parallelParams1C(op, tool, part);
+  if (op.box) { const r = tool.d / 2; p.x0 = Math.max(p.x0, op.box[0] - r - 1); p.y0 = Math.max(p.y0, op.box[1] - r - 1); p.x1 = Math.min(p.x1, op.box[2] + r + 1); p.y1 = Math.min(p.y1, op.box[3] + r + 1); }
+  return p;
+};
+// a gouge on a clean-up pass is handled like one on a pocket: ramp in, stay a hair off the walls
+const autoFix1C = autoFix;
+autoFix = function (issues) {
+  const C = cam(), ids = new Set(C.ops.filter(o => o.type === 'clear').map(o => o.id)), mine = issues.filter(i => ids.has(i.op)), rest = issues.filter(i => !ids.has(i.op)), ch = [];
+  for (const [id] of new Map(mine.map(i => [i.op, 1]))) {
+    const op = C.ops.find(o => o.id === id), list = mine.filter(i => i.op === id), types = new Set(list.map(x => x.type));
+    if (types.has('plunge') && op.entry !== 'ramp') { op.entry = 'ramp'; ch.push(`${op.name}: ramp in along the path instead of plunging`); }
+    if (types.has('gouge')) { const g = Math.max(...list.filter(x => x.type === 'gouge').map(x => x.depth)) + 0.02, cur = op.leaveWall || 0; if (cur + g <= 0.3) { op.leaveWall = +(cur + g).toFixed(3); ch.push(`${op.name}: leaves ${fmtLs(op.leaveWall, 4)} on the walls so it stays off the part`); } }
+    if (types.has('rapid') && !op.safeLinks) { op.safeLinks = true; ch.push(`${op.name}: links moved up to the retract plane`); }
+    if (types.has('holder') || types.has('shank')) { const tool = toolOf(op.tool), need = Math.max(...list.map(x => x.need || 0)) + 2, msg = reachTool(tool, need, 'so the holder clears'); if (msg) ch.push(msg); }
+  }
+  return autoFix1C(rest).concat(ch);
+};
+
+// ── the check runs after every verification; an Auto Program also acts on it ──
+const verifyAndFix1C = verifyAndFix;
+verifyAndFix = async function (progress, pre = [], opts = {}) {
+  let rep = await verifyAndFix1C(progress, pre);
+  if (!rep || (typeof isWire === 'function' && isWire())) return rep;
+  const axes = rep.axes;
+  try {
+    for (let round = 0; ; round++) {
+      if (progress) progress('Comparing the machined stock with the part');
+      const comp = await completenessCheck(VERIFY.res, progress);
+      if (!comp) break;
+      rep.comp = comp; rep.cleanup = rep.cleanup || [];
+      if (comp.ok || !opts.complete || round >= 2) break;
+      const add = addCleanup(comp);
+      if (!add.added.length) break;
+      rep.cleanup.push(...add.added);
+      if (progress) progress(`Adding ${add.added.length} clean-up operation${add.added.length > 1 ? 's' : ''} and checking them`);
+      await waitToolpaths();
+      const cleanup = rep.cleanup, fixes = rep.fixes.concat(add.added.map(a => 'Added ' + a.split(':')[0]));
+      rep = await verifyAndFix1C(progress, fixes);
+      rep.cleanup = cleanup; if (axes) rep.axes = axes;
+    }
+  } catch (e) { console.warn('completeness', e); }
+  if (rep && rep.comp) rep.ok = rep.ok && rep.comp.ok;
+  return rep;
+};
+const reportPanel1C = reportPanel;
+reportPanel = function () {
+  const h = reportPanel1C(), r = VERIFY.report;
+  if (!r || !r.comp || typeof h !== 'string') return h;
+  const c = r.comp, f = v => fmtLs(v, 2), uncut = c.clusters.filter(q => q.kind === 'uncut'), corners = c.clusters.filter(q => q.kind === 'corner');
+  const where = q => `X${f(q.cx - camOrigin()[0])} Y${f(q.cy - camOrigin()[1])}`;
+  const rows = uncut.slice(0, 6).map(q => `<li><b>Uncut</b> ${q.wall ? 'against an outside wall' : 'area'} at ${where(q)} · ${fmtLs(Math.sqrt(q.area), 2)} wide · up to ${f(q.zmax)} high</li>`).join('') +
+    (uncut.length > 6 ? `<li>…and ${uncut.length - 6} more</li>` : '') +
+    (corners.length ? `<li><b>${corners.length} corner${corners.length > 1 ? 's' : ''}</b> a tool radius leaves (up to ${f(Math.max(...corners.map(q => q.zmax)))} high): round them in the design or finish by EDM</li>` : '');
+  const done = r.cleanup && r.cleanup.length;
+  const head = c.allOk ? 'The machined stock matches the model everywhere.' : uncut.length ? `${uncut.length} area${uncut.length > 1 ? 's' : ''} of material still stand${uncut.length > 1 ? '' : 's'} where the part should be cut.` : 'Complete, except for inside corners the tool radius leaves.';
+  const block = `<div class="field cmpblock"><span>Is the part complete?</span>
+    <div class="axis-verdict"><span class="big" style="color:var(${uncut.length ? '--danger' : corners.length ? '--warn,#d9792a' : '--ok'})">${uncut.length ? '!' : corners.length ? '≈' : '✓'}</span><span><small><b>${head}</b></small><small>${c.cells.toLocaleString()} columns of ${fmtLs(c.h, 2)} compared, stock against model</small></span></div>
+    ${c.thumb ? `<img class="cmpmap" alt="Top view of the machined stock: orange where material is left" src="${c.thumb}"><div class="cmpkey"><i style="background:#9db9e6"></i>matches <i style="background:#f59f00"></i>left on <i style="background:#e8590c"></i>3 mm or more left</div>` : ''}
+    ${rows ? `<ul class="mlist">${rows}</ul>` : ''}
+    ${done ? `<div class="field"><span>Added to finish the part</span><ul class="mlist">${r.cleanup.map(x => `<li>${x}</li>`).join('')}</ul></div>` : ''}
+    ${uncut.length && !done ? '<div class="btns"><button class="btn primary" data-camdo="cleanup">Add clean-up operations</button></div>' : ''}</div>`;
+  return h.replace('<div class="btns"><button class="btn" data-camdo="sim">', block + '<div class="btns"><button class="btn" data-camdo="sim">');
+};
+const bindCamPanel1C = bindCamPanel;
+bindCamPanel = function () {
+  bindCamPanel1C();
+  const b = panel.querySelector('[data-camdo="cleanup"]');
+  if (b) b.addEventListener('click', async () => {
+    const r = VERIFY.report; if (!r || !r.comp) return;
+    const add = addCleanup(r.comp);
+    if (!add.added.length) { toast(add.msgs[0] || 'Nothing a smaller end mill can reach.'); return; }
+    VERIFY.report = null; VERIFY.progress = 'Adding clean-up operations and checking them'; refreshPanel();
+    await waitToolpaths();
+    const rep = await verifyAndFix(m => { VERIFY.progress = m; if (CAMUI.view === 'report') refreshPanel(); }, add.added.map(a => 'Added ' + a.split(':')[0]), {});
+    if (rep) rep.cleanup = (rep.cleanup || []).concat(add.added);
+    camRefresh();
+  });
+};
+{
+  const st = document.createElement('style');
+  st.textContent = '.cmpmap { display: block; width: 100%; max-height: 220px; object-fit: contain; image-rendering: pixelated; border: 1px solid var(--rule); border-radius: 8px; margin: 8px 0 4px; background: var(--panel-2); } .cmpkey { display: flex; gap: 6px; align-items: center; font-size: 10.5px; color: var(--muted); flex-wrap: wrap; } .cmpkey i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; } .cmpblock .mlist b { font-weight: 600; }';
+  document.head.appendChild(st);
+}
+</script>
+<!-- COMPLETE-END -->
+<!-- BPAUDIT-BEGIN -->
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  BPAUDIT: is every line and dimension on the sheet where it belongs?
+//  Measured on the drawn sheet itself: no label over another label, over a
+//  line of the part or on another view; no leader through a label, another
+//  leader or another view; ordinates starting exactly on an edge of their
+//  view; everything inside the border and clear of the title block.
+// ═══════════════════════════════════════════════════════════════════
+function bpAudit() {
+  const r = BP.last, sv = document.querySelector('#bpPage svg');
+  if (!r || !sv) return null;
+  const pr = sv.getBoundingClientRect(), k = r.SW / pr.width, f = v => +v.toFixed(2);
+  const rect = rc => ({ x0: (rc.left - pr.left) * k, y0: (rc.top - pr.top) * k, x1: (rc.right - pr.left) * k, y1: (rc.bottom - pr.top) * k });
+  const grow = (b, p) => ({ x0: b.x0 - p, y0: b.y0 - p, x1: b.x1 + p, y1: b.y1 + p });
+  const meet = (a, b) => a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0;
+  const issues = [], bad = (type, id, msg, at) => issues.push({ type, id, msg, at });
+  // everything with text: dimension labels (with their leaders) and the fixed words (view names, title block)
+  const items = [...sv.querySelectorAll('[data-bpd]')].map(g => {
+    const id = g.dataset.bpd, texts = [...g.querySelectorAll('text')].map(t => rect(t.getBoundingClientRect()));
+    const paths = [...g.querySelectorAll('path')].filter(p => p.getAttribute('fill') === 'none'), pts = [];
+    for (const p of paths) { const L = p.getTotalLength(), n = Math.max(2, Math.ceil(L / 0.6)); for (let i = 0; i <= n; i++) { const q = p.getPointAtLength(L * i / n); pts.push([q.x, q.y]); } }
+    const segs = []; for (let i = 1; i < pts.length; i++) segs.push([pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1]]);
+    return { id, view: (r.labels.find(l => l.id === id) || {}).view, texts, segs, g, kind: id[0] };
+  });
+  const fixed = [...sv.querySelectorAll('text')].filter(t => !t.closest('[data-bpd]')).map(t => rect(t.getBoundingClientRect()));
+  // the part's own lines on the sheet
+  const lines = {};
+  for (const [vk, q] of Object.entries(r.views)) { lines[vk] = q.v.vis.map(g => [q.X(g[0]), q.Y(g[1]), q.X(g[2]), q.Y(g[3])]); }
+  const hidden = {}; for (const [vk, q] of Object.entries(r.views)) hidden[vk] = (q.v.hid || []).map(g => [q.X(g[0]), q.Y(g[1]), q.X(g[2]), q.Y(g[3])]);
+  const crossS = (a, b) => {
+    const d = (a[2] - a[0]) * (b[3] - b[1]) - (a[3] - a[1]) * (b[2] - b[0]);
+    if (Math.abs(d) < 1e-9) return false;
+    const t = ((b[0] - a[0]) * (b[3] - b[1]) - (b[1] - a[1]) * (b[2] - b[0])) / d, u = ((b[0] - a[0]) * (a[3] - a[1]) - (b[1] - a[1]) * (a[2] - a[0])) / d;
+    return t > 0.02 && t < 0.98 && u > 0.02 && u < 0.98;
+  };
+  const inBox = (x, y, b) => x > b.x0 && x < b.x1 && y > b.y0 && y < b.y1;
+  const segHitsBox = (s, b) => inBox(s[0], s[1], b) || inBox(s[2], s[3], b) || [[b.x0, b.y0, b.x1, b.y0], [b.x1, b.y0, b.x1, b.y1], [b.x1, b.y1, b.x0, b.y1], [b.x0, b.y1, b.x0, b.y0]].some(e => crossS(s, e));
+  const M = 10, TB = Math.min(190, r.SW * 0.45), tb = { x0: r.SW - M - 3 - TB, y0: r.SH - M - 3 - 34, x1: r.SW, y1: r.SH };
+  const near = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+  items.forEach((a, i) => {
+    const kind = a.kind === 'c' ? 'callout' : 'ordinate';
+    for (const tb0 of a.texts) {
+      const T = grow(tb0, 0.15);
+      if (T.x0 < M + 3.5 || T.y0 < M + 3.5 || T.x1 > r.SW - M - 3.5 || T.y1 > r.SH - M - 3.5) bad('edge', a.id, `${kind} runs into the border`, [T.x0, T.y0]);
+      if (meet(T, tb)) bad('titleblock', a.id, `${kind} sits on the title block`, [T.x0, T.y0]);
+      for (const fx of fixed) if (meet(T, grow(fx, 0.1))) bad('overlap', a.id, `${kind} text overlaps a view name or note`, [T.x0, T.y0]);
+      for (let j = i + 1; j < items.length; j++) for (const o of items[j].texts) if (meet(T, grow(o, 0.15))) bad('overlap', a.id + ' / ' + items[j].id, 'two labels overlap', [T.x0, T.y0]);
+      // text across a line of the part (ordinate numbers are meant to stand clear of the view; callouts must as well)
+      for (const [vk, segs] of Object.entries(lines)) { const q = r.views[vk]; if (!meet(T, grow(q.box, 0.5))) continue; if (segs.some(s => segHitsBox(s, grow(T, -0.15)))) { bad('on-part', a.id, `${kind} text sits on the ${vk} view's lines`, [T.x0, T.y0]); break; } }
+      for (const [vk, q] of Object.entries(r.views)) if (vk !== a.view && meet(T, q.box)) { bad('other-view', a.id, `${kind} sits on the ${vk} view`, [T.x0, T.y0]); break; }
+    }
+    // leaders
+    for (const s of a.segs) {
+      for (let j = 0; j < items.length; j++) {
+        if (j === i) continue; const o = items[j];
+        for (const tx of o.texts) if (segHitsBox(s, grow(tx, 0.1))) { bad('leader-label', a.id + ' / ' + o.id, `${kind} leader runs through another label`, [s[0], s[1]]); break; }
+        if (j > i) for (const s2 of o.segs) if (crossS(s, s2)) { bad('leader-cross', a.id + ' / ' + o.id, 'two leaders cross', [s[0], s[1]]); break; }
+      }
+      for (const fx of fixed) if (segHitsBox(s, grow(fx, 0.1))) { bad('leader-label', a.id, `${kind} leader runs through a view name or note`, [s[0], s[1]]); break; }
+      for (const [vk, q] of Object.entries(r.views)) if (vk !== a.view && segHitsBox(s, grow(q.box, -0.5))) { bad('leader-view', a.id, `${kind} leader crosses the ${vk} view`, [s[0], s[1]]); break; }
+    }
+    // a callout's leader should not wade through the part
+    if (a.kind === 'c' && a.view && lines[a.view]) {
+      let n = 0; for (const s of a.segs) for (const g of lines[a.view]) if (crossS(s, g)) n++;
+      a.crossings = n;
+      if (n > 8) bad('leader-part', a.id, `callout leader crosses ${n} lines of the part`, [a.segs[0][0], a.segs[0][1]]);
+    }
+    a.length = a.segs.reduce((t, s) => t + Math.hypot(s[2] - s[0], s[3] - s[1]), 0);
+    if (a.kind === 'c' && a.length > 80) bad('leader-long', a.id, `callout leader is ${Math.round(a.length)} mm long`, [a.segs[0][0], a.segs[0][1]]);
+  });
+  // ordinates start exactly on an edge of their view
+  for (const a of items) {
+    if (a.kind !== 'o') continue;
+    const m = /^o([XDZ]):/.exec(a.id), at = (a.g.dataset.bpa || '').split(',').map(Number), q = r.views[a.view];
+    if (!m || at.length !== 2 || !q) continue;
+    const horiz = m[1] !== 'Z', pos = horiz ? at[0] : at[1], on = lines[a.view].concat(hidden[a.view] || [], (r.marks && r.marks[a.view]) || []).some(s => (horiz ? [s[0], s[2]] : [s[1], s[3]]).some(v => Math.abs(v - pos) < 0.08)) || r.views[a.view].v.circles.some(c => { const cc = horiz ? q.X(c.c[0]) : q.Y(c.c[1]), rr = c.r * q.s; return Math.abs(cc - pos) < 0.08 || Math.abs(cc - rr - pos) < 0.08 || Math.abs(cc + rr - pos) < 0.08; });
+    if (!on) bad('ordinate-off', a.id, 'ordinate line does not land on an edge of its view', at);
+  }
+  const counts = {}; for (const i of issues) counts[i.type] = (counts[i.type] || 0) + 1;
+  return { n: issues.length, counts, issues, items: items.length };
+}
+</script>
+<!-- BPAUDIT-END -->
 <!-- RIB2-BEGIN -->
 <style>
 /* ═════ RIB2: ribbon layout, hover cards for everything, step-by-step side panels ═════ */
