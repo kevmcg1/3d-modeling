@@ -14692,8 +14692,8 @@ function camPanel() {
       <div class="field"><span>Controller</span><div class="pick"><span>Haas mill (NGC)</span></div></div>
       <div class="field"><span>Indexed ops</span><div class="seg"><button data-post="multi:setup" class="${pf.multi !== 'g682' ? 'on' : ''}">Rotary / trunnion (A, B, A+C)</button><button data-post="multi:g682" class="${pf.multi === 'g682' ? 'on' : ''}">Tilted plane G68.2</button></div></div>
       <div class="row2">${num('postProg', pf.program, 'Program number', 1)}<div class="field"><span>Options</span><label class="chk"><input type="checkbox" id="postArcs" ${pf.arcs ? 'checked' : ''}> Arcs (G2/G3)</label><label class="chk"><input type="checkbox" id="postCool" ${pf.coolant ? 'checked' : ''}> Coolant</label></div></div>
-      <textarea id="gcode" readonly spellcheck="false">${g.text.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</textarea>
-      <div class="btns"><button class="btn" data-camdo="copyg">Copy</button><button class="btn primary" data-camdo="saveg">Save .nc</button></div>
+      <p class="note">The program is open in the G-code editor beside this panel: colored, with line numbers, and you can edit it before you save.</p>
+      <div class="btns"><button class="btn" data-camdo="showed">Show editor</button><button class="btn" data-camdo="copyg">Copy</button><button class="btn primary" data-camdo="saveg">Save .nc</button></div>
       <p class="note">Check the program in your controller or a simulator before running it — feeds, speeds and work holding are yours to confirm.</p></div>`;
   }
   // overview
@@ -14735,7 +14735,7 @@ function bindCamPanel() {
       download('datum.tools.json', new Blob([JSON.stringify(ToolIO.libraryDoc(docs, { app: 'Datum' }), null, 2)], { type: 'application/json' }));
       toast(`Saved ${docs.length} tools`);
     }
-    if (d === 'copyg') { const ta = document.getElementById('gcode'); (navigator.clipboard ? navigator.clipboard.writeText(CAMUI.gcode) : Promise.reject()).then(() => toast('G-code copied'), () => { ta.focus(); ta.select(); toast('Selected — press Ctrl+C to copy'); }); }
+    if (d === 'copyg') { const txt = typeof GCED !== 'undefined' && GCED.edited && GCED.text ? GCED.text : CAMUI.gcode; (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(() => toast('G-code copied'), () => toast('Copy failed — use the editor: select all, Ctrl+C')); }
     if (d === 'saveg') downloadGcode();
   }));
   const setN = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('change', () => { const v = parseFloat(el.value); if (isFinite(v)) fn(el.dataset.len ? fromU(v) : v); }); };
@@ -24705,7 +24705,7 @@ function postRobocut() {
   const ops = C.ops.filter(op => op.type === 'wire' && !op.sup), L = [];
   const title = (BP.title || (doc.features.find(f => f.type === 'import') || {}).file || 'PART').toUpperCase().replace(/[()]/g, '');
   L.push('%', `O${String(C.post.program || 1001).padStart(4, '0')} (DATUM - FANUC ROBOCUT WIRE EDM)`, `(${title})`, `(WIRE ${inch ? 'D' + (w.d / 25.4).toFixed(4) + ' IN' : 'D' + w.d + ' MM'} ${w.mat.toUpperCase()}, SPARK GAP ${N(w.gap)})`);
-  if (!ops.length) { L.push('(NO WIRE OPERATIONS)', 'M02', '%'); return L.join('\n'); }
+  if (!ops.length) { L.push('(NO WIRE OPERATIONS)', 'M30', '%'); return L.join('\n'); }
   // offset registers: every pass's D value, listed so the operator can set them
   const regs = new Map();
   const loops = [];
@@ -24727,9 +24727,9 @@ function postRobocut() {
       let kk = 0, best = Infinity; nom.forEach((q, j) => { const d = dst2(q, p.pts[0]); if (d < best) { best = d; kk = j; } });
       nom = [...nom.slice(kk), ...nom.slice(0, kk), nom[kk]];
       const G = p.dir > 0 ? 'G42' : 'G41';                                 // wire on the right going round the part (outer CCW / openings CW), then back
-      L.push(`(${lp.outer ? 'OUTSIDE' : 'OPENING'} - ${pi === 0 ? 'ROUGH' : 'SKIM ' + pi})`, `S${p.cond}`);
+      L.push(`(${lp.outer ? 'OUTSIDE' : 'OPENING'} - ${pi === 0 ? 'ROUGH' : 'SKIM ' + pi})`, `S${p.cond} D${p.D}`);
       const e = rel(nom[0]);
-      L.push(`${G} D${p.D} G01 X${N(e[0])} Y${N(e[1])}`);
+      L.push(`${G} G01 X${N(e[0])} Y${N(e[1])}`);
       const pts = nom.map(q => P2(...rel(q))).filter((q, j, a) => !j || dst2(q, a[j - 1]) > 2e-4);
       const emit = run => {
         const segs = arcs && run.length > 4 ? fitArcs(run, 0.025) : run.slice(1).map(q => ({ arc: false, p: q }));   // the profile is a fine mesh's outline: arcs within its 0.02 chord
@@ -24754,7 +24754,7 @@ function postRobocut() {
     });
     cur = s;
   });
-  L.push('M50 (CUT WIRE)', `G00 X${N(s0[0])} Y${N(s0[1])} (RETURN TO START POINT)`, 'M02', '%');
+  L.push(`G00 X${N(s0[0])} Y${N(s0[1])} (RETURN TO START POINT)`, 'M45', 'M50', 'M30', '%');
   void cur;
   return L.join('\n');
 }
@@ -30894,6 +30894,120 @@ function bpAudit() {
 }
 </script>
 <!-- BPAUDIT-END -->
+<!-- GCED-BEGIN -->
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  GCED: the G-code editor. Post opens the program in its own panel
+//  over the view: line numbers, syntax colors on every line (the same
+//  colors as the simulation's code view), editable, with the cursor's
+//  line and column, Copy, Save .nc, and Reset to the generated program.
+//  Only the lines on screen are colored, so a program of any length
+//  scrolls smoothly.
+// ═══════════════════════════════════════════════════════════════════
+const GCED = { el: null, text: '', base: '', edited: false, closed: false, wide: false, rowH: 19, lastView: '', inited: false };
+(() => {
+  const css = document.createElement('style');
+  css.textContent = `
+#gced { position: absolute; left: 14px; top: 14px; bottom: 14px; width: min(580px, calc(100% - 28px)); z-index: 7; display: flex; flex-direction: column; background: var(--code-bg); border: 1px solid var(--rule); border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; }
+#gced.wide { width: min(940px, calc(100% - 28px)); }
+#gced[hidden] { display: none; }
+.ge-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--code-rule); color: var(--code-ink); font-size: 12.5px; flex-wrap: wrap; }
+.ge-head b { font-weight: 600; }
+.ge-sub { flex: 1; min-width: 80px; font: 11px var(--mono); color: var(--code-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ge-head button { border: 1px solid var(--code-rule); background: transparent; color: var(--code-dim); border-radius: 7px; padding: 3px 8px; font: 600 11px var(--font); cursor: pointer; }
+.ge-head button:hover:not(:disabled) { color: var(--code-ink); }
+.ge-head button:disabled { opacity: .4; cursor: default; }
+.ge-head button.on { color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent); border-color: var(--accent); }
+.ge-head .ge-save { background: var(--accent); color: #fff; border-color: var(--accent); }
+.ge-head .ge-save:hover { color: #fff; filter: brightness(1.08); }
+.ge-note { padding: 6px 10px; border-bottom: 1px solid var(--code-rule); font: 11.5px/1.45 var(--font); color: var(--code-ink); background: color-mix(in srgb, var(--warn, #d9792a) 14%, transparent); }
+.ge-body { position: relative; flex: 1; display: flex; overflow: hidden; font: 12px/19px var(--mono); min-height: 0; }
+.ge-gut { position: relative; width: 56px; flex: none; overflow: hidden; border-right: 1px solid var(--code-rule); color: var(--code-dim); text-align: right; user-select: none; font-variant-numeric: tabular-nums; }
+.ge-gut > div { position: absolute; left: 0; right: 0; top: 0; padding-right: 10px; will-change: transform; }
+.ge-gut .cur { color: var(--code-ink); font-weight: 600; }
+.ge-view { position: relative; flex: 1; min-width: 0; overflow: hidden; }
+.ge-hl { position: absolute; left: 0; top: 0; min-width: 100%; white-space: pre; color: var(--code-ink); will-change: transform; pointer-events: none; }
+.ge-hl > div { height: 19px; padding: 0 10px; }
+.ge-hl > div.cur { background: var(--code-hover); box-shadow: inset 3px 0 0 var(--accent); }
+#geIn { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0 10px; border: 0; outline: 0; resize: none; background: transparent; color: transparent; caret-color: var(--code-ink); font: 12px/19px var(--mono); white-space: pre; overflow: auto; tab-size: 4; box-sizing: border-box; }
+#geIn::selection { background: color-mix(in srgb, var(--accent) 32%, transparent); }
+.ge-foot { display: flex; gap: 12px; padding: 5px 10px; border-top: 1px solid var(--code-rule); font: 11px var(--mono); color: var(--code-dim); }
+.ge-foot .ed { color: var(--accent); }`;
+  document.head.appendChild(css);
+  const el = GCED.el = document.createElement('div'); el.id = 'gced'; el.hidden = true;
+  el.innerHTML = `<div class="ge-head"><b>G-code</b><span class="ge-sub" id="geSub"></span>
+    <button data-ge="wide" id="geWide" title="Wider panel">Wide</button><button data-ge="reset" id="geReset" title="Throw away edits and use the generated program">Reset</button><button data-ge="copy">Copy</button><button data-ge="save" class="ge-save">Save .nc</button><button data-ge="close" title="Hide the editor">×</button></div>
+    <div class="ge-note" id="geNote" hidden></div>
+    <div class="ge-body"><div class="ge-gut" id="geGut"><div id="geGutIn"></div></div><div class="ge-view"><div class="ge-hl" id="geHl"></div><textarea id="geIn" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" aria-label="G-code"></textarea></div></div>
+    <div class="ge-foot"><span id="geLn">Ln 1, Col 1</span><span id="geCount"></span><span class="ed" id="geEd"></span></div>`;
+  const host = document.getElementById('simcode').parentNode; host.appendChild(el);
+})();
+function gcedLines() { return GCED.text.split('\n'); }
+function gcedDraw() {
+  const ta = document.getElementById('geIn'); if (!ta || GCED.el.hidden) return;
+  const H = GCED.rowH, lines = gcedLines(), top = ta.scrollTop, left = ta.scrollLeft;
+  const first = Math.max(0, Math.floor(top / H) - 4), last = Math.min(lines.length, Math.ceil((top + ta.clientHeight) / H) + 4);
+  const pos = ta.selectionStart, cur = GCED.text.slice(0, pos).split('\n').length - 1;
+  let h = '', g = '';
+  for (let i = first; i < last; i++) { h += `<div${i === cur ? ' class="cur"' : ''}>${gcColor(lines[i]) || ' '}</div>`; g += `<div style="height:${H}px"${i === cur ? ' class="cur"' : ''}>${i + 1}</div>`; }
+  const hl = document.getElementById('geHl'), gi = document.getElementById('geGutIn');
+  hl.innerHTML = h; hl.style.transform = `translate(${-left}px, ${first * H - top}px)`;
+  gi.innerHTML = g; gi.style.transform = `translateY(${first * H - top}px)`;
+  const col = pos - GCED.text.lastIndexOf('\n', pos - 1);
+  document.getElementById('geLn').textContent = `Ln ${cur + 1}, Col ${col}`;
+  document.getElementById('geCount').textContent = `${lines.length.toLocaleString()} lines`;
+}
+function gcedStatus() {
+  const n = document.getElementById('geNote'), r = document.getElementById('geReset'), e = document.getElementById('geEd');
+  r.disabled = !GCED.edited && GCED.text === GCED.base; e.textContent = GCED.edited ? 'edited' : '';
+  const stale = GCED.edited && GCED.gen != null && GCED.gen !== GCED.base;
+  n.hidden = !stale; n.textContent = stale ? 'The design or the post options changed after you edited this program. Reset brings in the new program (your edits are lost).' : '';
+  document.getElementById('geSub').textContent = `O${String(cam().post.program || 1001).padStart(4, '0')} · ${isIn() ? 'inch' : 'mm'}${isWire() ? ' · wire EDM' : ''}`;
+}
+// the program to show: the generated one, unless the user has edited it
+function gcedSet(gen) {
+  GCED.gen = gen;
+  const ta = document.getElementById('geIn');
+  if (!GCED.edited || GCED.base === '') { GCED.base = gen; GCED.text = gen; GCED.edited = false; if (ta.value !== gen) ta.value = gen; }
+  else if (ta.value !== GCED.text) ta.value = GCED.text;
+  gcedStatus(); gcedDraw();
+}
+function gcedShow(on) { GCED.el.hidden = !on; document.body.classList.toggle('gced-open', on); if (on) { GCED.el.classList.toggle('wide', GCED.wide); document.getElementById('geWide').classList.toggle('on', GCED.wide); } }
+// what Copy and Save use: the edited program when there is one
+function gcedProgram(gen) { return GCED.edited && GCED.base === gen ? GCED.text : (GCED.edited && GCED.text) || gen; }
+(() => {
+  const ta = document.getElementById('geIn');
+  ta.addEventListener('input', () => { GCED.text = ta.value; GCED.edited = GCED.text !== GCED.base; gcedStatus(); gcedDraw(); });
+  ta.addEventListener('scroll', gcedDraw);
+  for (const ev of ['keyup', 'click', 'mouseup', 'focus']) ta.addEventListener(ev, gcedDraw);
+  ta.addEventListener('keydown', e => { if (e.key === 'Tab') { e.preventDefault(); const s = ta.selectionStart; ta.setRangeText('    ', s, ta.selectionEnd, 'end'); ta.dispatchEvent(new Event('input')); } e.stopPropagation(); });
+  GCED.el.addEventListener('click', e => {
+    const b = e.target.closest('[data-ge]'); if (!b) return; const a = b.dataset.ge;
+    if (a === 'close') { GCED.closed = true; gcedShow(false); try { refreshPanel(); } catch (x) { /* ok */ } }
+    if (a === 'wide') { GCED.wide = !GCED.wide; gcedShow(true); gcedDraw(); }
+    if (a === 'reset') { GCED.edited = false; gcedSet(GCED.gen != null ? GCED.gen : GCED.base); }
+    if (a === 'copy') { (navigator.clipboard ? navigator.clipboard.writeText(GCED.text) : Promise.reject()).then(() => toast('G-code copied'), () => { ta.focus(); ta.select(); toast('Selected — press Ctrl+C to copy'); }); }
+    if (a === 'save') { download(`datum-O${cam().post.program}.nc`, new Blob([GCED.text], { type: 'text/plain' })); toast('G-code saved'); }
+  });
+  window.addEventListener('resize', gcedDraw);
+})();
+// Post shows the editor, every other view hides it
+const bindCamPanelG = bindCamPanel;
+bindCamPanel = function () {
+  bindCamPanelG();
+  const post = UIX.ws === 'cam' && CAMUI.view === 'post' && typeof CAMUI.gcode === 'string';
+  if (post && GCED.lastView !== 'post') GCED.closed = false;
+  GCED.lastView = UIX.ws === 'cam' ? CAMUI.view : '';
+  if (post && !GCED.closed) { gcedShow(true); gcedSet(CAMUI.gcode); } else gcedShow(false);
+  const sb = panel.querySelector('[data-camdo="showed"]'); if (sb) sb.addEventListener('click', () => { GCED.closed = false; gcedShow(true); gcedSet(CAMUI.gcode); try { refreshPanel(); } catch (x) { /* ok */ } });
+};
+const setWorkspaceG = setWorkspace;
+setWorkspace = function (ws) { setWorkspaceG.apply(this, arguments); if (UIX.ws !== 'cam') { GCED.lastView = ''; gcedShow(false); } };
+// Copy and Save .nc in the side panel and the file menu use the edited program too
+const downloadGcodeG = downloadGcode;
+downloadGcode = function () { if (GCED.edited && GCED.text) { download(`datum-O${cam().post.program}.nc`, new Blob([GCED.text], { type: 'text/plain' })); toast('G-code saved'); } else downloadGcodeG(); };
+</script>
+<!-- GCED-END -->
 <!-- RIB2-BEGIN -->
 <style>
 /* ═════ RIB2: ribbon layout, hover cards for everything, step-by-step side panels ═════ */
