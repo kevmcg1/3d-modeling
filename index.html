@@ -24619,7 +24619,7 @@ addEventListener('keydown', e => { if (e.key === 'Escape' && CAMUI.pickOrigin) {
 //  and up to three skims, each skim the other way round with a smaller
 //  offset register. The view shows the compensated wire path; the
 //  program carries the part's own contour with G41/G42 and D registers,
-//  G92 at the start point, M60 to thread and M50 to cut the wire.
+//  G92 at the start point, M60 to thread and M45 to cut the wire.
 // ═══════════════════════════════════════════════════════════════════
 const WIRE_DEF = { d: 0.25, gap: 0.02, mat: 'Brass', cond: [1, 2, 3, 4], hold: 2.54 };   // hold: the rough cut stops this far (0.100") short of closing, to secure the slug or part
 const wireOf = () => Object.assign({}, WIRE_DEF, cam().wire || {});
@@ -24719,7 +24719,7 @@ function postRobocut() {
   const arcs = C.post.arcs !== false;
   loops.forEach(({ op, lp }, li) => {
     const s = rel(lp.S);
-    if (li > 0) { L.push('M50 (CUT WIRE)'); L.push(`G00 X${N(s[0])} Y${N(s[1])} (${lp.outer ? 'OUTSIDE START' : 'START HOLE ' + (li + 1)})`); }
+    if (li > 0) { L.push('M45 (CUT WIRE)'); L.push(`G00 X${N(s[0])} Y${N(s[1])} (${lp.outer ? 'OUTSIDE START' : 'START HOLE ' + (li + 1)})`); }
     L.push(`M60 (THREAD WIRE)`);
     lp.passes.forEach((p, pi) => {
       // the part's contour, rotated to the same entry, in this pass's direction; the control offsets the wire by D
@@ -24754,7 +24754,7 @@ function postRobocut() {
     });
     cur = s;
   });
-  L.push(`G00 X${N(s0[0])} Y${N(s0[1])} (RETURN TO START POINT)`, 'M45', 'M50', 'M30', '%');
+  L.push(`G00 X${N(s0[0])} Y${N(s0[1])} (RETURN TO START POINT)`, 'M45 (CUT WIRE)', 'M50', 'M30', '%');
   void cur;
   return L.join('\n');
 }
