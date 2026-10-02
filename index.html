@@ -12165,7 +12165,7 @@ function faceRegion(mesh, fid) {
       .map(([ri]) => { const r = arr.regions[ri]; return { outer: tessLoop(r.outer, 0.002).pts, holes: r.holes.map(h => tessLoop(h, 0.002).pts) }; });
     // a region sitting inside a hole of another region is a different face (the floor of a pocket nested in this one's)
     const inLoop = (q, pts) => { let c = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const u = pts[i], v = pts[j]; if ((u.y > q.y) !== (v.y > q.y) && q.x < (v.x - u.x) * (q.y - u.y) / (v.y - u.y) + u.x) c = !c; } return c; };
-    const real = parts.filter(q => !parts.some(o => o !== q && o.holes.some(h => inLoop(q.outer[0], h))));
+    const real = parts.filter(q => !parts.some(o => o !== q && o.holes.some(h => inLoop(loopInterior(q.outer), h))));
     if (real.length) { parts.length = 0; parts.push(...real); }
     if (parts.length) res = { ...parts[0], parts };
   } catch (e) { res = null; }
@@ -18252,7 +18252,9 @@ function measurePart(res) {
     const through = holeThrough(h, part);
     // depth on the hole's floor: the highest point found just inside its wall (the middle may hold a smaller hole)
     let bottom = -Infinity, point = false;
-    for (const [fx, fy] of [[0.6, 0], [-0.6, 0], [0, 0.6], [0, -0.6]]) { const z = model.topAt(h.x + fx * h.d / 2, h.y + fy * h.d / 2); if (z <= h.top + 1e-3) bottom = Math.max(bottom, z); }
+    // (a counterbore's floor is the ring between its wall and the smaller hole: probe the middle of that ring)
+    const di = Math.max(0, ...camHoles().filter(o => o !== h && Math.hypot(o.x - h.x, o.y - h.y) < 0.01 && o.d < h.d - 0.01 && o.top <= h.bot + 0.05).map(o => o.d)), pf = di ? (di + h.d) / 2 / h.d : 0.6;
+    for (const [fx, fy] of [[pf, 0], [-pf, 0], [0, pf], [0, -pf]]) { const z = model.topAt(h.x + fx * h.d / 2, h.y + fy * h.d / 2); if (z <= h.top + 1e-3) bottom = Math.max(bottom, z); }
     // a drill point: the center is deeper than the ring, so the depth is read at the point —
     // unless a smaller hole carries on down from this one's floor (a counterbore)
     const zc = model.topAt(h.x, h.y);
@@ -23862,11 +23864,19 @@ bpSVG = function (d) {
       if (LY.l[id]) { const p0 = LY.l[id], a0 = A[0], ex = a0.px + p0[2], ey = a0.py + p0[3]; return put(a0.mk(ex, ey, a0.sideOf(ex, ey))); }   // placed by hand: where it was put
       const vis = visOf(viewK), hidS = BP.hidden ? hidOf(viewK) : [], mk0 = marksOf[viewK];
       let best = null;
+      // where a leader may end: rings round the point, and rows and columns of slots beside the view (the drawing's habit)
+      const cands = an => {
+        const out = [];
+        for (const len of [5, 8, 11, 15, 20, 27, 36, 48, 62, 80, 100]) for (let a = 0; a < 32; a++) out.push([an.px + Math.cos(a * Math.PI / 16) * len, an.py + Math.sin(a * Math.PI / 16) * len]);
+        for (let i = 0; i < 4; i++) for (let x = vb.x0 - 40; x <= vb.x1 + 40; x += 4) out.push([x, vb.y0 - 5 - i * 4.5], [x, vb.y1 + 6 + i * 4.5]);
+        for (let i = 0; i < 3; i++) for (let y = vb.y0 - 10; y <= vb.y1 + 10; y += 4.5) out.push([vb.x0 - 6 - i * 3, y], [vb.x1 + 6 + i * 3, y]);
+        return out;
+      };
       // strict first: the label stands clear of every line of the part, its leader keeps off labels and view names;
       // if nothing fits, the same search with those lines allowed at a price
       for (const strict of [true, false]) {
-        for (const an of A) for (const len of [5, 8, 11, 15, 20, 27, 36, 48, 62, 80, 100]) for (let a = 0; a < 32; a++) {
-          const ang = a * Math.PI / 16, ex = an.px + Math.cos(ang) * len + dx, ey = an.py + Math.sin(ang) * len + dy, c = an.mk(ex, ey, an.sideOf(ex, ey)), sh = [c.ex, c.ey, c.sx, c.ey];
+        for (const an of A) for (const [qx, qy] of cands(an)) {
+          const ex = qx + dx, ey = qy + dy, len = Math.hypot(qx - an.px, qy - an.py), c = an.mk(ex, ey, an.sideOf(ex, ey)), sh = [c.ex, c.ey, c.sx, c.ey];
           if (hit(c.b) || boxes.some(o => segBox(c.A, o) || segBox(sh, o))) continue;
           if (Object.entries(views).some(([k2, q2]) => k2 !== viewK && c.b.x0 < q2.box.x1 + 1 && c.b.x1 > q2.box.x0 - 1 && c.b.y0 < q2.box.y1 + 1 && c.b.y1 > q2.box.y0 - 1)) continue;   // never on another view
           if (Object.entries(views).some(([k2, q2]) => k2 !== viewK && (segBox(c.A, { x0: q2.box.x0 + 0.5, y0: q2.box.y0 + 0.5, x1: q2.box.x1 - 0.5, y1: q2.box.y1 - 0.5 }) || segBox(sh, q2.box)))) continue;       // a leader never crosses another view
@@ -23887,10 +23897,11 @@ bpSVG = function (d) {
           // a label inside its own view only when that is clearly the cleaner place; outside the view is the drawing's habit
           if (c.b.x0 < vb.x1 && c.b.x1 > vb.x0 && c.b.y0 < vb.y1 && c.b.y1 > vb.y0) cost += 14;
           if (len > 40) cost += (len - 40) * 0.6;
-          if (!best || cost < best.cost) { c.cost = cost; best = c; }
+          if (!best || cost < best.cost) { c.cost = cost; c.pen = on * 40 + bad * 80 + n * 6; best = c; }
         }
         if (best) break;
       }
+      if (self) self.pen = best ? best.pen : 1e4;
       return best ? put(best) : false;
     };
     // every callout is planned first, so that no label lands on the spot another one has to point at
@@ -23926,7 +23937,17 @@ bpSVG = function (d) {
     for (const g of D.rad) { const view = g.ax ? (g.ax === 'Z' ? 'top' : g.ax === 'D' ? 'front' : 'right') : 'front'; if (g.at) callout(view, [{ P: g.at }], `${g.n > 1 ? g.n + '× ' : ''}R${bpNum(g.r)}`, () => placed.rad.push(g)); }
     for (const g of D.cham) if (g.at) callout('front', [{ P: g.at }], `${g.n > 1 ? g.n + '× ' : ''}${bpNum(g.s)} × 45°`, () => placed.cham.push(g));
     for (const t of D.threads) if (t.at) callout(t.ax === 'Z' ? 'front' : 'top', [{ P: t.at }], t.text, () => placed.threads.push(t.text));
-    for (const j of jobs) if (calloutNow(j.viewK, j.anchors, j.text, j) && j.ok) j.ok();
+    // placed in one order, a row of crowded callouts can trap the last ones: try a few orders and keep the cleanest sheet
+    const runJobs = order => { let pen = 0; for (const j of order) { j.pen = 0; if (calloutNow(j.viewK, j.anchors, j.text, j) && j.ok) j.ok(); pen += j.pen; } return pen; };
+    const px0 = j => pv(j.viewK, j.anchors[0].P);
+    const orders = [jobs, [...jobs].sort((a, b) => px0(a)[0] - px0(b)[0]), [...jobs].sort((a, b) => px0(b)[0] - px0(a)[0]), [...jobs].sort((a, b) => px0(a)[1] - px0(b)[1] || px0(a)[0] - px0(b)[0]), [...jobs].reverse(), [...jobs].sort((a, b) => b.text.length - a.text.length)];
+    const state = () => ({ nb: boxes.length, nl: leaders.length, nlab: labels.length, parts: { ...parts }, pl: ['dia', 'rad', 'cham', 'threads', 'bc'].map(k => placed[k].length) });
+    const back = st => { boxes.length = st.nb; leaders.length = st.nl; labels.length = st.nlab; for (const k of Object.keys(parts)) parts[k] = st.parts[k]; ['dia', 'rad', 'cham', 'threads', 'bc'].forEach((k, i) => { placed[k].length = st.pl[i]; }); };
+    if (jobs.length >= 4 && jobs.length <= 14) {
+      const st0 = state(); let bestO = null, bestP = Infinity, clean = false;
+      for (const o of orders) { const pen = runJobs(o); if (pen === 0) { clean = true; break; } back(st0); if (pen < bestP) { bestP = pen; bestO = o; } }
+      if (!clean) runJobs(bestO);
+    } else runJobs(jobs);
   }
   for (const k of Object.keys(views)) svg += `<g data-bpv="${k}">${parts[k]}</g>`;
   // isometric view, top right, in greys
