@@ -11559,7 +11559,7 @@ document.getElementById('btnFile').addEventListener('click', e => {
   showMenu([
     { label: 'New empty model', run: () => loadDoc({ features: [], next: 1 }, 'New model') },
     { label: 'Sample parts…', run: openSamples },
-    { label: 'Physics lab…', run: () => physicsOpen() },
+    { label: 'Physics & shop lab…', run: () => physicsOpen() },
     { label: 'Mouse & navigation…', run: openMouseSettings },
     null,
     { label: 'Open or import…  (Ctrl+O)', run: () => fileIn.click() },
@@ -26548,7 +26548,7 @@ function physicsOpen(id = PHY.id) {
   if (CMD) cancelCmd();
   if (!PHY.el) {
     const el = PHY.el = document.createElement('div'); el.id = 'phy'; el.className = 'phy';
-    el.innerHTML = `<div class="phy-bar"><b>Physics lab</b><div class="seg" id="phyTabs">${Object.entries(PHY_SIMS).map(([k, v]) => `<button data-phy="${k}">${v[0]}</button>`).join('')}</div><span class="phy-sp"></span><button class="btn" data-pa="reset">Reset</button><button class="btn" data-pa="pause">Pause</button><div class="seg" id="phySpeed">${[0.25, 0.5, 1, 2].map(v => `<button data-ps="${v}">${v}×</button>`).join('')}</div><button class="btn primary" data-pa="close">Close</button></div><div class="phy-main"><canvas id="phyCv"></canvas><div class="phy-card" id="phyCard"></div><div class="phy-info" id="phyInfo"></div></div>`;
+    el.innerHTML = `<div class="phy-bar"><b>Physics &amp; shop lab</b><div class="seg" id="phyTabs">${Object.entries(PHY_SIMS).map(([k, v]) => `<button data-phy="${k}">${v[0]}</button>`).join('')}</div><span class="phy-sp"></span><button class="btn" data-pa="reset">Reset</button><button class="btn" data-pa="pause">Pause</button><div class="seg" id="phySpeed">${[0.25, 0.5, 1, 2].map(v => `<button data-ps="${v}">${v}×</button>`).join('')}</div><button class="btn primary" data-pa="close">Close</button></div><div class="phy-main"><canvas id="phyCv"></canvas><div class="phy-card" id="phyCard"></div><div class="phy-info" id="phyInfo"></div></div>`;
     document.body.appendChild(el);
     const cv = el.querySelector('#phyCv');
     PHY.rend = new THREE.WebGLRenderer({ canvas: cv, antialias: true }); PHY.rend.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5));
@@ -26607,8 +26607,183 @@ function phyLoop(now) {
   if (((now / 250) | 0) !== PHY.tick) { PHY.tick = (now / 250) | 0; PHY.el.querySelector('#phyInfo').textContent = sim.info(); }
 }
 const phyStyle = document.createElement('style');
-phyStyle.textContent = '.phy { position: fixed; inset: 0; z-index: 70; display: flex; flex-direction: column; background: var(--bg, #e9eef5); } .phy[hidden] { display: none; } .phy-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 14px; border-bottom: 1px solid var(--rule); background: var(--panel); } .phy-sp { flex: 1; } .phy-main { position: relative; flex: 1; min-height: 0; } #phyCv { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; } .phy-card { position: absolute; left: 12px; top: 12px; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: color-mix(in srgb, var(--panel) 92%, transparent); border: 1px solid var(--rule); border-radius: 10px; backdrop-filter: blur(8px); font-size: 12px; max-width: 240px; } .phy-card label { display: flex; flex-direction: column; gap: 3px; color: var(--ink-2); } .phy-card label.chk { flex-direction: row; align-items: center; gap: 6px; } .phy-card select, .phy-card input[type=range] { width: 100%; } .phy-info { position: absolute; left: 12px; bottom: 12px; right: 12px; font-size: 12px; color: var(--ink-2); background: color-mix(in srgb, var(--panel) 85%, transparent); padding: 6px 10px; border-radius: 8px; pointer-events: none; } @media (max-width: 700px) { .phy-card { right: 12px; max-width: none; flex-direction: row; flex-wrap: wrap; } .phy-card label { flex: 1 1 130px; } }';
+phyStyle.textContent = '.phy { position: fixed; inset: 0; z-index: 70; display: flex; flex-direction: column; background: var(--bg, #e9eef5); } .phy[hidden] { display: none; } .phy-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 14px; border-bottom: 1px solid var(--rule); background: var(--panel); } .phy-sp { flex: 1; } .phy-main { position: relative; flex: 1; min-height: 0; } #phyCv { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; } .phy-card { position: absolute; left: 12px; top: 12px; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: color-mix(in srgb, var(--panel) 92%, transparent); border: 1px solid var(--rule); border-radius: 10px; backdrop-filter: blur(8px); font-size: 12px; max-width: 240px; } .phy-card label { display: flex; flex-direction: column; gap: 3px; color: var(--ink-2); } .phy-card label.chk { flex-direction: row; align-items: center; gap: 6px; } .phy-card select, .phy-card input[type=range] { width: 100%; } .phy-info { position: absolute; left: 12px; bottom: 12px; right: 12px; white-space: pre-line; font-size: 12px; color: var(--ink-2); background: color-mix(in srgb, var(--panel) 85%, transparent); padding: 6px 10px; border-radius: 8px; pointer-events: none; } @media (max-width: 700px) { .phy-card { right: 12px; max-width: none; flex-direction: row; flex-wrap: wrap; } .phy-card label { flex: 1 1 130px; } }';
 document.head.appendChild(phyStyle);
+</script>
+<script>
+// LAB-BEGIN: chips, fluid, mechanics, machines and the touch-off lesson (they plug into the physics lab)
+// ── Chips: orthogonal cutting (Merchant) with the chips built as they leave the tool, and the bar cut away ──
+const CHIP_MATS = {
+  al:      ['Aluminum 6061',    { tau: 207, mu: 0.55, rc: 2.43, kind: 'ductile', col: 0xdde2e8, bue: true }],
+  mild:    ['Mild steel 1018',  { tau: 380, mu: 0.75, rc: 3.8,  kind: 'ductile', col: 0xc9ced4, temper: true, bue: true }],
+  ss:      ['Stainless 304',    { tau: 520, mu: 0.85, rc: 3.9,  kind: 'ductile', col: 0xbcc2c9, temper: true, gummy: true }],
+  ti:      ['Titanium 6Al-4V',  { tau: 600, mu: 0.6,  rc: 2.3,  kind: 'serrated', col: 0xa9afb8, temper: true }],
+  ci:      ['Cast iron',        { tau: 300, mu: 0.5,  rc: 3.4,  kind: 'brittle', col: 0x74767a }],
+  brass:   ['Brass 360',        { tau: 250, mu: 0.4,  rc: 3.2,  kind: 'brittle', col: 0xdcb85f }],
+  plastic: ['Acetal (Delrin)',  { tau: 60,  mu: 0.3,  rc: 1.8,  kind: 'ductile', col: 0xf2f2ec, soft: true }],
+};
+// steel's temper colors against the temperature the chip reaches
+const CHIP_TEMPER = [[0, 0xd5dae0], [200, 0xd5dae0], [240, 0xdcc16a], [270, 0xb87a35], [300, 0x7a3fa8], [330, 0x2f58d0], [420, 0x394a73], [550, 0x40444c], [650, 0xff6a2b]];
+function chipColor(T, m) {
+  if (!m.temper) return new THREE.Color(m.col).lerp(new THREE.Color(0xff6a2b), Math.max(0, Math.min(1, (T - 450) / 400)));
+  let a = CHIP_TEMPER[0], b = a;
+  for (const p of CHIP_TEMPER) { if (p[0] <= T) a = p; if (p[0] >= T) { b = p; break; } b = p; }
+  const f = b[0] === a[0] ? 0 : (T - a[0]) / (b[0] - a[0]);
+  return new THREE.Color(a[1]).lerp(new THREE.Color(b[1]), Math.max(0, Math.min(1, f)));
+}
+// Merchant's circle: shear angle, chip ratio, forces, power, chip temperature, and what kind of chip comes off
+function chipPhysics(S) {
+  const m = CHIP_MATS[S.mat][1], D = Math.PI / 180, w = 3, alpha = S.rake * D;
+  const mu = m.mu * (S.coolant ? 0.8 : 1) * (1 + 0.5 * S.wear) * (S.V < 40 && m.bue ? 1.25 : 1) * (S.V > 250 ? 0.9 : 1);
+  const beta = Math.atan(mu);
+  const phi = Math.max(10 * D, Math.min(60 * D, Math.PI / 4 + alpha / 2 - beta / 2));
+  const r = Math.sin(phi) / Math.cos(phi - alpha), tc = S.t / r;
+  const Fs = m.tau * S.t * w / Math.sin(phi), R = Fs / Math.cos(phi + beta - alpha), Fc = R * Math.cos(beta - alpha), Ft = R * Math.sin(beta - alpha);
+  const P = Fc * S.V / 60, MRR = S.V * 1000 * S.t * w / 1000;             // W, cm³/min
+  const eta = 1 - 0.75 * Math.exp(-S.V / 140), u = Fc / (w * S.t);        // fraction of the heat the chip carries, specific energy (mJ/mm³)
+  const T = 22 + (u * eta / m.rc) * (S.coolant ? 0.62 : 1) * (1 + 0.5 * S.wear);
+  // the chip: how it curls and where it breaks (mm of chip length)
+  let kind, breakLen, Rc, wave = 0, sp = 0.55;
+  if (m.kind === 'brittle') { kind = 'Discontinuous — short broken pieces'; breakLen = 2 + 7 * S.t; Rc = 0; }
+  else if (m.kind === 'serrated' && S.V > 30) { kind = 'Segmented — saw-tooth, shear-localized'; breakLen = 26; Rc = 14; wave = 0.5 * tc; }
+  else if (m.bue && S.V < 45) { kind = 'Built-up edge — rough, torn, short'; breakLen = 10; Rc = 7; wave = 0.7 * tc; }
+  else if (S.breaker) { kind = 'Continuous, broken into tight curls (chip breaker)'; Rc = 2.5 + tc * 5; breakLen = 2 * Math.PI * Rc * 1.4; }
+  else { kind = m.gummy ? 'Continuous, stringy and gummy — a bird\'s nest' : 'Continuous, long ribbon'; Rc = 30 + 45 * Math.max(0, Math.min(1, S.rake / 25)); breakLen = 520; }
+  if (S.t > 0.35 && m.kind !== 'brittle' && S.breaker) { breakLen *= 0.6; }
+  return { m, phi: phi / D, r, tc, Fc, Ft, P, MRR, T, kind, breakLen, Rc, wave, sp, w };
+}
+function phyChips() {
+  const g = new THREE.Group(), S = { mat: 'mild', V: 180, t: 0.25, rake: 8, coolant: false, breaker: true, wear: 0, show: true };
+  const LEN = 36, FLOOR = -14, NCOL = 241, CAP = 2600, VIS = 1 / 6;      // bar length, floor, columns, chip links, slow motion (visual mm/s per m/min)
+  const bar = new THREE.Group(), hf = new Float32Array(NCOL);
+  const topG = new THREE.PlaneGeometry(LEN, 6, NCOL - 1, 1), wallG = new THREE.PlaneGeometry(LEN, 12, NCOL - 1, 1);
+  topG.rotateX(-Math.PI / 2); topG.translate(0, 0, 0);
+  const barMat = phyMat(0x9aa3ad, { side: THREE.DoubleSide });
+  const top = new THREE.Mesh(topG, barMat), wall = new THREE.Mesh(wallG, barMat), back = wall.clone();
+  wall.position.set(0, -6, 3); back.position.set(0, -6, -3); back.rotation.y = Math.PI; bar.add(top, wall, back); g.add(bar);
+  const base = new THREE.Mesh(new THREE.BoxGeometry(80, 4, 20), phyMat(0x59616b)); base.position.y = FLOOR - 2; g.add(base);
+  const toolMat = phyMat(0x2d3748, { shininess: 90, transparent: true, opacity: 0.62 }), tool = new THREE.Group(); g.add(tool);
+  const shearLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(1, 1, 0)]), new THREE.LineBasicMaterial({ color: 0xf5c542 })); g.add(shearLine);
+  const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: 0xffffff }), CAP); inst.setColorAt(0, new THREE.Color(1, 1, 1)); inst.count = 0; inst.frustumCulled = false; g.add(inst);       // (the color buffer is sized by count: make it first)
+  const tmp = new THREE.Object3D(), col = new THREE.Color();
+  let K, X = -LEN / 2 - 8, pieces = [], cur = null, wait = 0, passes = 0;
+  const rake = () => S.rake * Math.PI / 180;
+  function toolMesh() {
+    tool.clear();
+    const a = rake(), sh = new THREE.Shape(), u = [-Math.sin(a), Math.cos(a)];
+    sh.moveTo(0, 0); sh.lineTo(u[0] * 9, u[1] * 9); sh.lineTo(-9, 9); sh.lineTo(-9, -3); sh.lineTo(-4, -3); sh.lineTo(0, 0);    // tip, rake face, shank, clearance
+    const geo = new THREE.ExtrudeGeometry(sh, { depth: 6, bevelEnabled: false }); geo.translate(0, 0, -3);
+    tool.add(new THREE.Mesh(geo, toolMat));
+    const edge = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 6.2), phyMat(S.wear > 0.5 ? 0x8a5a3a : 0xdfe6ee)); tool.add(edge);
+  }
+  function build() {
+    K = chipPhysics(S); pieces = []; cur = null; X = -LEN / 2 - 5; hf.fill(0); passes = 0; toolMesh(); surface(); inst.count = 0;
+  }
+  function surface() {
+    const p = top.geometry.attributes.position, q = wall.geometry.attributes.position;
+    for (let i = 0; i < NCOL; i++) { p.setY(i, hf[i]); p.setY(i + NCOL, hf[i]); q.setY(i, hf[i] + 6); }
+    p.needsUpdate = true; q.needsUpdate = true; top.geometry.computeVertexNormals();
+  }
+  const hAt = x => { const f = (x + LEN / 2) / LEN * (NCOL - 1), i = Math.max(0, Math.min(NCOL - 2, Math.floor(f))); return x < -LEN / 2 || x > LEN / 2 ? FLOOR : hf[i] + (hf[i + 1] - hf[i]) * (f - i) - 0 ; };
+  // a chip is a chain of links: carried along the tool's curl path while it forms, then free (Verlet) with a bending constraint that keeps its curl
+  function newPiece() {
+    const c = chipColor(K.T, K.m);
+    return { n: [], free: false, len: 0, ang: 0, col: c, Rc: K.Rc * (0.85 + Math.random() * 0.3), ph: Math.random() * 6.28, breakLen: K.breakLen * (0.7 + Math.random() * 0.6), thick: Math.max(0.3, Math.min(1.4, K.tc * 1.7)), life: 0, w: 5 };
+  }
+  function pathPoint(P, s) {         // a point s mm along the chip's path, in the tool's frame (tip at the origin)
+    const a = rake(), ux = -Math.sin(a), uy = Math.cos(a), lc = 1.5 + K.tc * 4;
+    if (s <= lc || !P.Rc) return [ux * s, uy * s];
+    const R = P.Rc, th = (s - lc) / R, bx = ux * lc, by = uy * lc, nx = uy, ny = -ux;        // curl over the work: toward the side the rake face looks at
+    const dx = ux * Math.sin(th) + nx * (1 - Math.cos(th)), dy = uy * Math.sin(th) + ny * (1 - Math.cos(th));
+    return [bx + R * dx, by + R * dy];
+  }
+  function sim_step(dt) {
+    if (wait > 0) { wait -= dt; if (wait <= 0) { X = -LEN / 2 - 5; hf.fill(0); surface(); passes++; } return; }
+    const v = S.V * VIS, a = rake();
+    X += v * dt;
+    // the cut: the bar loses t behind the tool
+    const i1 = Math.floor((X + LEN / 2) / LEN * (NCOL - 1));
+    let changed = false;
+    for (let i = 0; i <= Math.min(NCOL - 1, i1); i++) if (hf[i] > -S.t) { hf[i] = -S.t; changed = true; }
+    if (changed && (i1 & 1) === 0) surface();
+    tool.position.set(X, -S.t, 0);
+    // chip formation: only while the tool is in the bar
+    if (X > -LEN / 2 && X < LEN / 2) {
+      if (!cur) cur = newPiece();
+      const adv = v * dt * K.r;                                                // the chip runs slower than the cut by the ratio r
+      cur.len += adv;
+      const sp = K.sp, want = Math.floor(cur.len / sp);
+      while (cur.n.length < want && pieces.reduce((s2, p) => s2 + p.n.length, 0) + cur.n.length < CAP - 4) cur.n.push({ p: new THREE.Vector3(), q: new THREE.Vector3() });
+      const x0 = X, y0 = -S.t;
+      cur.n.forEach((nd, i) => {                                               // node i sits (cur.len - i*sp) along the path
+        const s = cur.len - i * sp, pt = pathPoint(cur, s), wv = K.wave ? Math.sin(s * 1.7 + cur.ph) * K.wave : 0;
+        nd.p.set(x0 + pt[0] + Math.cos(a) * (cur.thick / 2 + wv), y0 + pt[1] + Math.sin(a) * (cur.thick / 2 + wv), 0); nd.q.copy(nd.p);
+        nd.i = i;
+      });
+      if (cur.len > cur.breakLen) {                                            // breaks off: goes free with the velocity it had
+        const vx = v * 0.9 + 0, vy = 0; cur.free = true;
+        const ux = -Math.sin(a), uy = Math.cos(a), vc = v * K.r;
+        for (const nd of cur.n) { nd.q.set(nd.p.x - (v + ux * vc) * dt * 0.6, nd.p.y - (uy * vc) * dt * 0.6, 0); }
+        void vx; void vy; pieces.push(cur); cur = null;
+      }
+    } else if (cur && X >= LEN / 2) { cur.free = true; pieces.push(cur); cur = null; }
+    if (X > LEN / 2 + 10 && wait <= 0) wait = 1.6;
+    // free chips
+    const d2 = dt * dt, gy = -9.81e3 * 0.0016 * d2 * 6;                        // slow-motion gravity (mm)
+    let total = 0;
+    for (const P of pieces) {
+      P.life += dt; const nn = P.n;
+      for (const nd of nn) { const vx = (nd.p.x - nd.q.x) * 0.992, vy = (nd.p.y - nd.q.y) * 0.992; nd.q.copy(nd.p); nd.p.x += vx; nd.p.y += vy + gy; const gnd = hAt(nd.p.x) + 0.2; if (nd.p.y < gnd) { nd.p.y = gnd; nd.q.x = nd.p.x - (nd.p.x - nd.q.x) * 0.6; } }
+      const sp = K.sp, a2 = P.Rc ? 2 * P.Rc * Math.sin(sp / P.Rc) : 2 * sp;
+      for (let it = 0; it < 3; it++) {
+        for (let i = 0; i + 1 < nn.length; i++) { const A = nn[i].p, B = nn[i + 1].p, dx = B.x - A.x, dy = B.y - A.y, d = Math.hypot(dx, dy) || 1e-6, e = (d - sp) / d * 0.5; A.x += dx * e; A.y += dy * e; B.x -= dx * e; B.y -= dy * e; }
+        for (let i = 0; i + 2 < nn.length; i++) { const A = nn[i].p, B = nn[i + 2].p, dx = B.x - A.x, dy = B.y - A.y, d = Math.hypot(dx, dy) || 1e-6, e = (d - a2) / d * 0.25; A.x += dx * e; A.y += dy * e; B.x -= dx * e; B.y -= dy * e; }
+      }
+      total += nn.length;
+    }
+    while (pieces.length && total > CAP - 60) { total -= pieces[0].n.length; pieces.shift(); }
+  }
+  function draw() {
+    let k = 0;
+    const put = (P, thick) => {
+      const nn = P.n;
+      for (let i = 0; i + 1 < nn.length && k < CAP; i++) {
+        const A = nn[i].p, B = nn[i + 1].p, dx = B.x - A.x, dy = B.y - A.y, L = Math.hypot(dx, dy);
+        if (L < 1e-6) continue;
+        tmp.position.set((A.x + B.x) / 2, (A.y + B.y) / 2, 0); tmp.rotation.set(0, 0, Math.atan2(dy, dx)); tmp.scale.set(L * 1.15, thick, P.w); tmp.updateMatrix();
+        inst.setMatrixAt(k, tmp.matrix); col.copy(P.col).multiplyScalar(0.62 + 0.38 * Math.abs(Math.cos(Math.atan2(dy, dx) - 0.9))); if (i % 6 === 0) col.multiplyScalar(0.85); inst.setColorAt(k, col); k++;
+      }
+    };
+    for (const P of pieces) put(P, P.thick);
+    if (cur) put(cur, cur.thick);
+    inst.count = k; inst.instanceMatrix.needsUpdate = true; if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+    const phi = K.phi * Math.PI / 180, tx = X, ty = -S.t, top2 = 0, L2 = S.t / Math.tan(phi);
+    const pa = shearLine.geometry.attributes.position; pa.setXYZ(0, tx, ty, 3.2); pa.setXYZ(1, tx + L2, top2, 3.2); pa.needsUpdate = true; shearLine.visible = S.show && X > -LEN / 2 && X < LEN / 2;
+  }
+  const sim = {
+    group: g, camera: { th: 0.04, ph: 0.22, d: 52, t: [0, 1, 0] }, speed: 1,
+    controls: [
+      { k: 'mat', t: 'sel', label: 'Material', v: S.mat, opts: Object.entries(CHIP_MATS).map(([k, v]) => [k, v[0]]) },
+      { k: 'V', t: 'range', label: 'Cutting speed (m/min)', v: S.V, min: 15, max: 600, step: 5 },
+      { k: 't', t: 'range', label: 'Feed per rev (uncut chip thickness, mm)', v: S.t, min: 0.03, max: 0.6, step: 0.01 },
+      { k: 'rake', t: 'range', label: 'Rake angle (°)', v: S.rake, min: -10, max: 30, step: 1 },
+      { k: 'wear', t: 'range', label: 'Tool wear', v: 0, min: 0, max: 1, step: 0.05 },
+      { k: 'breaker', t: 'chk', label: 'Chip breaker', v: true }, { k: 'coolant', t: 'chk', label: 'Flood coolant', v: false }, { k: 'show', t: 'chk', label: 'Show shear plane', v: true },
+      { k: 'clear', t: 'btn', label: 'Sweep the chips away' },
+    ],
+    reset: build,
+    set(k, v) { if (k === 'clear') { pieces = []; cur = null; inst.count = 0; return; } S[k] = v; K = chipPhysics(S); if (k === 'rake' || k === 'wear') toolMesh(); },
+    step: sim_step, frame: draw,
+    info: () => `${CHIP_MATS[S.mat][0]} at ${S.V} m/min, ${S.t} mm/rev.   Shear angle ${K.phi.toFixed(0)}°  ·  chip thickness ratio ${K.r.toFixed(2)} (chip ${K.tc.toFixed(2)} mm)  ·  cutting force ${Math.round(K.Fc)} N, thrust ${Math.round(K.Ft)} N  ·  power ${(K.P / 1000).toFixed(2)} kW  ·  removal ${K.MRR.toFixed(0)} cm³/min  ·  chip temperature ≈ ${Math.round(K.T)} °C\n${K.kind}.  Chips are drawn thicker than life, in slow motion.${K.T > 330 && K.m.temper ? '  The blue chip is the heat leaving with it — a good sign.' : ''}`,
+    dispose() { phyDisposeGroup(g); },
+  };
+  build();
+  return sim;
+}
+
+PHY_SIMS.chips = ['Chips & cutting', phyChips];
+
+// LAB-END
 </script>
 </body>
 </html>
