@@ -28642,6 +28642,173 @@ function phyWaterjet() {
   return sim;
 }
 
+// ── Water jet, hose and sink: a 3-D position-based fluid (Macklin & Müller) on a hash grid, drawn as real water ──
+// Water leaves a nozzle as a stream, arcs under gravity, hits the basin, a part or a plate, splashes, pools and drains away.
+function phyHose() {
+  const g = new THREE.Group(), S = { preset: 'faucet', speed: 5, angle: -72, yaw: 0, nozzle: 0.2, drain: 1, visc: 0.02, draw: 'water', liquid: 'water' };
+  const WD = 9, DD = 5, sp = 0.13, h = sp * 2.3, CAP = 4200, M = 0.07, MAXN = 40, GY = 12;
+  const px = new Float32Array(CAP), py = new Float32Array(CAP), pz = new Float32Array(CAP), ox = new Float32Array(CAP), oy = new Float32Array(CAP), oz = new Float32Array(CAP), vx = new Float32Array(CAP), vy = new Float32Array(CAP), vz = new Float32Array(CAP);
+  const lam = new Float32Array(CAP), dx = new Float32Array(CAP), dy = new Float32Array(CAP), dz = new Float32Array(CAP), rho = new Float32Array(CAP);
+  const nb = new Int32Array(CAP * MAXN), nc = new Int32Array(CAP);
+  const water = phyWaterRenderer(CAP); water.radius = sp * 1.15; let waterInit = false;
+  let N = 0, acc = 0, emitT = 0, obst = [], drainOn = true;
+  const gx = Math.ceil(WD / h) + 3, gz = Math.ceil(DD / h) + 3, gyN = Math.ceil(GY / h) + 2, cellOf = (x, y, z) => (Math.max(0, Math.min(gx - 1, ((x / h) | 0) + 1))) + gx * (Math.max(0, Math.min(gyN - 1, ((y / h) | 0) + 1)) + gyN * Math.max(0, Math.min(gz - 1, (((z + DD / 2) / h) | 0) + 1)));
+  const head = new Int32Array(gx * gyN * gz), nextI = new Int32Array(CAP);
+  const k6 = 315 / (64 * Math.PI * Math.pow(h, 9)), kS = -45 / (Math.PI * Math.pow(h, 6)), poly6 = r2 => { const d = h * h - r2; return d > 0 ? k6 * d * d * d : 0; };
+  let rho0 = 0;
+  for (let i = -4; i <= 4; i++) for (let j = -4; j <= 4; j++) for (let k = -4; k <= 4; k++) rho0 += poly6((i * sp) ** 2 + (j * sp) ** 2 + (k * sp) ** 2);
+  const sCorr = poly6(0.2 * 0.2 * h * h);
+  // the basin
+  const glass = new THREE.MeshPhongMaterial({ color: 0xcfd8e2, transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide });
+  const mkBox = (x0, y0, z0, x1, y1, z1, mat) => { const m = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0), mat); m.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2); g.add(m); return m; };
+  const floorM = mkBox(-0.1, -0.2, -DD / 2 - 0.1, WD + 0.1, 0, DD / 2 + 0.1, phyMat(0x59626d));
+  const ring = new THREE.Mesh(new THREE.CircleGeometry(0.5, 36), new THREE.MeshBasicMaterial({ color: 0x0b0e12 })); ring.rotation.x = -Math.PI / 2; ring.position.set(WD * 0.62, 0.005, 0); g.add(ring);
+  const rim = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.6, 36), phyMat(0xb6bec8)); rim.rotation.x = -Math.PI / 2; rim.position.copy(ring.position); rim.position.y = 0.01; g.add(rim);
+  mkBox(-0.1, 0, -DD / 2 - 0.1, 0, 2.6, DD / 2 + 0.1, glass); mkBox(WD, 0, -DD / 2 - 0.1, WD + 0.1, 2.6, DD / 2 + 0.1, glass); mkBox(0, 0, -DD / 2 - 0.1, WD, 2.6, -DD / 2, glass); mkBox(0, 0, DD / 2, WD, 2.6, DD / 2 + 0.1, glass);
+  for (const [x0, y0, z0, x1, y1, z1] of [[-0.12, 2.55, -DD / 2 - 0.12, WD + 0.12, 2.65, -DD / 2], [-0.12, 2.55, DD / 2, WD + 0.12, 2.65, DD / 2 + 0.12], [-0.12, 2.55, -DD / 2, 0, 2.65, DD / 2], [WD, 2.55, -DD / 2, WD + 0.12, 2.65, DD / 2]]) mkBox(x0, y0, z0, x1, y1, z1, phyMat(0xb6bec8));
+  const wallTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d'); x.fillStyle = '#e9eef4'; x.fillRect(0, 0, 128, 128); x.strokeStyle = 'rgba(100,120,145,.3)'; x.lineWidth = 2; x.strokeRect(1, 1, 126, 126); const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(14, 7); return t; })();
+  const back = new THREE.Mesh(new THREE.PlaneGeometry(WD + 6, 8), new THREE.MeshBasicMaterial({ map: wallTex })); back.position.set(WD / 2, 3.6, -DD / 2 - 1.4); g.add(back);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 40), phyMat(0xdfe5ec)); ground.rotation.x = -Math.PI / 2; ground.position.y = -0.22; g.add(ground);
+  const obstGroup = new THREE.Group(); g.add(obstGroup);
+  // the nozzle: a pipe pointing along the jet
+  const noz = new THREE.Group(); g.add(noz);
+  const steel = phyMat(0xc3cad2, { shininess: 90 }), dark = phyMat(0x2a2f36), orange = phyMat(0xd9622b);
+  function buildNoz() {
+    noz.clear();
+    const r = Math.max(0.12, S.nozzle * 1.2);
+    const tip = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.8, r, 0.5, 18), steel); tip.rotation.z = Math.PI / 2; tip.position.x = -0.25; noz.add(tip);
+    const pipe = new THREE.Mesh(new THREE.CylinderGeometry(r * 1.05, r * 1.05, 1.6, 18), S.preset === 'hose' ? phyMat(0x2f8f46) : steel); pipe.rotation.z = Math.PI / 2; pipe.position.x = -1.3; noz.add(pipe);
+    if (S.preset === 'faucet') { const post = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.26, 1.8, 18), steel); post.position.set(-1.9, 0.8, 0); noz.add(post); const base = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.55, 0.14, 24), dark); base.position.set(-1.9, -0.1, 0); noz.add(base); }
+    if (S.preset === 'washer') { const grip = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.9, 0.25), orange); grip.position.set(-2.1, -0.45, 0); noz.add(grip); }
+    if (S.preset === 'waterjet') { const bk = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 0.6), dark); bk.position.set(-1.8, 0, 0); noz.add(bk); }
+  }
+  const dirOf = () => { const e = S.angle * Math.PI / 180, y = S.yaw * Math.PI / 180; return [Math.cos(e) * Math.cos(y), Math.sin(e), Math.cos(e) * Math.sin(y)]; };
+  let NP = [1.2, 3.1, 0];
+  function aim() { const d = dirOf(); noz.position.set(NP[0], NP[1], NP[2]); noz.rotation.set(0, 0, 0); noz.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), new THREE.Vector3(d[0], d[1], d[2])); }
+  const PRESETS = {
+    faucet: { name: 'Kitchen faucet into a sink', np: [1.6, 3.1, 0], angle: -72, speed: 5, nozzle: 0.2, drain: 1, obst: [] },
+    hose: { name: 'Garden hose', np: [0.7, 0.55, 0], angle: 38, speed: 9, nozzle: 0.1, drain: 1, obst: [] },
+    washer: { name: 'Pressure washer on a part', np: [0.7, 1.7, 0], angle: -14, speed: 15, nozzle: 0.07, drain: 1, obst: [{ x0: 4.6, y0: 0, z0: -1.1, x1: 6.4, y1: 1.5, z1: 1.1, col: 0x9aa3ad }] },
+    waterjet: { name: 'High-pressure jet through a slot', np: [4.5, 3.3, 0], angle: -90, speed: 14, nozzle: 0.07, drain: 1, obst: [{ x0: 1.5, y0: 1.2, z0: -1.6, x1: 4.38, y1: 1.5, z1: 1.6, col: 0x8d96a1 }, { x0: 4.62, y0: 1.2, z0: -1.6, x1: 7.5, y1: 1.5, z1: 1.6, col: 0x8d96a1 }] },
+  };
+  function build(keep) {
+    N = 0; emitT = 0; acc = 0; obstGroup.clear();
+    const P = PRESETS[S.preset];
+    if (!keep) { NP = P.np.slice(); S.angle = P.angle; S.speed = P.speed; S.nozzle = P.nozzle; S.drain = P.drain; }
+    obst = P.obst; for (const o of obst) { const m = new THREE.Mesh(new THREE.BoxGeometry(o.x1 - o.x0, o.y1 - o.y0, o.z1 - o.z0), phyMat(o.col)); m.position.set((o.x0 + o.x1) / 2, (o.y0 + o.y1) / 2, (o.z0 + o.z1) / 2); obstGroup.add(m); }
+    // legs under a plate
+    if (S.preset === 'waterjet') for (const x of [1.7, 7.3]) { const l = new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.2, 3.0), phyMat(0x3a424d)); l.position.set(x, 0.6, 0); obstGroup.add(l); }
+    buildNoz(); aim();
+  }
+  const add = (x, y, z, ux, uy, uz) => { if (N >= CAP) return; px[N] = x; py[N] = y; pz[N] = z; vx[N] = ux; vy[N] = uy; vz[N] = uz; N++; };
+  // a slice of the stream: a hex-packed disc of particles across the nozzle
+  function slice(back) {
+    const d = dirOf(), v = S.speed, r = S.nozzle, up = Math.abs(d[1]) > 0.95 ? [1, 0, 0] : [0, 1, 0];
+    let a = [d[1] * up[2] - d[2] * up[1], d[2] * up[0] - d[0] * up[2], d[0] * up[1] - d[1] * up[0]]; const al = Math.hypot(...a); a = a.map(q => q / al);
+    const b = [d[1] * a[2] - d[2] * a[1], d[2] * a[0] - d[0] * a[2], d[0] * a[1] - d[1] * a[0]];
+    const pts = [[0, 0]]; for (let ring = 1; ring * sp * 0.95 <= r; ring++) { const n = Math.max(6, Math.round(2 * Math.PI * ring * sp * 0.95 / (sp * 0.95))), rr = ring * sp * 0.95; for (let k = 0; k < n; k++) pts.push([rr * Math.cos(k * 2 * Math.PI / n + ring), rr * Math.sin(k * 2 * Math.PI / n + ring)]); }
+    for (const [u, w] of pts) {
+      const j = 1 + (Math.random() - 0.5) * 0.03, sx = (Math.random() - 0.5) * 0.02;
+      add(NP[0] + d[0] * back + a[0] * u + b[0] * w, NP[1] + d[1] * back + a[1] * u + b[1] * w, NP[2] + d[2] * back + a[2] * u + b[2] * w, d[0] * v * j + sx, d[1] * v * j + sx, d[2] * v * j + sx);
+    }
+  }
+  function collide(i) {
+    if (px[i] < M) { px[i] = M; ox[i] += (px[i] - ox[i]) * 0.1; } else if (px[i] > WD - M) { px[i] = WD - M; ox[i] += (px[i] - ox[i]) * 0.1; }
+    if (pz[i] < -DD / 2 + M) pz[i] = -DD / 2 + M; else if (pz[i] > DD / 2 - M) pz[i] = DD / 2 - M;
+    const inDrain = S.drain && (px[i] - WD * 0.62) ** 2 + pz[i] ** 2 < 0.5 * 0.5;
+    if (py[i] < M && !inDrain) { py[i] = M; ox[i] += (px[i] - ox[i]) * 0.12; oz[i] += (pz[i] - oz[i]) * 0.12; }
+    for (const o of obst) if (px[i] > o.x0 - M && px[i] < o.x1 + M && py[i] > o.y0 - M && py[i] < o.y1 + M && pz[i] > o.z0 - M && pz[i] < o.z1 + M) {
+      const a = [px[i] - (o.x0 - M), o.x1 + M - px[i], py[i] - (o.y0 - M), o.y1 + M - py[i], pz[i] - (o.z0 - M), o.z1 + M - pz[i]]; let k = 0; for (let q = 1; q < 6; q++) if (a[q] < a[k]) k = q;
+      if (k === 0) px[i] = o.x0 - M; else if (k === 1) px[i] = o.x1 + M; else if (k === 2) py[i] = o.y0 - M; else if (k === 3) { py[i] = o.y1 + M; ox[i] += (px[i] - ox[i]) * 0.1; oz[i] += (pz[i] - oz[i]) * 0.1; } else if (k === 4) pz[i] = o.z0 - M; else pz[i] = o.z1 + M;
+    }
+  }
+  function update(dt) {
+    // emit the stream
+    const period = sp * 0.95 / Math.max(0.5, S.speed); emitT += dt;
+    while (emitT >= period && N < CAP - 40) { emitT -= period; slice(S.speed * emitT); }
+    for (let i = 0; i < N; i++) { vy[i] -= 9.81 * dt; ox[i] = px[i]; oy[i] = py[i]; oz[i] = pz[i]; px[i] += vx[i] * dt; py[i] += vy[i] * dt; pz[i] += vz[i] * dt; }
+    // hash grid and neighbour lists
+    head.fill(-1);
+    for (let i = 0; i < N; i++) { const c = cellOf(px[i], py[i], pz[i]); nextI[i] = head[c]; head[c] = i; }
+    const h2 = h * h;
+    for (let i = 0; i < N; i++) {
+      let n = 0; const cx = Math.max(0, Math.min(gx - 1, ((px[i] / h) | 0) + 1)), cy = Math.max(0, Math.min(gyN - 1, ((py[i] / h) | 0) + 1)), cz = Math.max(0, Math.min(gz - 1, (((pz[i] + DD / 2) / h) | 0) + 1));
+      for (let c3 = Math.max(0, cz - 1); c3 <= Math.min(gz - 1, cz + 1); c3++) for (let c2 = Math.max(0, cy - 1); c2 <= Math.min(gyN - 1, cy + 1); c2++) for (let c1 = Math.max(0, cx - 1); c1 <= Math.min(gx - 1, cx + 1); c1++) {
+        for (let j = head[c1 + gx * (c2 + gyN * c3)]; j >= 0; j = nextI[j]) { if (j === i) continue; const rx = px[i] - px[j], ry = py[i] - py[j], rz = pz[i] - pz[j]; if (rx * rx + ry * ry + rz * rz < h2 && n < MAXN) nb[i * MAXN + n++] = j; }
+      }
+      nc[i] = n;
+    }
+    const poly0 = poly6(0);
+    for (let it = 0; it < 3; it++) {
+      for (let i = 0; i < N; i++) {
+        let r = poly0, gsx = 0, gsy = 0, gsz = 0, gg = 0; const o = i * MAXN;
+        for (let q = 0; q < nc[i]; q++) {
+          const j = nb[o + q], rx = px[i] - px[j], ry = py[i] - py[j], rz = pz[i] - pz[j], r2 = rx * rx + ry * ry + rz * rz; r += poly6(r2);
+          const rr = Math.sqrt(r2) || 1e-6, k = kS * (h - rr) * (h - rr) / rho0 / rr; const ax = k * rx, ay = k * ry, az = k * rz; gsx += ax; gsy += ay; gsz += az; gg += ax * ax + ay * ay + az * az;
+        }
+        rho[i] = r; const C = Math.max(0, r / rho0 - 1); lam[i] = -C / (gg + gsx * gsx + gsy * gsy + gsz * gsz + 600);
+      }
+      for (let i = 0; i < N; i++) {
+        let sx = 0, sy = 0, sz = 0; const o = i * MAXN;
+        for (let q = 0; q < nc[i]; q++) {
+          const j = nb[o + q], rx = px[i] - px[j], ry = py[i] - py[j], rz = pz[i] - pz[j], r2 = rx * rx + ry * ry + rz * rz, rr = Math.sqrt(r2) || 1e-6;
+          const ten = -3e-5 * Math.pow(poly6(r2) / sCorr, 4), k = (lam[i] + lam[j] + ten) * kS * (h - rr) * (h - rr) / rho0 / rr; sx += k * rx; sy += k * ry; sz += k * rz;
+        }
+        dx[i] = sx; dy[i] = sy; dz[i] = sz;
+      }
+      for (let i = 0; i < N; i++) { px[i] += dx[i]; py[i] += dy[i]; pz[i] += dz[i]; collide(i); }
+    }
+    for (let i = 0; i < N; i++) { vx[i] = (px[i] - ox[i]) / dt; vy[i] = (py[i] - oy[i]) / dt; vz[i] = (pz[i] - oz[i]) / dt; const q = Math.hypot(vx[i], vy[i], vz[i]); if (q > 22) { const f = 22 / q; vx[i] *= f; vy[i] *= f; vz[i] *= f; } }
+    if (S.visc > 0) {
+      const nvx = new Float32Array(N), nvy = new Float32Array(N), nvz = new Float32Array(N);
+      for (let i = 0; i < N; i++) { let ax = 0, ay = 0, az = 0; const o = i * MAXN; for (let q = 0; q < nc[i]; q++) { const j = nb[o + q]; ax += vx[j] - vx[i]; ay += vy[j] - vy[i]; az += vz[j] - vz[i]; } const w = S.visc / Math.max(1, nc[i]) * 3; nvx[i] = vx[i] + ax * w; nvy[i] = vy[i] + ay * w; nvz[i] = vz[i] + az * w; }
+      for (let i = 0; i < N; i++) { vx[i] = nvx[i]; vy[i] = nvy[i]; vz[i] = nvz[i]; }
+    }
+    // down the drain, or out of the world
+    for (let i = N - 1; i >= 0; i--) if ((S.drain && py[i] < 0.45 && (px[i] - WD * 0.62) ** 2 + pz[i] ** 2 < 0.45 * 0.45) || py[i] < -0.3 || px[i] > WD + 2 || px[i] < -2) { N--; px[i] = px[N]; py[i] = py[N]; pz[i] = pz[N]; vx[i] = vx[N]; vy[i] = vy[N]; vz[i] = vz[N]; ox[i] = ox[N]; oy[i] = oy[N]; oz[i] = oz[N]; }
+  }
+  function ctrl(c, v) { const f = sim.controls.find(q => q.k === c); if (f) f.v = v; }
+  const sim = {
+    group: g, camera: { th: 0.55, ph: 0.3, d: 13, t: [4.4, 1.3, 0] }, speed: 1,
+    controls: [
+      { k: 'preset', t: 'sel', label: 'Scene', v: S.preset, opts: Object.entries(PRESETS).map(([k, v]) => [k, v.name]) },
+      { k: 'speed', t: 'range', label: 'Pressure (exit speed)', v: S.speed, min: 1, max: 18, step: 0.5 },
+      { k: 'angle', t: 'range', label: 'Aim up / down', v: S.angle, min: -90, max: 70, step: 1 },
+      { k: 'yaw', t: 'range', label: 'Aim left / right', v: S.yaw, min: -40, max: 40, step: 1 },
+      { k: 'nozzle', t: 'sel', label: 'Nozzle', v: S.nozzle, opts: [[0.05, 'Needle jet'], [0.07, 'Pencil jet'], [0.14, 'Hose'], [0.2, 'Faucet'], [0.3, 'Wide spout']] },
+      { k: 'liquid', t: 'sel', label: 'Liquid', v: S.liquid, opts: Object.entries(PHY_LIQUIDS).map(([k, v]) => [k, v.name]) },
+      { k: 'draw', t: 'sel', label: 'Draw the fluid as', v: S.draw, opts: [['water', 'Water (surface rendering)'], ['spheres', 'Particles']] },
+      { k: 'visc', t: 'range', label: 'Viscosity', v: S.visc, min: 0, max: 0.2, step: 0.01 },
+      { k: 'drain', t: 'chk', label: 'Drain open', v: !!S.drain },
+      { k: 'empty', t: 'btn', label: 'Empty the basin' },
+    ],
+    reset: () => build(false),
+    set(k, v) {
+      if (k === 'empty') { N = 0; return; }
+      if (k === 'preset') { S.preset = v; build(false); ['speed', 'angle', 'nozzle', 'drain'].forEach(q => ctrl(q, q === 'drain' ? !!S[q] : S[q])); sim.cardDirty = true; return; }
+      S[k] = k === 'liquid' || k === 'draw' ? v : k === 'drain' ? (v ? 1 : 0) : +v;
+      if (k === 'liquid') water.liquid = v; if (k === 'nozzle') buildNoz(); if (k === 'angle' || k === 'yaw') aim();
+    },
+    step(dt) { acc += dt; if (acc >= 1 / 90) { acc = Math.min(acc - 1 / 90, 1 / 90); update(1 / 90); } },
+    frame() {
+      const wm = S.draw === 'water' && water.ok;
+      for (let i = 0; i < N; i++) { const s = Math.hypot(vx[i], vy[i], vz[i]); if (wm) water.set(px[i], py[i], pz[i], s, i); }
+      if (wm) water.count(N);
+      if (!wm) { if (!sim.dotGeo) { sim.dotGeo = new THREE.BufferGeometry(); sim.dotGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(CAP * 3), 3)); sim.dotsM = new THREE.Points(sim.dotGeo, new THREE.PointsMaterial({ color: 0x2a7fe0, size: 0.16 })); sim.dotsM.frustumCulled = false; g.add(sim.dotsM); } const a = sim.dotGeo.attributes.position.array; for (let i = 0; i < N; i++) { a[i * 3] = px[i]; a[i * 3 + 1] = py[i]; a[i * 3 + 2] = pz[i]; } sim.dotGeo.setDrawRange(0, N); sim.dotGeo.attributes.position.needsUpdate = true; }
+      if (sim.dotsM) sim.dotsM.visible = !wm;
+    },
+    render(rend, scene, cam) {
+      if (!waterInit) { waterInit = true; water.init(rend); water.liquid = S.liquid; }
+      if (S.draw === 'water' && water.ok) water.render(rend, scene, cam, () => {}); else rend.render(scene, cam);
+    },
+    info: () => `${PRESETS[S.preset].name}: ${N} particles of 3-D position-based fluid, exit speed ${S.speed.toFixed(1)}, ${S.drain ? 'drain open' : 'drain closed (the basin fills)'}. Aim and pressure sliders change the stream live.`,
+    dbg: () => ({ N, rho0, rhoMean: N ? Array.from(rho.slice(0, N)).reduce((a, b) => a + b, 0) / N / rho0 : 0, maxv: Math.max(0, ...Array.from(vy.slice(0, N)).map(Math.abs)) }),
+    dispose() { water.dispose(); phyDisposeGroup(g); },
+  };
+  build(false);
+  return sim;
+}
+
 // ── Mechanics & dynamics: Newton's cradle, a crank-slider engine, regenerative chatter, a rolling race, a gear train ──
 function phyMechanics() {
   const g = new THREE.Group(), S = { demo: 'cradle' };
@@ -29439,7 +29606,9 @@ PHY_SIMS.lathe = ['CNC turning', phyLathe];
   if (rb) rb.addEventListener('wheel', e => { if (rb.scrollWidth > rb.clientWidth && Math.abs(e.deltaY) > Math.abs(e.deltaX)) { rb.scrollLeft += e.deltaY; e.preventDefault(); } }, { passive: false });
 }
 { const st = document.createElement('style'); st.textContent = '.axis-badge.awire { background: color-mix(in srgb, #d946ef 16%, transparent); color: #c026d3; }'; document.head.appendChild(st); }
-PHY_SIMS.waterjet = ['Waterjet cutter', phyWaterjet];
+PHY_SIMS.waterjet = ['Waterjet cut', phyWaterjet];
+PHY_SIMS.hose = ['Hose & jet', phyHose];
+{ const st = document.createElement('style'); st.textContent = '#phyTabs { flex-wrap: nowrap; } #phyTabs button { padding: 5px 7px; font-size: 11.5px; white-space: normal; line-height: 1.15; } .phy-bar { flex-wrap: nowrap; } .phy-bar b { white-space: nowrap; }'; document.head.appendChild(st); }
 
 // LAB-END
 </script>
