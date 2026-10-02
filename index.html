@@ -28333,7 +28333,9 @@ function chipFX(parent, o = {}) {
     out.copy(b.col); if (b.T > 420) out.lerp(tmpC.set(0xff6a2b), Math.min(1, (b.T - 420) / 300)); return out;
   };
   fx.update = dt => {
-    dt = Math.min(dt, 0.05); const n = 2, h = dt / n, damp = Math.exp(-fx.drag * h);
+    dt = Math.min(dt, 0.05);
+    let vmax = 0; for (const b of fx.bodies) if (!b.rest) vmax = Math.max(vmax, Math.abs(b.v.x) + Math.abs(b.v.y) + Math.abs(b.v.z));
+    const n = Math.max(2, Math.min(24, Math.ceil(vmax * dt / 4))), h = dt / n, damp = Math.exp(-fx.drag * h);   // a step moves a chip 4 mm at most: none passes through the work
     for (let s = 0; s < n; s++) for (const b of fx.bodies) {
       b.age += h;
       if (b.rest) continue;
@@ -30107,12 +30109,12 @@ function camchipCollide(b) {
     _cn.applyQuaternion(CAMCHIP.q).normalize();
     b.p.addScaledVector(_cn, Math.max(0, h + b.r - mz) * 0.9);
     const vn = b.v.dot(_cn);
-    if (vn < 0) { b.v.addScaledVector(_cn, -(1 + 0.22) * vn); const vt = b.v.clone().addScaledVector(_cn, -b.v.dot(_cn)); b.v.addScaledVector(vt, -0.35); }
+    if (vn < 0) { b.v.addScaledVector(_cn, -(1 + 0.4) * vn); const vt = b.v.clone().addScaledVector(_cn, -b.v.dot(_cn)); b.v.addScaledVector(vt, -0.12); }
     hit = true;
   }
   // the chip pan under the table and the enclosure walls
   if (b.p.y - b.r < CAMCHIP.panY) { b.p.y = CAMCHIP.panY + b.r; if (b.v.y < 0) b.v.y *= -0.15; b.v.x *= 0.55; b.v.z *= 0.55; hit = true; }
-  const lim = 520 + 0; if (Math.abs(b.p.x - g.cx) > lim) { b.p.x = g.cx + Math.sign(b.p.x - g.cx) * lim; b.v.x *= -0.3; } if (Math.abs(b.p.z + g.cy) > 420) { b.p.z = -g.cy + Math.sign(b.p.z + g.cy) * 420; b.v.z *= -0.3; }
+  const lim = 520 + 0; if (Math.abs(b.p.x - g.cx) > lim) { b.p.x = g.cx + Math.sign(b.p.x - g.cx) * lim; b.v.x *= -0.45; } if (Math.abs(b.p.z + g.cy) > 420) { b.p.z = -g.cy + Math.sign(b.p.z + g.cy) * 420; b.v.z *= -0.45; }
   return hit;
 }
 // spawn the chips for what the cutter removed this frame
@@ -30132,10 +30134,10 @@ function camchipEmit(rem, seg, tip, axis, feedW, op) {
     if (drillish) { const a = Math.random() * TAU; radial.set(Math.cos(a), 0, Math.sin(a)); radial.sub(tmp.copy(axis).multiplyScalar(radial.dot(axis))); if (radial.lengthSq() < 1e-6) radial.set(1, 0, 0).sub(tmp.copy(axis).multiplyScalar(axis.x)); radial.normalize(); }
     else { radial.copy(feedW).addScaledVector(axis, -feedW.dot(axis)); if (radial.lengthSq() < 1e-8) radial.set(1, 0, 0).sub(tmp.copy(axis).multiplyScalar(axis.x)); radial.normalize(); radial.applyAxisAngle(axis, (Math.random() - 0.5) * 2.2); }
     tang.copy(radial).cross(axis).normalize();                           // the way the cutting edge is moving (clockwise seen from above)
-    const sp = clamp(0.1 * vt, 70, 800) * (wet ? 0.45 : 1) * (0.5 + Math.random());
+    const sp = clamp(0.2 * vt, 900, 2600) * (wet ? 0.5 : 1) * (0.55 + Math.random() * 0.9);          // thrown off the cutting edge: meters per second, not millimeters
     pos.copy(tip).addScaledVector(radial, R * (0.55 + 0.45 * Math.random())).addScaledVector(axis, Math.min(ap, 4) * Math.random() + 0.3);
-    vel.copy(tang).multiplyScalar(drillish ? sp * 0.35 : sp).addScaledVector(radial, (drillish ? 120 : 0.25 * sp) * Math.random()).addScaledVector(axis, (drillish ? 260 : 70) * Math.random() + 20).addScaledVector(feedW, -(f / 60) * 0.35);
-    vel.x += (Math.random() - 0.5) * 60; vel.y += (Math.random() - 0.5) * 40; vel.z += (Math.random() - 0.5) * 60;
+    vel.copy(tang).multiplyScalar(drillish ? sp * 0.45 : sp).addScaledVector(radial, (drillish ? 320 : 0.45 * sp) * Math.random()).addScaledVector(axis, (drillish ? 700 : 150 + 0.25 * sp) * Math.random() + 60).addScaledVector(feedW, -(f / 60) * 0.5);
+    vel.x += (Math.random() - 0.5) * 240; vel.y += (Math.random() - 0.5) * 160; vel.z += (Math.random() - 0.5) * 240;
     const L = Lc * mult * big * 0.95, W = Wc * big * 0.7;
     if (kind === 'spiral') sz.set(Math.max(0.7, L / (5 * TAU)), W / 0.18, Math.max(0.7, L / (5 * TAU)));
     else if (kind === 'curl') sz.set(Math.max(0.6, L / (1.7 * TAU)), W / 0.18, Math.max(0.6, L / (1.7 * TAU)));
@@ -30186,7 +30188,7 @@ simTick = function (now) {
     } else CAMCHIP.last = null;
     camchipCoolant(dt, seg);
   }
-  if (SIM.playing || fx.count()) { if (SIM.playing) fx.update(Math.max(dt, 0.008)); }
+  if (SIM.playing || fx.count()) { if (SIM.playing) fx.update(Math.max(dt, 0.008) * Math.min(Math.max(1, SIM.speed), 12)); }   // the tool runs at SIM.speed, so the chips do too
   if (dt > 0 || SIM.playing) requestDraw();
 };
 // flood coolant: two nozzles squirting at the cutter
