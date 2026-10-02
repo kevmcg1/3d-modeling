@@ -27584,6 +27584,14 @@ PHY_SIMS.shop = ['Haas VF & touch-off', phyShop];
   camAction = function (a) { if (a.startsWith('lab:')) { physicsOpen(a.slice(4)); return; } act0(a); };
 }
 PHY_SIMS.lathe = ['CNC turning', phyLathe];
+// small laptops: the wheel scrolls the ribbon sideways, an edge fade shows there is more, and the mouse legend steps aside
+{
+  const st = document.createElement('style');
+  st.textContent = '.ribbon { mask-image: linear-gradient(90deg, #000 calc(100% - 26px), transparent); -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 26px), transparent); } @media (max-width: 1100px), (max-height: 680px) { #mouseLegend { display: none; } }';
+  document.head.appendChild(st);
+  const rb = document.querySelector('.ribbon');
+  if (rb) rb.addEventListener('wheel', e => { if (rb.scrollWidth > rb.clientWidth && Math.abs(e.deltaY) > Math.abs(e.deltaX)) { rb.scrollLeft += e.deltaY; e.preventDefault(); } }, { passive: false });
+}
 
 // LAB-END
 </script>
