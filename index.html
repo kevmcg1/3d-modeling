@@ -30110,7 +30110,7 @@ async function studyRun(cases, keys, q, prog) {
       const rows = keys.map(k => {
         const mat = studyMat(k); stressFields(R, mat); stressExtremes(R);
         const e = R.ext;
-        return { key: k, name: mat.name, sy: mat.sy, E: mat.E, rho: mat.rho, crit: mat.crit, vmFree: e.vm.fhi, vmPeak: e.vm.hi, s1Free: e.s1.fhi, sfFree: e.sf.flo, sfAll: e.sf.lo, disp: R.maxDisp * ref.E / mat.E, mass: R.volume * mat.rho * 1e-6 };
+        return { key: k, name: mat.name, sy: mat.sy, E: mat.E, rho: mat.rho, crit: mat.crit, vmFree: e.vm.fhi, vmPeak: e.vm.hi, s1Free: e.s1.fhi, sfFree: e.sf.flo, sfAll: e.sf.lo, nomVM: cases[ci].nomVM || null, sfNom: cases[ci].nomVM && mat.crit === 'vm' ? mat.sy / cases[ci].nomVM : null, sfGov: cases[ci].nomVM && mat.crit === 'vm' ? Math.min(e.sf.flo, mat.sy / cases[ci].nomVM) : e.sf.flo, disp: R.maxDisp * ref.E / mat.E, mass: R.volume * mat.rho * 1e-6 };
       });
       results.push({ name: cases[ci].name, note: cases[ci].note || '', nom: cases[ci].nom || null, volume: R.volume, bricks: R.nEl, h: R.h, iters: R.iterations, react: R.reactions, applied: R.applied, rows });
     }
@@ -30123,19 +30123,19 @@ const studyNum = (v, d = 3) => stressNum(v, d);
 const studyYield = v => Math.round(v).toLocaleString('en-US');
 function studyMatrixHTML(R, U) {
   const keys = R[0].rows.map(r => r.key);
-  return `<table class="stm"><tr><th>Alloy</th><th>Yield (${U.sn})</th>${R.map((c, i) => `<th title="${c.name}">${i + 1}</th>`).join('')}</tr>${keys.map((k, j) => `<tr><td>${R[0].rows[j].name}</td><td>${studyYield(R[0].rows[j].sy / U.s)}</td>${R.map((c, i) => { const r = c.rows[j]; return `<td class="${studySFClass(r.sfFree)}" data-sty-open="${i}:${k}" title="${c.name}: ${studyVerdict(r.sfFree)}. Click to open this setup in the model.">${r.sfFree >= 100 ? '99+' : studyNum(r.sfFree, 2)}</td>`; }).join('')}</tr>`).join('')}</table>
+  return `<table class="stm"><tr><th>Alloy</th><th>Yield (${U.sn})</th>${R.map((c, i) => `<th title="${c.name}">${i + 1}</th>`).join('')}</tr>${keys.map((k, j) => `<tr><td>${R[0].rows[j].name}</td><td>${studyYield(R[0].rows[j].sy / U.s)}</td>${R.map((c, i) => { const r = c.rows[j]; return `<td class="${studySFClass(r.sfGov)}" data-sty-open="${i}:${k}" title="${c.name}: ${studyVerdict(r.sfGov)}. Click to open this setup in the model.">${r.sfGov >= 100 ? '99+' : studyNum(r.sfGov, 2)}</td>`; }).join('')}</tr>`).join('')}</table>
     <ol class="stl">${R.map(c => `<li>${c.name}</li>`).join('')}</ol>`;
 }
 function studyDetailHTML(R, U) {
   return R.map((c, i) => `<details class="std" ${R.length === 1 ? 'open' : ''}><summary><b>${i + 1}. ${c.name}</b><small>${c.bricks.toLocaleString()} bricks of ${studyNum(c.h)} mm · ${c.iters} iterations</small></summary>
     ${c.note ? `<p class="note">${c.note}</p>` : ''}
-    <table class="stm stt"><tr><th>Alloy</th><th>Peak vM free (${U.sn})</th><th>Peak vM anywhere (${U.sn})</th><th>Safety factor, free</th><th>Safety factor, anywhere</th><th>Movement (${isIn() ? 'in' : 'mm'})</th><th>Mass (${isIn() ? 'oz' : 'g'})</th><th>Verdict</th></tr>
-    ${c.rows.map(r => `<tr><td>${r.name}</td><td>${studyNum(r.vmFree / U.s)}</td><td>${studyNum(r.vmPeak / U.s)}</td><td class="${studySFClass(r.sfFree)}">${studyNum(r.sfFree, 3)}</td><td class="${studySFClass(r.sfAll)}">${studyNum(r.sfAll, 3)}</td><td>${studyNum(isIn() ? r.disp / 25.4 : r.disp, 3)}</td><td>${studyNum(isIn() ? r.mass / 28.3495 : r.mass, 3)}</td><td>${studyVerdict(r.sfFree)}</td></tr>`).join('')}</table>
+    <table class="stm stt"><tr><th>Alloy</th><th>Peak vM free (${U.sn})</th><th>Peak vM anywhere (${U.sn})</th><th>SF, solver, free</th><th>SF, solver, anywhere</th>${c.rows[0].sfNom ? '<th>SF, hand check</th>' : ''}<th>Movement (${isIn() ? 'in' : 'mm'})</th><th>Mass (${isIn() ? 'oz' : 'g'})</th><th>Verdict</th></tr>
+    ${c.rows.map(r => `<tr><td>${r.name}</td><td>${studyNum(r.vmFree / U.s)}</td><td>${studyNum(r.vmPeak / U.s)}</td><td class="${studySFClass(r.sfFree)}">${studyNum(r.sfFree, 3)}</td><td class="${studySFClass(r.sfAll)}">${studyNum(r.sfAll, 3)}</td>${r.sfNom ? `<td class="${studySFClass(r.sfNom)}">${studyNum(r.sfNom, 3)}</td>` : ''}<td>${studyNum(isIn() ? r.disp / 25.4 : r.disp, 3)}</td><td>${studyNum(isIn() ? r.mass / 28.3495 : r.mass, 3)}</td><td>${studyVerdict(r.sfGov)}</td></tr>`).join('')}</table>
     ${c.nom ? `<p class="note">${c.nom}</p>` : ''}</details>`).join('');
 }
 function studyCSV(R) {
-  const rows = [['setup', 'alloy', 'yield_MPa', 'E_MPa', 'vm_free_MPa', 'vm_peak_MPa', 'safety_factor_free', 'safety_factor_anywhere', 'movement_mm', 'mass_g', 'verdict']];
-  for (const c of R) for (const r of c.rows) rows.push([c.name, r.name, r.sy, r.E, r.vmFree.toFixed(2), r.vmPeak.toFixed(2), r.sfFree.toFixed(3), r.sfAll.toFixed(3), r.disp.toFixed(5), r.mass.toFixed(3), studyVerdict(r.sfFree)]);
+  const rows = [['setup', 'alloy', 'yield_MPa', 'E_MPa', 'vm_free_MPa', 'vm_peak_MPa', 'safety_factor_free', 'safety_factor_anywhere', 'safety_factor_hand_check', 'safety_factor_governing', 'movement_mm', 'mass_g', 'verdict']];
+  for (const c of R) for (const r of c.rows) rows.push([c.name, r.name, r.sy, r.E, r.vmFree.toFixed(2), r.vmPeak.toFixed(2), r.sfFree.toFixed(3), r.sfAll.toFixed(3), r.sfNom ? r.sfNom.toFixed(3) : '', r.sfGov.toFixed(3), r.disp.toFixed(5), r.mass.toFixed(3), studyVerdict(r.sfGov)]);
   return rows.map(r => r.map(v => /[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : v).join(',')).join('\n');
 }
 function studyDownload(name, text, type) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
@@ -30159,9 +30159,9 @@ function studyDialog(mode) {
   card.querySelectorAll('#stq button').forEach(b => b.addEventListener('click', () => { STUDY.q = b.dataset.q; card.querySelectorAll('#stq button').forEach(x => x.classList.toggle('on', x === b)); }));
   const show = R => {
     STUDY.last = R;
-    out.innerHTML = `<div class="m-sec">Safety factor away from supports and loads <small>(yield ÷ von Mises)</small></div>${studyMatrixHTML(R, U)}
+    out.innerHTML = `<div class="m-sec">Safety factor <small>(yield ÷ von Mises, away from supports and loads; the lower of the solver and the hand check where there is one)</small></div>${studyMatrixHTML(R, U)}
       <div class="m-sec">Details</div>${studyDetailHTML(R, U)}
-      <p class="note">Stress was solved once per setup at the mesh above; the alloys differ only in yield, stiffness and density (stress does not depend on stiffness when the loads are forces). Peaks right at a support or load, and at sharp inside corners, are mesh-sensitive: “free” leaves out the bricks within two cells of a support or load. A screening analysis, not a certification.</p>
+      <p class="note">Stress was solved once per setup at the mesh above; the alloys differ only in yield, stiffness and density (stress does not depend on stiffness when the loads are forces). Peaks right at a support or load, and at sharp inside corners, are mesh-sensitive: “free” leaves out the bricks within two cells of a support or load, which for a screw can include the first engaged thread, so the hand check on the thread's stress area (or the beam section of a clamp) is shown beside it and the lower of the two governs. Brittle alloys (cast iron, judged on tensile strength) use the solver alone. A screening analysis, not a certification.</p>
       <div class="btns"><button class="btn" id="stCsv">Download CSV</button><button class="btn" id="stHtml">Download report</button></div>`;
     out.querySelector('#stCsv').addEventListener('click', () => studyDownload('stress-study.csv', studyCSV(R), 'text/csv'));
     out.querySelector('#stHtml').addEventListener('click', () => studyReport(R));
@@ -30192,7 +30192,7 @@ function studyReport(R) {
 <table><tr><th>Alloy</th><th>Yield (${U.sn})</th>${R.map((c, i) => `<th>${i + 1}</th>`).join('')}</tr>${R[0].rows.map((r0, j) => `<tr><td>${esc(r0.name)}</td><td>${studyYield(r0.sy / U.s)}</td>${R.map(c => `<td class="${studySFClass(c.rows[j].sfFree)}">${studyNum(c.rows[j].sfFree, 2)}</td>`).join('')}</tr>`).join('')}</table>
 <ol>${R.map(c => `<li>${esc(c.name)}</li>`).join('')}</ol>
 ${R.map((c, i) => `<h2>${i + 1}. ${esc(c.name)}</h2><small>${c.bricks.toLocaleString()} bricks of ${studyNum(c.h)} mm, ${c.iters} iterations</small>${c.note ? `<p>${esc(c.note)}</p>` : ''}
-<table><tr><th>Alloy</th><th>Peak vM free (${U.sn})</th><th>Peak vM anywhere (${U.sn})</th><th>Safety factor, free</th><th>Safety factor, anywhere</th><th>Movement (mm)</th><th>Mass (g)</th><th>Verdict</th></tr>${c.rows.map(r => `<tr><td>${esc(r.name)}</td><td>${studyNum(r.vmFree / U.s)}</td><td>${studyNum(r.vmPeak / U.s)}</td><td class="${studySFClass(r.sfFree)}">${studyNum(r.sfFree, 3)}</td><td class="${studySFClass(r.sfAll)}">${studyNum(r.sfAll, 3)}</td><td>${studyNum(r.disp, 3)}</td><td>${studyNum(r.mass, 3)}</td><td>${studyVerdict(r.sfFree)}</td></tr>`).join('')}</table>${c.nom ? `<p><small>${esc(c.nom)}</small></p>` : ''}`).join('')}
+<table><tr><th>Alloy</th><th>Peak vM free (${U.sn})</th><th>Peak vM anywhere (${U.sn})</th><th>SF, solver, free</th><th>SF, solver, anywhere</th>${c.rows[0].sfNom ? '<th>SF, hand check</th>' : ''}<th>Movement (mm)</th><th>Mass (g)</th><th>Verdict</th></tr>${c.rows.map(r => `<tr><td>${esc(r.name)}</td><td>${studyNum(r.vmFree / U.s)}</td><td>${studyNum(r.vmPeak / U.s)}</td><td class="${studySFClass(r.sfFree)}">${studyNum(r.sfFree, 3)}</td><td class="${studySFClass(r.sfAll)}">${studyNum(r.sfAll, 3)}</td>${r.sfNom ? `<td class="${studySFClass(r.sfNom)}">${studyNum(r.sfNom, 3)}</td>` : ''}<td>${studyNum(r.disp, 3)}</td><td>${studyNum(r.mass, 3)}</td><td>${studyVerdict(r.sfFree)}</td></tr>`).join('')}</table>${c.nom ? `<p><small>${esc(c.nom)}</small></p>` : ''}`).join('')}
 <p><small>Each setup was solved once; the alloys differ in yield, stiffness and density. Peaks at supports, loads and sharp inside corners depend on the mesh. Screening analysis: confirm critical parts with a body-fitted mesh and test.</small></p>`;
   studyDownload('stress-study.html', html, 'text/html'); toast('Saved stress-study.html');
 }
@@ -30241,18 +30241,22 @@ function studyAutoApply(tries) {
   } catch (e) { if (tries < 24) setTimeout(() => studyAutoApply(tries + 1), 250); }
 }
 // a toe clamp: the cap screw pulls the strap down on its seat; the toe pad rests on the work (free to slide), the heel pad on its screw
-function studyClampCases(id, d) {
+function studyClampCases(id, d, g = { L: 50, W: 28, H: 22 }) {
   const S = (t, o) => ({ feat: id, part: 0, t, ...o });
   const cons = [{ kind: 'frictionless', sel: S('P', { n: [0, 0, -1], at: [15, 0, 0] }) }, { kind: 'fixed', sel: S('P', { n: [0, 0, -1], at: [-18, 0, 0.5] }) }];
   const seat = S('P', { n: [0, 0, 1], at: [0, 0, 14] }), nose = S('P', { n: [1, 0, 0], at: [25, 0, 8] });
   const pre = (T, extra) => ({ kind: 'force', mag: T / (0.2 * d / 1000), dir: 'z-', sel: seat, ...extra });
   const nm = (T, s) => `${s}, ${(T / (0.2 * d / 1000) / 1000).toFixed(0)} kN (${T} N·m on the M${d})`;
+  // hand check: the strap is a beam between the pads; the critical section is under the counterbore, where the slot leaves two webs
+  const xt = g.L / 2 - 9.2, xh = g.L / 2 - 7.5, bw = g.W - (d + 1.5), hw = g.H - 0.8 * d;
+  const hand = T => { const P = T / (0.2 * d / 1000), M = P * xh / (xt + xh) * xt; return 6 * M / (bw * hw * hw); };
+  const nomT = T => `Hand check: the strap is a beam between the pads (toe ${xt.toFixed(0)} mm and heel ${xh.toFixed(0)} mm from the screw); the section under the counterbore is two webs ${bw.toFixed(1)} mm wide in all and ${hw.toFixed(0)} mm deep, so σ = 6 M ÷ (b h²) = ${hand(T).toFixed(0)} MPa.`;
   const note = (T, more) => `Preload ${(T / (0.2 * d / 1000)).toFixed(0)} N = torque ÷ (K × d), K 0.2. The cap screw bears on the counterbore seat; the toe pad is frictionless (rests on the work), the heel pad is fixed (its screw).${more || ''}`;
   return [
-    { name: nm(10, 'Light clamping'), note: note(10), cons, loads: [pre(10)] },
-    { name: nm(30, 'Normal clamping'), note: note(30), cons, loads: [pre(30)] },
-    { name: nm(50, 'Wrench-tight'), note: note(50), cons, loads: [pre(50)] },
-    { name: nm(30, 'Normal clamping') + ' + 3 kN cutting load', note: note(30, ' A 3 kN cutting force pushes the work against the toe face, toward the heel.'), cons, loads: [pre(30), { kind: 'force', mag: 3000, dir: 'x-', sel: nose }] },
+    { name: nm(10, 'Light clamping'), note: note(10), nom: nomT(10), nomVM: hand(10), cons, loads: [pre(10)] },
+    { name: nm(30, 'Normal clamping'), note: note(30), nom: nomT(30), nomVM: hand(30), cons, loads: [pre(30)] },
+    { name: nm(50, 'Wrench-tight'), note: note(50), nom: nomT(50), nomVM: hand(50), cons, loads: [pre(50)] },
+    { name: nm(30, 'Normal clamping') + ' + 3 kN cutting load', note: note(30, ' A 3 kN cutting force pushes the work against the toe face, toward the heel.'), nom: nomT(30) + ' (the preload alone; the cutting load changes it by a few per cent).', nomVM: hand(30), cons, loads: [pre(30), { kind: 'force', mag: 3000, dir: 'x-', sel: nose }] },
   ];
 }
 // a socket head cap screw with the engaged thread as a stress-area cylinder: the thread is held, the load comes through the head
@@ -30260,23 +30264,24 @@ function studyScrewCases(id, d, L, tl, p) {
   const S = (t, o) => ({ feat: id, part: 0, t, ...o });
   const ds = d - 0.9382 * p, As = Math.PI / 4 * ds * ds, Ag = Math.PI / 4 * d * d, rs = ds / 2, rd = d / 2, hd = d * 1.6 / 2, hk = d;
   const thr = S('C', { r: [rs - 0.2, rs + 0.2], at: [0, 0, -(L - tl / 2)] }), under = S('P', { n: [0, 0, -1], at: [0, 0, 0] }), top = S('P', { n: [0, 0, 1], at: [0, 0, hk] });
-  const grip = S('C', { r: [rd - 0.2, rd + 0.2], at: [0, 0, -(L - tl) / 2] }), head = S('C', { r: [hd - 0.5, hd + 0.5], at: [0, 0, hk / 2] });
+  const grip = S('C', { r: [rd - 0.2, rd + 0.2], at: [0, 0, -(L - tl) / 2] }), head = S('C', { r: [d * 0.68, d * 0.92], at: [0, 0, hk / 2] });
   const cons = [{ kind: 'fixed', sel: thr }], m = v => v.toFixed(0), arm = (L - tl) + hk / 2;
   const kN = F => (F / 1000).toFixed(F % 1000 ? 1 : 0);
+  const vmN = (sig, tau) => Math.hypot(sig, Math.sqrt(3) * tau);
   const ax = F => ({ kind: 'force', mag: F, dir: 'z+', sel: under });
   const Mb = (F, a) => F * a, sb = (M, dd) => 32 * M / (Math.PI * dd ** 3), tt = (T, dd) => 16 * T / (Math.PI * dd ** 3);
   return [
-    { name: `Axial tension ${kN(10000)} kN`, note: 'The joint pushes up on the underside of the head, the thread holds: a plain preload.', cons, loads: [ax(10000)],
+    { name: `Axial tension ${kN(10000)} kN`, note: 'The joint pushes up on the underside of the head, the thread holds: a plain preload.', cons, loads: [ax(10000)], nomVM: 10000 / As,
       nom: `Hand check: F ÷ stress area ${m(As)} mm² = ${m(10000 / As)} MPa in the threaded part, F ÷ ${m(Ag)} mm² = ${m(10000 / Ag)} MPa in the shank (uniform, so von Mises equals it).` },
-    { name: `Axial tension ${kN(25000)} kN (about 75 % of proof load, class 8.8)`, note: 'The usual tightening target for a class 8.8 M10.', cons, loads: [ax(25000)],
+    { name: `Axial tension ${kN(25000)} kN (about 75 % of proof load, class 8.8)`, note: 'The usual tightening target for a class 8.8 M10.', cons, loads: [ax(25000)], nomVM: 25000 / As,
       nom: `Hand check: ${m(25000 / As)} MPa in the threaded part, ${m(25000 / Ag)} MPa in the shank.` },
-    { name: `Sideways 1 kN along the grip (shear and bending)`, note: 'A transverse load spread over the unthreaded length, held at the thread.', cons, loads: [{ kind: 'force', mag: 1000, dir: 'x+', sel: grip }],
+    { name: `Sideways 1 kN along the grip (shear and bending)`, note: 'A transverse load spread over the unthreaded length, held at the thread.', cons, loads: [{ kind: 'force', mag: 1000, dir: 'x+', sel: grip }], nomVM: vmN(sb(1000 * (L - tl) / 2, ds), 1000 / As),
       nom: `Hand check: bending moment at the top of the thread 1000 × ${m((L - tl) / 2)} mm = ${(1000 * (L - tl) / 2 / 1000).toFixed(1)} N·m, 32 M ÷ π d³ = ${m(sb(1000 * (L - tl) / 2, ds))} MPa on the thread's stress diameter, plus shear 1000 ÷ ${m(As)} mm² = ${m(1000 / As)} MPa.` },
-    { name: `Bending: 500 N sideways on the head`, note: 'A prying load on the head, held at the thread.', cons, loads: [{ kind: 'force', mag: 500, dir: 'x+', sel: head }],
+    { name: `Bending: 500 N sideways on the head`, note: 'A prying load on the head, held at the thread.', cons, loads: [{ kind: 'force', mag: 500, dir: 'x+', sel: head }], nomVM: vmN(sb(500 * arm, ds), 500 / As),
       nom: `Hand check: lever arm ≈ ${m(arm)} mm, M = ${(500 * arm / 1000).toFixed(1)} N·m, 32 M ÷ π d³ = ${m(sb(500 * arm, ds))} MPa on the thread's stress diameter.` },
-    { name: `Tightening torque 20 N·m`, note: 'The wrench turns the head, the thread holds.', cons, loads: [{ kind: 'moment', mag: 20000, dir: 'out', sel: top }],
+    { name: `Tightening torque 20 N·m`, note: 'The wrench turns the head, the thread holds.', cons, loads: [{ kind: 'moment', mag: 20000, dir: 'out', sel: top }], nomVM: vmN(0, tt(20000, ds)),
       nom: `Hand check: 16 T ÷ π d³ = ${m(tt(20000, d))} MPa shear in the shank (von Mises ${m(Math.sqrt(3) * tt(20000, d))} MPa), ${m(tt(20000, ds))} MPa shear (${m(Math.sqrt(3) * tt(20000, ds))} von Mises) on the thread's stress diameter.` },
-    { name: `Tightening: ${kN(15000)} kN preload + 15 N·m torque`, note: 'Both together, the state while tightening.', cons, loads: [ax(15000), { kind: 'moment', mag: 15000, dir: 'out', sel: top }],
+    { name: `Tightening: ${kN(15000)} kN preload + 15 N·m torque`, note: 'Both together, the state while tightening.', cons, loads: [ax(15000), { kind: 'moment', mag: 15000, dir: 'out', sel: top }], nomVM: vmN(15000 / As, tt(15000, ds)),
       nom: `Hand check on the thread's stress diameter: σ ${m(15000 / As)} MPa, τ ${m(tt(15000, ds))} MPa, von Mises √(σ² + 3τ²) = ${m(Math.hypot(15000 / As, Math.sqrt(3) * tt(15000, ds)))} MPa.` },
   ];
 }
