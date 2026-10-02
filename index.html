@@ -14145,6 +14145,7 @@ function camAddOp(type, kind) {
     drill: { tool: pick('drill'), mode: 'peck', peck: 3, through: 1, diams: [] },
     parallel: { tool: pick('ball'), stepover: 0.5, leave: 0, angle: 0, overrun: true },
     chamfer: { tool: pick('chamfer'), through: 0.3, leave: 0, faces: [] },
+    get engrave() { return engDefaults(camStock(), (C.tools.find(t => t.type === 'chamfer' && (t.cone || 90) <= 90) || camToolOfType('chamfer', 3, { cone: 60 })).n); },
   };
   const op = { ...base, ...defs[type] };
   if (type === 'chamfer' && !C.tools.some(t => t.type === 'chamfer')) op.tool = camToolOfType('chamfer', stdChamfer()[3] || 12, { cone: 90 }).n;   // a cone is what lies on the face
@@ -14429,6 +14430,7 @@ function camPanel() {
     }
     if (op.type === 'parallel') f += `<div class="row3">${num('opSoL', op.stepover, 'Stepover', 0.05)}${num('opLeave', op.leave, 'Leave', 0.05)}<div class="field"><span>Direction</span><div class="seg"><button data-opset="angle:0" class="${!op.angle ? 'on' : ''}">X</button><button data-opset="angle:90" class="${op.angle === 90 ? 'on' : ''}">Y</button></div></div></div>
       <label class="chk"><input type="checkbox" id="opOverrun" ${op.overrun ? 'checked' : ''}> Run the tool past the part edges</label>`;
+    if (op.type === 'engrave') f += engraveFields(op);
     { const fb = ['parallel', 'chamfer', 'contour', 'pocket'].includes(op.type) ? finishBlock(op, toolOf(op.tool)) : ''; if (fb) f += `<h3 class="sub">Surface finish</h3>${fb}`; }
     const warn = P && P.warn.length ? P.warn.map(w => `<p class="note err-note">${w}</p>`).join('') : '';
     const info = P && P.pending ? '<p class="note"><span class="spin"></span> Computing the 3D toolpath in the background…</p>' : stats ? `<dl class="kv"><dt>Cutting</dt><dd>${fmtRun(stats.feedLen)}</dd><dt>Rapids</dt><dd>${fmtRun(stats.rapidLen)}</dd><dt>Machining time</dt><dd>${fmtTime(stats.min)}</dd>${P.info ? `<dt>Detail</dt><dd>${P.info}</dd>` : ''}</dl>` : '';
@@ -27261,6 +27263,153 @@ function phyShop() {
   function autoTool() { if (S.stage === 1) S.tool = 1; else if (S.stage === 2) S.tool = S.method === 'finder' ? 3 : 4; else if (S.stage >= 3) S.tool = 2; toolMesh(); if (S.stage === 2 || S.stage >= 3) hand.on = S.stage === 3; }
   build();
   return sim;
+}
+
+// ── Engraving: text (any font, straight, on an arc or a wave) or an image, cut onto the part's top surface ──
+// The 2-D shapes come from a canvas (so any font and any image format the browser reads works); the Z of every
+// point follows the part's own top surface, so bent, twisted and warped bodies are engraved where they really are.
+const ENG_FONTS = { sans: ['Sans', '"Inter","Helvetica Neue",Arial,sans-serif'], serif: ['Serif', 'Georgia,"Times New Roman",serif'], mono: ['Mono', '"JetBrains Mono",Consolas,"Courier New",monospace'], block: ['Block', 'Impact,"Arial Black",sans-serif'], script: ['Script', '"Brush Script MT","Segoe Script",cursive'] };
+const ENG_BMP = new Map();                                                    // decoded images, by id + revision
+const engDefaults = (st, tool) => ({ tool, src: 'text', text: 'DATUM', font: 'sans', size: Math.max(5, Math.min(20, (st.x1 - st.x0) / 6)), spacing: 0, bold: true, italic: false, base: 'line', bend: 40, mode: 'outline', depth: 0.3, relief: 0.8, pitch: 0.35, x: (st.x0 + st.x1) / 2, y: (st.y0 + st.y1) / 2, angle: 0, mirror: false, imgW: 40, thr: 128, inv: false, rev: 0 });
+function engLoad(op) {
+  const key = op.id + ':' + op.rev; if (ENG_BMP.has(key)) return ENG_BMP.get(key);
+  const url = doc.engImgs && doc.engImgs[op.id]; if (!url) return null;
+  ENG_BMP.set(key, 'loading');
+  const im = new Image();
+  im.onload = () => { const c = document.createElement('canvas'), s = Math.min(1, 1100 / Math.max(im.width, im.height)); c.width = Math.max(2, Math.round(im.width * s)); c.height = Math.max(2, Math.round(im.height * s)); const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(im, 0, 0, c.width, c.height); ENG_BMP.set(key, { w: c.width, h: c.height, d: x.getImageData(0, 0, c.width, c.height).data }); TP.delete(op.id); camRefresh(); };
+  im.onerror = () => { ENG_BMP.set(key, { err: true }); TP.delete(op.id); camRefresh(); };
+  im.src = url; return 'loading';
+}
+function engImport(op, file) {
+  if (!file) return; const rd = new FileReader();
+  rd.onload = () => {                                                        // shrink to a size the document can carry
+    const im = new Image();
+    im.onload = () => { const c = document.createElement('canvas'), s = Math.min(1, 900 / Math.max(im.width || 300, im.height || 300)); c.width = Math.max(2, Math.round((im.width || 300) * s)); c.height = Math.max(2, Math.round((im.height || 300) * s)); const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(im, 0, 0, c.width, c.height); const before = snap(); doc.engImgs = doc.engImgs || {}; doc.engImgs[op.id] = c.toDataURL('image/png'); op.src = 'image'; op.rev = (op.rev || 0) + 1; op.imgName = file.name; if (op.mode === 'relief') op.mode = 'relief'; op.imgW = Math.min(op.imgW || 40, 200); record('Engrave image ' + file.name, before); camRefresh(); };
+    im.onerror = () => toast('That file could not be read as an image.'); im.src = rd.result;
+  };
+  rd.readAsDataURL(file);
+}
+// text → a gray raster (white paper, black ink), mm per pixel
+function engTextRaster(op) {
+  const text = String(op.text || '').trim(); if (!text) return { err: 'Type some text to engrave.' };
+  const F = 150, k = op.size / F, fam = (ENG_FONTS[op.font] || ENG_FONTS.sans)[1], font = `${op.italic ? 'italic ' : ''}${op.bold ? '700' : '400'} ${F}px ${fam}`;
+  const c = document.createElement('canvas'), x = c.getContext('2d'); x.font = font;
+  const chars = [...text], adv = chars.map(ch => x.measureText(ch).width + (op.spacing || 0) / k), total = adv.reduce((a, b) => a + b, 0);
+  const R = op.base === 'arc' ? Math.max(op.size, op.bend) / k : 0, A = op.base === 'wave' ? Math.abs(op.bend) / k : 0, pad = F * 0.4;
+  let W = Math.ceil(total + 2 * pad), Hh = Math.ceil(F * 1.6 + 2 * pad + (A ? A * 2 : 0));
+  if (R) { const arc = total / R; W = Math.ceil(2 * R * Math.sin(Math.min(Math.PI, arc) / 2) + 2 * pad + F * 1.4); Hh = Math.ceil(R * (1 - Math.cos(Math.min(Math.PI, arc) / 2)) + F * 1.6 + 2 * pad); }
+  if (W * Hh > 6e6) return { err: 'That text is too long for its size — shorten it or make it smaller.' };
+  c.width = W; c.height = Hh; x.fillStyle = '#fff'; x.fillRect(0, 0, W, Hh); x.fillStyle = '#000'; x.font = font; x.textBaseline = 'alphabetic';
+  let s = 0;
+  chars.forEach((ch, i) => {
+    const mid = s + adv[i] / 2 - total / 2;
+    x.save();
+    if (R) { const th = mid / R; x.translate(W / 2 + R * Math.sin(th), pad + F * 1.15 + R * (1 - Math.cos(th))); x.rotate(th); }
+    else x.translate(W / 2 + mid, pad + F * 1.15 + (A ? A + Math.sin(mid / (F * 2.2)) * A : 0));
+    x.fillText(ch, -adv[i] / 2 + (op.spacing || 0) / k / 2, 0); x.restore(); s += adv[i];
+  });
+  return { w: W, h: Hh, d: x.getImageData(0, 0, W, Hh).data, k, text: true };
+}
+function engRaster(op) {
+  if (op.src === 'image') {
+    const b = engLoad(op); if (!b) return { err: 'Choose an image to engrave.' }; if (b === 'loading') return { pending: true }; if (b.err) return { err: 'That image could not be decoded.' };
+    return { w: b.w, h: b.h, d: b.d, k: (op.imgW || 40) / b.w, text: false };
+  }
+  return engTextRaster(op);
+}
+// marching squares on the dark pixels → closed outlines, as flat [x1,y1,x2,y2] segments in half-pixel units
+function engOutlines(R, thr, inv) {
+  const { w, h, d } = R, dark = (i, j) => { if (i < 0 || j < 0 || i >= w || j >= h) return 0; const o = (j * w + i) * 4, g = 0.299 * d[o] + 0.587 * d[o + 1] + 0.114 * d[o + 2]; return (inv ? g >= thr : g < thr) ? 1 : 0; };
+  const segs = [];
+  for (let j = -1; j < h; j++) for (let i = -1; i < w; i++) {
+    const a = dark(i, j), b = dark(i + 1, j), c = dark(i + 1, j + 1), e = dark(i, j + 1), idx = a | (b << 1) | (c << 2) | (e << 3);
+    if (idx === 0 || idx === 15) continue;
+    const T = [2 * i + 2, 2 * j + 1], Rr = [2 * i + 3, 2 * j + 2], Bm = [2 * i + 2, 2 * j + 3], Lf = [2 * i + 1, 2 * j + 2];      // edge midpoints (x2)
+    const add = (p, q) => segs.push([p[0], p[1], q[0], q[1]]);
+    switch (idx) { case 1: case 14: add(Lf, T); break; case 2: case 13: add(T, Rr); break; case 3: case 12: add(Lf, Rr); break; case 4: case 11: add(Rr, Bm); break; case 5: add(Lf, T); add(Rr, Bm); break; case 6: case 9: add(T, Bm); break; case 7: case 8: add(Lf, Bm); break; case 10: add(T, Rr); add(Lf, Bm); break; }
+  }
+  return bpChains(segs, 0.5).filter(l => l.length >= 4);
+}
+function engSimplify(pts, tol) {
+  if (pts.length < 3) return pts; const keep = new Uint8Array(pts.length); keep[0] = keep[pts.length - 1] = 1; const stack = [[0, pts.length - 1]];
+  while (stack.length) { const [i, j] = stack.pop(); const A = pts[i], B = pts[j], dx = B[0] - A[0], dy = B[1] - A[1], L = Math.hypot(dx, dy); let md = -1, mk = -1; for (let k = i + 1; k < j; k++) { const q = pts[k], dd = L > 0 ? Math.abs((q[0] - A[0]) * dy - (q[1] - A[1]) * dx) / L : Math.hypot(q[0] - A[0], q[1] - A[1]); if (dd > md) { md = dd; mk = k; } } if (md > tol) { keep[mk] = 1; stack.push([i, mk], [mk, j]); } }
+  return pts.filter((_, k) => keep[k]);
+}
+GEN.engrave = function (op, tool, st, part, P) {
+  const R = engRaster(op); if (R.pending) { P.pending = true; return; } if (R.err) { P.warn.push(R.err); return; }
+  const k = R.k, ca = Math.cos((op.angle || 0) * Math.PI / 180), sa = Math.sin((op.angle || 0) * Math.PI / 180), flip = op.mirror ? -1 : 1;
+  const toMM = (px, py) => { const u = (px - R.w / 2) * k * flip, v = -(py - R.h / 2) * k; return [op.x + u * ca - v * sa, op.y + u * sa + v * ca]; };
+  const depth = Math.max(0.02, op.depth || 0.3), safe = st.z1 + cam().safe;
+  const surf = (x, y) => { const z = partTopAt(x, y); return z === -Infinity ? st.z1 : z; };
+  let ztop = st.z1;
+  const paths = [];
+  const run = (pts, zf) => { const q = []; for (let i = 0; i < pts.length; i++) { const p = pts[i]; if (i && Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]) > 0.6) { const n = Math.ceil(Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]) / 0.5); for (let s2 = 1; s2 < n; s2++) { const t = s2 / n, x = pts[i - 1][0] + (p[0] - pts[i - 1][0]) * t, y = pts[i - 1][1] + (p[1] - pts[i - 1][1]) * t; const sz = surf(x, y); ztop = Math.max(ztop, sz); q.push([x, y, sz - zf(x, y, t)]); } } const sz = surf(p[0], p[1]); ztop = Math.max(ztop, sz); q.push([p[0], p[1], sz - zf(p[0], p[1], 1, i)]); } paths.push(q); };
+  const gray = (i, j) => { i = Math.max(0, Math.min(R.w - 1, i | 0)); j = Math.max(0, Math.min(R.h - 1, j | 0)); const o = (j * R.w + i) * 4; return 0.299 * R.d[o] + 0.587 * R.d[o + 1] + 0.114 * R.d[o + 2]; };
+  const dark = (i, j) => { const g = gray(i, j); return op.inv ? g >= op.thr : g < op.thr; };
+  if (op.mode === 'outline') {
+    for (const ch of engOutlines(R, op.thr, op.inv)) { const pts = engSimplify(ch.map(p => toMM(p[0] / 2 - 0.5, p[1] / 2 - 0.5)), Math.max(0.02, k * 0.6)); if (pts.length >= 2) run(pts, () => depth); }
+  } else {
+    const step = Math.max(0.05, op.pitch || 0.35), rows = Math.max(1, Math.round(step / k));
+    let dir = 1;
+    for (let j = 0; j < R.h; j += rows) {
+      const runs = []; let a = -1;
+      for (let i = 0; i <= R.w; i++) { const on = i < R.w && (op.mode === 'relief' || dark(i, j)); if (on && a < 0) a = i; else if (!on && a >= 0) { runs.push([a, i - 1]); a = -1; } }
+      if (dir < 0) runs.reverse();
+      for (const [i0, i1] of runs) {
+        const xs = []; const stepPx = Math.max(1, Math.round(0.25 / k));
+        for (let i = i0; i <= i1; i += stepPx) xs.push(i); if (xs[xs.length - 1] !== i1) xs.push(i1);
+        if (dir < 0) xs.reverse();
+        const pts = xs.map(i => toMM(i, j)), depths = xs.map(i => op.mode === 'relief' ? Math.max(0.0, (op.inv ? gray(i, j) / 255 : 1 - gray(i, j) / 255)) * (op.relief || 0.8) : depth);
+        if (op.mode === 'relief' && depths.every(v => v < 0.02)) continue;
+        run(pts, (x, y, t, i) => (i != null ? depths[i] : depths[Math.min(depths.length - 1, Math.round(t * (depths.length - 1)))]));
+      }
+      dir = -dir;
+    }
+  }
+  if (!paths.length) { P.warn.push('Nothing to engrave — check the text, threshold or size.'); return; }
+  // order loops by nearest start, then cut each at the surface-following depth
+  const ret = Math.max(st.z1, ztop) + cam().retract, ordered = []; let cur = [op.x, op.y], pool = paths.slice();
+  while (pool.length) { let bi = 0, bd = Infinity; pool.forEach((q, i) => { const dd = (q[0][0] - cur[0]) ** 2 + (q[0][1] - cur[1]) ** 2; if (dd < bd) { bd = dd; bi = i; } }); const q = pool.splice(bi, 1)[0]; ordered.push(q); cur = q[q.length - 1]; }
+  let first = true;
+  for (const q of ordered) {
+    if (first) { P.rapid(q[0][0], q[0][1], safe); first = false; } else P.rapid(P.cur[0], P.cur[1], ret);
+    P.rapid(q[0][0], q[0][1], Math.max(q[0][2] + 1.5, ret > q[0][2] + 3 ? q[0][2] + 1.5 : ret));
+    P.plunge(q[0][0], q[0][1], q[0][2]);
+    for (let i = 1; i < q.length; i++) P.feed(q[i][0], q[i][1], q[i][2], tool.feed * 0.7);
+    if (op.mode === 'outline' && q.length > 2 && Math.hypot(q[0][0] - q[q.length - 1][0], q[0][1] - q[q.length - 1][1]) < 0.4) P.feed(q[0][0], q[0][1], q[0][2], tool.feed * 0.7);
+  }
+  P.rapid(P.cur[0], P.cur[1], safe);
+  P.info = `${ordered.length} stroke${ordered.length === 1 ? '' : 's'} on the part's surface · ${op.mode === 'relief' ? 'relief to ' + fmtLs(op.relief) : fmtLs(depth) + ' deep'}`;
+};
+OP_INFO.engrave = { name: 'Engrave', icon: 'camcontour', tip: 'Engraves text (any font, straight, on an arc or a wave) or an image onto the top surface, following the surface: flat, bent, twisted or warped. Outline traces the letters, Fill hatches them, Relief cuts an image in depth by its brightness.' };
+function engraveFields(op) {
+  const seg = (k, list) => `<div class="seg">${list.map(([v, l]) => `<button data-eg-set="${k}:${v}" class="${op[k] === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+  const inp = (k, lab, step, len, extra = '') => `<label class="field"><span>${lab}${len ? ' (' + uName() + ')' : ''}</span><input type="number" data-eg="${k}" ${len ? 'data-len="1"' : ''} step="${step}" value="${len ? uval(+op[k]) : +(+op[k]).toFixed(3)}" ${extra}></label>`;
+  let h = `<div class="field"><span>What to engrave</span>${seg('src', [['text', 'Text'], ['image', 'Image']])}</div>`;
+  if (op.src === 'image') {
+    h += `<div class="field"><span>Image (any format the browser reads: PNG, JPG, GIF, WebP, BMP, SVG, AVIF…)</span><div class="btns"><button class="btn" data-eg-file>${op.imgName ? 'Change: ' + xmlEsc(op.imgName) : 'Choose an image…'}</button></div></div><div class="row2">${inp('imgW', 'Width', 1, 1, 'min="1"')}${inp('thr', 'Threshold', 5, 0, 'min="1" max="254"')}</div><label class="chk"><input type="checkbox" data-eg="inv" ${op.inv ? 'checked' : ''}> Engrave the light parts instead of the dark</label>`;
+  } else {
+    h += `<label class="field"><span>Text</span><input type="text" data-eg="text" value="${xmlEsc(op.text || '')}" maxlength="120"></label><div class="field"><span>Font</span><select data-eg="font">${Object.entries(ENG_FONTS).map(([k, v]) => `<option value="${k}" ${op.font === k ? 'selected' : ''}>${v[0]}</option>`).join('')}</select></div><div class="row2">${inp('size', 'Letter height', 1, 1, 'min="1"')}${inp('spacing', 'Extra spacing', 0.1, 1)}</div><div class="row2"><label class="chk"><input type="checkbox" data-eg="bold" ${op.bold ? 'checked' : ''}> Bold</label><label class="chk"><input type="checkbox" data-eg="italic" ${op.italic ? 'checked' : ''}> Italic</label></div><div class="field"><span>Baseline</span>${seg('base', [['line', 'Straight'], ['arc', 'On an arc'], ['wave', 'Wavy']])}</div>${op.base !== 'line' ? inp('bend', op.base === 'arc' ? 'Arc radius' : 'Wave height', 1, 1, 'min="1"') : ''}`;
+  }
+  h += `<div class="field"><span>Cut</span>${seg('mode', [['outline', 'Outline'], ['fill', 'Fill'], ...(op.src === 'image' ? [['relief', 'Relief (by brightness)']] : [])])}</div>`;
+  h += `<div class="row2">${inp(op.mode === 'relief' ? 'relief' : 'depth', op.mode === 'relief' ? 'Deepest' : 'Depth', 0.05, 1, 'min="0.02"')}${op.mode !== 'outline' ? inp('pitch', 'Line spacing', 0.05, 1, 'min="0.05"') : '<span></span>'}</div>`;
+  h += `<div class="row3">${inp('x', 'Center X', 1, 1)}${inp('y', 'Center Y', 1, 1)}${inp('angle', 'Angle °', 5, 0)}</div><label class="chk"><input type="checkbox" data-eg="mirror" ${op.mirror ? 'checked' : ''}> Mirror (for engraving the back)</label>`;
+  return h + `<p class="note">The Z of every point follows the part's top surface, so the cut lies on a bent, twisted or warped body exactly where the surface is. Use a V-bit or ball cutter.</p>`;
+}
+{
+  const bind0 = bindCamPanel;
+  bindCamPanel = function () {
+    bind0();
+    const op = CAMUI.view === 'op' && opById(CAMUI.op); if (!op || op.type !== 'engrave') return;
+    panel.querySelectorAll('[data-eg-set]').forEach(b => b.addEventListener('click', () => { const [k, v] = b.dataset.egSet.split(':'); const o2 = { src: 1, mode: 1, base: 1 }; camEdit(op, k, v); if (k === 'src' && v === 'image' && op.mode === 'outline' && !(doc.engImgs && doc.engImgs[op.id])) { /* keep */ } }));
+    panel.querySelectorAll('[data-eg]').forEach(el => el.addEventListener('change', () => {
+      const k = el.dataset.eg; let v = el.type === 'checkbox' ? el.checked : el.type === 'number' ? parseFloat(el.value) : el.value;
+      if (el.type === 'number') { if (!Number.isFinite(v)) return; if (el.dataset.len) v = fromU(v); }
+      camEdit(op, k, v);
+    }));
+    const f = panel.querySelector('[data-eg-file]');
+    if (f) f.addEventListener('click', () => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*,.svg,.avif,.bmp,.webp,.gif,.png,.jpg,.jpeg'; inp.onchange = () => engImport(op, inp.files[0]); inp.click(); });
+  };
 }
 
 PHY_SIMS.chips = ['Chips & cutting', phyChips];
