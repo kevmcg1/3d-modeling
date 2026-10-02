@@ -12163,6 +12163,10 @@ function faceRegion(mesh, fid) {
     }
     const parts = [...area.entries()].filter(([, ar]) => ar > 1e-4).sort((a, b) => b[1] - a[1])
       .map(([ri]) => { const r = arr.regions[ri]; return { outer: tessLoop(r.outer, 0.002).pts, holes: r.holes.map(h => tessLoop(h, 0.002).pts) }; });
+    // a region sitting inside a hole of another region is a different face (the floor of a pocket nested in this one's)
+    const inLoop = (q, pts) => { let c = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const u = pts[i], v = pts[j]; if ((u.y > q.y) !== (v.y > q.y) && q.x < (v.x - u.x) * (q.y - u.y) / (v.y - u.y) + u.x) c = !c; } return c; };
+    const real = parts.filter(q => !parts.some(o => o !== q && o.holes.some(h => inLoop(q.outer[0], h))));
+    if (real.length) { parts.length = 0; parts.push(...real); }
     if (parts.length) res = { ...parts[0], parts };
   } catch (e) { res = null; }
   mesh[key] = res;
