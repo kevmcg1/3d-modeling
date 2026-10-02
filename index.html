@@ -26591,6 +26591,7 @@ function physicsOpen(id = PHY.id) {
 // the lab's control card: built from the sim's controls; a sim that changes them sets cardDirty
 function phyCard() {
   const card = PHY.el.querySelector('#phyCard');
+  card.classList.toggle('many', PHY.sim.controls.length > 10);
   card.innerHTML = PHY.sim.controls.map(c => c.t === 'sel' ? `<label><span>${c.label}</span><select data-c="${c.k}">${c.opts.map(([v, l]) => `<option value="${v}" ${v === c.v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>` : c.t === 'range' ? `<label><span>${c.label}</span><input type="range" data-c="${c.k}" min="${c.min}" max="${c.max}" step="${c.step}" value="${c.v}"></label>` : c.t === 'chk' ? `<label class="chk"><input type="checkbox" data-c="${c.k}" ${c.v ? 'checked' : ''}> ${c.label}</label>` : `<button class="btn" data-c="${c.k}">${c.label}</button>`).join('');
   card.oninput = card.onchange = card.onclick = e => {
     const t = e.target.closest('[data-c]'); if (!t) return;
@@ -26616,7 +26617,7 @@ function phyLoop(now) {
   if (((now / 250) | 0) !== PHY.tick) { PHY.tick = (now / 250) | 0; PHY.el.querySelector('#phyInfo').textContent = sim.info(); }
 }
 const phyStyle = document.createElement('style');
-phyStyle.textContent = '.phy { position: fixed; inset: 0; z-index: 70; display: flex; flex-direction: column; background: var(--bg, #e9eef5); } .phy[hidden] { display: none; } .phy-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 14px; border-bottom: 1px solid var(--rule); background: var(--panel); } .phy-sp { flex: 1; } .phy-main { position: relative; flex: 1; min-height: 0; } #phyCv { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; } .phy-card { position: absolute; left: 12px; top: 12px; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: color-mix(in srgb, var(--panel) 92%, transparent); border: 1px solid var(--rule); border-radius: 10px; backdrop-filter: blur(8px); font-size: 12px; max-width: 240px; } .phy-card label { display: flex; flex-direction: column; gap: 3px; color: var(--ink-2); } .phy-card label.chk { flex-direction: row; align-items: center; gap: 6px; } .phy-card select, .phy-card input[type=range] { width: 100%; } .phy-info { position: absolute; left: 12px; bottom: 12px; right: 12px; white-space: pre-line; font-size: 12px; color: var(--ink-2); background: color-mix(in srgb, var(--panel) 85%, transparent); padding: 6px 10px; border-radius: 8px; pointer-events: none; } @media (max-width: 700px) { .phy-card { right: 12px; max-width: none; flex-direction: row; flex-wrap: wrap; } .phy-card label { flex: 1 1 130px; } }';
+phyStyle.textContent = '.phy { position: fixed; inset: 0; z-index: 70; display: flex; flex-direction: column; background: var(--bg, #e9eef5); } .phy[hidden] { display: none; } .phy-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 14px; border-bottom: 1px solid var(--rule); background: var(--panel); } .phy-sp { flex: 1; } .phy-main { position: relative; flex: 1; min-height: 0; } #phyCv { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; } .phy-card.many { display: grid; grid-template-columns: 1fr 1fr; align-items: end; } .phy-card.many label { grid-column: 1 / -1; } .phy-card.many .btn { padding: 4px 6px; font-size: 11.5px; } .phy-card { max-height: calc(100% - 150px); overflow-y: auto; } .phy-card { position: absolute; left: 12px; top: 12px; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: color-mix(in srgb, var(--panel) 92%, transparent); border: 1px solid var(--rule); border-radius: 10px; backdrop-filter: blur(8px); font-size: 12px; max-width: 240px; } .phy-card label { display: flex; flex-direction: column; gap: 3px; color: var(--ink-2); } .phy-card label.chk { flex-direction: row; align-items: center; gap: 6px; } .phy-card select, .phy-card input[type=range] { width: 100%; } .phy-info { position: absolute; left: 12px; bottom: 12px; right: 12px; white-space: pre-line; font-size: 12px; color: var(--ink-2); background: color-mix(in srgb, var(--panel) 85%, transparent); padding: 6px 10px; border-radius: 8px; pointer-events: none; } @media (max-width: 700px) { .phy-card { right: 12px; max-width: none; flex-direction: row; flex-wrap: wrap; } .phy-card label { flex: 1 1 130px; } }';
 document.head.appendChild(phyStyle);
 </script>
 <script>
@@ -27056,9 +27057,222 @@ function phyMechanics() {
   return sim;
 }
 
+// ── Haas VF machines (table built to size) and the touch-off lesson: 1-2-3 block for Z, edge finder or probe for X and Y ──
+// Sizes are the published catalog figures, in inches (check your own machine's manual for the last digit).
+const HAAS_VF = {
+  vf1: { name: 'Haas VF-1', travel: [20, 16, 20], table: [36, 14], slots: [3, 0.625, 3.937], nose: [4, 24], weight: 3000, taper: 'CT40', rpm: 8100 },
+  vf2: { name: 'Haas VF-2', travel: [30, 16, 20], table: [36, 14], slots: [3, 0.625, 3.937], nose: [4, 24], weight: 3000, taper: 'CT40', rpm: 8100 },
+  vf3: { name: 'Haas VF-3', travel: [40, 20, 25], table: [48, 18], slots: [3, 0.625, 4.921], nose: [4, 29], weight: 3000, taper: 'CT40', rpm: 8100 },
+  vf4: { name: 'Haas VF-4', travel: [50, 20, 25], table: [52, 18], slots: [3, 0.625, 4.921], nose: [4, 29], weight: 3500, taper: 'CT40', rpm: 8100 },
+};
+const SHOP_TOOLS = {
+  1: { name: 'T1 — Ø0.500 end mill', L: 4.0, r: 0.25, kind: 'mill' },
+  2: { name: 'T2 — Ø0.125 center drill (sharp)', L: 3.3, r: 0.0625, kind: 'drill' },
+  3: { name: 'T3 — edge finder (Ø0.200 tip)', L: 3.7, r: 0.1, kind: 'finder' },
+  4: { name: 'T4 — probe (WIPS)', L: 4.6, r: 0.1, kind: 'probe' },
+};
+function phyShop() {
+  const g = new THREE.Group(), S = { vf: 'vf2', method: 'finder', step: 0.01, tool: 1, stage: 0 };
+  const BLK = 1.0, STOCK = [4, 3, 1.5], BED = 1.5, JAW = 2.5, PAR = 2.0;            // 1-2-3 block laid flat is 1 thick; stock; vise bed and jaw tops; stock bottom
+  const stockTop = PAR + STOCK[2];
+  let M = null, st = null, pos = { x: 0, y: 0, hn: 0 }, tgt = { x: 0, y: 0, hn: 0 }, H = {}, G54 = { x: null, y: null }, hand = { on: false, x: 0, z: 0, drag: false }, kick = { x: false, y: false }, probe = null, lastFeel = '', msgs = [], wob = 0, verify = null;
+  const rnd = (a) => Math.round(a * 1000) / 1000;
+  const box = (w, h, d, c, o = {}) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d), phyMat(c, o));
+  const cyl = (r, h, c, o = {}) => new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 28), phyMat(c, o));
+  let machine = new THREE.Group(), toolG = new THREE.Group(), blockM = null, handM = null, stockM = null, head = null, ram = null;
+  g.add(machine);
+  function toolMesh() {
+    toolG.clear(); const T = SHOP_TOOLS[S.tool], hold = cyl(0.62, T.L - (T.kind === 'probe' ? 1.7 : T.kind === 'mill' ? 1.3 : 1.0), 0x6b7785); hold.position.y = T.L - hold.geometry.parameters.height / 2 - 0.0; toolG.add(hold);
+    if (T.kind === 'mill') { const f = cyl(0.25, 1.3, 0xcfd6de, { shininess: 100 }); f.position.y = 0.65; toolG.add(f); }
+    else if (T.kind === 'drill') { const f = cyl(0.0625, 0.7, 0xd9b44a, { shininess: 100 }); f.position.y = 0.35 + 0.25; toolG.add(f); const c = new THREE.Mesh(new THREE.ConeGeometry(0.0625, 0.25, 16), phyMat(0xd9b44a)); c.rotation.x = Math.PI; c.position.y = 0.125; toolG.add(c); const sh = cyl(0.2, 0.55, 0x9aa3ad); sh.position.y = 1.0; toolG.add(sh); }
+    else if (T.kind === 'finder') { const up = cyl(0.19, 0.9, 0x9aa3ad); up.position.y = 1.15; toolG.add(up); const lo = cyl(0.1, 0.55, 0xe6c34a, { shininess: 90 }); lo.position.y = 0.275; lo.name = 'tip'; toolG.add(lo); }
+    else { const b = cyl(0.5, 1.2, 0x2f6fd0); b.position.y = 1.8; toolG.add(b); const sty = cyl(0.035, 0.9, 0xe0e3e8); sty.position.y = 0.55; toolG.add(sty); const ball = new THREE.Mesh(new THREE.SphereGeometry(0.1, 20, 14), phyMat(0xc4202a)); ball.position.y = 0.1; ball.name = 'tip'; toolG.add(ball); }
+  }
+  function build() {
+    machine.clear(); M = HAAS_VF[S.vf]; const [Xt, Yt, Zt] = M.travel, [TL, TW] = M.table;
+    const floorY = -34, floor = box(260, 1, 200, 0xd7dde4); floor.position.set(0, floorY - 0.5, -10); machine.add(floor);
+    const base = box(TL + 16, 31, TW + Yt * 0.5 + 20, 0x3b4a5a); base.position.set(0, -2.4 - 15.5, -(Yt * 0.25) - 4); machine.add(base);
+    // the table: T-slotted top, built from strips between the slots
+    const table = new THREE.Group(), [ns, sw, sp] = M.slots, strip = (x0, x1, c) => { const m = box(x1 - x0, 2.2, TL * 0 + (TW), c); return m; };
+    const slotZ = Array.from({ length: ns }, (_, i) => (i - (ns - 1) / 2) * sp);
+    const edges = [-TW / 2, ...slotZ.flatMap(z => [z - sw / 2, z + sw / 2]), TW / 2];
+    for (let i = 0; i < edges.length; i += 2) { const a = edges[i], b = edges[i + 1], m = box(TL, 2.2, b - a, 0x9ea8b3, { shininess: 70 }); m.position.set(0, -1.1, (a + b) / 2); table.add(m); }
+    for (const z of slotZ) { const t = box(TL, 0.9, sw + 0.9, 0x5a6470); t.position.set(0, -1.65, z); table.add(t); const f = box(TL, 0.05, sw, 0x1d232b); f.position.set(0, -1.18, z); table.add(f); }
+    machine.add(table);
+    const col = box(Xt + 18, 56, 10, 0xc9d2dc); col.position.set(0, 22, -(TW / 2 + Yt * 0.5 + 9)); machine.add(col);
+    head = new THREE.Group(); const hb = box(12, 14, 12, 0xe9edf1), nose = cyl(1.4, 2.4, 0x7d8896); hb.position.set(0, 8.4, 0); nose.position.set(0, 1.2, 0); head.add(hb, nose); machine.add(head);
+    ram = box(1, 1, 1, 0xc8d0d9); ram.visible = false; machine.add(ram);
+    // the travel envelope
+    const env = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(Xt, 6, Yt)), new THREE.LineBasicMaterial({ color: 0xe05a2b })); env.position.set(0, 1.1, 0); machine.add(env);
+    // vise (6 in) and stock
+    const vz = 0; const vb = box(6.2, BED, 17, 0xb52828); vb.position.set(0, BED / 2, vz); machine.add(vb);
+    const jawF = box(5.5, JAW - BED, 1.4, 0x8c1f1f), jawB = jawF.clone(); jawF.position.set(0, (JAW + BED) / 2, -(STOCK[1] / 2 + 0.7)); jawB.position.set(0, (JAW + BED) / 2, STOCK[1] / 2 + 0.7); machine.add(jawF, jawB);
+    const ox = rnd((Math.random() - 0.5) * 1.6), oy = rnd((Math.random() - 0.5) * 0.4);
+    st = { x0: rnd(-STOCK[0] / 2 + ox), y0: rnd(-STOCK[1] / 2 + oy) };                  // stock's left edge and front edge (sy: + is toward the back)
+    // the vise follows the stock in y; the stock is drawn in the vise
+    vb.position.z = -(st.y0 + STOCK[1] / 2); jawF.position.z = -(st.y0 - 0.7); jawB.position.z = -(st.y0 + STOCK[1] + 0.7);
+    stockM = box(STOCK[0], STOCK[2], STOCK[1], 0xaab3bd, { shininess: 60 }); stockM.position.set(st.x0 + STOCK[0] / 2, PAR + STOCK[2] / 2, -(st.y0 + STOCK[1] / 2)); machine.add(stockM);
+    const par = box(STOCK[0] - 0.4, PAR - BED, 0.5, 0x6b7785); par.position.set(st.x0 + STOCK[0] / 2, (PAR + BED) / 2, -(st.y0 + STOCK[1] / 2)); machine.add(par);
+    // the 1-2-3 block, lying flat (1 thick)
+    blockM = new THREE.Group(); const bm = box(3, BLK, 2, 0x4d5b6b, { shininess: 90 }); blockM.add(bm);
+    for (const [hx, hz] of [[-1, -0.5], [0, -0.5], [1, -0.5], [-1, 0.5], [0, 0.5], [1, 0.5]]) { const h = cyl(0.18, BLK + 0.02, 0x2a323b); h.position.set(hx, 0, hz); blockM.add(h); }
+    machine.add(blockM);
+    handM = new THREE.Group(); const palm = box(1.3, 0.35, 1.7, 0xe0b58e), th = box(0.35, 0.3, 1.1, 0xe0b58e); th.position.set(-0.8, 0, 0.3); handM.add(palm, th); for (let i = 0; i < 4; i++) { const f = box(0.3, 0.3, 1.5, 0xe0b58e); f.position.set(-0.45 + i * 0.32, 0, -1.55); handM.add(f); }
+    machine.add(handM); machine.add(toolG);
+    toolMesh();
+    H = {}; G54 = { x: null, y: null }; kick = { x: false, y: false }; probe = null; verify = null; msgs = [];
+    hand = { on: true, x: st.x0 + STOCK[0] + 2.2, z: -(st.y0 + STOCK[1] / 2), drag: false, bx: st.x0 + STOCK[0] + 2.2, bz: -(st.y0 + STOCK[1] / 2) };
+    pos = { x: 0, y: 0, hn: M.nose[1] }; tgt = { ...pos };                    // spindle over the table's middle, all the way up
+    S.stage = 0;
+  }
+  // ── numbers ──
+  const Xm = () => tgt.x - M.travel[0] / 2, Ym = () => tgt.y - M.travel[1] / 2, Zm = () => tgt.hn - M.nose[1];
+  const tip = () => tgt.hn - SHOP_TOOLS[S.tool].L, tipNow = () => pos.hn - SHOP_TOOLS[S.tool].L;
+  const gapBlock = () => tip() - (stockTop + BLK);
+  const rT = () => SHOP_TOOLS[S.tool].r;
+  const f4 = v => (v >= 0 ? ' ' : '') + v.toFixed(4);
+  const msg = t => { msgs.unshift(t); msgs.length = Math.min(msgs.length, 3); };
+  function limits() { tgt.x = Math.max(-M.travel[0] / 2, Math.min(M.travel[0] / 2, tgt.x)); tgt.y = Math.max(-M.travel[1] / 2, Math.min(M.travel[1] / 2, tgt.y)); tgt.hn = Math.max(M.nose[0], Math.min(M.nose[1], tgt.hn)); }
+  function jog(ax, dir) {
+    const prev = { ...tgt }, s = S.step * dir; if (ax === 'x') tgt.x += s; else if (ax === 'y') tgt.y += s; else tgt.hn += s;
+    limits();
+    const why = hits(); if (why) { Object.assign(tgt, prev); msg(why); }
+  }
+  // the tool against the stock, the vise bed and the jaws (the stock and vise are solid for everything but the probe's trip)
+  function hits() {
+    const T = SHOP_TOOLS[S.tool], ty = tip(), x = tgt.x, y = tgt.y, rEff = T.kind === 'finder' ? 0.001 : T.kind === 'probe' ? T.r - 0.06 : T.r, cx = st.x0 + STOCK[0] / 2;
+    const near = (x0, x1, y0, y1) => Math.hypot(Math.max(x0 - x, 0, x - x1), Math.max(y0 - y, 0, y - y1));
+    const boxes = [[st.x0, st.x0 + STOCK[0], st.y0, st.y0 + STOCK[1], PAR, stockTop, 'the stock'], [cx - 2.75, cx + 2.75, st.y0 - 1.4, st.y0, BED, JAW, 'the vise jaw'], [cx - 2.75, cx + 2.75, st.y0 + STOCK[1], st.y0 + STOCK[1] + 1.4, BED, JAW, 'the vise jaw'], [cx - 3.1, cx + 3.1, st.y0 + STOCK[1] / 2 - 8.5, st.y0 + STOCK[1] / 2 + 8.5, 0, BED, 'the vise']];
+    for (const [x0, x1, y0, y1, z0, z1, nm] of boxes) if (near(x0, x1, y0, y1) < rEff && ty < z1 && ty + 1.0 > z0) return `Stopped: the tool would hit ${nm}. Back off, or come at it from the side.`;
+    return null;
+  }
+  // the edge finder's lower tip: off-center until the spindle is r from the edge, then it kicks
+  function finderState() {
+    const T = SHOP_TOOLS[3]; if (S.tool !== 3) return null; const ty = tip(), sx = tgt.x, sy = tgt.y, inX = ty > PAR + 0.05 && ty < stockTop - 0.05, inY = ty > JAW + 0.05 && ty < stockTop - 0.05;
+    const dX = st.x0 - sx, dY = st.y0 - sy;                                   // axis-to-edge distances, approaching from the left / front
+    const onX = inX && sy > st.y0 + 0.2 && sy < st.y0 + STOCK[1] - 0.2 && dX > -0.2 && dX < 0.45, onY = inY && sx > st.x0 + 0.2 && sx < st.x0 + STOCK[0] - 0.2 && dY > -0.2 && dY < 0.45;
+    let e = 0, k = false, which = null;
+    if (onX) { which = 'x'; if (dX < T.r - 0.0003) k = true; else e = Math.min(0.06, (dX - T.r) * 0.6 + 0.0); }
+    else if (onY) { which = 'y'; if (dY < T.r - 0.0003) k = true; else e = Math.min(0.06, (dY - T.r) * 0.6); }
+    return { which, e: Math.max(0, e), kicked: k };
+  }
+  // ── the Z touch-off: the block slides under the tip ──
+  function blockFeel() {
+    if (!hand.on) return 'Block is in the drawer.';
+    const T = SHOP_TOOLS[S.tool], ty = tip(), over = Math.hypot(Math.max(0, Math.abs(hand.bx - tgt.x) - 1.5), Math.max(0, Math.abs(hand.bz + tgt.y) - 1.0)) < T.r;
+    if (!over) return 'Block is clear of the tool.';
+    const g2 = ty - (stockTop + BLK);
+    return g2 < -0.0002 ? 'BLOCKED — the tool is lower than the block. Raise Z.' : g2 < 0.0008 ? 'LIGHT DRAG — the block just slides under. This is the touch.' : g2 < 0.004 ? 'Slides freely, a hair loose. Lower by a thou and try again.' : 'Loose — the block rattles. Come down.';
+  }
+  const stageTxt = () => {
+    const T = SHOP_TOOLS[S.tool], fz = finderState(), gz = gapBlock(), nm = S.method === 'finder' ? 'edge finder' : 'probe';
+    const ck = b => (b ? '☑' : '☐');
+    if (S.stage === 0) return `Pick a Haas VF and a method. The table is built to the catalog size: ${HAAS_VF[S.vf].table[0]}×${HAAS_VF[S.vf].table[1]} in, ${HAAS_VF[S.vf].slots[0]} T-slots ${HAAS_VF[S.vf].slots[1]} in wide on ${HAAS_VF[S.vf].slots[2]} in centers, travels ${M.travel.join(' × ')}, spindle nose ${M.nose[0]}–${M.nose[1]} in above the table.  The stock is held in the vise at a spot you don't know yet.\nPress Next.`;
+    if (S.stage === 1) return `STEP 1 · Z with the 1-2-3 block (${T.name}).\n1) Stand the block on the stock (about 1 in above its top) and jog the tool beside it, just below the block's top.  2) Take your hand off the block.  3) Raise Z in thousandths until the block will slide under the tip — light drag, no more.  4) Press "Record Z".\nGap tip-to-block ${gz >= 0 ? '+' : ''}${gz.toFixed(4)} in   ·   ${blockFeel()}   ${H[S.tool] != null ? '☑ H' + S.tool + ' recorded' : ''}`;
+    if (S.stage === 2) return S.method === 'finder'
+      ? `STEP 2 · X0 and Y0 with the edge finder (spindle ~1000 rpm, Ø0.200 tip).\nJog beside the stock's LEFT end at about mid-height until the tip starts to wobble; shrink the step (0.01 → 0.001 → 0.0001) as the wobble settles; the moment it KICKS sideways, stop and press "Set X0".  Then do the same on the FRONT face (above the jaw) and press "Set Y0".\n${fz && fz.which ? `Tip: ${fz.kicked ? 'KICKED — stop here!' : 'wobbling ' + (fz.e * 1000).toFixed(0) + ' mils'}` : 'Tip: running true (not near an edge)'}   ${ck(G54.x != null)} X0   ${ck(G54.y != null)} Y0`
+      : `STEP 2 · X0 and Y0 with the probe.\nJog the probe beside the stock's left end at mid-height (not above the top), then press "Probe X edge" (G65 P9811 X…).  Do the same near the front face above the jaws for "Probe Y edge".  The cycle touches off, backs away and writes G54 for you.\n${ck(G54.x != null)} X0   ${ck(G54.y != null)} Y0${probe ? '   probing…' : ''}`;
+    if (S.stage === 3) return `STEP 3 · touch off the next tool.  Choose T2 (a sharp center drill) and do the same block routine — every tool has its own length, so every tool gets its own H.\nGap ${gz >= 0 ? '+' : ''}${gz.toFixed(4)} in  ·  ${blockFeel()}   ${ck(H[2] != null)} H2 recorded`;
+    return `STEP 4 · prove it.  With T2 (a sharp tool) in: "Go to X0 Y0" then "Z 0.100".  The tip should hang 0.100 in over the stock's top-left-front corner.\n${verify ? verify : 'Press the buttons below, then look at the picture.'}`;
+  };
+  const dro = () => `MACHINE X ${f4(Xm())}  Y ${f4(Ym())}  Z ${f4(Zm())}     WORK G54 X ${G54.x == null ? '  ----  ' : f4(Xm() - G54.x)}  Y ${G54.y == null ? '  ----  ' : f4(Ym() - G54.y)}  Z ${H[S.tool] == null ? '  ----  ' : f4(Zm() - H[S.tool])}     ${SHOP_TOOLS[S.tool].name}   H${S.tool} ${H[S.tool] == null ? '—' : f4(H[S.tool])}   jog ${S.step}`;
+  const sim = {
+    group: g, camera: { th: 0.3, ph: 0.3, d: 40, t: [0, 6, -2] }, speed: 1,
+    controls: [
+      { k: 'vf', t: 'sel', label: 'Machine', v: S.vf, opts: Object.entries(HAAS_VF).map(([k, v]) => [k, v.name]) },
+      { k: 'method', t: 'sel', label: 'X / Y with', v: S.method, opts: [['finder', 'Edge finder'], ['probe', 'Probe']] },
+      { k: 'tool', t: 'sel', label: 'Tool in the spindle', v: S.tool, opts: Object.entries(SHOP_TOOLS).map(([k, v]) => [k, v.name]) },
+      { k: 'step', t: 'sel', label: 'Handwheel step (in)', v: S.step, opts: [[1, '1.000'], [0.1, '0.100'], [0.01, '0.010'], [0.001, '0.001'], [0.0001, '0.0001']] },
+      { k: 'zup', t: 'btn', label: 'Z ↑' }, { k: 'zdn', t: 'btn', label: 'Z ↓' }, { k: 'xl', t: 'btn', label: 'X ←' }, { k: 'xr', t: 'btn', label: 'X →' }, { k: 'yb', t: 'btn', label: 'Y ↑ (back)' }, { k: 'yf', t: 'btn', label: 'Y ↓ (front)' },
+      { k: 'block', t: 'btn', label: 'Put the 1-2-3 block down / away' }, { k: 'recz', t: 'btn', label: 'Record Z (set H)' }, { k: 'setx', t: 'btn', label: 'Set X0 / probe X edge' }, { k: 'sety', t: 'btn', label: 'Set Y0 / probe Y edge' },
+      { k: 'goxy', t: 'btn', label: 'Go to G54 X0 Y0' }, { k: 'goz', t: 'btn', label: 'Go to Z 0.100 (G43)' }, { k: 'back', t: 'btn', label: '◀ Back' }, { k: 'next', t: 'btn', label: 'Next ▶' },
+    ],
+    reset: build, dbg: () => ({ st, tgt, pos, hand, G54, H, S, M, stockTop, blockFeel, finderState, gapBlock }),
+    key(e, down) {
+      if (!down) return false; const map = { ArrowLeft: ['x', -1], ArrowRight: ['x', 1], ArrowUp: ['y', 1], ArrowDown: ['y', -1], PageUp: ['z', 1], PageDown: ['z', -1] }, m = map[e.code];
+      if (!m) return false; jog(m[0], m[1]); return true;
+    },
+    set(k, v) {
+      if (k === 'vf') { S.vf = v; build(); return; }
+      if (k === 'method') { S.method = v; if (S.stage === 2) S.tool = v === 'finder' ? 3 : 4; toolMesh(); return; }
+      if (k === 'tool') { S.tool = +v; toolMesh(); return; }
+      if (k === 'step') { S.step = +v; return; }
+      const J = { zup: ['z', 1], zdn: ['z', -1], xl: ['x', -1], xr: ['x', 1], yb: ['y', 1], yf: ['y', -1] }[k]; if (J) { jog(J[0], J[1]); return; }
+      if (k === 'block') { hand.on = !hand.on; if (hand.on) { hand.bx = st.x0 + STOCK[0] + 2.2; hand.bz = -(st.y0 + STOCK[1] / 2); } return; }
+      if (k === 'back') { S.stage = Math.max(0, S.stage - 1); autoTool(); return; }
+      if (k === 'next') { S.stage = Math.min(4, S.stage + 1); autoTool(); return; }
+      if (k === 'recz') {
+        if (!hand.on || blockFeel().startsWith('Block is')) { msg('Slide the block under the tip first (drag it with the mouse), then record.'); return; }
+        const gz = gapBlock(); if (gz < -0.0002) { msg('The tool is below the block top — raise it before recording.'); return; }
+        H[S.tool] = rnd(Zm() - BLK); msg(`H${S.tool} = ${H[S.tool].toFixed(4)} (machine Z at the touch, minus the block's 1.000). Gap at the touch: ${(gz * 1000).toFixed(1)} mil.`); return;
+      }
+      if (k === 'setx' || k === 'sety') {
+        const ax = k === 'setx' ? 'x' : 'y';
+        if (S.method === 'finder') { const f = finderState(); if (!f || f.which !== ax || !f.kicked) { msg(`The finder has not kicked on the ${ax === 'x' ? 'left end' : 'front face'} yet.`); return; } G54[ax] = rnd((ax === 'x' ? Xm() : Ym()) + SHOP_TOOLS[3].r); msg(`G54 ${ax.toUpperCase()} = ${G54[ax].toFixed(4)} (spindle position at the kick, plus the 0.100 tip radius).`); }
+        else {
+          const T = SHOP_TOOLS[4], ty = tip(); const near = ax === 'x' ? (ty > PAR + 0.05 && ty < stockTop - 0.05 && tgt.y > st.y0 + 0.2 && tgt.y < st.y0 + STOCK[1] - 0.2 && st.x0 - tgt.x > T.r && st.x0 - tgt.x < 1.2) : (ty > JAW + 0.05 && ty < stockTop - 0.05 && tgt.x > st.x0 + 0.2 && tgt.x < st.x0 + STOCK[0] - 0.2 && st.y0 - tgt.y > T.r && st.y0 - tgt.y < 1.2);
+          if (S.tool !== 4) { msg('Put the probe (T4) in the spindle.'); return; }
+          if (!near) { msg(ax === 'x' ? 'Jog the probe beside the left end, within an inch and below the top.' : 'Jog the probe in front of the stock, above the jaws and below the top, within an inch.'); return; }
+          probe = { ax, t: 0, from: ax === 'x' ? tgt.x : tgt.y, to: (ax === 'x' ? st.x0 : st.y0) - T.r }; return;
+        }
+        return;
+      }
+      if (k === 'goxy') { if (G54.x == null || G54.y == null) { msg('Set X0 and Y0 first.'); return; } tgt.hn = Math.max(tgt.hn, 12); tgt.x = G54.x + M.travel[0] / 2; tgt.y = G54.y + M.travel[1] / 2; limits(); verify = null; return; }
+      if (k === 'goz') {
+        if (H[S.tool] == null) { msg(`T${S.tool} has no H yet.`); return; }
+        tgt.hn = H[S.tool] + 0.1 + M.nose[1]; limits();
+        const T = SHOP_TOOLS[S.tool], dz = tip() - stockTop - 0.1, dx = tgt.x - st.x0, dy = tgt.y - st.y0;
+        verify = `Measured: tip is ${((tip() - stockTop) * 1000).toFixed(1)} mil above the top (aimed for 100), ${(dx * 1000).toFixed(1)} mil off the left edge in X and ${(dy * 1000).toFixed(1)} mil off the front in Y.  ` + (Math.abs(dz) < 0.002 && Math.abs(dx) < 0.003 && Math.abs(dy) < 0.003 ? '✓ TOUCH-OFF GOOD — safe to run.' : '✗ Off. ' + (Math.abs(dz) >= 0.002 ? 'Z is off: redo the block touch with a lighter, more careful drag. ' : '') + (Math.abs(dx) >= 0.003 || Math.abs(dy) >= 0.003 ? 'X/Y are off: finish the edge-finder kick in 0.0001 steps.' : ''));
+        void T; return;
+      }
+    },
+    step() {
+      // smooth motion toward the target
+      for (const k of ['x', 'y', 'hn']) pos[k] += (tgt[k] - pos[k]) * 0.25;
+      if (probe) { probe.t += 1 / 240; const u = Math.min(1, probe.t / 1.4); if (probe.ax === 'x') tgt.x = probe.from + (probe.to - probe.from) * u; else tgt.y = probe.from + (probe.to - probe.from) * u; if (u >= 1) { G54[probe.ax] = rnd((probe.ax === 'x' ? Xm() : Ym()) + SHOP_TOOLS[4].r); msg(`PROBE touched: G54 ${probe.ax.toUpperCase()} = ${G54[probe.ax].toFixed(4)} (stylus radius taken out).`); tgt[probe.ax] = probe.from; probe = null; } }
+    },
+    frame() {
+      const T = SHOP_TOOLS[S.tool], sy = pos.y, hn = pos.hn, fs = finderState();
+      head.position.set(pos.x, hn + T.L - T.L + 0.0, -sy); head.position.y = hn;
+      toolG.position.set(pos.x, hn - T.L, -sy);
+      const tipM = toolG.getObjectByName('tip');
+      if (tipM && fs) { wob += 0.6; tipM.position.x = fs.kicked ? -0.07 * (fs.which === 'x' ? 1 : 0) : Math.cos(wob) * fs.e * 0.5; tipM.position.z = fs.kicked ? (fs.which === 'y' ? 0.07 : 0) : Math.sin(wob) * fs.e * 0.5; } else if (tipM) { tipM.position.x = 0; tipM.position.z = 0; }
+      if (S.tool === 4) { const b = toolG.getObjectByName('tip'); if (b) b.material.color.set(probe && probe.t > 1.35 ? 0x22c55e : 0xc4202a); }
+      ram.position.set(pos.x, hn + 7.4, -(sy) - (7 + 13) / 2 + 0 - 3); ram.scale.set(1, 1, 1); ram.position.z = -sy - 10 - ((M.table[1] / 2 + M.travel[1] * 0.5 + 9) - 10 - sy) / 2 + 0; ram.scale.z = Math.max(1, (M.table[1] / 2 + M.travel[1] * 0.5 + 9 - 8 + sy) / 1);
+      // the block and hand
+      const live = hand.on;
+      blockM.visible = handM.visible = live;
+      if (live) {
+        const ty = tipNow(), gz = ty - (stockTop + BLK), over = Math.hypot(Math.max(0, Math.abs(hand.bx - pos.x) - 1.5), Math.max(0, Math.abs(hand.bz + sy) - 1.0)) < T.r;
+        if (over && gz < -0.0002) {                                      // blocked: pushed out of the tool
+          const dx = hand.bx - pos.x, dz = hand.bz + sy; if (Math.abs(dx) / 1.5 > Math.abs(dz)) hand.bx = pos.x + Math.sign(dx || 1) * (1.5 + T.r + 0.001); else hand.bz = -sy + Math.sign(dz || 1) * (1.0 + T.r + 0.001);
+        }
+        blockM.position.set(hand.bx, stockTop + BLK / 2, hand.bz);
+        handM.position.set(hand.bx + 0.2, stockTop + BLK + 0.2, hand.bz + 0.3);
+        const feel = blockFeel(); if (feel !== lastFeel) lastFeel = feel; handM.children.forEach(c => c.material.color.set(feel.startsWith('LIGHT') ? 0x86d6a1 : feel.startsWith('BLOCKED') ? 0xf08a8a : 0xe0b58e));
+      }
+    },
+    info() { return dro() + '\n' + stageTxt() + (msgs.length ? '\n» ' + msgs[0] : ''); },
+    pointerDown(ray) { if (!hand.on) return false; const t = (stockTop + BLK - ray.origin.y) / ray.direction.y, x = ray.origin.x + ray.direction.x * t, z = ray.origin.z + ray.direction.z * t; if (Math.abs(x - hand.bx) < 1.7 && Math.abs(z - hand.bz) < 1.3) { hand.drag = true; hand.gx = x - hand.bx; hand.gz = z - hand.bz; return true; } return false; },
+    pointerMove(ray) { if (!hand.drag) return; const t = (stockTop + BLK - ray.origin.y) / ray.direction.y, x = ray.origin.x + ray.direction.x * t - hand.gx, z = ray.origin.z + ray.direction.z * t - hand.gz; const lag = blockFeel().startsWith('LIGHT') ? 0.25 : 1; hand.bx += (x - hand.bx) * lag; hand.bz += (z - hand.bz) * lag; },
+    pointerUp() { hand.drag = false; },
+    dispose() { phyDisposeGroup(g); },
+  };
+  function autoTool() { if (S.stage === 1) S.tool = 1; else if (S.stage === 2) S.tool = S.method === 'finder' ? 3 : 4; else if (S.stage >= 3) S.tool = 2; toolMesh(); if (S.stage === 2 || S.stage >= 3) hand.on = S.stage === 3; }
+  build();
+  return sim;
+}
+
 PHY_SIMS.chips = ['Chips & cutting', phyChips];
 PHY_SIMS.fluid = ['Fluid', phyFluid];
 PHY_SIMS.mech = ['Mechanics', phyMechanics];
+PHY_SIMS.shop = ['Haas VF & touch-off', phyShop];
+// the Manufacture ribbon gets a Shop floor group
+{
+  const tb0 = camToolbar, act0 = camAction;
+  camToolbar = function () { return tb0() + rbPanel('Shop floor', [['lab:shop', 'Haas VF & Touch-off', '', 'cammill'], ['lab:chips', 'Chips & Cutting', '', 'camparallel'], ['lab:fluid', 'Coolant Flow', '', 'camdrill'], ['lab:mech', 'Mechanics', '', 'camtools']], 2, 'data-cam'); };
+  camAction = function (a) { if (a.startsWith('lab:')) { physicsOpen(a.slice(4)); return; } act0(a); };
+}
 
 // LAB-END
 </script>
