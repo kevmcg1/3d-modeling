@@ -3732,6 +3732,14 @@ body.col-drag { cursor: col-resize; user-select: none; }
 #hint b { color: var(--ink); font-weight: 600; }
 .kbd { font: 500 10.5px var(--mono); padding: 1px 4px; border-radius: 3px; background: var(--panel-2); border: 1px solid var(--rule); color: var(--ink); }
 
+#snapbar { position: absolute; left: 50%; top: 70px; transform: translateX(-50%); z-index: 6; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; justify-content: center; max-width: min(640px, calc(100% - 330px)); padding: 6px 8px; font-size: 11px; background: color-mix(in srgb, var(--panel) 94%, transparent); border: 1px solid var(--rule); border-radius: 12px; box-shadow: 0 4px 16px rgba(0, 0, 0, .12); backdrop-filter: blur(6px); }
+#snapbar[hidden] { display: none; }
+#snapbar .sb-t { font-weight: 600; color: var(--ink-2); padding: 0 4px; }
+#snapbar .sb-sp { flex: 1 1 8px; }
+#snapbar button { display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px 3px 5px; font: inherit; color: var(--muted); background: transparent; border: 1px solid var(--rule); border-radius: 8px; cursor: pointer; }
+#snapbar button svg { flex: none; }
+#snapbar button:hover { color: var(--ink); border-color: var(--ink-2); }
+#snapbar button.on { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
 #viewtools { position: absolute; right: 12px; top: 136px; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
 .vbtn {
   display: flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 6px; cursor: pointer;
@@ -11386,7 +11394,7 @@ function updateHint() {
   let h;
   const k = s => `<span class="kbd">${s}</span>`;
   if (CMD && CMD.type === 'stress') h = STRESS.result ? `<b>Stress:</b> hover the part to read the stress and movement at that spot. ${k('Esc')} to finish.` : `<b>Stress analysis:</b> click faces to hold fixed or to load (choose the target in the panel), then run the analysis. ${k('Esc')} to finish.`;
-  else if (CMD && CMD.type === 'measure') h = `<b>Measure:</b> click two points — they lock onto vertices, edge midpoints, hole centers and face centers. ${k('Esc')} to finish.`;
+  else if (CMD && CMD.type === 'measure') h = `<b>Measure:</b> click two points — they lock onto endpoints, midpoints, centers, quadrants, perpendiculars and more (switch any off in the Snap bar). ${k('Esc')} to finish.`;
   else if (UIX.ws === 'cam') { const op = CAMUI.view === 'op' && opById(CAMUI.op); h = op && (op.type === 'pocket' || op.type === 'contour') ? `<b>${op.name}:</b> click flat faces to ${op.type === 'pocket' ? 'set the floors' : 'set the boundary'}.` : op && op.type === 'drill' ? `<b>${op.name}:</b> click holes to add or remove their diameter.` : CAMUI.view === 'sim' ? '<b>Simulation:</b> orbit freely while it runs. Orange is stock still to cut, red is a gouge.' : '<b>Manufacture:</b> set up stock and tools, add operations, simulate, then post G-code.'; }
   else if (CMD && CMD.type === 'pickPlane') h = `<b>Create sketch:</b> click a plane or flat face. ${k('Esc')} cancels.`;
   else if (CMD && CMD.type === 'extrude') h = `<b>Extrude:</b> click profiles to add or remove them, drag the arrow, then ${k('Enter')} for OK.`;
@@ -14840,7 +14848,7 @@ function drawMeasurements() {
 }
 function measurePanel() {
   const m = MEASURE.list[0];
-  let body = '<p class="note">Click a first point, then a second. Points lock onto <b>vertices</b>, <b>edge midpoints</b>, <b>hole and circle centers</b>, <b>face centers</b> and <b>construction points</b>; anywhere else lands on the face under the cursor.</p>';
+  let body = '<p class="note">Click a first point, then a second. Points lock onto <b>endpoints</b>, <b>midpoints</b>, <b>centers</b>, <b>quadrants</b>, <b>intersections</b>, <b>face and body centers</b>, <b>perpendicular</b> and <b>tangent</b> spots, the <b>nearest</b> point on an edge, <b>extensions</b> and <b>parallels</b> (rest the cursor on an edge to use it as a guide); anywhere else lands on the face. Switch any of them off in the <b>Snap to</b> bar at the top of the view.</p>';
   if (CMD && CMD.a) body = `<div class="pick"><span>From: ${MLABEL[CMD.a.k]}</span><span class="n">pick the second point</span></div>` + body;
   if (m) {
     const s = measureStats(m);
@@ -14891,6 +14899,232 @@ function drawPivot() {
   og.beginPath(); og.arc(s.x, s.y, 1.6, 0, TAU); og.fillStyle = COL.accent; og.fill();
 }
 </script>
+<!-- SNAP-BEGIN -->
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  Object snaps for the Measure tool, the way a drafting program has
+//  them: endpoint, midpoint, center, quadrant, intersection, face and
+//  body center, point, perpendicular, tangent, nearest, extension,
+//  parallel, and any spot on a face. A bar at the top-middle of the
+//  view switches each one on or off (it remembers which).
+// ═══════════════════════════════════════════════════════════════════
+// kind: [label, short label, priority (lower wins), svg glyph]
+const SNAP_KINDS = {
+  vertex: ['Endpoint', 'End', 0, '<rect x="4.5" y="4.5" width="11" height="11"/>'],
+  edge: ['Midpoint', 'Mid', 1, '<path d="M10 3.5l7 12.5H3z"/>'],
+  center: ['Center', 'Center', 1, '<circle cx="10" cy="10" r="6"/><path d="M3 10h14M10 3v14" opacity=".55"/>'],
+  quad: ['Quadrant', 'Quad', 2, '<path d="M10 3l7 7-7 7-7-7z"/>'],
+  int: ['Intersection', 'Intersect', 0, '<path d="M4 4l12 12M16 4L4 16"/>'],
+  face: ['Face center', 'Face', 3, '<path d="M10 3l7 7-7 7-7-7z" opacity=".5"/><circle cx="10" cy="10" r="1.6" fill="currentColor"/>'],
+  cog: ['Body center', 'Body', 3, '<circle cx="10" cy="10" r="6.5"/><circle cx="10" cy="10" r="2" fill="currentColor"/>'],
+  point: ['Point', 'Point', 0, '<circle cx="10" cy="10" r="6"/><path d="M6 6l8 8M14 6l-8 8"/>'],
+  perp: ['Perpendicular', 'Perp', 2, '<path d="M4 4v12h12"/><path d="M4 10h6v6" opacity=".7"/>'],
+  tan: ['Tangent', 'Tangent', 2, '<circle cx="10" cy="11.5" r="5.5"/><path d="M3 6h14"/>'],
+  near: ['Nearest on edge', 'Nearest', 6, '<path d="M4.5 4h11L4.5 16h11z"/>'],
+  ext: ['Extension', 'Extend', 4, '<path d="M3 15l5-5" /><circle cx="11" cy="7" r="1" fill="currentColor"/><circle cx="14" cy="4" r="1" fill="currentColor"/><circle cx="16.5" cy="1.5" r=".6" fill="currentColor"/>'],
+  par: ['Parallel', 'Parallel', 4, '<path d="M3 12L12 3M8 17L17 8"/>'],
+  surface: ['On face', 'On face', 20, '<path d="M3 13l7-3.5 7 3.5-7 3.5z"/><circle cx="10" cy="10" r="1.3" fill="currentColor"/>'],
+};
+Object.assign(KP_LABEL, Object.fromEntries(Object.entries(SNAP_KINDS).filter(([k]) => !KP_LABEL[k]).map(([k, v]) => [k, v[0]])));
+Object.assign(MLABEL, KP_LABEL);
+MEASURE.snap = (() => { const d = Object.fromEntries(Object.keys(SNAP_KINDS).map(k => [k, true])); try { Object.assign(d, JSON.parse(localStorage.getItem('datum.snaps') || '{}')); } catch (e) { /* private mode */ } return d; })();
+MEASURE.acq = [];
+const snapSave = () => { try { localStorage.setItem('datum.snaps', JSON.stringify(MEASURE.snap)); } catch (e) { /* ignore */ } };
+
+// ── the glyphs drawn on the model ──
+const kpGlyph1M = kpGlyph;
+kpGlyph = function (P, k, color, big) {
+  if (!['quad', 'int', 'cog', 'perp', 'tan', 'near', 'ext', 'par', 'surface'].includes(k)) return kpGlyph1M(P, k, color, big);
+  const s = toScreen(P), r = big ? 6 : 4;
+  og.strokeStyle = color; og.fillStyle = color; og.lineWidth = 1.7; og.beginPath();
+  if (k === 'quad') { og.moveTo(s.x, s.y - r - 1); og.lineTo(s.x + r + 1, s.y); og.lineTo(s.x, s.y + r + 1); og.lineTo(s.x - r - 1, s.y); og.closePath(); }
+  else if (k === 'int') { og.moveTo(s.x - r, s.y - r); og.lineTo(s.x + r, s.y + r); og.moveTo(s.x + r, s.y - r); og.lineTo(s.x - r, s.y + r); }
+  else if (k === 'cog') { og.arc(s.x, s.y, r + 1, 0, TAU); og.moveTo(s.x + 1.8, s.y); og.arc(s.x, s.y, 1.8, 0, TAU); }
+  else if (k === 'perp') { og.moveTo(s.x - r, s.y - r); og.lineTo(s.x - r, s.y + r); og.lineTo(s.x + r, s.y + r); og.moveTo(s.x - r, s.y + 1); og.lineTo(s.x - 1, s.y + 1); og.lineTo(s.x - 1, s.y + r); }
+  else if (k === 'tan') { og.arc(s.x, s.y + 2, r - 0.5, 0, TAU); og.moveTo(s.x - r - 2, s.y - r + 1); og.lineTo(s.x + r + 2, s.y - r + 1); }
+  else if (k === 'near') { og.moveTo(s.x - r, s.y - r); og.lineTo(s.x + r, s.y - r); og.lineTo(s.x - r, s.y + r); og.lineTo(s.x + r, s.y + r); og.closePath(); }
+  else if (k === 'ext') { for (const t of [-1, 0, 1]) { og.moveTo(s.x + t * 5 + 1.6, s.y - t * 5); og.arc(s.x + t * 5, s.y - t * 5, 1.6, 0, TAU); } og.fill(); }
+  else if (k === 'par') { og.moveTo(s.x - r, s.y + 2); og.lineTo(s.x + 2, s.y - r); og.moveTo(s.x - 2, s.y + r); og.lineTo(s.x + r, s.y - 2); }
+  else { og.moveTo(s.x - r - 1, s.y + 2); og.lineTo(s.x, s.y - 3); og.lineTo(s.x + r + 1, s.y + 2); og.lineTo(s.x, s.y + 7); og.closePath(); og.moveTo(s.x + 1.4, s.y + 2); og.arc(s.x, s.y + 2, 1.4, 0, TAU); }
+  og.stroke();
+  return s;
+};
+
+// ── geometry helpers ──
+const snapLineFoot = (A, a, b, clampSeg) => {                          // foot of the perpendicular from A on the line a–b
+  const d = sub3(b, a), L2 = dot3(d, d); if (L2 < 1e-12) return null;
+  const t = dot3(sub3(A, a), d) / L2; if (clampSeg && (t < -1e-9 || t > 1 + 1e-9)) return null;
+  return add3(a, mul3(d, t));
+};
+const snapOnArc = (ch, g, P) => {                                       // is P on this circular chain (a full circle always is)?
+  if (g.full) return true;
+  let best = Infinity; for (const q of ch.pts) best = Math.min(best, dist3(q, P));
+  return best < g.r * 0.06 + 0.02;
+};
+const snapPlaneFrame = dir => {
+  for (const v of [[1, 0, 0], [0, 1, 0], [0, 0, 1]]) { const p = sub3(v, mul3(dir, dot3(v, dir))); if (len3(p) > 0.3) { const e1 = nrm3(p); return { e1, e2: crs3(dir, e1) }; } }
+  return axisFrame([0, 0, 0], dir);
+};
+function snapMeshExtras(mesh) {                                         // quadrant points and the volume centroid, cached with the mesh
+  if (mesh._snapX) return mesh._snapX;
+  const quad = [];
+  for (const ch of edgeChains(mesh)) {
+    const g = chainGeom(ch); if (g.k !== 'circle') continue;
+    const { e1, e2 } = snapPlaneFrame(g.dir);
+    for (const a of [0, 1, 2, 3]) { const P = add3(g.center, add3(mul3(e1, g.r * Math.cos(a * Math.PI / 2)), mul3(e2, g.r * Math.sin(a * Math.PI / 2)))); if (snapOnArc(ch, g, P)) quad.push(P); }
+  }
+  let V = 0, C = [0, 0, 0]; const p = mesh.pos;
+  for (let t = 0; t < p.length; t += 9) {
+    const a = [p[t], p[t + 1], p[t + 2]], b = [p[t + 3], p[t + 4], p[t + 5]], c = [p[t + 6], p[t + 7], p[t + 8]], v = dot3(a, crs3(b, c)) / 6;
+    V += v; C = add3(C, mul3(add3(add3(a, b), c), v / 4));
+  }
+  mesh._snapX = { quad, cog: Math.abs(V) > 1e-9 ? mul3(C, 1 / V) : null };
+  return mesh._snapX;
+}
+const snapSegSeg = (p1, q1, p2, q2) => {                                // closest points of two 3D segments
+  const d1 = sub3(q1, p1), d2 = sub3(q2, p2), r = sub3(p1, p2), a = dot3(d1, d1), e = dot3(d2, d2), f = dot3(d2, r);
+  if (a < 1e-12 || e < 1e-12) return null;
+  const c = dot3(d1, r), b = dot3(d1, d2), den = a * e - b * b; let s = den > 1e-12 ? clamp((b * f - c * e) / den, 0, 1) : 0, t = (b * s + f) / e;
+  if (t < 0) { t = 0; s = clamp(-c / a, 0, 1); } else if (t > 1) { t = 1; s = clamp((b - c) / a, 0, 1); }
+  const A = add3(p1, mul3(d1, s)), B = add3(p2, mul3(d2, t));
+  return { d: dist3(A, B), P: mul3(add3(A, B), 0.5) };
+};
+
+// ── the pick: every candidate near the cursor, the best (by distance and kind) wins ──
+function measureSnapPick(x, y) {
+  const on = MEASURE.snap, bodies = visibleBodies(), m = P2(x, y), px = 14, A = CMD && CMD.a ? CMD.a.P : null;
+  const depth = surfaceDepthAt(x, y), tolD = Math.max(sceneR * 0.004, 2 / ppu());
+  let best = null;
+  const cand = (P, k, extra, reach = px) => {
+    if (!on[k]) return;
+    const s = toScreen(P), d = dst2(s, m);
+    if (d > reach || (k === 'cog' ? depth === Infinity : viewDepth(P) > depth + tolD)) return;   // the body center sits inside the solid: it only needs the cursor over the body
+    const sc = d + SNAP_KINDS[k][2];
+    if (!best || sc < best.sc) best = { sc, P, k, ...extra };
+  };
+  for (const kp of allKeyPoints(bodies)) cand(kp.P, kp.k);
+  const near = [];
+  for (const b of bodies) {
+    const mesh = bodyMesh(b), ex = snapMeshExtras(mesh);
+    for (const P of ex.quad) cand(P, 'quad');
+    if (ex.cog) cand(ex.cog, 'cog');
+    for (const { ch, s, bb } of chainScreens(mesh)) {
+      if (x < bb[0] - px || x > bb[2] + px || y < bb[1] - px || y > bb[3] + px) continue;
+      const g = chainGeom(ch);
+      near.push({ ch, g, s });
+      let bd = Infinity, bP = null;                                     // nearest point on the edge
+      for (let i = 0; i + 1 < ch.pts.length; i++) {
+        const ax = s[i * 2], ay = s[i * 2 + 1], dx = s[i * 2 + 2] - ax, dy = s[i * 2 + 3] - ay, L2 = dx * dx + dy * dy;
+        const t = L2 > 0 ? clamp(((x - ax) * dx + (y - ay) * dy) / L2, 0, 1) : 0, dd = Math.hypot(ax + dx * t - x, ay + dy * t - y);
+        if (dd < bd) { bd = dd; bP = lerp3(ch.pts[i], ch.pts[i + 1], t); }
+      }
+      if (bP) cand(bP, 'near', null, 9);
+      if (A) {
+        if (g.k === 'line') { const F = snapLineFoot(A, g.a, g.b, true); if (F) cand(F, 'perp'); }
+        else if (g.k === 'circle') {
+          const w = sub3(A, g.center), Ap = sub3(w, mul3(g.dir, dot3(w, g.dir))), L = len3(Ap);
+          if (L > 1e-9) {
+            const u = mul3(Ap, 1 / L), v = crs3(g.dir, u);
+            for (const s2 of [1, -1]) { const P = add3(g.center, mul3(u, g.r * s2)); if (snapOnArc(ch, g, P)) cand(P, 'perp'); }
+            if (L > g.r * 1.0001) { const be = Math.acos(g.r / L); for (const s2 of [1, -1]) { const P = add3(g.center, add3(mul3(u, g.r * Math.cos(be)), mul3(v, s2 * g.r * Math.sin(be)))); if (snapOnArc(ch, g, P)) cand(P, 'tan'); } }
+          }
+        } else for (let i = 0; i + 1 < ch.pts.length; i++) { const F = snapLineFoot(A, ch.pts[i], ch.pts[i + 1], true); if (F) cand(F, 'perp'); }
+      }
+    }
+  }
+  if (on.int && near.length > 1) {                                       // edges that really cross
+    const tol = Math.max(sceneR * 1e-4, 1e-4);
+    for (let i = 0; i < near.length; i++) for (let j = i + 1; j < near.length; j++) {
+      const a = near[i].ch.pts, b = near[j].ch.pts;
+      for (let p = 0; p + 1 < a.length; p++) for (let q = 0; q + 1 < b.length; q++) { const r = snapSegSeg(a[p], a[p + 1], b[q], b[q + 1]); if (r && r.d < tol) cand(r.P, 'int'); }
+    }
+  }
+  // planar face under the cursor: the foot of the perpendicular from the first point
+  const h = (on.perp && A) || on.surface ? pick3D(x, y, { faces: true }) : null;
+  if (A && on.perp && h && h.kind === 'face') {
+    const sf = Surf.list[h.fid];
+    if (sf.t === 'P') {
+      const F = sub3(A, mul3(sf.n, dot3(sf.n, A) - sf.d)), mesh = h.mesh;
+      let inside = false;
+      for (let t = 0; t < mesh.triF.length && !inside; t++) if (mesh.triF[t] === h.fid) {
+        const q = t * 9, a = [mesh.pos[q], mesh.pos[q + 1], mesh.pos[q + 2]], b = [mesh.pos[q + 3], mesh.pos[q + 4], mesh.pos[q + 5]], c = [mesh.pos[q + 6], mesh.pos[q + 7], mesh.pos[q + 8]];
+        const n = crs3(sub3(b, a), sub3(c, a)), tol = -1e-6 * dot3(n, n);
+        if (dot3(crs3(sub3(b, a), sub3(F, a)), n) >= tol && dot3(crs3(sub3(c, b), sub3(F, b)), n) >= tol && dot3(crs3(sub3(a, c), sub3(F, c)), n) >= tol) inside = true;
+      }
+      if (inside && dist3(F, A) > 1e-6) { const sc = Math.min(dst2(toScreen(F), m), 40) + 8; if (!best || sc < best.sc) best = { sc, P: F, k: 'perp' }; }
+    }
+  }
+  // extension and parallel guides along edges the cursor has rested on
+  for (const e of MEASURE.acq) {
+    const guide = (p0, p1, kind, onlyBeyond) => {
+      const s0 = toScreen(p0), s1 = toScreen(p1), dx = s1.x - s0.x, dy = s1.y - s0.y, L2 = dx * dx + dy * dy; if (L2 < 1) return;
+      const t = ((m.x - s0.x) * dx + (m.y - s0.y) * dy) / L2;
+      if (onlyBeyond && t >= 0 && t <= 1) return;
+      const P = add3(p0, mul3(sub3(p1, p0), t)), s = toScreen(P);
+      if (dst2(s, m) < 10 && on[kind] && Math.abs(t) < 12) cand(P, kind, { guide: [p0, P] }, 10);
+    };
+    guide(e.a, e.b, 'ext', true);
+    if (A) guide(A, add3(A, e.d), 'par', false);
+  }
+  if (!best && on.surface && h && h.kind === 'face') best = { sc: 99, P: h.point, k: 'surface' };
+  return best;
+}
+measurePick = function (x, y) { const p = measureSnapPick(x, y); return p ? { P: p.P, k: p.k, guide: p.guide } : null; };
+
+// edges the cursor rests on become reference lines for extension and parallel snaps
+let snapDwell = 0;
+const cmdMeasure1S = cmdMeasure;
+cmdMeasure = function () { MEASURE.acq = []; cmdMeasure1S(); };
+const measureMove1 = CMD_HANDLERS.measure.move, measureClick1 = CMD_HANDLERS.measure.click;
+CMD_HANDLERS.measure.move = function (x, y) {
+  measureMove1(x, y);
+  clearTimeout(snapDwell);
+  if (!(MEASURE.snap.ext || MEASURE.snap.par)) return;
+  snapDwell = setTimeout(() => {
+    if (!(CMD && CMD.type === 'measure')) return;
+    const e = pickEdge(x, y, visibleBodies(), 9); if (!e) return;
+    const g = chainGeom(e.ch); if (g.k !== 'line') return;
+    if (MEASURE.acq.some(q => dist3(q.a, g.a) < 1e-6 && dist3(q.b, g.b) < 1e-6)) return;
+    MEASURE.acq.push({ a: g.a, b: g.b, d: nrm3(sub3(g.b, g.a)) }); if (MEASURE.acq.length > 3) MEASURE.acq.shift();
+    requestDraw();
+  }, 380);
+};
+CMD_HANDLERS.measure.click = function (x, y, ev) { measureClick1(x, y, ev); };
+const drawMeasurements1M = drawMeasurements;
+drawMeasurements = function () {
+  drawMeasurements1M();
+  if (!(CMD && CMD.type === 'measure')) return;
+  for (const e of MEASURE.acq) { const a = toScreen(e.a), b = toScreen(e.b), mid = lerp2(a, b, 0.5); og.strokeStyle = COL.snap; og.lineWidth = 1; og.setLineDash([2, 4]); og.beginPath(); og.moveTo(a.x, a.y); og.lineTo(b.x, b.y); og.stroke(); og.setLineDash([]); og.beginPath(); og.moveTo(mid.x - 4, mid.y); og.lineTo(mid.x + 4, mid.y); og.moveTo(mid.x, mid.y - 4); og.lineTo(mid.x, mid.y + 4); og.stroke(); }
+  const h = CMD.hover;
+  if (h && h.guide) { const a = toScreen(h.guide[0]), b = toScreen(h.guide[1]); og.strokeStyle = COL.snap; og.lineWidth = 1.2; og.setLineDash([5, 4]); og.beginPath(); og.moveTo(a.x, a.y); og.lineTo(b.x, b.y); og.stroke(); og.setLineDash([]); }
+};
+
+// ── the bar ──
+function snapBarSync() {
+  let bar = document.getElementById('snapbar');
+  const show = !!(CMD && CMD.type === 'measure');
+  if (!show) { if (bar) bar.hidden = true; return; }
+  if (!bar) {
+    bar = document.createElement('div'); bar.id = 'snapbar'; bar.setAttribute('role', 'toolbar'); bar.setAttribute('aria-label', 'Object snaps');
+    document.getElementById('viewport').appendChild(bar);
+    bar.addEventListener('click', e => {
+      const b = e.target.closest('[data-snap]'); if (!b) return;
+      const k = b.dataset.snap;
+      if (k === '*on' || k === '*off') { for (const q of Object.keys(SNAP_KINDS)) MEASURE.snap[q] = k === '*on'; }
+      else if (k === '*clear') MEASURE.acq = [];
+      else MEASURE.snap[k] = !MEASURE.snap[k];
+      snapSave(); snapBarSync(); requestDraw();
+    });
+    bar.addEventListener('pointerdown', e => e.stopPropagation());
+    bar.addEventListener('mousemove', e => e.stopPropagation());
+  }
+  bar.hidden = false;
+  bar.innerHTML = `<span class="sb-t">Snap to</span>${Object.entries(SNAP_KINDS).map(([k, v]) => `<button data-snap="${k}" class="${MEASURE.snap[k] ? 'on' : ''}" title="${v[0]}${MEASURE.snap[k] ? ' (on)' : ' (off)'}" aria-pressed="${!!MEASURE.snap[k]}"><svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round">${v[3]}</svg><span>${v[1]}</span></button>`).join('')}<span class="sb-sp"></span><button data-snap="*on" title="Turn every snap on">All</button><button data-snap="*off" title="Turn every snap off">None</button>${MEASURE.acq.length ? '<button data-snap="*clear" title="Forget the edges used for extension and parallel">Clear guides</button>' : ''}`;
+}
+const refreshUI1S = refreshUI;
+refreshUI = function () { refreshUI1S(); snapBarSync(); };
+</script>
+<!-- SNAP-END -->
 <!-- STRESS-BEGIN -->
 <script>
 // ═══════════════════════════════════════════════════════════════════
