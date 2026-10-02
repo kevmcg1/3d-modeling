@@ -26585,10 +26585,19 @@ function physicsOpen(id = PHY.id) {
   const c = PHY.sim.camera; if (c) Object.assign(PHY.orbit, { th: c.th, ph: c.ph, d: c.d, t: new THREE.Vector3(...c.t) });
   PHY.speed = PHY.sim.speed || 1; PHY.paused = false; PHY.el.querySelector('[data-pa="pause"]').textContent = 'Pause';
   PHY.el.querySelectorAll('[data-phy]').forEach(b => b.classList.toggle('on', b.dataset.phy === id)); phyMark();
+  phyCard();
+  phyResize(); phyCamera(); phyStart();
+}
+// the lab's control card: built from the sim's controls; a sim that changes them sets cardDirty
+function phyCard() {
   const card = PHY.el.querySelector('#phyCard');
   card.innerHTML = PHY.sim.controls.map(c => c.t === 'sel' ? `<label><span>${c.label}</span><select data-c="${c.k}">${c.opts.map(([v, l]) => `<option value="${v}" ${v === c.v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>` : c.t === 'range' ? `<label><span>${c.label}</span><input type="range" data-c="${c.k}" min="${c.min}" max="${c.max}" step="${c.step}" value="${c.v}"></label>` : c.t === 'chk' ? `<label class="chk"><input type="checkbox" data-c="${c.k}" ${c.v ? 'checked' : ''}> ${c.label}</label>` : `<button class="btn" data-c="${c.k}">${c.label}</button>`).join('');
-  card.oninput = card.onchange = card.onclick = e => { const t = e.target.closest('[data-c]'); if (!t) return; if (e.type === 'click' && t.tagName !== 'BUTTON') return; if (e.type === 'input' && t.tagName === 'SELECT') return; PHY.sim.set(t.dataset.c, t.type === 'checkbox' ? t.checked : t.type === 'range' ? +t.value : t.tagName === 'SELECT' ? t.value : true); };
-  phyResize(); phyCamera(); phyStart();
+  card.oninput = card.onchange = card.onclick = e => {
+    const t = e.target.closest('[data-c]'); if (!t) return;
+    if (e.type === 'click' && t.tagName !== 'BUTTON') return; if (e.type === 'input' && t.tagName === 'SELECT') return;
+    PHY.sim.set(t.dataset.c, t.type === 'checkbox' ? t.checked : t.type === 'range' ? +t.value : t.tagName === 'SELECT' ? t.value : true);
+    if (PHY.sim.cardDirty) { PHY.sim.cardDirty = false; phyCard(); }
+  };
 }
 function phyMark() { PHY.el.querySelectorAll('[data-ps]').forEach(b => b.classList.toggle('on', +b.dataset.ps === PHY.speed)); }
 function physicsClose() { if (PHY.el) { PHY.el.hidden = true; phyStop(); } }
@@ -26781,7 +26790,275 @@ function phyChips() {
   return sim;
 }
 
+// ── Fluid: 2-D position-based fluid (Macklin & Müller) in a glass tank, with a coolant jet that washes the cut ──
+function phyFluid() {
+  const g = new THREE.Group(), S = { preset: 'dam', visc: 0.05, grav: 9.81, tank: 1 };
+  const W = 8, H = 5, h = 0.2, sp = 0.1, CAP = 3200, EPS = 8, CELL = h;
+  const px = new Float32Array(CAP), py = new Float32Array(CAP), vx = new Float32Array(CAP), vy = new Float32Array(CAP), ox = new Float32Array(CAP), oy = new Float32Array(CAP), lam = new Float32Array(CAP), dx = new Float32Array(CAP), dy = new Float32Array(CAP);
+  let N = 0, t = 0, tick = 0, push = null, nozzle = null, emitAcc = 0, obst = [], slosh = 0;
+  const poly6 = r2 => { const d = h * h - r2; return d > 0 ? 4 / (Math.PI * Math.pow(h, 8)) * d * d * d : 0; };
+  const spikyK = -30 / (Math.PI * Math.pow(h, 5));
+  // rest density from a lattice at the particle spacing
+  let rho0 = 0;
+  for (let i = -4; i <= 4; i++) for (let j = -4; j <= 4; j++) rho0 += poly6((i * sp) ** 2 + (j * sp) ** 2);
+  const frame = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(W, H, 0.5)), new THREE.LineBasicMaterial({ color: 0x6b7a8c })); frame.position.set(W / 2, H / 2, 0); g.add(frame);
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(W + 6, 8), phyMat(0xdfe5ec)); floor.rotation.x = -Math.PI / 2; floor.position.set(W / 2, -0.02, 0); g.add(floor);
+  const inst = new THREE.InstancedMesh(new THREE.SphereGeometry(sp * 0.62, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }), CAP);
+  inst.setColorAt(0, new THREE.Color(1, 1, 1)); inst.count = 0; inst.frustumCulled = false; g.add(inst);
+  const obstGroup = new THREE.Group(); g.add(obstGroup);
+  const tmp = new THREE.Object3D(), col = new THREE.Color(), cA = new THREE.Color(0x1d6fe0), cB = new THREE.Color(0xdff3ff);
+  const add = (x, y, ux = 0, uy = 0) => { if (N >= CAP) { for (let i = 1; i < N; i++) { px[i - 1] = px[i]; py[i - 1] = py[i]; vx[i - 1] = vx[i]; vy[i - 1] = vy[i]; } N--; } px[N] = x; py[N] = y; vx[N] = ux; vy[N] = uy; N++; };
+  function build() {
+    N = 0; t = 0; nozzle = null; slosh = 0; obst = []; obstGroup.clear();
+    const block = (x0, y0, x1, y1) => { for (let x = x0; x < x1; x += sp) for (let y = y0; y < y1; y += sp) add(x + (Math.random() - 0.5) * 0.01, y + (Math.random() - 0.5) * 0.01); };
+    if (S.preset === 'dam') block(0.1, 0.1, 2.6, 3.4);
+    else if (S.preset === 'wave') { block(0.1, 0.1, 7.9, 0.8); block(0.1, 0.8, 1.2, 1.7); }
+    else if (S.preset === 'pour') { block(0.1, 0.1, 7.9, 0.5); nozzle = { x: 4, y: 4.7, ux: 0, uy: -1.5, rate: 55, jet: false }; }
+    else if (S.preset === 'slosh') block(0.1, 0.1, 7.9, 1.5);
+    else if (S.preset === 'coolant') {
+      nozzle = { x: 0.7, y: 3.3, ux: 5.2, uy: -3.2, rate: 80, jet: true };
+      obst = [{ x0: 3.0, y0: 0, x1: 5.2, y1: 1.3 }, { x0: 3.9, y0: 1.3, x1: 4.3, y1: 3.4 }];       // the part, and the cutter standing over it
+      for (const o of obst) { const m = new THREE.Mesh(new THREE.BoxGeometry(o.x1 - o.x0, o.y1 - o.y0, 0.5), phyMat(o.y0 ? 0x2d3748 : 0x9aa3ad)); m.position.set((o.x0 + o.x1) / 2, (o.y0 + o.y1) / 2, 0); obstGroup.add(m); }
+    }
+    emitAcc = 0;
+  }
+  function update(dt) {
+    const gx = slosh ? Math.sin(t * 2.2) * 7 : 0, gy = -S.grav;
+    if (nozzle) { emitAcc += nozzle.rate * dt; while (emitAcc >= 1) { emitAcc--; const j = (Math.random() - 0.5) * 0.12; add(nozzle.x + (Math.random() - 0.5) * 0.08, nozzle.y + (Math.random() - 0.5) * 0.08, nozzle.ux + j, nozzle.uy + j); } }
+    for (let i = 0; i < N; i++) { vx[i] += gx * dt; vy[i] += gy * dt; ox[i] = px[i]; oy[i] = py[i]; px[i] += vx[i] * dt; py[i] += vy[i] * dt; }
+    // grid
+    const nx = Math.ceil(W / CELL) + 1, ny = Math.ceil(H / CELL) + 1, head = new Int32Array(nx * ny).fill(-1), next = new Int32Array(N);
+    const cell = i => Math.max(0, Math.min(nx - 1, (px[i] / CELL) | 0)) + Math.max(0, Math.min(ny - 1, (py[i] / CELL) | 0)) * nx;
+    for (let i = 0; i < N; i++) { const c = cell(i); next[i] = head[c]; head[c] = i; }
+    const each = (i, fn) => { const cx = Math.max(0, Math.min(nx - 1, (px[i] / CELL) | 0)), cy = Math.max(0, Math.min(ny - 1, (py[i] / CELL) | 0)); for (let a = Math.max(0, cx - 1); a <= Math.min(nx - 1, cx + 1); a++) for (let b = Math.max(0, cy - 1); b <= Math.min(ny - 1, cy + 1); b++) for (let j = head[a + b * nx]; j >= 0; j = next[j]) fn(j); };
+    const sCorr = poly6(0.04 * h * h);
+    for (let it = 0; it < 3; it++) {
+      for (let i = 0; i < N; i++) {
+        let rho = 0, gsx = 0, gsy = 0, gg = 0;
+        each(i, j => { const rx = px[i] - px[j], ry = py[i] - py[j], r2 = rx * rx + ry * ry; if (r2 >= h * h) return; rho += poly6(r2); if (j !== i) { const r = Math.sqrt(r2) || 1e-6, k = spikyK * (h - r) * (h - r) / rho0, ax = k * rx / r, ay = k * ry / r; gsx += ax; gsy += ay; gg += ax * ax + ay * ay; } });
+        const C = Math.max(-0.0, rho / rho0 - 1);
+        lam[i] = -C / (gg + gsx * gsx + gsy * gsy + EPS);
+      }
+      for (let i = 0; i < N; i++) {
+        let sx = 0, sy = 0;
+        each(i, j => { if (j === i) return; const rx = px[i] - px[j], ry = py[i] - py[j], r2 = rx * rx + ry * ry; if (r2 >= h * h) return; const r = Math.sqrt(r2) || 1e-6, ten = -2e-5 * Math.pow(poly6(r2) / sCorr, 4), k = (lam[i] + lam[j] + ten) * spikyK * (h - r) * (h - r) / rho0; sx += k * rx / r; sy += k * ry / r; });
+        dx[i] = sx; dy[i] = sy;
+      }
+      for (let i = 0; i < N; i++) { px[i] += dx[i]; py[i] += dy[i]; bounds(i); }
+    }
+    // velocities, XSPH viscosity
+    for (let i = 0; i < N; i++) { vx[i] = (px[i] - ox[i]) / dt; vy[i] = (py[i] - oy[i]) / dt; const q = Math.hypot(vx[i], vy[i]); if (q > 14) { vx[i] *= 14 / q; vy[i] *= 14 / q; } }
+    if (S.visc > 0) { const nvx = new Float32Array(N), nvy = new Float32Array(N); for (let i = 0; i < N; i++) { let ax = 0, ay = 0; each(i, j => { if (j === i) return; const rx = px[i] - px[j], ry = py[i] - py[j], r2 = rx * rx + ry * ry; if (r2 >= h * h) return; const w = poly6(r2) / rho0; ax += (vx[j] - vx[i]) * w; ay += (vy[j] - vy[i]) * w; }); nvx[i] = vx[i] + S.visc * 3 * ax; nvy[i] = vy[i] + S.visc * 3 * ay; } vx.set(nvx); vy.set(nvy); }
+    // anything that left the tank (the jet over the rim) is recycled
+    if (nozzle && nozzle.jet) for (let i = N - 1; i >= 0; i--) if (py[i] < 0.12 && px[i] > W - 0.25) { px[i] = px[N - 1]; py[i] = py[N - 1]; vx[i] = vx[N - 1]; vy[i] = vy[N - 1]; N--; }
+  }
+  function bounds(i) {
+    const m = 0.06;
+    if (px[i] < m) px[i] = m; if (px[i] > W - m) px[i] = W - m; if (py[i] < m) py[i] = m; if (py[i] > H + 2) py[i] = H + 2;
+    for (const o of obst) if (px[i] > o.x0 - m && px[i] < o.x1 + m && py[i] > o.y0 - m && py[i] < o.y1 + m) {
+      const l = px[i] - (o.x0 - m), r = o.x1 + m - px[i], b = py[i] - (o.y0 - m), tp = o.y1 + m - py[i], k = Math.min(l, r, b, tp);
+      if (k === l) px[i] = o.x0 - m; else if (k === r) px[i] = o.x1 + m; else if (k === tp) py[i] = o.y1 + m; else py[i] = o.y0 - m;
+    }
+    if (push) { const ddx = px[i] - push.x, ddy = py[i] - push.y, d = Math.hypot(ddx, ddy); if (d < 0.55) { const f = (0.55 - d) / (d || 1); px[i] += ddx * f; py[i] += ddy * f; ox[i] -= push.vx * 0.016; oy[i] -= push.vy * 0.016; } }
+  }
+  const sim = {
+    group: g, camera: { th: 0, ph: 0, d: 11, t: [4, 2.5, 0] }, speed: 1,
+    controls: [
+      { k: 'preset', t: 'sel', label: 'Scene', v: S.preset, opts: [['dam', 'Dam break'], ['wave', 'Wave tank'], ['pour', 'Pouring from a jug'], ['slosh', 'Sloshing tank (shaken)'], ['coolant', 'Coolant jet on a cut']] },
+      { k: 'visc', t: 'range', label: 'Viscosity (water → oil → syrup)', v: S.visc, min: 0, max: 0.4, step: 0.01 },
+      { k: 'grav', t: 'range', label: 'Gravity', v: S.grav, min: 0, max: 20, step: 0.1 },
+      { k: 'more', t: 'btn', label: 'Add a block of fluid' }, { k: 'stir', t: 'btn', label: 'Stir' },
+    ],
+    reset: build, raw: () => ({ px, py, vx, vy, dx, dy, lam, N }), dbg: () => ({ rho0, N, vmax: Math.max(...Array.from(vx.slice(0, N)).map(Math.abs)), y0: py[0], lam0: lam[N >> 1] }),
+    set(k, v) { if (k === 'more') { for (let x = 1; x < 2.4; x += sp) for (let y = 3.4; y < 4.7; y += sp) add(x, y); return; } if (k === 'stir') { for (let i = 0; i < N; i++) { vx[i] += (Math.random() - 0.5) * 4; vy[i] += Math.random() * 3; } return; } S[k] = v; if (k === 'preset') { slosh = v === 'slosh' ? 1 : 0; build(); } },
+    step(dt) { if (++tick % 2) return; t += dt * 2; update(1 / 120); },
+    frame() {
+      let ke = 0;
+      for (let i = 0; i < N; i++) {
+        const sp2 = Math.hypot(vx[i], vy[i]); ke += sp2 * sp2;
+        tmp.position.set(px[i], py[i], 0); tmp.updateMatrix(); inst.setMatrixAt(i, tmp.matrix);
+        col.copy(cA).lerp(cB, Math.min(1, sp2 / 6)); inst.setColorAt(i, col);
+      }
+      inst.count = N; inst.instanceMatrix.needsUpdate = true; if (inst.instanceColor) inst.instanceColor.needsUpdate = true; sim.ke = ke / Math.max(1, N);
+    },
+    info: () => `${N} particles of position-based fluid (incompressible, ${S.visc > 0.2 ? 'syrupy' : S.visc > 0.08 ? 'oily' : 'watery'}).  Mean speed² ${(sim.ke || 0).toFixed(1)}.  Drag in the tank to push the fluid.${S.preset === 'coolant' ? '  Coolant flood: the jet hits the cutter and the part and washes down — chips would ride it out.' : ''}`,
+    pointerDown(ray) { const tt = -ray.origin.z / ray.direction.z; if (!isFinite(tt)) return false; push = { x: ray.origin.x + ray.direction.x * tt, y: ray.origin.y + ray.direction.y * tt, vx: 0, vy: 0 }; return true; },
+    pointerMove(ray) { if (!push) return; const tt = -ray.origin.z / ray.direction.z, nx2 = ray.origin.x + ray.direction.x * tt, ny2 = ray.origin.y + ray.direction.y * tt; push.vx = (nx2 - push.x) * 60; push.vy = (ny2 - push.y) * 60; push.x = nx2; push.y = ny2; },
+    pointerUp() { push = null; },
+    dispose() { phyDisposeGroup(g); },
+  };
+  build();
+  return sim;
+}
+
+// ── Mechanics & dynamics: Newton's cradle, a crank-slider engine, regenerative chatter, a rolling race, a gear train ──
+function phyMechanics() {
+  const g = new THREE.Group(), S = { demo: 'cradle' };
+  let D = null;
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 20), phyMat(0xdfe5ec)); floor.rotation.x = -Math.PI / 2; g.add(floor);
+  const sel = (k, label, v, opts) => ({ k, t: 'sel', label, v, opts }), rng = (k, label, v, min, max, step) => ({ k, t: 'range', label, v, min, max, step }), btn = (k, label) => ({ k, t: 'btn', label });
+  const line = (n, c) => { const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(Array.from({ length: n }, () => new THREE.Vector3())), new THREE.LineBasicMaterial({ color: c })); l.frustumCulled = false; return l; };
+  const setPts = (l, pts) => { const a = l.geometry.attributes.position; pts.forEach((p, i) => a.setXYZ(i, p[0], p[1], p[2] || 0)); a.needsUpdate = true; };
+  const DEMOS = {
+    // ── Newton's cradle: pendulums, and collisions with a coefficient of restitution ──
+    cradle() {
+      const n = 5, r = 0.5, L = 3.4, Y = 5.2, balls = [], th = Array(n).fill(0), w = Array(n).fill(0), P = { e: 0.97, grav: 9.81, lift: 1 };
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(n + 1.5, 0.12, 0.4), phyMat(0x59616b)); bar.position.set(0, Y + 0.06, 0); const grp = new THREE.Group(); grp.add(bar);
+      const strings = [];
+      for (let i = 0; i < n; i++) { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 24, 16), phyMat(0xb7c0cb, { shininess: 120 })); grp.add(m); balls.push(m); const l = line(2, 0x444b55); grp.add(l); strings.push(l); }
+      const px = i => (i - (n - 1) / 2) * 2 * r;
+      const lift = k => { th.fill(0); w.fill(0); for (let i = 0; i < k; i++) th[i] = -0.9; };
+      lift(1);
+      return {
+        group: grp, camera: { th: 0.25, ph: 0.15, d: 15, t: [0, 3, 0] },
+        controls: [rng('lift', 'Balls lifted', 1, 1, 4, 1), rng('e', 'Bounciness (restitution)', 0.97, 0.5, 1, 0.01), rng('grav', 'Gravity', 9.81, 2, 20, 0.1), btn('go', 'Lift and release')],
+        set(k, v) { if (k === 'go') lift(P.lift); else P[k] = v; if (k === 'lift') lift(v); },
+        step(dt) {
+          for (let i = 0; i < n; i++) { w[i] += -(P.grav / L) * Math.sin(th[i]) * dt; w[i] *= 1 - 0.02 * dt; th[i] += w[i] * dt; }
+          for (let it = 0; it < 4; it++) for (let i = 0; i + 1 < n; i++) {
+            const xa = px(i) + L * Math.sin(th[i]), xb = px(i + 1) + L * Math.sin(th[i + 1]);
+            if (xb - xa < 2 * r) {
+              const ua = L * w[i] * Math.cos(th[i]), ub = L * w[i + 1] * Math.cos(th[i + 1]);
+              if (ua > ub) { const m = (ua + ub) / 2, d = (ua - ub) / 2; w[i] = (m - P.e * d) / (L * Math.cos(th[i])); w[i + 1] = (m + P.e * d) / (L * Math.cos(th[i + 1])); }
+            }
+          }
+        },
+        frame() { for (let i = 0; i < n; i++) { const x = px(i) + L * Math.sin(th[i]), y = Y - L * Math.cos(th[i]); balls[i].position.set(x, y, 0); setPts(strings[i], [[px(i), Y, 0], [x, y, 0]]); } },
+        info: () => `Momentum and energy pass down the line: ${P.e > 0.99 ? 'almost perfectly elastic' : 'each collision loses some energy'}. Try lifting several balls, or lowering the bounciness.`,
+      };
+    },
+    // ── Crank-slider engine: kinematics and torque, a flywheel smoothing the pulses ──
+    crank() {
+      const r = 1.2, l = 3.6, P = { I: 1.2, load: 0.6, cyl: 1, run: 1, fric: 0.08 };
+      let th = 0, w = 6;
+      const grp = new THREE.Group();
+      const fly = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 0.5, 40), phyMat(0x6b7785)); fly.rotation.x = Math.PI / 2; fly.position.z = -0.5; grp.add(fly);
+      const mark = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.9, 0.55), phyMat(0xe05a2b)); mark.position.z = -0.5; grp.add(mark);
+      const crankArm = new THREE.Mesh(new THREE.BoxGeometry(r, 0.25, 0.3), phyMat(0xc9822b)), rod = new THREE.Mesh(new THREE.BoxGeometry(1, 0.22, 0.3), phyMat(0x9aa3ad)), piston = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.3, 1.2), phyMat(0xb8c0c9));
+      const cylW = new THREE.Mesh(new THREE.BoxGeometry(6, 1.7, 1.6), phyMat(0x7d8896, { transparent: true, opacity: 0.25 })); cylW.position.set(3.4, 0, 0);
+      grp.add(crankArm, rod, piston, cylW);
+      const pk = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 8), phyMat(0x222222)); grp.add(pk);
+      const trace = line(240, 0xe05a2b); trace.position.z = 1.5; grp.add(trace); const hist = []; let ph = 0;
+      const pos = t => r * Math.cos(t) + Math.sqrt(l * l - r * r * Math.sin(t) * Math.sin(t));
+      const dpos = t => -r * Math.sin(t) - r * r * Math.sin(t) * Math.cos(t) / Math.sqrt(l * l - r * r * Math.sin(t) * Math.sin(t));
+      const pres = phi => { const a = ((phi % (4 * Math.PI)) + 4 * Math.PI) % (4 * Math.PI) * 180 / Math.PI; return a < 180 ? 7.5 * Math.exp(-a / 65) : a < 360 ? 0.15 : a < 540 ? -0.1 : 0.2 + 2.6 * Math.pow((a - 540) / 180, 3); };
+      return {
+        group: grp, camera: { th: 0.1, ph: 0.1, d: 13, t: [2.2, 1, 0] }, floor: -3,
+        controls: [sel('cyl', 'Cylinders', '1', [['1', 'One cylinder'], ['2', 'Two (even firing)'], ['4', 'Four (even firing)']]), rng('I', 'Flywheel inertia', 1.2, 0.2, 4, 0.1), rng('load', 'Load torque', 0.6, 0, 2, 0.05), { k: 'run', t: 'chk', label: 'Firing', v: true }, btn('kick', 'Kick the starter')],
+        set(k, v) { if (k === 'kick') { w = Math.max(w, 8); return; } P[k] = k === 'cyl' ? +v : v; },
+        step(dt) {
+          let tq = 0; const nc = P.cyl;
+          if (P.run) { const TH = { 1: [0], 2: [0, 0], 4: [0, Math.PI, Math.PI, 0] }[nc], OFF = { 1: [0], 2: [0, 2 * Math.PI], 4: [0, 3 * Math.PI, Math.PI, 2 * Math.PI] }[nc]; for (let c = 0; c < nc; c++) tq += -pres(th + OFF[c]) * 8 * dpos(th + TH[c]); }          // virtual work: torque = F · dx/dθ for each cylinder's own throw and place in the cycle
+          w += (tq - P.load - P.fric * w) / P.I * dt; if (w < 0) w = 0; th += w * dt;
+          ph = (ph + 1) % 4; if (!ph) { hist.push(w * 60 / (2 * Math.PI)); if (hist.length > 240) hist.shift(); }
+        },
+        frame() {
+          const cx = r * Math.cos(th), cy = r * Math.sin(th), x = pos(th);
+          crankArm.position.set(cx / 2, cy / 2, 0); crankArm.rotation.z = th; crankArm.scale.x = 1;
+          const dx = x - cx, dy = -cy, L2 = Math.hypot(dx, dy); rod.position.set(cx + dx / 2, cy + dy / 2, 0); rod.rotation.z = Math.atan2(dy, dx); rod.scale.x = L2;
+          piston.position.set(x + 0.55, 0, 0); mark.position.set(0.45 * Math.cos(th) * 0 + 0, 0, -0.5); mark.rotation.z = th; pk.position.set(cx, cy, 0.2);
+          setPts(trace, Array.from({ length: 240 }, (_, i) => [4 + i * 0.03, 3 + (hist[Math.max(0, hist.length - 240 + i)] || 0) / 400 * 1.6, 0]));
+        },
+        info: () => `${(w * 60 / (2 * Math.PI)).toFixed(0)} rpm.  Each firing stroke kicks the crank; a heavier flywheel (or more cylinders firing in turn) evens the speed out — the trace shows speed over time.  Piston stroke ${(2 * r).toFixed(1)}, rod ${l}, rod/crank ${(l / r).toFixed(1)}.`,
+      };
+    },
+    // ── Regenerative chatter: a spring-mass tool cutting the wavy surface it left a turn ago ──
+    chatter() {
+      const P = { rpm: 3000, b: 0.35, fn: 900, zeta: 0.03 }, hp = 2e-5, Kc = 2e9, h0 = 1e-4;
+      let x = 0, v = 0, buf = [], head = 0, tlen = 1, amp = 0, t = 0;
+      const grp = new THREE.Group();
+      const tool = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.4, 1.4), phyMat(0x2d3748)), work = new THREE.Mesh(new THREE.BoxGeometry(20, 2, 2), phyMat(0x9aa3ad)); work.position.set(0, -2.6, 0); tool.position.set(0, -0.9, 0); grp.add(tool, work);
+      const surf = line(300, 0xe05a2b); grp.add(surf); const wave = Array(300).fill(0), spring = line(2, 0x888888); grp.add(spring);
+      const EX = 5e4;
+      const reset = () => { x = 0; v = 0.002; buf = new Float64Array(8192); head = 0; wave.fill(0); amp = 0; t = 0; };
+      const bl = () => 3 * Math.PI * 0 + 0.5 * P.b;       // eslint: placeholder keeps the closure used
+      void bl; reset();
+      return {
+        group: grp, camera: { th: 0, ph: 0.1, d: 17, t: [0, 0.5, 0] }, floor: -6,
+        controls: [rng('rpm', 'Spindle speed (rpm)', 3000, 800, 12000, 50), rng('b', 'Depth of cut (mm)', 0.35, 0.05, 3, 0.05), rng('fn', 'Tool natural frequency (Hz)', 900, 300, 2000, 10), rng('zeta', 'Damping ratio', 0.03, 0.005, 0.1, 0.005), btn('go', 'Restart')],
+        set(k, v) { if (k === 'go') reset(); else { P[k] = v; } },
+        step() {
+          const wn = 2 * Math.PI * P.fn, m = 0.5, k = m * wn * wn, c = 2 * P.zeta * Math.sqrt(k * m), T = 60 / P.rpm; tlen = Math.max(2, Math.min(8000, Math.round(T / hp)));
+          for (let s = 0; s < 4; s++) {
+            const xd = buf[(head - tlen + 8192 * 4) % 8192];
+            const F = Kc * (P.b * 1e-3) * Math.max(0, h0 + xd - x);                    // chip thickness: what was left a turn ago, minus where the tool is now
+            const a = (F - c * v - k * x) / m; v += a * hp; x += v * hp; head = (head + 1) % 8192; buf[head] = x; t += hp;
+          }
+          amp = amp * 0.9995 + Math.abs(x) * 0.0005 * 1;
+        },
+        frame() {
+          tool.position.y = -0.9 + x * EX; wave.shift(); wave.push(x * EX); setPts(surf, wave.map((y, i) => [-7.5 + i * 0.05, -1.6 + y * 0.9 + 0.0, 1.05]));
+          setPts(spring, [[0, -0.2 + x * EX, 0], [0, 4, 0]]);
+        },
+        info: () => { const wn = 2 * Math.PI * P.fn, k = 0.5 * wn * wn, lim = 2 * k * P.zeta * (1 + P.zeta) / Kc * 1e3; const ch = Math.abs(x) > 4e-5 || amp > 1.5e-5; return `${P.rpm} rpm, ${P.b} mm deep.  ${ch ? 'CHATTER: the tool is vibrating and cutting its own waves.' : 'Stable: the vibration dies out.'}  Below ${lim.toFixed(2)} mm it is stable at any speed; above it, only certain spindle speeds (the stability lobes) are quiet. Try a few rpm.`; },
+      };
+    },
+    // ── Rolling race: how mass is spread decides who wins ──
+    incline() {
+      const P = { ang: 20, mu: 0.15, grav: 9.81 }, grp = new THREE.Group(), Ln = 12, bodies = [];
+      const ramp = new THREE.Mesh(new THREE.BoxGeometry(Ln, 0.3, 9), phyMat(0xc9d1da)); grp.add(ramp);
+      const K = [['Block (slides)', null, 0x3b82f6], ['Sphere (solid)', 2 / 5, 0xe05a2b], ['Cylinder (solid)', 1 / 2, 0x16a34a], ['Hoop (hollow)', 1, 0xa855f7]];
+      K.forEach(([name, k, col], i) => { const m = k === null ? new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1.4), phyMat(col)) : i === 1 ? new THREE.Mesh(new THREE.SphereGeometry(0.55, 24, 16), phyMat(col)) : new THREE.Mesh(i === 3 ? new THREE.TorusGeometry(0.5, 0.08, 10, 36) : new THREE.CylinderGeometry(0.55, 0.55, 1.4, 28), phyMat(col)); if (k !== null && i !== 1) { m.geometry.rotateX(i === 3 ? 0 : Math.PI / 2); } const mk = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.5, 0.12), phyMat(0xffffff)); m.add(mk); mk.position.set(0.4, 0.3, i === 3 ? 0.2 : 0.75); grp.add(m); bodies.push({ m, k, s: 0, v: 0, name, t: null, z: -3.2 + i * 2.1 }); });
+      let t = 0, run = false;
+      const rot = () => { grp.rotation.z = -P.ang * Math.PI / 180; };
+      const reset = () => { t = 0; run = false; for (const b of bodies) { b.s = 0; b.v = 0; b.t = null; } };
+      return {
+        group: grp, camera: { th: 0.3, ph: 0.25, d: 22, t: [0, 1, 0] }, floor: -8,
+        controls: [rng('ang', 'Incline angle (°)', 20, 5, 45, 1), rng('mu', 'Block friction μ', 0.15, 0, 1, 0.01), rng('grav', 'Gravity', 9.81, 2, 20, 0.1), btn('go', 'Release')],
+        set(k, v) { if (k === 'go') { reset(); run = true; } else P[k] = v; rot(); },
+        step(dt) {
+          if (!run) return; t += dt; const th = P.ang * Math.PI / 180;
+          for (const b of bodies) {
+            if (b.t != null) continue;
+            const a = b.k === null ? Math.max(0, P.grav * (Math.sin(th) - P.mu * Math.cos(th))) : P.grav * Math.sin(th) / (1 + b.k);
+            b.v += a * dt; b.s += b.v * dt; if (b.s >= Ln - 1.4) b.t = t;
+          }
+        },
+        frame() {
+          rot();
+          for (const b of bodies) { const s = Math.min(b.s, Ln - 1.4); b.m.position.set(-Ln / 2 + 0.8 + s, 0.15 + (b.k === null ? 0.5 : 0.55), b.z); if (b.k !== null) b.m.rotation.z = -b.s / 0.55; }
+        },
+        info: () => bodies.map(b => `${b.name}: ${b.t != null ? b.t.toFixed(2) + ' s' : run ? '…' : '–'}`).join('   ·   ') + `\nA hoop keeps its mass far from the axle, so more of the energy goes into spinning: it comes last. The block only moves if tan θ > μ.`,
+      };
+    },
+    // ── Gear train: speed, torque and direction through three gears ──
+    gears() {
+      const P = { n1: 20, n2: 40, n3: 15, rpm: 60 }, grp = new THREE.Group(), meshes = [];
+      const mod = 0.22;
+      const gearMesh = (n, col) => { const R = mod * n / 2, sh = new THREE.Shape(); for (let i = 0; i < n; i++) { const a0 = i / n * 2 * Math.PI, a1 = (i + 0.25) / n * 2 * Math.PI, a2 = (i + 0.5) / n * 2 * Math.PI, a3 = (i + 0.75) / n * 2 * Math.PI, ro = R + mod, ri = R - mod * 1.1; const pts = [[ri, a0], [ro, a1], [ro, a2], [ri, a3]]; pts.forEach(([rr, a], j) => { const x = rr * Math.cos(a), y = rr * Math.sin(a); if (!i && !j) sh.moveTo(x, y); else sh.lineTo(x, y); }); } const hole = new THREE.Path(); hole.absarc(0, 0, Math.max(0.2, R * 0.18), 0, 2 * Math.PI, true); sh.holes.push(hole); const m = new THREE.Mesh(new THREE.ExtrudeGeometry(sh, { depth: 0.7, bevelEnabled: false }), phyMat(col)); return m; };
+      const build = () => { for (const m of meshes) { grp.remove(m.m); m.m.geometry.dispose(); } meshes.length = 0; const N = [P.n1, P.n2, P.n3], C = [0x3b82f6, 0xe05a2b, 0x16a34a]; let x = 0; N.forEach((n, i) => { const R = mod * n / 2; if (i) x += (mod * N[i - 1] / 2) + R; const m = gearMesh(n, C[i]); m.position.set(x, 3, 0); grp.add(m); meshes.push({ m, n, x }); }); };
+      let ang = 0; build();
+      return {
+        group: grp, camera: { th: 0, ph: 0.05, d: 16, t: [3.2, 3, 0] }, floor: -3,
+        controls: [rng('n1', 'Driver teeth', 20, 8, 60, 1), rng('n2', 'Middle gear teeth', 40, 8, 80, 1), rng('n3', 'Output teeth', 15, 8, 60, 1), rng('rpm', 'Driver speed (rpm)', 60, 10, 300, 5)],
+        set(k, v) { P[k] = v; if (k !== 'rpm') build(); },
+        step(dt) { ang += P.rpm / 60 * 2 * Math.PI * dt; },
+        frame() { meshes.forEach((g2, i) => { const sgn = i % 2 ? -1 : 1, a = sgn * ang * P.n1 / g2.n; g2.m.rotation.z = a + (i % 2 ? Math.PI / g2.n : 0); }); },
+        info: () => { const r = P.n1 / P.n3; return `Speeds: ${P.rpm} → ${(P.rpm * P.n1 / P.n2).toFixed(0)} → ${(P.rpm * r).toFixed(0)} rpm.  Output runs the ${(P.n3 > P.n1 ? 'slower, with ' + (P.n3 / P.n1).toFixed(2) + '× the torque' : 'faster, with ' + (P.n1 / P.n3).toFixed(2) + '× less torque')}.  The middle gear only reverses direction — it does not change the ratio.`; },
+      };
+    },
+  };
+  function swap(k) {
+    if (D) { g.remove(D.group); phyDisposeGroup(D.group); }
+    S.demo = k; D = DEMOS[k](); g.add(D.group); sim.camera = D.camera; floor.position.y = D.floor || 0;
+    sim.controls = [sel('demo', 'Demo', k, [['cradle', "Newton's cradle"], ['crank', 'Engine (crank-slider)'], ['chatter', 'Tool chatter'], ['incline', 'Rolling race'], ['gears', 'Gear train']]), ...D.controls];
+    sim.cardDirty = true;
+    const c = D.camera; if (typeof PHY !== 'undefined' && PHY.sim === sim) { Object.assign(PHY.orbit, { th: c.th, ph: c.ph, d: c.d, t: new THREE.Vector3(...c.t) }); phyCamera(); }
+  }
+  const sim = {
+    group: g, camera: null, speed: 1, controls: [], cardDirty: false,
+    reset() { swap(S.demo); sim.cardDirty = true; },
+    set(k, v) { if (k === 'demo') swap(v); else D.set(k, v); },
+    step(dt) { D.step(dt); }, frame(dt) { D.frame(dt); }, info: () => D.info(),
+    dispose() { phyDisposeGroup(g); },
+  };
+  swap('cradle'); sim.cardDirty = false;
+  return sim;
+}
+
 PHY_SIMS.chips = ['Chips & cutting', phyChips];
+PHY_SIMS.fluid = ['Fluid', phyFluid];
+PHY_SIMS.mech = ['Mechanics', phyMechanics];
 
 // LAB-END
 </script>
