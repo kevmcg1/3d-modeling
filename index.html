@@ -27412,6 +27412,167 @@ function engraveFields(op) {
   };
 }
 
+SAMPLES.push({ axes: 'model', name: 'Bent plate for engraving', desc: 'A plate arched with the Deform tool. Manufacture → Other → Engrave puts text or an image on it, following the curved top.', make() {
+  const k = sampleKit(), s1 = k.sketch(k.XZ, k.rect(-50, -22, 50, 22), { k: 'origin', w: 'XZ' }), e1 = k.extrude(s1, [P2(0, 0)], 6, 'new');
+  k.features.push({ id: k.nid(), type: 'deform', name: 'Bend', ...FEATS.deform.init(), bodies: [e1.id], mode: 'bend', ax: 'X', dir: 'Z', angle: 32 });
+  return k.doc();
+} });
+
+// ── CNC turning and live tooling (Haas ST style): the profile comes from a body of the model or a demo shaft ──
+// Program Z runs from the face (0) toward the chuck (negative); X is the diameter, as on the control.
+function latheProfile(axis) {                                       // axis: 'Z' (the model's up), 'X' or 'Y'
+  const bs = typeof MODEL !== 'undefined' && MODEL ? MODEL.bodies.filter(b => !b.hole && !(doc.hidden && doc.hidden[b.id]) && b.mesh) : [];
+  if (!bs.length) return null;
+  const A = { X: 0, Z: 1, Y: 2 }[axis], O = [0, 1, 2].filter(i => i !== A);
+  let lo = Infinity, hi = -Infinity, c = [0, 0], n = 0; const tris = [];
+  for (const b of bs) { const p = b.mesh.pos; for (let i = 0; i < p.length; i += 9) tris.push(p.subarray(i, i + 9)); for (let i = 0; i < p.length; i += 3) { lo = Math.min(lo, p[i + A]); hi = Math.max(hi, p[i + A]); } }
+  for (const b of bs) { c[0] += (b.bb[O[0]] + b.bb[O[0] + 3]) / 2; c[1] += (b.bb[O[1]] + b.bb[O[1] + 3]) / 2; n++; } c[0] /= n; c[1] /= n;
+  const zs = new Set(); for (const t of tris) for (let k = 0; k < 3; k++) zs.add(+t[k * 3 + A].toFixed(3));
+  let list = [...zs].sort((a, b) => a - b); const N = 160; for (let i = 0; i <= N; i++) list.push(lo + (hi - lo) * i / N); list = [...new Set(list.map(v => +v.toFixed(3)))].sort((a, b) => a - b);
+  const out = [];
+  for (const z0 of list) for (const e of [1e-3, -1e-3]) {
+    const z = Math.min(hi - 1e-4, Math.max(lo + 1e-4, z0 + e)); if (out.length && Math.abs(out[out.length - 1].z - z) < 1e-6) continue;
+    let rmax = 0, rmin = Infinity;
+    for (const t of tris) for (let k = 0; k < 3; k++) { const a = t.subarray(k * 3, k * 3 + 3), b2 = t.subarray(((k + 1) % 3) * 3, ((k + 1) % 3) * 3 + 3); if ((a[A] - z) * (b2[A] - z) < 0) { const f = (z - a[A]) / (b2[A] - a[A]), r = Math.hypot(a[O[0]] + (b2[O[0]] - a[O[0]]) * f - c[0], a[O[1]] + (b2[O[1]] - a[O[1]]) * f - c[1]); rmax = Math.max(rmax, r); rmin = Math.min(rmin, r); } }
+    out.push({ z, r: rmax, ri: rmin < rmax * 0.92 && rmin > 0.05 ? rmin : 0 });
+  }
+  return { pts: out.filter(p => p.r > 0), len: hi - lo, rmax: Math.max(...out.map(p => p.r)) };
+}
+const LATHE_DEMO = () => { const pts = []; const seg = (z0, z1, r) => { pts.push({ z: z0, r, ri: 0 }, { z: z1, r, ri: 0 }); }; seg(0, -12, 10); pts.push({ z: -12.001, r: 13, ri: 0 }); seg(-12.001, -30, 13); pts.push({ z: -30.001, r: 12, ri: 0 }); seg(-30.001, -34, 12); pts.push({ z: -34.001, r: 16, ri: 0 }); seg(-34.001, -52, 16); return { pts: pts.map((p, i) => ({ ...p, ri: p.z > -20 ? 4 : 0 })), len: 52, rmax: 16 }; };
+// the finished outer radius at program z (linear between profile points)
+const lathePart = prof => z => { const P = prof.pts; let best = 0; for (let i = 0; i + 1 < P.length; i++) { const a = P[i], b = P[i + 1]; if (z <= Math.max(a.z, b.z) + 1e-9 && z >= Math.min(a.z, b.z) - 1e-9) { const f = a.z === b.z ? 0 : (z - a.z) / (b.z - a.z); best = Math.max(best, a.r + (b.r - a.r) * f); } } return best; };
+function lathePlan(P, prof) {
+  const mm = isIn() ? 25.4 : 1, R0 = prof.rmax, SR = Math.max(R0 + 1.5, +(R0 * 1.05).toFixed(1)), L = prof.len, face = P.faceAllow, rf = lathePart({ pts: prof.pts.map(p => ({ z: p.z - prof.pts[0].z, r: p.r, ri: p.ri })) });
+  const zOf = z => z - prof.pts[0].z;                                  // face at 0
+  const moves = [], code = [], ops = [];
+  const fmt = v => (v / mm).toFixed(isIn() ? 4 : 3), U = isIn() ? 'G20' : 'G21';
+  const mv = (x, z, r, tag) => moves.push({ x, z, r: !!r, tag });
+  const T = (n, name, css) => { code.push(`(${name})`, `T${n}01`, `G50 S2800`, `G96 S${Math.round(css / (isIn() ? 0.3048 : 1) * (isIn() ? 0.3048 : 1) * (isIn() ? 3.281 : 1))} M3`); };   // CSS in surface feet per minute on an inch control
+  const T97 = (n, name, rpm) => code.push(`(${name})`, `T${n}01`, `G97 S${Math.round(rpm)} M3`);
+  const F = v => fmt(v);
+  code.push('%', 'O00001 (DATUM - HAAS ST LATHE)', `${U} G18 G40 G99`, `(STOCK Ø${(2 * SR / mm).toFixed(isIn() ? 3 : 2)} · FACE AT Z0 · PART LENGTH ${(L / mm).toFixed(isIn() ? 3 : 2)})`, 'G53 G00 X0 Z0');
+  let line = 100;
+  if (P.face) {
+    T(1, 'FACE · OD TURNING TOOL', P.css); code.push(`G00 G54 X${fmt(2 * SR + 2)} Z${fmt(face + 1)}`, `G01 Z${fmt(face)} F${F(P.feed)}`, `G01 X${fmt(-1.6)} F${F(P.feed)}`, `G00 Z${fmt(1)}`);
+    mv(SR + 1, face + 1, 1); mv(SR + 1, face, 0, 'face'); mv(0, face, 0, 'face'); mv(0, 1, 1); ops.push('Face');
+  }
+  const prof2 = prof.pts.map(p => ({ z: zOf(p.z), r: p.r })), allow = P.allow;
+  if (P.rough) {
+    T(1, 'ROUGH + FINISH OD (G71 / G70)', P.css);
+    const n0 = line, n1 = line + 10; code.push(`G00 G54 X${fmt(2 * SR + 2)} Z${fmt(2)}`, `G71 P${n0} Q${n1} U${fmt(allow * 2)} W${fmt(allow)} D${fmt(P.doc)} F${F(P.feed)}`);
+    code.push(`N${n0} G00 X${fmt(2 * Math.max(0, prof2[0].r - 1))}`); const ps = []; for (const p of prof2) { if (!ps.length || Math.abs(ps[ps.length - 1].z - p.z) > 1e-4 || Math.abs(ps[ps.length - 1].r - p.r) > 1e-4) ps.push(p); }
+    ps.forEach(p => code.push(`G01 X${fmt(2 * p.r)} Z${fmt(p.z)}`)); code.push(`N${n1} G01 X${fmt(2 * SR + 1)}`, `G70 P${n0} Q${n1}`, 'G00 X' + fmt(2 * SR + 4) + ' Z' + fmt(2));
+    // the cut for the animation: roughing passes (shoulder-limited), then the finish pass along the profile
+    const rp = z => rf(-z) ? 0 : 0; void rp;
+    const r0 = z => { const P2 = prof2; let best = 0; for (let i = 0; i + 1 < P2.length; i++) { const a = P2[i], b = P2[i + 1]; if (z <= Math.max(a.z, b.z) + 1e-9 && z >= Math.min(a.z, b.z) - 1e-9) { const f = a.z === b.z ? 0 : (z - a.z) / (b.z - a.z); best = Math.max(best, a.r + (b.r - a.r) * f); } } return best; };
+    const zmin = Math.min(...prof2.map(p => p.z));
+    for (let r = SR - P.doc / 2; r > Math.min(...prof2.map(p => p.r)) + allow - 1e-6; r -= P.doc / 2) {
+      let z = face; const zs = []; while (z > zmin) { if (r0(z) + allow > r + 1e-6) break; zs.push(z); z -= 0.5; }
+      if (!zs.length) continue; mv(r, 2, 1); mv(r, face, 0, 'rough'); mv(r, zs[zs.length - 1] - 0.3, 0, 'rough'); mv(r + 0.5, zs[zs.length - 1] + 0.2, 0, 'rough'); mv(r + 1, 2, 1);
+    }
+    mv(prof2[0].r + 1, 2, 1); for (const p of prof2) mv(p.r, p.z, 0, 'finish'); mv(prof2[prof2.length - 1].r + 2, prof2[prof2.length - 1].z, 1); mv(SR + 3, 2, 1); ops.push('Rough + finish OD'); line += 20;
+  }
+  if (P.groove) {
+    const gz = -P.gz, gw = P.gw, gr = Math.max(0.5, lathePart({ pts: prof2.map(p => ({ z: p.z, r: p.r, ri: 0 })) })(gz) - P.gd);
+    T(2, `GROOVE ${(gw / mm).toFixed(isIn() ? 3 : 2)} WIDE`, Math.round(P.css * 0.7)); code.push(`G00 G54 X${fmt(2 * SR + 2)} Z${fmt(gz + gw / 2 - 0.05)}`, `G75 X${fmt(2 * gr)} I${fmt(0.5)} F${F(P.feed * 0.5)}`, `G00 X${fmt(2 * SR + 2)}`);
+    mv(SR + 1, gz, 1); mv(gr, gz, 0, 'groove'); mv(gr, gz + gw / 2, 0, 'groove'); mv(gr, gz - gw / 2, 0, 'groove'); mv(SR + 1, gz, 1); ops.push('Groove');
+  }
+  if (P.thread) {
+    const r0 = prof2[0].r; let zr = 0; for (const p of prof2) { if (Math.abs(p.r - r0) < 0.02) zr = Math.min(zr, p.z); else if (p.z < zr) break; }
+    const run = -zr, d = 2 * r0, pitch = isoPitch(d), h = 0.6134 * pitch;
+    if (run > 4 * pitch) {
+      const z1 = -0.0, z2 = -(run - pitch);
+      T97(3, `THREAD M${d.toFixed(0)} × ${pitch}`, Math.min(1200, P.css * 0.55 * 1000 / (Math.PI * d)));
+      code.push(`G00 G54 X${fmt(d + 4)} Z${fmt(4 * pitch)}`, `G76 X${fmt(d - 2 * h)} Z${fmt(z2)} K${fmt(h)} D${fmt(h * 0.28)} F${fmt(pitch)} A60`, `G00 X${fmt(2 * SR + 2)}`);
+      mv(d / 2 + 2, 4 * pitch, 1); for (let pass = 1; pass <= 5; pass++) { const r = d / 2 - h * Math.sqrt(pass / 5); mv(r, 4 * pitch, 1); mv(r, z2, 0, 'thread'); mv(d / 2 + 2, z2, 1); } mv(SR + 2, 4 * pitch, 1); ops.push('Thread'); void z1;
+    }
+  }
+  if (P.drill) {
+    T97(4, `DRILL Ø${(P.dd / mm).toFixed(isIn() ? 3 : 2)}`, Math.min(3000, 120 * 1000 / (Math.PI * P.dd)));
+    code.push(`G00 G54 X0 Z${fmt(1)}`, `G83 Z${fmt(-P.dl)} R${fmt(0.5)} Q${fmt(P.dd * 0.6)} F${F(0.1)}`, 'G80', 'G00 Z' + fmt(2)); mv(0, 1, 1); mv(0, -P.dl, 0, 'drill'); mv(0, 2, 1); ops.push('Drill'); P._drill = { r: P.dd / 2, l: P.dl };
+  }
+  if (P.cut) {
+    const zc = -(L + P.cw / 2 + 0.2); T(6, `CUT OFF ${(P.cw / mm).toFixed(isIn() ? 3 : 2)} WIDE`, Math.round(P.css * 0.6)); code.push(`G00 G54 X${fmt(2 * SR + 2)} Z${fmt(zc)}`, `G01 X${fmt(-1)} F${F(P.feed * 0.4)}`, `G00 X${fmt(2 * SR + 4)}`, 'G28 U0 W0');
+    mv(SR + 1, zc, 1); mv(0, zc, 0, 'cut'); mv(SR + 2, zc, 1); ops.push('Cut off');
+  }
+  // live tooling: the C axis positions the part and the driven tool cuts
+  const live = [];
+  for (const f of P.live) {
+    if (f.k === 'cross') { live.push(`(CROSS HOLES · ${f.n}× Ø${(f.d / mm).toFixed(isIn() ? 3 : 2)} AT Z${(-f.z / mm).toFixed(isIn() ? 3 : 2)})`, 'T1111 (LIVE DRILL)', 'G98', 'M154 (C AXIS ON)', 'G19 (YZ PLANE)', 'M133 P2500 (LIVE TOOL CW)'); live.push(`G00 G54 X${fmt(2 * SR + 4)} Z${fmt(-f.z)} C0.`, `G241 X${fmt(2 * (SR - f.l))} Z${fmt(-f.z)} R${fmt(SR + 1)} F${F(0.04)}`); for (let i = 1; i < f.n; i++) live.push(`C${(i * 360 / f.n).toFixed(1)}`); live.push('G80', 'M135', 'M155 (C AXIS OFF)', 'G18'); ops.push(`Cross holes ×${f.n}`); }
+    if (f.k === 'face') { live.push(`(FACE HOLES · ${f.n}× Ø${(f.d / mm).toFixed(isIn() ? 3 : 2)} ON Ø${(f.pcd / mm).toFixed(isIn() ? 3 : 2)})`, 'T1111 (LIVE DRILL)', 'G98', 'M154', 'G17 (XY PLANE)', 'M133 P3000'); live.push(`G00 G54 X${fmt(f.pcd)} C0. Z${fmt(1)}`, `G83 Z${fmt(-f.l)} R${fmt(0.5)} Q${fmt(f.d)} F${F(0.05)}`); for (let i = 1; i < f.n; i++) live.push(`C${(i * 360 / f.n).toFixed(1)}`); live.push('G80', 'M135', 'M155', 'G18'); ops.push(`Face holes ×${f.n}`); }
+    if (f.k === 'flats') { live.push(`(WRENCH FLATS · ${f.n}× AF ${(f.af / mm).toFixed(isIn() ? 3 : 2)} · ${(f.l / mm).toFixed(isIn() ? 3 : 2)} LONG)`, 'T1212 (LIVE END MILL)', 'M154', 'G19', 'M133 P3500'); for (let i = 0; i < f.n; i++) live.push(`G00 G54 X${fmt(2 * SR + 4)} Z${fmt(-f.l - 3)} C${(i * 360 / f.n).toFixed(1)}`, `G01 X${fmt(f.af)} F${F(0.08)}`, `G01 Z${fmt(1)} F${F(0.06)}`, `G00 X${fmt(2 * SR + 4)}`); live.push('M135', 'M155', 'G18'); ops.push(`Flats ×${f.n}`); }
+  }
+  code.push(...live, 'M30', '%');
+  return { code, moves, ops, SR, L, zOf, prof2 };
+}
+function phyLathe() {
+  const g = new THREE.Group(), S = { axis: 'Z', src: 'model', css: 220, feed: 0.2, doc: 1.5, allow: 0.3, faceAllow: 1, face: true, rough: true, groove: false, gz: 14, gw: 3, gd: 1.5, thread: false, tz0: 31, tz1: 44, pitch: 1.5, drill: false, dd: 8, dl: 25, cut: true, cw: 3, live: [] };
+  let prof, plan, pi = 0, stock = [], sdone = 0, acc = 0, playing = false, mesh = null, markers = new THREE.Group(), tool = null;
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(200, 120), phyMat(0xdfe5ec)); floor.rotation.x = -Math.PI / 2; floor.position.y = -45; g.add(floor);
+  const chuck = new THREE.Mesh(new THREE.CylinderGeometry(34, 34, 40, 36), phyMat(0x59616b)); chuck.rotation.z = Math.PI / 2; chuck.position.x = -78; g.add(chuck);
+  const jaws = []; for (let i = 0; i < 3; i++) { const j = new THREE.Mesh(new THREE.BoxGeometry(24, 6, 12), phyMat(0x3a424c)); const a = i * 2.094; j.position.set(-56, Math.sin(a) * 26, Math.cos(a) * 26); j.rotation.x = -a; g.add(j); }
+  g.add(markers);
+  const toolG = new THREE.Group(); const body = new THREE.Mesh(new THREE.BoxGeometry(34, 6, 8), phyMat(0x2d3748)); body.position.set(17, 6, 0); const ins = new THREE.Mesh(new THREE.BoxGeometry(5, 3, 5), phyMat(0xe6c34a)); ins.position.set(2.5, 2, 0); toolG.add(body, ins); g.add(toolG);
+  const SC = 1;
+  function load() {
+    prof = (S.src === 'model' && latheProfile(S.axis)) || LATHE_DEMO();
+    const mm = isIn() ? 25.4 : 1; void mm;
+    plan = lathePlan({ ...S, live: S.live }, prof); stock = []; const N = 220; for (let i = 0; i <= N; i++) stock.push({ z: S.faceAllow - (plan.L + S.faceAllow + S.cw + 2) * i / N, r: plan.SR });
+    pi = 0; sdone = 0; playing = false; markers.clear(); rebuild();
+  }
+  function rebuild() {
+    if (mesh) { g.remove(mesh); mesh.geometry.dispose(); }
+    const pts = stock.map(s => new THREE.Vector2(Math.max(0.01, s.r), s.z * SC)); pts.unshift(new THREE.Vector2(0.01, pts[0].y)); pts.push(new THREE.Vector2(0.01, pts[pts.length - 1].y));
+    const geo = new THREE.LatheGeometry(pts, 48, 0, Math.PI * 1.55); mesh = new THREE.Mesh(geo, phyMat(0xb4bcc6, { side: THREE.DoubleSide })); mesh.rotation.z = -Math.PI / 2; g.add(mesh);
+  }
+  const sim = {
+    group: g, camera: { th: 0.35, ph: 0.3, d: 52, t: [-3, 0, 0] }, speed: 1,
+    controls: [
+      { k: 'src', t: 'sel', label: 'Part', v: S.src, opts: [['model', 'The part in the model (revolved)'], ['demo', 'Demo stepped shaft']] },
+      { k: 'axis', t: 'sel', label: 'Turn about the model axis', v: S.axis, opts: [['Z', 'Z (up)'], ['X', 'X'], ['Y', 'Y']] },
+      { k: 'css', t: 'range', label: 'Surface speed (m/min)', v: S.css, min: 60, max: 400, step: 10 }, { k: 'doc', t: 'range', label: 'Roughing depth of cut (mm)', v: S.doc, min: 0.3, max: 4, step: 0.1 },
+      { k: 'groove', t: 'chk', label: 'Groove (demo: at 14 mm)', v: S.groove }, { k: 'thread', t: 'chk', label: 'Thread (OD, 1.5 pitch)', v: S.thread }, { k: 'drill', t: 'chk', label: 'Axial drill Ø8 × 25', v: S.drill }, { k: 'cut', t: 'chk', label: 'Cut off', v: S.cut },
+      { k: 'lx', t: 'btn', label: '+ Cross holes (live tool)' }, { k: 'lf', t: 'btn', label: '+ Face bolt circle (live)' }, { k: 'ln', t: 'btn', label: '+ Wrench flats (live)' }, { k: 'lc', t: 'btn', label: 'Clear live tooling' },
+      { k: 'play', t: 'btn', label: '▶ Run the program' }, { k: 'copy', t: 'btn', label: 'Copy G-code' }, { k: 'save', t: 'btn', label: 'Save .nc' },
+    ],
+    reset: load,
+    set(k, v) {
+      if (['src', 'axis'].includes(k)) { S[k] = v; load(); return; }
+      if (['groove', 'thread', 'drill', 'cut'].includes(k)) { S[k] = v; load(); return; }
+      if (k === 'css' || k === 'doc') { S[k] = +v; load(); return; }
+      const mm = 1;
+      if (k === 'lx') { S.live.push({ k: 'cross', n: 3, d: 4, z: Math.min(prof.len * 0.4, 20), l: Math.min(prof.rmax, 8) }); load(); }
+      else if (k === 'lf') { S.live.push({ k: 'face', n: 4, d: 4, pcd: Math.max(8, prof.rmax * 1.1), l: 8 }); load(); }
+      else if (k === 'ln') { S.live.push({ k: 'flats', n: 2, af: Math.max(4, prof.rmax * 1.5), l: 12 }); load(); }
+      else if (k === 'lc') { S.live = []; load(); }
+      else if (k === 'play') { pi = 0; playing = true; stock.forEach(s => { s.r = plan.SR; }); markers.clear(); rebuild(); }
+      else if (k === 'copy') { try { navigator.clipboard.writeText(plan.code.join('\n')); toast('G-code copied'); } catch (e) { toast('Copy failed'); } }
+      else if (k === 'save') { download('datum-lathe.nc', new Blob([plan.code.join('\n')], { type: 'text/plain' })); void mm; }
+    },
+    step(dt) {
+      if (!playing || pi >= plan.moves.length - 1) { if (playing && pi >= plan.moves.length - 1) { playing = false; liveShow(); } return; }
+      const a = plan.moves[pi], b = plan.moves[pi + 1], d = Math.hypot(b.x - a.x, b.z - a.z), v = (b.r ? 260 : 70) * 1, dur = d / v;
+      acc += dt; const u = dur > 0 ? Math.min(1, acc / dur) : 1, x = a.x + (b.x - a.x) * u, z = a.z + (b.z - a.z) * u;
+      tool = [x, z, b.r]; if (!b.r) for (const s of stock) if (Math.abs(s.z - z) < (plan.L + 6) / 220 * 1.2 && s.r > x) s.r = Math.max(0.3, x);
+      if (u >= 1) { pi++; acc = 0; if (pi % 4 === 0) rebuild(); }
+    },
+    frame() { if (tool) toolG.position.set(tool[1], tool[0] + 1, 0); else toolG.position.set(2, plan.SR + 4, 0); if (mesh && playing && (performance.now() % 100) < 20) rebuild(); },
+    info: () => `${plan.ops.join(' → ') || 'nothing selected'}.  ${S.src === 'model' && !latheProfile(S.axis) ? 'No body in the model, using the demo shaft.  ' : ''}Part Ø${(2 * prof.rmax).toFixed(1)} × ${prof.len.toFixed(1)} mm, bar Ø${(2 * plan.SR).toFixed(1)}.  ${plan.code.length} lines of G-code (G71/G70 roughing and finishing, G75 grooving, G76 threading, G83 drilling, live tooling with M154 C-axis and G241 / G83).  ${playing ? 'Cutting…' : 'Run the program to watch the bar being turned.'}`,
+    dispose() { phyDisposeGroup(g); },
+  };
+  function liveShow() {
+    for (const f of S.live) {
+      if (f.k === 'cross') for (let i = 0; i < f.n; i++) { const a = i * 2 * Math.PI / f.n, m = new THREE.Mesh(new THREE.CylinderGeometry(f.d / 2, f.d / 2, f.l + 2, 16), phyMat(0x222831)); m.position.set(-f.z, Math.cos(a) * (plan.SR - f.l / 2), Math.sin(a) * (plan.SR - f.l / 2)); m.rotation.x = Math.PI / 2 + (a - Math.PI / 2); m.lookAt(new THREE.Vector3(-f.z, 0, 0)); m.rotateX(Math.PI / 2); markers.add(m); }
+      if (f.k === 'face') for (let i = 0; i < f.n; i++) { const a = i * 2 * Math.PI / f.n, m = new THREE.Mesh(new THREE.CylinderGeometry(f.d / 2, f.d / 2, f.l, 16), phyMat(0x222831)); m.rotation.z = Math.PI / 2; m.position.set(-f.l / 2, Math.cos(a) * f.pcd / 2, Math.sin(a) * f.pcd / 2); markers.add(m); }
+      if (f.k === 'flats') for (let i = 0; i < f.n; i++) { const a = i * Math.PI / f.n, m = new THREE.Mesh(new THREE.BoxGeometry(f.l, 0.5, plan.SR * 2.2), phyMat(0x2f6fd0, { transparent: true, opacity: 0.55 })); m.position.set(-f.l / 2, 0, 0); m.rotation.x = a; m.translateY(f.af / 2); markers.add(m); }
+    }
+  }
+  g.scale.setScalar(0.35);
+  load();
+  sim.code = () => plan.code;
+  return sim;
+}
+
 PHY_SIMS.chips = ['Chips & cutting', phyChips];
 PHY_SIMS.fluid = ['Fluid', phyFluid];
 PHY_SIMS.mech = ['Mechanics', phyMechanics];
@@ -27419,9 +27580,10 @@ PHY_SIMS.shop = ['Haas VF & touch-off', phyShop];
 // the Manufacture ribbon gets a Shop floor group
 {
   const tb0 = camToolbar, act0 = camAction;
-  camToolbar = function () { return tb0() + rbPanel('Shop floor', [['lab:shop', 'Haas VF & Touch-off', '', 'cammill'], ['lab:chips', 'Chips & Cutting', '', 'camparallel'], ['lab:fluid', 'Coolant Flow', '', 'camdrill'], ['lab:mech', 'Mechanics', '', 'camtools']], 2, 'data-cam'); };
+  camToolbar = function () { return tb0() + rbPanel('Shop floor', [['lab:shop', 'Haas VF & Touch-off', '', 'cammill'], ['lab:chips', 'Chips & Cutting', '', 'camparallel'], ['lab:fluid', 'Coolant Flow', '', 'camdrill'], ['lab:mech', 'Mechanics', '', 'camtools'], ['lab:lathe', 'CNC Turning & Live Tooling', '', 'camcontour']], 2, 'data-cam'); };
   camAction = function (a) { if (a.startsWith('lab:')) { physicsOpen(a.slice(4)); return; } act0(a); };
 }
+PHY_SIMS.lathe = ['CNC turning', phyLathe];
 
 // LAB-END
 </script>
