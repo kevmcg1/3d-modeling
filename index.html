@@ -28169,6 +28169,97 @@ function umcCard() {
 <!-- UMC-END -->
 <script>
 // LAB-BEGIN: chips, fluid, mechanics, machines and the touch-off lesson (they plug into the physics lab)
+// ── ChipFX: chips as small rigid bodies — shaped by how the metal was cut, flung off the tool, tumbling, bouncing, piling up ──
+// One system for every cutting simulation. A chip is a ribbon: a tight spiral (stringy), a comma (what a milling tooth
+// takes), a saw-tooth segment, a short flake or dust. They carry a temperature that drives the temper colour of steel
+// and stainless, fly under gravity and air drag, bounce on the surfaces the host provides, and come to rest.
+const CHIP_KINDS = {
+  spiral: { turns: 5, pitch: 0.34, bend: 0, arc: 0 },       // long continuous chip: a coil
+  curl: { turns: 1.7, pitch: 0.22, bend: 0, arc: 0 },       // a loose C-curl, ribbon edge-on to the axis
+  comma: { turns: 0.8, pitch: 0.12, bend: 0, arc: 0 },      // one tooth's chip
+  zig: { turns: 0, pitch: 0, bend: 1, arc: 0 },             // segmented (titanium, stainless at speed)
+  flake: { turns: 0, pitch: 0, bend: 0, arc: 1 },           // short brittle fragments
+  dust: { turns: 0, pitch: 0, bend: 0, arc: 2 },
+};
+function chipGeo(kind) {
+  const k = CHIP_KINDS[kind], P = [], I = [], N = k.turns ? Math.max(10, Math.round(k.turns * 14)) : 8;
+  if (k.turns) {
+    for (let i = 0; i <= N; i++) { const a = i / N * k.turns * 2 * Math.PI, y = k.pitch * a / (2 * Math.PI) - k.pitch * k.turns / 2, c = Math.cos(a), s = Math.sin(a); P.push(c, y - 0.09, s, c, y + 0.09, s); }
+  } else if (k.bend) {
+    for (let i = 0; i <= 6; i++) { const t = i / 6 - 0.5, z = (i % 2 ? 0.18 : -0.18) * 0.5; P.push(t * 1.2, -0.12, z, t * 1.2, 0.12, z); }
+  } else if (k.arc === 1) {
+    for (let i = 0; i <= 4; i++) { const t = i / 4 - 0.5; P.push(t * 0.9, -0.1, 0.1 * Math.sin(Math.PI * (t + 0.5)), t * 0.9, 0.1, 0.1 * Math.sin(Math.PI * (t + 0.5))); }
+  } else { const s = 0.5; P.push(-s, -s, 0, s, -s, 0, 0, s, s * 0.6, 0, 0, -s * 0.5, -s, 0, 0, s, 0, 0); for (const f of [0, 1, 2, 0, 1, 3, 1, 2, 3, 0, 2, 3]) I.push(f); }
+  if (!I.length) for (let i = 0; i < P.length / 6 - 1; i++) { const a = i * 2; I.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setIndex(I); g.computeVertexNormals();
+  return g;
+}
+function chipFX(parent, o = {}) {
+  const CAPK = o.cap || 450, kinds = Object.keys(CHIP_KINDS), mat = o.env ? new THREE.MeshStandardMaterial({ metalness: 0.86, roughness: 0.32, envMap: o.env, envMapIntensity: 1.1, side: THREE.DoubleSide }) : new THREE.MeshPhongMaterial({ shininess: 70, specular: 0x777777, side: THREE.DoubleSide });
+  const fx = { group: new THREE.Group(), kinds: {}, g: o.gravity || 9810, drag: o.drag || 0.9, bodies: [], wake: 0, wash: null, collide: null, killY: o.killY == null ? -1e9 : o.killY };
+  fx.group.frustumCulled = false; parent.add(fx.group);
+  for (const k of kinds) {
+    const m = new THREE.InstancedMesh(chipGeo(k), mat, CAPK); m.frustumCulled = false; m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    m.setColorAt(0, new THREE.Color(1, 1, 1)); m.count = 0; fx.group.add(m); fx.kinds[k] = m;
+  }
+  const tmpM = new THREE.Matrix4(), tmpQ = new THREE.Quaternion(), tmpV = new THREE.Vector3(), tmpS = new THREE.Vector3(), dq = new THREE.Quaternion(), tmpC = new THREE.Color(), up = new THREE.Vector3(0, 1, 0);
+  fx.count = () => fx.bodies.length;
+  fx.clear = () => { fx.bodies.length = 0; for (const k of kinds) fx.kinds[k].count = 0; };
+  // kind, position, velocity, size (x, y, z), temperature °C, base colour
+  fx.spawn = (kind, p, v, s, T, col, spin = 1) => {
+    const same = fx.bodies.filter(b => b.kind === kind);
+    if (same.length >= CAPK) { const i = fx.bodies.findIndex(b => b.kind === kind && b.rest); const j = i >= 0 ? i : fx.bodies.findIndex(b => b.kind === kind); fx.bodies.splice(j, 1); }
+    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.random() * 6.3, Math.random() * 6.3, Math.random() * 6.3));
+    fx.bodies.push({ kind, p: new THREE.Vector3().copy(p), v: new THREE.Vector3().copy(v), q, w: new THREE.Vector3((Math.random() - 0.5) * 22 * spin, (Math.random() - 0.5) * 22 * spin, (Math.random() - 0.5) * 22 * spin), s: new THREE.Vector3().copy(s), T, col: col.clone ? col.clone() : new THREE.Color(col), rest: false, age: 0, r: Math.max(s.x, s.z) * 0.8 + 0.2 });
+    return fx.bodies[fx.bodies.length - 1];
+  };
+  fx.wakeAll = () => { for (const b of fx.bodies) b.rest = false; };
+  // the colour a chip shows at temperature T: steel's temper colours, otherwise it just glows a little when very hot
+  fx.colorOf = (b, out) => {
+    if (b.temper && typeof chipColor === 'function') return out.copy(chipColor(b.T, b.temper));
+    out.copy(b.col); if (b.T > 420) out.lerp(tmpC.set(0xff6a2b), Math.min(1, (b.T - 420) / 300)); return out;
+  };
+  fx.update = dt => {
+    dt = Math.min(dt, 0.05); const n = 2, h = dt / n, damp = Math.exp(-fx.drag * h);
+    for (let s = 0; s < n; s++) for (const b of fx.bodies) {
+      b.age += h;
+      if (b.rest) continue;
+      b.v.y -= fx.g * h; b.v.multiplyScalar(damp);
+      if (fx.wash) fx.wash(b, h);
+      b.p.addScaledVector(b.v, h);
+      const wl = b.w.length(); if (wl > 1e-5) { dq.setFromAxisAngle(tmpV.copy(b.w).multiplyScalar(1 / wl), wl * h); b.q.premultiply(dq); }
+      if (fx.collide && fx.collide(b)) { b.w.multiplyScalar(0.7); if (b.v.lengthSq() < 90 && b.w.lengthSq() < 20) { b.rest = true; b.v.set(0, 0, 0); b.w.set(0, 0, 0); } }
+      if (b.p.y < fx.killY) { b.dead = true; }
+    }
+    if (fx.bodies.some(b => b.dead)) fx.bodies = fx.bodies.filter(b => !b.dead);
+    for (const b of fx.bodies) { if (b.T > 30) b.T -= (b.T - 30) * (b.rest ? 0.4 : 0.9) * dt; }
+    fx.flush();
+  };
+  fx.flush = () => {
+    const idx = {}; for (const k of kinds) idx[k] = 0;
+    for (const b of fx.bodies) {
+      const m = fx.kinds[b.kind], i = idx[b.kind]++; if (i >= CAPK) continue;
+      tmpM.compose(b.p, b.q, b.s); m.setMatrixAt(i, tmpM); m.setColorAt(i, fx.colorOf(b, tmpC));
+    }
+    for (const k of kinds) { const m = fx.kinds[k]; m.count = Math.min(CAPK, idx[k]); m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
+  };
+  fx.dispose = () => { parent.remove(fx.group); for (const k of kinds) { fx.kinds[k].geometry.dispose(); fx.kinds[k].dispose(); } mat.dispose(); };
+  void up;
+  return fx;
+}
+// what chip a cutter makes in a material: a [kind, size multiplier, breakup] mix. cut: { tool type, fz (mm per tooth), ae/D, coolant, vc (m/min), drill }
+function chipRecipe(matKey, c) {
+  const al = matKey === 'aluminum', ss = matKey === 'stainless', br = matKey === 'brass';
+  const r = Math.random();
+  if (c.drill) return al ? (r < 0.55 ? ['spiral', 1, 0.5] : ['curl', 1.1, 1]) : ss ? (r < 0.7 ? ['spiral', 1.1, 0.5] : ['zig', 1, 1]) : br ? ['flake', 1, 1] : ['curl', 1, 1];
+  if (c.tool === 'engrave' || c.fz < 0.006) return r < 0.7 ? ['dust', 0.5, 1] : ['flake', 0.6, 1];
+  if (al) return c.fz < 0.02 ? (r < 0.5 ? ['curl', 1, 1] : ['comma', 1, 1]) : (r < 0.7 ? ['comma', 1.2, 1] : ['curl', 1.1, 1]);
+  if (ss) return r < 0.45 ? ['curl', 1.1, 1] : r < 0.8 ? ['comma', 1, 1] : ['zig', 1, 1];
+  if (br) return r < 0.6 ? ['flake', 1, 1] : r < 0.85 ? ['dust', 0.7, 1] : ['comma', 0.8, 1];
+  return ['comma', 1, 1];
+}
+const CHIP_MAT_OF = { aluminum: 'al', stainless: 'ss', brass: 'brass' };
+
 // ── Chips: orthogonal cutting (Merchant) with the chips built as they leave the tool, and the bar cut away ──
 const CHIP_MATS = {
   al:      ['Aluminum 6061',    { tau: 207, mu: 0.55, rc: 2.43, kind: 'ductile', col: 0xdde2e8, bue: true }],
@@ -29650,9 +29741,22 @@ function phyLathe() {
   g.add(markers);
   const toolG = new THREE.Group(); const body = new THREE.Mesh(new THREE.BoxGeometry(34, 6, 8), phyMat(0x2d3748)); body.position.set(17, 6, 0); const ins = new THREE.Mesh(new THREE.BoxGeometry(5, 3, 5), phyMat(0xe6c34a)); ins.position.set(2.5, 2, 0); toolG.add(body, ins); g.add(toolG);
   const SC = 1;
+  // chips: the long swarf a turning insert makes, riding up the rake face, tumbling onto the chip pan
+  const fx = chipFX(g, { gravity: 9810 * 0.5, drag: 0.5, killY: -90 }); let chipAcc = 0;
+  fx.collide = b => { const f = -44; if (b.p.y - b.r < f) { b.p.y = f + b.r; if (b.v.y < 0) b.v.y *= -0.25; b.v.x *= 0.6; b.v.z *= 0.6; return true; } return false; };
+  function chipsFrom(rem, x, z) {
+    const M = CHIP_MATS.mild[1], vc = S.css; chipAcc += rem / 28; const n = Math.min(10, Math.floor(chipAcc)); chipAcc -= n; if (chipAcc > 20) chipAcc = 20;
+    const T = Math.min(650, 120 + 1.2 * vc), col = new THREE.Color(M.col), pos = new THREE.Vector3(), vel = new THREE.Vector3(), sz = new THREE.Vector3();
+    for (let i = 0; i < n; i++) {
+      const long = Math.random() < 0.55, R = 2.6 + Math.random() * 2.2, W = Math.max(0.8, Math.min(4, S.doc));
+      pos.set(z, x + 1.5, (Math.random() - 0.5) * 3); vel.set(25 + Math.random() * 70, 60 + Math.random() * 110, (Math.random() - 0.5) * 90);
+      sz.set(R, W / 0.18, R); const b = fx.spawn(long ? 'spiral' : 'curl', pos, vel, sz, T * (0.85 + Math.random() * 0.3), col, 0.7); b.temper = M;
+    }
+  }
   function load() {
     prof = (S.src === 'model' && latheProfile(S.axis)) || LATHE_DEMO();
     const mm = isIn() ? 25.4 : 1; void mm;
+    fx.clear(); chipAcc = 0;
     plan = lathePlan({ ...S, live: S.live }, prof); stock = []; const N = 220; for (let i = 0; i <= N; i++) stock.push({ z: S.faceAllow - (plan.L + S.faceAllow + S.cw + 2) * i / N, r: plan.SR });
     pi = 0; sdone = 0; playing = false; markers.clear(); rebuild();
   }
@@ -29689,12 +29793,12 @@ function phyLathe() {
       if (!playing || pi >= plan.moves.length - 1) { if (playing && pi >= plan.moves.length - 1) { playing = false; liveShow(); } return; }
       const a = plan.moves[pi], b = plan.moves[pi + 1], d = Math.hypot(b.x - a.x, b.z - a.z), v = (b.r ? 260 : 70) * 1, dur = d / v;
       acc += dt; const u = dur > 0 ? Math.min(1, acc / dur) : 1, x = a.x + (b.x - a.x) * u, z = a.z + (b.z - a.z) * u;
-      tool = [x, z, b.r]; if (!b.r) for (const s of stock) if (Math.abs(s.z - z) < (plan.L + 6) / 220 * 1.2 && s.r > x) s.r = Math.max(0.3, x);
+      tool = [x, z, b.r]; let rem = 0; const dzs = (plan.L + S.faceAllow + S.cw + 2) / 220; if (!b.r) for (const s of stock) if (Math.abs(s.z - z) < (plan.L + 6) / 220 * 1.2 && s.r > x) { const r1 = Math.max(0.3, x); rem += Math.PI * (s.r * s.r - r1 * r1) * dzs * 0.04; s.r = r1; } if (rem > 0) chipsFrom(rem, x, z);
       if (u >= 1) { pi++; acc = 0; if (pi % 4 === 0) rebuild(); }
     },
-    frame() { if (tool) toolG.position.set(tool[1], tool[0] + 1, 0); else toolG.position.set(2, plan.SR + 4, 0); if (mesh && playing && (performance.now() % 100) < 20) rebuild(); },
+    frame(dt) { if (!PHY.paused) fx.update(dt || 0.016); if (tool) toolG.position.set(tool[1], tool[0] + 1, 0); else toolG.position.set(2, plan.SR + 4, 0); if (mesh && playing && (performance.now() % 100) < 20) rebuild(); },
     info: () => `${plan.ops.join(' → ') || 'nothing selected'}.  ${S.src === 'model' && !latheProfile(S.axis) ? 'No body in the model, using the demo shaft.  ' : ''}Part Ø${(2 * prof.rmax).toFixed(1)} × ${prof.len.toFixed(1)} mm, bar Ø${(2 * plan.SR).toFixed(1)}.  ${plan.code.length} lines of G-code (G71/G70 roughing and finishing, G75 grooving, G76 threading, G83 drilling, live tooling with M154 C-axis and G241 / G83).  ${playing ? 'Cutting…' : 'Run the program to watch the bar being turned.'}`,
-    dispose() { phyDisposeGroup(g); },
+    dispose() { fx.dispose(); phyDisposeGroup(g); },
   };
   function liveShow() {
     for (const f of S.live) {
@@ -29708,6 +29812,190 @@ function phyLathe() {
   sim.code = () => plan.code;
   return sim;
 }
+
+// ── Chips in the Manufacture simulation: removed material becomes chips that fly, bounce, pile up and (with flood coolant) wash away ──
+// A height map of the stock follows the cutter, so chips come from the volume it really removes (nothing in the air),
+// and they land on whatever the surface is now: the cut floor, the walls of a pocket, the table, then the chip pan.
+const CAMCHIP = { on: true, coolant: false, fx: null, grid: null, last: null, lastQ: new THREE.Quaternion(), inv: new THREE.Matrix4(), q: new THREE.Quaternion(), acc: 0, cool: null, stat: { chips: 0, vol: 0 } };
+function camchipReset() {
+  const st = SIM.st; if (!st) return;
+  if (!CAMCHIP.fx) { CAMCHIP.fx = chipFX(scene, { gravity: 9810, drag: 0.7, env: (typeof ToolLook !== 'undefined' && ToolLook.env) ? ToolLook.env() : null }); CAMCHIP.fx.collide = camchipCollide; CAMCHIP.fx.wash = camchipWash; }
+  CAMCHIP.fx.clear(); CAMCHIP.fx.group.visible = true; CAMCHIP.fx.killY = st.z0 - 900;
+  const w = st.x1 - st.x0, h = st.y1 - st.y0, cell = Math.max(0.8, Math.max(w, h) / 170), gw = Math.max(2, Math.ceil(w / cell)), gh = Math.max(2, Math.ceil(h / cell));
+  CAMCHIP.grid = { gw, gh, cell, x0: st.x0, y0: st.y0, H: new Float32Array(gw * gh).fill(st.z1), top: st.z1, tab: st.z0 - 0.5, cx: (st.x0 + st.x1) / 2, cy: (st.y0 + st.y1) / 2, st };
+  CAMCHIP.last = null; CAMCHIP.acc = 0; CAMCHIP.stat = { chips: 0, vol: 0 };
+  const um = typeof isUMC === 'function' && isUMC();
+  CAMCHIP.table = um ? { disc: UMC400.platter / 2 } : { rect: [300, 190] };
+  CAMCHIP.panY = st.z0 - 300;
+}
+function camchipHeight(g, mx, my) {
+  const fx = (mx - g.x0) / g.cell - 0.5, fy = (my - g.y0) / g.cell - 0.5;
+  if (mx < g.x0 || my < g.y0 || mx > g.x0 + g.gw * g.cell || my > g.y0 + g.gh * g.cell) return null;
+  const i = Math.max(0, Math.min(g.gw - 2, Math.floor(fx))), j = Math.max(0, Math.min(g.gh - 2, Math.floor(fy))), u = Math.max(0, Math.min(1, fx - i)), v = Math.max(0, Math.min(1, fy - j));
+  const H = g.H, a = H[j * g.gw + i], b = H[j * g.gw + i + 1], c = H[(j + 1) * g.gw + i], d = H[(j + 1) * g.gw + i + 1];
+  return a * (1 - u) * (1 - v) + b * u * (1 - v) + c * (1 - u) * v + d * u * v;
+}
+// the cutter's shape: height of its underside at radius r from the axis, above its tip
+function camchipUnder(tool, r) {
+  const R = tool.d / 2, t = tool.type;
+  if (r > R) return Infinity;
+  if (t === 'ball') return R - Math.sqrt(Math.max(0, R * R - r * r));
+  if (t === 'drill' || t === 'reamer' || t === 'spot') return r * Math.tan(31 * Math.PI / 180);
+  if (t === 'chamfer') return r * 0.9;
+  if (t === 'bull') { const rc = tool.r || tool.d * 0.1; return r < R - rc ? 0 : rc - Math.sqrt(Math.max(0, rc * rc - (r - (R - rc)) ** 2)); }
+  if (t === 'tap' || t === 'threadmill') return Infinity;
+  return 0;
+}
+// pass the cutter along a→b (machine frame): lower the height map and report what came off
+function camchipStamp(a, b, tool) {
+  const g = CAMCHIP.grid, R = tool.d / 2, L = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]), n = Math.max(1, Math.ceil(L / Math.max(g.cell, R * 0.6)));
+  let vol = 0, depth = 0, cnt = 0, x0 = 0, y0 = 0;
+  const rr = Math.ceil(R / g.cell);
+  for (let s = 0; s <= n; s++) {
+    const f = s / n, px = a[0] + (b[0] - a[0]) * f, py = a[1] + (b[1] - a[1]) * f, pz = a[2] + (b[2] - a[2]) * f;
+    const ci = Math.floor((px - g.x0) / g.cell), cj = Math.floor((py - g.y0) / g.cell);
+    for (let j = Math.max(0, cj - rr); j <= Math.min(g.gh - 1, cj + rr); j++) for (let i = Math.max(0, ci - rr); i <= Math.min(g.gw - 1, ci + rr); i++) {
+      const cx = g.x0 + (i + 0.5) * g.cell, cy = g.y0 + (j + 0.5) * g.cell, r = Math.hypot(cx - px, cy - py);
+      if (r > R) continue;
+      const nh = pz + camchipUnder(tool, r), k = j * g.gw + i;
+      if (nh < g.H[k] - 1e-4) { const d = g.H[k] - Math.max(nh, g.tab); if (d > 0) { vol += d * g.cell * g.cell; depth += d; cnt++; x0 += cx; y0 += cy; } g.H[k] = Math.max(nh, g.tab - 0.01); }
+    }
+  }
+  return { vol, depth: cnt ? depth / cnt : 0, cnt, at: cnt ? [x0 / cnt, y0 / cnt] : null };
+}
+function camchipWash(b, h) {
+  if (!CAMCHIP.coolant || !CAMCHIP.tip) return;
+  const d = b.p.distanceTo(CAMCHIP.tip); if (d > 120) return;
+  const k = 1 - Math.exp(-7 * h), f = CAMCHIP.flow; b.v.x += (f.x - b.v.x) * k; b.v.y += (f.y - b.v.y) * k * 0.4; b.v.z += (f.z - b.v.z) * k; b.rest = false;
+}
+const _cv = new THREE.Vector3(), _cn = new THREE.Vector3();
+function camchipCollide(b) {
+  const g = CAMCHIP.grid; if (!g) return false;
+  let hit = false;
+  _cv.copy(b.p).applyMatrix4(CAMCHIP.inv);
+  const mx = _cv.x, my = -_cv.z, mz = _cv.y, tab = CAMCHIP.table;
+  let h = camchipHeight(g, mx, my);
+  if (h === null) {
+    const dx = mx - g.cx, dy = my - g.cy, on = tab.disc ? Math.hypot(dx, dy) < tab.disc : Math.abs(dx) < tab.rect[0] && Math.abs(dy) < tab.rect[1];
+    h = on ? g.tab : null;
+  }
+  if (h !== null && mz - b.r < h && mz > h - 25) {
+    // surface normal from the height map (steep = a wall)
+    const e = g.cell * 1.2, hx = ((camchipHeight(g, mx + e, my) ?? g.tab) - (camchipHeight(g, mx - e, my) ?? g.tab)) / (2 * e), hy = ((camchipHeight(g, mx, my + e) ?? g.tab) - (camchipHeight(g, mx, my - e) ?? g.tab)) / (2 * e);
+    _cn.set(-hx, 1, hy).normalize();                                      // three-local: x, up, -y
+    _cn.applyQuaternion(CAMCHIP.q).normalize();
+    b.p.addScaledVector(_cn, Math.max(0, h + b.r - mz) * 0.9);
+    const vn = b.v.dot(_cn);
+    if (vn < 0) { b.v.addScaledVector(_cn, -(1 + 0.22) * vn); const vt = b.v.clone().addScaledVector(_cn, -b.v.dot(_cn)); b.v.addScaledVector(vt, -0.35); }
+    hit = true;
+  }
+  // the chip pan under the table and the enclosure walls
+  if (b.p.y - b.r < CAMCHIP.panY) { b.p.y = CAMCHIP.panY + b.r; if (b.v.y < 0) b.v.y *= -0.15; b.v.x *= 0.55; b.v.z *= 0.55; hit = true; }
+  const lim = 520 + 0; if (Math.abs(b.p.x - g.cx) > lim) { b.p.x = g.cx + Math.sign(b.p.x - g.cx) * lim; b.v.x *= -0.3; } if (Math.abs(b.p.z + g.cy) > 420) { b.p.z = -g.cy + Math.sign(b.p.z + g.cy) * 420; b.v.z *= -0.3; }
+  return hit;
+}
+// spawn the chips for what the cutter removed this frame
+function camchipEmit(rem, seg, tip, axis, feedW, op) {
+  const tool = seg.tool, fx = CAMCHIP.fx, mk = (doc.cam && doc.cam.material) || 'aluminum', key = CHIP_MAT_OF[mk] || 'al', M = CHIP_MATS[key][1];
+  const R = tool.d / 2, rpm = Math.max(200, tool.rpm || 5000), z = tool.flutes || 2, f = seg.b.f || tool.feed || 300, vt = Math.PI * tool.d * rpm / 60;
+  const drillish = ['drill', 'spot', 'reamer', 'cbore', 'bsf', 'tap'].includes(tool.type) || (Math.abs(seg.b.z - seg.a.z) > 0.9 * Math.hypot(seg.b.x - seg.a.x, seg.b.y - seg.a.y, seg.b.z - seg.a.z) && Math.abs(seg.b.z - seg.a.z) > 1e-6);
+  const fz = f / (rpm * z), ae = drillish ? tool.d : clamp(((op && op.stepover) || 0.4) * tool.d, 0.1 * tool.d, tool.d), ap = Math.max(0.15, rem.depth);
+  const Lc = clamp(Math.sqrt(ae * Math.max(0.01, tool.d - ae)) * 1.25, 0.8, 9), Wc = clamp(ap, 0.4, 5), tc = Math.max(0.008, fz * Math.sqrt(ae / tool.d));
+  const vChip = Math.max(0.05, Lc * Wc * tc * 3), want = rem.vol / vChip;
+  CAMCHIP.acc += want; const cap = 14; let n = Math.min(cap, Math.floor(CAMCHIP.acc)); CAMCHIP.acc -= n; if (CAMCHIP.acc > 30) CAMCHIP.acc = 30;
+  const big = clamp(Math.sqrt(want / cap), 1, 1.7), vc = Math.PI * tool.d * rpm / 1000, wet = CAMCHIP.coolant;
+  let T = key === 'ss' ? 190 + 1.1 * vc : key === 'brass' ? 90 + 0.3 * vc : 70 + 0.12 * vc; if (wet) T = 30 + (T - 30) * 0.4; T = Math.min(T, 650);
+  const radial = new THREE.Vector3(), tang = new THREE.Vector3(), tmp = new THREE.Vector3(), pos = new THREE.Vector3(), vel = new THREE.Vector3(), sz = new THREE.Vector3(), col = new THREE.Color(M.col);
+  for (let i = 0; i < n; i++) {
+    const [kind, mult] = chipRecipe(mk, { tool: tool.type, fz, drill: drillish, coolant: wet, vc });
+    if (drillish) { const a = Math.random() * TAU; radial.set(Math.cos(a), 0, Math.sin(a)); radial.sub(tmp.copy(axis).multiplyScalar(radial.dot(axis))); if (radial.lengthSq() < 1e-6) radial.set(1, 0, 0).sub(tmp.copy(axis).multiplyScalar(axis.x)); radial.normalize(); }
+    else { radial.copy(feedW).addScaledVector(axis, -feedW.dot(axis)); if (radial.lengthSq() < 1e-8) radial.set(1, 0, 0).sub(tmp.copy(axis).multiplyScalar(axis.x)); radial.normalize(); radial.applyAxisAngle(axis, (Math.random() - 0.5) * 2.2); }
+    tang.copy(radial).cross(axis).normalize();                           // the way the cutting edge is moving (clockwise seen from above)
+    const sp = clamp(0.1 * vt, 70, 800) * (wet ? 0.45 : 1) * (0.5 + Math.random());
+    pos.copy(tip).addScaledVector(radial, R * (0.55 + 0.45 * Math.random())).addScaledVector(axis, Math.min(ap, 4) * Math.random() + 0.3);
+    vel.copy(tang).multiplyScalar(drillish ? sp * 0.35 : sp).addScaledVector(radial, (drillish ? 120 : 0.25 * sp) * Math.random()).addScaledVector(axis, (drillish ? 260 : 70) * Math.random() + 20).addScaledVector(feedW, -(f / 60) * 0.35);
+    vel.x += (Math.random() - 0.5) * 60; vel.y += (Math.random() - 0.5) * 40; vel.z += (Math.random() - 0.5) * 60;
+    const L = Lc * mult * big * 0.95, W = Wc * big * 0.7;
+    if (kind === 'spiral') sz.set(Math.max(0.7, L / (5 * TAU)), W / 0.18, Math.max(0.7, L / (5 * TAU)));
+    else if (kind === 'curl') sz.set(Math.max(0.6, L / (1.7 * TAU)), W / 0.18, Math.max(0.6, L / (1.7 * TAU)));
+    else if (kind === 'comma') sz.set(Math.max(0.55, L / (0.8 * TAU)), W / 0.18, Math.max(0.55, L / (0.8 * TAU)));
+    else if (kind === 'zig') sz.set(L / 1.2, W / 0.24, L * 0.7);
+    else if (kind === 'flake') sz.set(L / 0.9, W / 0.2, L * 0.9);
+    else sz.setScalar(Math.max(0.35, L * 0.4));
+    const body = fx.spawn(kind, pos, vel, sz, T * (0.9 + Math.random() * 0.2), col);
+    body.temper = M.temper ? M : null;
+  }
+  CAMCHIP.stat.chips += n; CAMCHIP.stat.vol += rem.vol;
+}
+let _cam_sim_tick = simTick, _cam_sim_start = simStart, _cam_sim_stop = simStop, _cam_sim_seek = simSeek;
+function camchipRebuild(t) {
+  CAMCHIP.last = null; camchipReset2();
+  const g = CAMCHIP.grid; if (!g) return;
+  for (const sg of SIM.prog) { if (sg.t0 >= t) break; if (sg.r || sg.ax) continue; const t1 = Math.min(sg.t1, t), f = sg.t1 > sg.t0 ? (t1 - sg.t0) / (sg.t1 - sg.t0) : 1, a = sg.a, b = sg.b; camchipStamp([a.x, a.y, a.z], [a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f, a.z + (b.z - a.z) * f], sg.tool); }
+}
+function camchipReset2() { const g = CAMCHIP.grid; if (g) { g.H.fill(g.top); } if (CAMCHIP.fx) CAMCHIP.fx.clear(); CAMCHIP.acc = 0; }
+simStart = function () { _cam_sim_start(); if (SIM.on) { camchipReset(); camchipUi(); } };
+simStop = function () { _cam_sim_stop(); if (CAMCHIP.fx) { CAMCHIP.fx.clear(); CAMCHIP.fx.group.visible = false; } };
+simSeek = function (t) { _cam_sim_seek(t); if (SIM.on && CAMCHIP.grid) camchipRebuild(SIM.t); };
+simTick = function (now) {
+  const was = SIM.t; _cam_sim_tick(now);
+  if (!SIM.on || !CAMCHIP.fx || !CAMCHIP.grid) return;
+  const fx = CAMCHIP.fx; fx.group.visible = CAMCHIP.on;
+  const dt = CAMCHIP.lastNow ? Math.min(0.05, (now - CAMCHIP.lastNow) / 1000) : 0; CAMCHIP.lastNow = now;
+  if (!CAMCHIP.on) return;
+  camGroup.updateMatrixWorld(true); CAMCHIP.inv.copy(camGroup.matrixWorld).invert(); camGroup.getWorldQuaternion(CAMCHIP.q);
+  if (!CAMCHIP.lastQ.equals(CAMCHIP.q)) { fx.wakeAll(); CAMCHIP.lastQ.copy(CAMCHIP.q); }
+  if (SIM.playing) {
+    const seg = SIM.curSeg, tool = SIM.tool, u = tool && tool.userData;
+    if (seg && !seg.r && u && u.tipM && !seg.tool.wire) {
+      const tip = u.tipM, g = CAMCHIP.grid, op = cam().ops.find(o => o.id === seg.op), tilted = seg.ax || (u.axM && u.axM[2] < 0.95);
+      const axis = new THREE.Vector3(0, 1, 0).applyQuaternion(tool.quaternion).normalize();
+      const feedL = new THREE.Vector3(seg.b.x - seg.a.x, seg.b.z - seg.a.z, -(seg.b.y - seg.a.y)); if (feedL.lengthSq() < 1e-9) feedL.set(1, 0, 0); feedL.normalize().applyQuaternion(CAMCHIP.q);
+      CAMCHIP.tip = tool.position.clone(); CAMCHIP.flow = new THREE.Vector3(0.7, -0.5, 0.5).normalize().multiplyScalar(170);
+      let rem = null;
+      if (!tilted) {
+        const prev = CAMCHIP.last || tip.slice();
+        if (Math.hypot(tip[0] - prev[0], tip[1] - prev[1], tip[2] - prev[2]) > 60) CAMCHIP.last = null;       // a jump (a seek or a tool change)
+        rem = camchipStamp(CAMCHIP.last || tip, tip, seg.tool); CAMCHIP.last = tip.slice();
+      } else {                                                                                                   // an indexed operation: chips from the feed through the part
+        const R = seg.tool.d / 2, inside = tip[0] > g.x0 - R && tip[0] < g.x0 + g.gw * g.cell + R && tip[1] > g.y0 - R && tip[1] < g.y0 + g.gh * g.cell + R && tip[2] < g.top - 0.2 && tip[2] > g.tab;
+        if (inside) { const f = (seg.b.f || seg.tool.feed || 300) / 60 * Math.max(dt, 0.016) * Math.max(1, SIM.speed * 0.25); rem = { vol: Math.PI * R * R * f * 0.8, depth: Math.min(3, seg.tool.d * 0.4), cnt: 1 }; }
+      }
+      if (rem && rem.vol > 1e-4 && rem.cnt) camchipEmit(rem, seg, tool.position, axis, feedL, op);
+    } else CAMCHIP.last = null;
+    camchipCoolant(dt, seg);
+  }
+  if (SIM.playing || fx.count()) { if (SIM.playing) fx.update(Math.max(dt, 0.008)); }
+  if (dt > 0 || SIM.playing) requestDraw();
+};
+// flood coolant: two nozzles squirting at the cutter
+function camchipCoolant(dt, seg) {
+  const on = CAMCHIP.coolant && SIM.playing && seg && !seg.r && CAMCHIP.tip;
+  if (!CAMCHIP.cool) {
+    const N = 260, geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N * 3), 3));
+    const pts = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0x8ec9ff, size: 2.2, transparent: true, opacity: 0.7, depthWrite: false })); pts.frustumCulled = false; scene.add(pts);
+    CAMCHIP.cool = { pts, N, t: new Float32Array(N).map(() => Math.random()), j: new Float32Array(N * 3).map(() => (Math.random() - 0.5)) };
+  }
+  const C = CAMCHIP.cool; C.pts.visible = !!on && CAMCHIP.on; if (!on) return;
+  const tip = CAMCHIP.tip, a = C.pts.geometry.attributes.position.array, g = CAMCHIP.grid, src = [new THREE.Vector3(g.cx - 120, tip.y + 90, -g.cy + 150), new THREE.Vector3(g.cx + 120, tip.y + 90, -g.cy + 150)];
+  for (let i = 0; i < C.N; i++) {
+    C.t[i] += dt * 1.9; if (C.t[i] > 1) C.t[i] -= 1;
+    const s = src[i % 2], t = C.t[i], sag = 4 * t * (1 - t) * 18;
+    a[i * 3] = s.x + (tip.x - s.x) * t + C.j[i * 3] * 3; a[i * 3 + 1] = s.y + (tip.y - s.y) * t + sag + C.j[i * 3 + 1] * 3; a[i * 3 + 2] = s.z + (tip.z - s.z) * t + C.j[i * 3 + 2] * 3;
+  }
+  C.pts.geometry.attributes.position.needsUpdate = true;
+}
+// the little controls on the simulation bar
+function camchipUi() {
+  if (document.getElementById('sbChips')) { camchipUiSync(); return; }
+  const sp = document.getElementById('sbSpeed'); if (!sp) return;
+  sp.insertAdjacentHTML('afterend', '<div class="sb-chipctl"><button id="sbChips" data-tip="Chips: show the swarf the cutter makes">Chips</button><button id="sbCool" data-tip="Flood coolant: washes the chips along and cools them">Flood</button></div>');
+  const st = document.createElement('style'); st.textContent = '.sb-chipctl { display: flex; gap: 4px; } .sb-chipctl button { font: 600 11px var(--font); padding: 4px 9px; border-radius: 8px; border: 1px solid var(--rule); background: transparent; color: var(--muted); cursor: pointer; } .sb-chipctl button.on { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }'; document.head.appendChild(st);
+  document.getElementById('sbChips').addEventListener('click', () => { CAMCHIP.on = !CAMCHIP.on; if (CAMCHIP.fx) CAMCHIP.fx.group.visible = CAMCHIP.on; camchipUiSync(); requestDraw(); });
+  document.getElementById('sbCool').addEventListener('click', () => { CAMCHIP.coolant = !CAMCHIP.coolant; camchipUiSync(); });
+  camchipUiSync();
+}
+function camchipUiSync() { const a = document.getElementById('sbChips'), b = document.getElementById('sbCool'); if (a) a.classList.toggle('on', CAMCHIP.on); if (b) b.classList.toggle('on', CAMCHIP.coolant); }
 
 PHY_SIMS.chips = ['Chips & cutting', phyChips];
 PHY_SIMS.fluid = ['Fluid', phyFluid];
