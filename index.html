@@ -28467,6 +28467,181 @@ function phyFluid() {
   return sim;
 }
 
+// ── Abrasive waterjet cutter: a 60,000 psi jet with garnet cuts through plate; the numbers come from the nozzle physics ──
+// Scene units: 1 unit = 10 mm. The jet is drawn about twice its true width so it can be seen.
+const WJ_MATS = {
+  steel: { name: 'Mild steel', f: 1, col: 0x8d96a1, metal: 1, ramp: 'sparkless' },
+  stainless: { name: 'Stainless 304', f: 0.85, col: 0xb7bec6, metal: 1 },
+  alu: { name: 'Aluminum 6061', f: 2.1, col: 0xc9cfd6, metal: 1 },
+  ti: { name: 'Titanium', f: 0.8, col: 0x9ea3ab, metal: 1 },
+  brass: { name: 'Brass', f: 1.5, col: 0xc8a24a, metal: 1 },
+  granite: { name: 'Granite', f: 2.3, col: 0x6b6f76, metal: 0 },
+  glass: { name: 'Glass', f: 4, col: 0xa8d6d0, metal: 0 },
+  carbon: { name: 'Carbon-fiber laminate', f: 3, col: 0x23262b, metal: 0 },
+  rubber: { name: 'Rubber gasket', f: 6, col: 0x2b2b2b, metal: 0 },
+  foam: { name: 'Foam', f: 30, col: 0xe8d9a8, metal: 0 },
+};
+// quality: [label, speed factor, taper (deg), lag factor]
+const WJ_Q = { 1: ['Q1 · finest finish', 0.25, 0.03, 0.2], 2: ['Q2 · fine', 0.5, 0.1, 0.4], 3: ['Q3 · medium', 1, 0.25, 0.7], 4: ['Q4 · fast', 1.6, 0.45, 1], 5: ['Q5 · separation cut', 2.4, 0.8, 1.4] };
+// the physics of the nozzle and a calibrated cutting-speed model (about 90 mm/min through 12 mm of steel at Q3, 60 ksi, 0.36 mm orifice, 0.45 kg/min garnet)
+function wjCalc(o) {
+  const P = o.psi * 0.00689476 * 1e6, rho = 1000, v = 0.98 * Math.sqrt(2 * P / rho), A = Math.PI / 4 * (o.orifice * 1e-3) ** 2, Qm3 = 0.7 * A * Math.sqrt(2 * P / rho);
+  const Lmin = Qm3 * 1000 * 60, hyd = P * Qm3 / 1000, mw = Qm3 * rho * 60;
+  const m = WJ_MATS[o.mat], q = WJ_Q[o.q], t = o.t;
+  const pf = Math.pow(o.psi / 60000, 1.5) * Math.pow(o.orifice / 0.36, 2), af = Math.pow(Math.min(o.abr, 1.4 * Math.pow(o.orifice / 0.36, 2)) / 0.45, 0.35);
+  const umax = 1566 * m.f * q[1] * pf * af / Math.pow(t, 1.15);                // mm/min that still cuts through
+  const tube = o.orifice < 0.3 ? 0.76 : o.orifice < 0.38 ? 1.0 : 1.2, kerf = tube * 1.18 + 0.05;
+  const tmin = 1000 / umax, cost = o.abr * 1.1 * tmin + (hyd / 0.6) * 0.15 * tmin / 60 + Lmin * 0.004 * tmin;                // garnet, pump power and water per metre of cut
+  return { v, mach: v / 343, Lmin, hyd, mw, ratio: o.abr / mw, umax, kerf, tube, taper: q[2], cost, pf, af };
+}
+function phyWaterjet() {
+  const g = new THREE.Group(), S = { mat: 'steel', t: 12, psi: 60000, orifice: 0.36, abr: 0.45, q: 3, trav: 'auto', time: 6, big: 0 };
+  const PLX = 7, PLZ = 3.2, TOP = 1.6;
+  let simT = 0, phase = 'pierce', xn = -PLX + 0.6, depthR = 0, pierceT = 0, holdT = 0, nextRip = 0, plate = null, sprayAcc = 0, exitAcc = 0, ripples = [];
+  const matBox = (c, metal) => new THREE.MeshLambertMaterial({ color: c });
+  // the catcher tank: slatted table and the water that stops the jet
+  const tank = new THREE.Group(); g.add(tank);
+  const tm = phyMat(0x3a424d);
+  for (let i = -7; i <= 7; i++) { const s = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.5, PLZ * 2 + 3), tm); s.position.set(i * 1.0, TOP - 1.9, 0); tank.add(s); }
+  const walls = [[0, TOP - 3, PLZ + 2.5, 18, 5, 0.2], [0, TOP - 3, -PLZ - 2.5, 18, 5, 0.2], [9.1, TOP - 3, 0, 0.2, 5, PLZ * 2 + 5], [-9.1, TOP - 3, 0, 0.2, 5, PLZ * 2 + 5]];
+  for (const [x, y, z, w, h, d] of walls) { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), phyMat(0x2b323b)); m.position.set(x, y, z); tank.add(m); }
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 30), phyMat(0xdfe5ec)); floor.rotation.x = -Math.PI / 2; floor.position.y = TOP - 5.6; g.add(floor);
+  const wUni = { uTime: { value: 0 }, uImp: { value: new THREE.Vector3(0, 0, 0) }, uAmp: { value: 0 } };
+  const waterMat = new THREE.ShaderMaterial({
+    uniforms: wUni, transparent: true, depthWrite: false,
+    vertexShader: `uniform float uTime, uAmp; uniform vec3 uImp; varying vec3 vP; varying vec3 vN;
+      void main() { vec3 p = position; float d = distance(p.xz, uImp.xz); float h = sin(p.x * 1.7 + uTime * 0.9) * 0.012 + sin(p.z * 2.3 - uTime * 0.7) * 0.012 + sin(d * 7.0 - uTime * 7.0) * uAmp * 0.07 / (1.0 + d * 2.5);
+        p.y += h; vP = p; vN = normalize(vec3(-cos(p.x * 1.7 + uTime * 0.9) * 0.02, 1.0, -cos(p.z * 2.3 - uTime * 0.7) * 0.03) + vec3(cos(d * 7.0 - uTime * 7.0) * uAmp * 0.18 / (1.0 + d * 2.5) * normalize(p.xz - uImp.xz + 1e-4).x, 0.0, cos(d * 7.0 - uTime * 7.0) * uAmp * 0.18 / (1.0 + d * 2.5) * normalize(p.xz - uImp.xz + 1e-4).y));
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0); }`,
+    fragmentShader: `varying vec3 vP; varying vec3 vN; void main() { vec3 V = normalize(cameraPosition - vP); float f = pow(1.0 - max(dot(normalize(vN), V), 0.0), 3.0); vec3 col = mix(vec3(0.05, 0.28, 0.42), vec3(0.78, 0.9, 1.0), f * 0.8); float spec = pow(max(dot(reflect(-normalize(vec3(0.4, 0.8, 0.45)), normalize(vN)), V), 0.0), 60.0); gl_FragColor = vec4(col + spec, 0.74); }` });
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(18, PLZ * 2 + 5, 90, 36), waterMat); water.rotation.x = -Math.PI / 2; water.position.y = TOP - 2.9; g.add(water);
+  // the plate: four boxes make the kerf (in front, behind, still uncut ahead of the jet, and any uncut floor of a blind groove)
+  const pm = { front: new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), matBox(0x8d96a1, 1)), back: new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), matBox(0x8d96a1, 1)), ahead: new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), matBox(0x8d96a1, 1)), floorB: new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), matBox(0x8d96a1, 1)) };
+  const wall = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), phyMat(0x161a20)); g.add(wall);
+  for (const k in pm) g.add(pm[k]);
+  // the nozzle: orifice body, mixing tube and the garnet hose
+  const noz = new THREE.Group(); g.add(noz);
+  const nm = phyMat(0xb8c0c9, { shininess: 90 });
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 1.1, 20), nm); body.position.y = 1.55; noz.add(body);
+  const cone = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.34, 0.5, 20), nm); cone.position.y = 0.75; noz.add(cone);
+  const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.095, 0.095, 0.7, 14), phyMat(0x5b6570)); tube.position.y = 0.2; noz.add(tube);
+  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.5, 20), phyMat(0x2a2f36)); cap.position.y = 2.4; noz.add(cap);
+  const hose = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 1.6, 10), phyMat(0xb5522e)); hose.position.set(0.32, 1.7, 0); hose.rotation.z = -0.9; noz.add(hose);
+  // the jet: a thin refracting tube that bends back from the travel direction when the cut is pushed hard
+  const jetU = { uTime: { value: 0 }, uLag: { value: 0 }, uPow: { value: 1 } };
+  const jetMat = new THREE.ShaderMaterial({
+    uniforms: jetU, transparent: true, depthWrite: false, side: THREE.DoubleSide, 
+    vertexShader: `uniform float uLag; varying vec2 vUv; varying vec3 vN; varying vec3 vV; void main() { vUv = uv; float h = -position.y; vec3 p = position; p.x -= uLag * h * h; vec4 mv = modelViewMatrix * vec4(p, 1.0); vN = normalMatrix * normal; vV = -mv.xyz; gl_Position = projectionMatrix * mv; }`,
+    fragmentShader: `uniform float uTime, uPow; varying vec2 vUv; varying vec3 vN; varying vec3 vV; void main() { float f = abs(dot(normalize(vN), normalize(vV))); float st = 0.5 + 0.5 * sin((vUv.y * 90.0 + uTime * 55.0) + sin(vUv.x * 12.0) * 2.0); vec3 c = mix(vec3(0.25, 0.6, 1.0), vec3(0.92, 0.98, 1.0), pow(f, 2.0)); gl_FragColor = vec4(c * (0.75 + 0.25 * st) * uPow, 0.55 + 0.45 * pow(f, 1.2)); }` });
+  const jetGeo = new THREE.CylinderGeometry(1, 1, 1, 10, 36, true); jetGeo.translate(0, -0.5, 0);
+  const jet = new THREE.Mesh(jetGeo, jetMat); jet.frustumCulled = false; g.add(jet);
+  // spray, mist and garnet slurry
+  const CAP = 3000, spPos = new Float32Array(CAP * 3), spVel = new Float32Array(CAP * 3), spLife = new Float32Array(CAP), spMax = new Float32Array(CAP), spSize = new Float32Array(CAP), spCol = new Float32Array(CAP * 3), spA = new Float32Array(CAP);
+  let spN = 0;
+  const spGeo = new THREE.BufferGeometry();
+  spGeo.setAttribute('position', new THREE.BufferAttribute(spPos, 3)); spGeo.setAttribute('aSize', new THREE.BufferAttribute(spSize, 1)); spGeo.setAttribute('aCol', new THREE.BufferAttribute(spCol, 3)); spGeo.setAttribute('aA', new THREE.BufferAttribute(spA, 1));
+  const spMat = new THREE.ShaderMaterial({
+    uniforms: { uPx: { value: 700 } }, transparent: true, depthWrite: false, depthTest: false,
+    vertexShader: `uniform float uPx; attribute float aSize; attribute vec3 aCol; attribute float aA; varying vec3 vC; varying float vA; void main() { vec4 mv = modelViewMatrix * vec4(position, 1.0); vC = aCol; vA = aA; gl_Position = projectionMatrix * mv; gl_PointSize = max(1.5, aSize * uPx / -mv.z); }`,
+    fragmentShader: `varying vec3 vC; varying float vA; void main() { vec2 c = gl_PointCoord * 2.0 - 1.0; float d = dot(c, c); if (d > 1.0) discard; float a = smoothstep(1.0, 0.2, d) * vA; gl_FragColor = vec4(vC, a); }` });
+  const spray = new THREE.Points(spGeo, spMat); spray.frustumCulled = false; spray.renderOrder = 10; g.add(spray);
+  const emit = (x, y, z, vx, vy, vz, size, life, slurry) => {
+    const i = spN < CAP ? spN++ : (Math.random() * CAP) | 0;
+    spPos[i * 3] = x; spPos[i * 3 + 1] = y; spPos[i * 3 + 2] = z; spVel[i * 3] = vx; spVel[i * 3 + 1] = vy; spVel[i * 3 + 2] = vz; spLife[i] = spMax[i] = life; spSize[i] = size;
+    if (slurry) { spCol[i * 3] = 0.72; spCol[i * 3 + 1] = 0.38; spCol[i * 3 + 2] = 0.28; } else { const w = 0.85 + Math.random() * 0.15; spCol[i * 3] = w * 0.9; spCol[i * 3 + 1] = w * 0.96; spCol[i * 3 + 2] = w; }
+  };
+  const C = () => wjCalc(S), U = () => (S.trav === 'auto' ? C().umax : +S.trav);
+  const thick = () => S.t / 10, kerfU = () => Math.max(C().kerf / 10, S.big ? 0.22 : 0);
+  function build() {
+    simT = 0; phase = 'pierce'; xn = -PLX + 0.6; depthR = 0; pierceT = 0; holdT = 0; spN = 0; ripples = [];
+    const m = WJ_MATS[S.mat]; for (const k in pm) { pm[k].material.color.setHex(m.col).multiplyScalar(0.62); pm[k].material.transparent = S.mat === 'glass'; pm[k].material.opacity = S.mat === 'glass' ? 0.55 : 1; }
+    layout();
+  }
+  function layout() {
+    const t = thick(), top = TOP, kf = kerfU(), bot = top - t, cutX = xn;
+    const put = (m, x0, x1, z0, z1, y0, y1) => { m.visible = x1 - x0 > 1e-4 && z1 - z0 > 1e-4 && y1 - y0 > 1e-4; if (!m.visible) return; m.scale.set(x1 - x0, y1 - y0, z1 - z0); m.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2); };
+    put(pm.front, -PLX, PLX, kf / 2, PLZ, bot, top); put(pm.back, -PLX, PLX, -PLZ, -kf / 2, bot, top);
+    put(pm.ahead, cutX + kf / 2, PLX, -kf / 2, kf / 2, bot, top);                      // still solid ahead of the jet
+    put(pm.floorB, -PLX, cutX + kf / 2, -kf / 2, kf / 2, bot, bot + t * (1 - depthR));  // the uncut floor of a groove that did not go through
+    put(wall, -PLX, cutX, -kf / 2 + 0.004, kf / 2 - 0.004, bot + t * (1 - depthR), top - 0.001);
+    wall.visible = false;
+  }
+  function update(dt) {
+    const c = C(), u = U(), through = u <= c.umax * 1.001, ts = S.time, uUnit = u / 60 / 10;      // mm/min → units/s
+    if (phase === 'pierce') {
+      const need = Math.max(0.4, S.t / 10 * 0.7 / (WJ_Q[S.q][1] + 0.3) * (1 / Math.max(0.3, c.pf)));
+      pierceT += dt * ts; depthR = Math.min(1, pierceT / need) * (through ? 1 : Math.min(1, Math.pow(c.umax / u, 0.85)));
+      if (pierceT >= need) phase = 'cut';
+    } else if (phase === 'cut') {
+      depthR = through ? 1 : Math.min(1, Math.pow(c.umax / u, 0.85));
+      xn += uUnit * dt * ts;
+      if (xn >= PLX - 0.6) { phase = 'hold'; holdT = 0; }
+    } else { holdT += dt; depthR = Math.max(0, depthR - dt * 2); if (holdT > 1.6) build(); }
+    simT += dt;
+  }
+  function frameFx(dt) {
+    const c = C(), u = U(), through = u <= c.umax * 1.001, t = thick(), top = TOP, kf = kerfU(), on = phase !== 'hold';
+    const yTip = top + 0.95, depth = on ? t * depthR : 0, yHit = top - depth;
+    noz.position.set(xn, top + 1.0, 0); noz.visible = true;
+    const lag = (phase === 'cut' ? Math.min(1.4, (u / Math.max(1, c.umax)) * WJ_Q[S.q][3] * (0.15 + 0.5 * depth)) : 0) * 0.5;
+    const jr = Math.max(S.orifice / 10 * 2, 0.045), waterY0 = TOP - 2.9, yBot = on && through && depthR > 0.97 ? waterY0 : yHit;
+    jet.visible = on; jet.position.set(xn, yTip, 0); jet.scale.set(jr, Math.max(0.01, yTip - yBot), jr);
+    jetU.uTime.value = simT; jetU.uPow.value = 0.8 + 0.2 * Math.min(1, c.hyd / 25); jetU.uLag.value = lag / jr;
+    layout();
+    // splash
+    const rate = on ? 520 * dt * Math.min(1.6, 0.4 + c.hyd / 20) : 0; sprayAcc += rate;
+    const dirx = phase === 'cut' ? -1 : 0;
+    while (sprayAcc >= 1) {
+      sprayAcc--; const a = Math.random() * Math.PI * 2, sp = 1.5 + Math.random() * 6, slurry = Math.random() < 0.18;
+      emit(xn, yHit + 0.03, (Math.random() - 0.5) * kf, dirx * (1 + Math.random() * 2.5) + Math.cos(a) * sp * 0.35, 2 + Math.random() * 6.5, Math.sin(a) * sp * 0.5, 0.05 + Math.random() * 0.1, 0.5 + Math.random() * 1.0, slurry);
+    }
+    if (on && through && depthR > 0.97) {                        // the jet exits the underside into the water
+      exitAcc += 380 * dt;
+      while (exitAcc >= 1) { exitAcc--; const a = Math.random() * Math.PI * 2, sp = Math.random() * 3; emit(xn, top - t - 0.05, (Math.random() - 0.5) * kf, Math.cos(a) * sp, -1 - Math.random() * 5, Math.sin(a) * sp, 0.06 + Math.random() * 0.1, 0.6 + Math.random() * 0.8, Math.random() < 0.3); }
+      wUni.uImp.value.set(xn, 0, 0); wUni.uAmp.value = Math.min(1.6, wUni.uAmp.value + dt * 3);
+    } else wUni.uAmp.value = Math.max(0, wUni.uAmp.value - dt * 1.5);
+    wUni.uTime.value = simT;
+    // droplets fly under gravity and drag
+    const waterY = TOP - 2.9;
+    for (let i = 0; i < spN; i++) {
+      spLife[i] -= dt; if (spLife[i] <= 0) { spA[i] = 0; spPos[i * 3 + 1] = -50; continue; }
+      spVel[i * 3 + 1] -= 18 * dt; const dr = 1 - Math.min(0.9, 1.3 * dt);
+      spVel[i * 3] *= dr; spVel[i * 3 + 2] *= dr;
+      spPos[i * 3] += spVel[i * 3] * dt; spPos[i * 3 + 1] += spVel[i * 3 + 1] * dt; spPos[i * 3 + 2] += spVel[i * 3 + 2] * dt;
+      if (spPos[i * 3 + 1] < top && spPos[i * 3 + 1] > top - t - 0.3 && Math.abs(spPos[i * 3 + 2]) > kf / 2 && Math.abs(spPos[i * 3 + 2]) < PLZ && spPos[i * 3 + 0] > -PLX && spPos[i * 3] < PLX) { spPos[i * 3 + 1] = top + 0.01; spVel[i * 3 + 1] = Math.abs(spVel[i * 3 + 1]) * 0.25; }
+      if (spPos[i * 3 + 1] < waterY) { spLife[i] = 0; }
+      spA[i] = Math.min(0.9, spLife[i] / spMax[i] * 1.6) * 0.8;
+    }
+    spGeo.attributes.position.needsUpdate = true; spGeo.attributes.aA.needsUpdate = true; spGeo.attributes.aSize.needsUpdate = true; spGeo.attributes.aCol.needsUpdate = true;
+  }
+  const sim = {
+    group: g, camera: { th: 0.6, ph: 0.42, d: 8.5, t: [-5.5, 1.5, 0] }, speed: 1,
+    controls: [
+      { k: 'mat', t: 'sel', label: 'Material', v: S.mat, opts: Object.entries(WJ_MATS).map(([k, v]) => [k, v.name]) },
+      { k: 't', t: 'sel', label: 'Thickness', v: S.t, opts: [[3, '3 mm (⅛")'], [6, '6 mm (¼")'], [12, '12 mm (½")'], [25, '25 mm (1")'], [50, '50 mm (2")'], [100, '100 mm (4")']] },
+      { k: 'psi', t: 'sel', label: 'Pump pressure', v: S.psi, opts: [[30000, '30,000 psi (207 MPa)'], [45000, '45,000 psi (310 MPa)'], [60000, '60,000 psi (414 MPa)'], [87000, '87,000 psi (600 MPa)']] },
+      { k: 'orifice', t: 'sel', label: 'Orifice (jewel)', v: S.orifice, opts: [[0.2, '0.20 mm (.008")'], [0.28, '0.28 mm (.011")'], [0.36, '0.36 mm (.014")'], [0.4, '0.40 mm (.016")']] },
+      { k: 'abr', t: 'sel', label: 'Garnet flow', v: S.abr, opts: [[0.2, '0.20 kg/min'], [0.45, '0.45 kg/min'], [0.7, '0.70 kg/min'], [1.0, '1.00 kg/min']] },
+      { k: 'q', t: 'sel', label: 'Edge quality', v: S.q, opts: Object.entries(WJ_Q).map(([k, v]) => [k, v[0]]) },
+      { k: 'trav', t: 'sel', label: 'Traverse speed', v: S.trav, opts: [['auto', 'Auto (fastest that cuts through)'], [50, '50 mm/min'], [100, '100 mm/min'], [200, '200 mm/min'], [400, '400 mm/min'], [800, '800 mm/min'], [1500, '1500 mm/min']] },
+      { k: 'time', t: 'sel', label: 'Time lapse', v: S.time, opts: [[1, 'Real time'], [3, '3×'], [6, '6×'], [12, '12×'], [30, '30×']] },
+      { k: 'big', t: 'chk', label: 'Show the kerf wider than it is', v: !!S.big },
+      { k: 'again', t: 'btn', label: 'Cut again' },
+    ],
+    reset: build, dbg: () => ({ phase, xn, depthR, simT, pierceT, spN, jetVis: jet.visible, jetY: jet.position.y, jetSY: jet.scale.y }),
+    set(k, v) { if (k === 'again') { build(); return; } S[k] = k === 'mat' ? v : k === 'trav' ? (v === 'auto' ? 'auto' : +v) : k === 'big' ? (v ? 1 : 0) : +v; build(); },
+    step(dt) { update(dt); },
+    frame(dt) { if (PHY.orbit && !PHY.drag) PHY.orbit.t.x += (xn * 0.85 - PHY.orbit.t.x) * 0.08; if (!PHY.paused) frameFx(Math.min(0.05, dt * (PHY.speed || 1))); spMat.uniforms.uPx.value = (PHY.rend ? PHY.rend.domElement.height : 700) / (2 * Math.tan(THREE.MathUtils.degToRad(PHY.cam.fov / 2))); },
+    info() {
+      const c = C(), u = U(), m = WJ_MATS[S.mat], through = u <= c.umax * 1.001, dx = (c.kerf - 2 * S.t * Math.tan(c.taper * Math.PI / 180));
+      return `${m.name} ${S.t} mm · jet ${c.v.toFixed(0)} m/s (Mach ${c.mach.toFixed(1)}) · ${c.Lmin.toFixed(2)} L/min · ${c.hyd.toFixed(1)} kW at the nozzle · garnet ${(c.ratio * 100).toFixed(0)}% of the water · fastest through-cut ${c.umax.toFixed(0)} mm/min (${S.q ? WJ_Q[S.q][0] : ''}) · cutting at ${u.toFixed(0)} mm/min — ${through ? 'cuts through' : `<b>too fast: only ${(Math.pow(c.umax / u, 0.85) * 100).toFixed(0)}% of the depth</b>`} · kerf ${c.kerf.toFixed(2)} mm, taper ${c.taper}° (bottom ${Math.max(0.2, dx).toFixed(2)} mm) · about $${c.cost.toFixed(2)} per metre of cut.`.replace(/<\/?b>/g, '');
+    },
+    dispose() { phyDisposeGroup(g); },
+  };
+  build();
+  return sim;
+}
+
 // ── Mechanics & dynamics: Newton's cradle, a crank-slider engine, regenerative chatter, a rolling race, a gear train ──
 function phyMechanics() {
   const g = new THREE.Group(), S = { demo: 'cradle' };
@@ -29264,6 +29439,7 @@ PHY_SIMS.lathe = ['CNC turning', phyLathe];
   if (rb) rb.addEventListener('wheel', e => { if (rb.scrollWidth > rb.clientWidth && Math.abs(e.deltaY) > Math.abs(e.deltaX)) { rb.scrollLeft += e.deltaY; e.preventDefault(); } }, { passive: false });
 }
 { const st = document.createElement('style'); st.textContent = '.axis-badge.awire { background: color-mix(in srgb, #d946ef 16%, transparent); color: #c026d3; }'; document.head.appendChild(st); }
+PHY_SIMS.waterjet = ['Waterjet cutter', phyWaterjet];
 
 // LAB-END
 </script>
