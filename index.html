@@ -7441,6 +7441,7 @@ function evalHardware(f, ctx, tol) {
         if (z[0] < h - 1e-9) down(z[0], first ? rad : r);
         if (!threadOn) down(z[1], r);
         else if (thread === 'helix') down(z[1], rr);
+        else if (thread === 'stress') down(z[1], (d - 0.9382 * p) / 2);                                    // a smooth cylinder of the tensile stress area (ISO 898), for analysis
         else {
           if (rad !== r) { v(r, h); rad = r; }
           const n = Math.floor((z[0] - z[1]) / p);
@@ -7690,7 +7691,8 @@ SHOP.toeClamp = {
   build(P, K) {
     const L2 = P.L / 2, drop = Math.min(P.H * 0.5, 14 * Math.tan(P.toe * Math.PI / 180) + 4);
     let body = K.polyXZ([[-L2, 0], [L2 - 3, 0], [L2, drop * 0.5], [L2, P.H * 0.55], [L2 - 12, P.H], [-L2, P.H]], -P.W / 2, P.W / 2);
-    body = K.sub(body, K.poly('z', K.slot(-P.sl / 2, P.sl / 2, 0, P.sd + 1.5), -1, P.H + 1), K.cyl('z', 0, 0, P.sd * 0.9, P.H - P.sd * 0.8, P.H + 1), K.cyl('z', -L2 + 6, 0, P.sd * 0.4, -1, P.H + 1));
+    // the underside is relieved between a heel pad and a toe pad (the heel is raised 0.5 mm, the way the toe sits lower on the work), so the clamp rests on its two ends like a real one
+    body = K.sub(body, K.poly('z', K.slot(-P.sl / 2, P.sl / 2, 0, P.sd + 1.5), -1, P.H + 1), K.cyl('z', 0, 0, P.sd * 0.9, P.H - P.sd * 0.8, P.H + 1), K.cyl('z', -L2 + 6, 0, P.sd * 0.4, -1, P.H + 1), K.box(-L2 + 15, L2 - 17, -P.W / 2 - 1, P.W / 2 + 1, -1, 1.5), K.box(-L2 - 1, -L2 + 15, -P.W / 2 - 1, P.W / 2 + 1, -1, 0.5));
     return [body, K.bolt(0, 0, P.sd, P.H - P.sd * 0.8 + 0.4, -P.H * 1.1), K.bolt(-L2 + 6, 0, P.sd * 0.8, P.H, -P.H * 0.4, 1)];
   },
 };
@@ -27470,7 +27472,8 @@ FEATS.screw = {
     h += `<div class="row2">${pf.num(nut || wash ? 'Fits bolt Ø' : 'Diameter', 'd', { len: 1, min: 0.1, step: isIn() ? 0.01 : 0.5 })}${wash ? '' : pf.num('Pitch', 'pitch', { len: 1, min: 0, step: isIn() ? 0.002 : 0.05 })}</div>`;
     if (!nut && !wash) h += `<div class="row2">${pf.num(f.kind === 'shoulder' ? 'Thread length' : 'Length', 'L', { len: 1, min: 0.1 })}${f.kind === 'shoulder' ? O('Shoulder length', 'sl', 0) : f.kind === 'stud' || f.kind === 'set' ? '' : O('Thread length', 'tlen', f.L)}</div>`;
     if (!nut && !wash) {
-      h += pf.seg('Thread', 'thread', [['none', 'Plain'], ['rings', 'Grooves'], ['helix', 'Helical']]);
+      h += pf.seg('Thread', 'thread', [['none', 'Plain'], ['rings', 'Grooves'], ['helix', 'Helical'], ['stress', 'Stress area']]);
+      if (f.thread === 'stress') h += pf.note('For stress analysis: the threaded length is a smooth cylinder with the same area as the real thread carries (ISO 898 tensile stress area).');
       if (f.thread === 'helix') h += pf.seg('Hand', 'hand', [['R', 'Right'], ['L', 'Left']]);
       h += pf.sel('Point', 'point', HW_POINTS, f.point || 'chamfer');
     }
@@ -29559,7 +29562,7 @@ SAMPLES.push({ axes: 'model', name: 'Fastener assortment', desc: 'Screws, nuts a
 } });
 SAMPLES.push({ axes: 'model', name: 'Workholding table', desc: 'A 6 in vise, 1-2-3 blocks, toe clamps and a dovetail fixture: everything in a manual room, parametric.', make() {
   const k = sampleKit();
-  [['vise', 0, 0], ['block123', -170, 10], ['toeClamp', 140, 0], ['dovetailFixture', 0, 110], ['parallels', -170, 80], ['cClamp', 170, 90]].forEach(([kd, x, y], i) => k.features.push({ id: k.nid(), type: 'shop', name: kd + (i + 1), ...FEATS.shop.init(), kind: kd, cx: x, cy: y }));
+  [['vise', 0, 0], ['block123', -170, 10], ['toeClamp', 140, 0], ['dovetailFixture', 0, 110], ['parallels', -170, 80], ['cClamp', 170, 90]].forEach(([kd, x, y], i) => k.features.push({ id: k.nid(), type: 'shop', name: kd + (i + 1), ...FEATS.shop.init(), ...shopDefaults(kd), kind: kd, cx: x, cy: y }));
   return k.doc();
 } });
 SAMPLES.push({ axes: 'model', name: 'Deform gallery', desc: 'The same bar bent, twisted, tapered and warped. Edit any deform to change its angle, axis or range.', make() {
@@ -30027,6 +30030,270 @@ PHY_SIMS.hose = ['Hose & jet', phyHose];
 
 // LAB-END
 </script>
+<!-- STUDY-BEGIN -->
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  STUDY: stress studies for clamps and fasteners across alloys and setups.
+//  A setup is a named set of supports and loads whose faces are found by
+//  what they are (a plane facing down near the toe, the cylinder the
+//  thread is cut on) so it follows the part when its size changes. In a
+//  linear elastic body loaded by forces the stress field does not depend on
+//  the modulus, so each setup is solved once and every alloy is read off
+//  that field: its own yield gives the safety factor, its modulus scales
+//  the movement, its density gives the mass. The solver's own results are
+//  used throughout (mesh, constraints, von Mises, principal stresses).
+// ═══════════════════════════════════════════════════════════════════
+// more alloys: [name, E (MPa), ν, yield (MPa), density (kg/m³), ultimate (MPa), compressive / tensile, criterion]
+{
+  const add = {
+    steel1018: ['Steel 1018, cold drawn', 205000, 0.29, 370, 7870, 440, 1, 'vm'], steel1045: ['Steel 1045, cold drawn', 205000, 0.29, 530, 7870, 625, 1, 'vm'],
+    ductile: ['Ductile iron 65-45-12', 169000, 0.275, 310, 7100, 448, 1, 'vm'], al2024: ['Aluminum 2024-T4', 73100, 0.33, 325, 2780, 470, 1, 'vm'], al7075t73: ['Aluminum 7075-T73', 71700, 0.33, 435, 2810, 505, 1, 'vm'],
+    grade88: ['Bolt steel, class 8.8', 210000, 0.30, 640, 7850, 800, 1, 'vm'], grade109: ['Bolt steel, class 10.9', 210000, 0.30, 940, 7850, 1040, 1, 'vm'], grade129: ['Bolt steel, class 12.9', 210000, 0.30, 1100, 7850, 1220, 1, 'vm'],
+    a270: ['Stainless A2-70 (304)', 193000, 0.29, 450, 8000, 700, 1, 'vm'], a480: ['Stainless A4-80 (316)', 193000, 0.29, 600, 8000, 800, 1, 'vm'],
+    ph174: ['Stainless 17-4 PH, H1025', 197000, 0.27, 1000, 7800, 1070, 1, 'vm'], inconel718: ['Inconel 718, aged', 200000, 0.29, 1034, 8190, 1240, 1, 'vm'],
+  };
+  const custom = STRESS_MATS.custom; delete STRESS_MATS.custom;
+  Object.assign(STRESS_MATS, add); STRESS_MATS.custom = custom;
+}
+const studyMat = key => { const m = STRESS_MATS[key]; return { key, name: m[0], E: m[1], nu: m[2], sy: m[3], rho: m[4], ult: m[5], uc: m[6], crit: m[7] }; };
+
+// ── finding faces by what they are ──
+// sel: { feat, part, t: 'P' | 'C', n: [x, y, z] (plane normal, user axes), r: [min, max] (cylinder radius), at: [x, y, z] (the face nearest this point) }
+const studyUM = u => [u[0], u[2], -u[1]];                             // user (X right, Y back, Z up) → model (Y up)
+function studyFaces(sel) {
+  const out = [];
+  for (const q of Array.isArray(sel) ? sel : [sel]) {
+    const id = q.part ? q.feat + q.part / 1000 : q.feat, body = visibleBodies().find(b => Math.abs(b.id - id) < 1e-7);
+    if (!body) throw new Error('The part this setup was made for is hidden or gone.');
+    const mesh = bodyMesh(body), at = studyUM(q.at || [0, 0, 0]), seen = new Set();
+    let best = null;
+    for (const pl of mesh.PL) {
+      if (seen.has(pl.f)) continue; seen.add(pl.f);
+      const sf = Surf.list[pl.f]; if (!sf || sf.t !== q.t) continue;
+      if (q.t === 'P' && q.n) { const n = studyUM(q.n); if (sf.n[0] * n[0] + sf.n[1] * n[1] + sf.n[2] * n[2] < 0.97) continue; }
+      if (q.t === 'C' && q.r && (sf.r < q.r[0] || sf.r > q.r[1])) continue;
+      const fi = faceInfo(mesh, pl.f), d = Math.hypot(fi.center[0] - at[0], fi.center[1] - at[1], fi.center[2] - at[2]);
+      if (!best || d < best.d) best = { d, fid: pl.f };
+    }
+    if (!best) throw new Error('A face this setup needs was not found: the part has changed.');
+    out.push(faceRef(mesh, best.fid, faceInfo(mesh, best.fid).on));
+  }
+  return out;
+}
+function studyApply(c) {
+  const s = stressSetup();
+  if (c.cur) return s;
+  s.cons = c.cons.map(q => ({ faces: studyFaces(q.sel), kind: q.kind, dir: q.dir || 'z-', mag: q.mag || 0 }));
+  s.loads = c.loads.map(q => ({ faces: studyFaces(q.sel), kind: q.kind, mag: q.mag, dir: q.dir }));
+  s.grav = !!c.grav; s.active = 'c0';
+  return s;
+}
+const studyCases = () => doc.stressCases && doc.stressCases.length ? doc.stressCases : null;
+const STUDY_SETS = {
+  clamp: ['al6061', 'al7075', 'steel1018', 'steel4140', 'ss304', 'iron', 'ductile', 'ti64', 'brass'],
+  screw: ['grade88', 'grade109', 'grade129', 'a270', 'a480', 'ph174', 'ti64', 'al7075t73', 'brass'],
+  any: ['al6061', 'al7075', 'steel', 'steel4140', 'ss304', 'ti64', 'brass', 'iron'],
+};
+const STUDY = { last: null, keys: null, q: 'normal', busy: false, stop: false };
+
+// ── solving ──
+// one solve per setup; each alloy is then read off the stress field
+async function studyRun(cases, keys, q, prog) {
+  const s = stressSetup(), save = JSON.parse(JSON.stringify({ cons: s.cons, loads: s.loads, mat: s.mat, grav: s.grav, active: s.active })), results = [];
+  const ref = studyMat(keys[0]);
+  try {
+    for (let ci = 0; ci < cases.length; ci++) {
+      if (STUDY.stop) break;
+      studyApply(cases[ci]); s.mat = keys[0];
+      const prep = stressSetupMessage(0), tag = `${cases[ci].name} · `;
+      const R = await stressSolve(prep, STRESS_TARGET[q] || 12000, (p, msg) => prog((ci + p) / cases.length, tag + msg));
+      const rows = keys.map(k => {
+        const mat = studyMat(k); stressFields(R, mat); stressExtremes(R);
+        const e = R.ext;
+        return { key: k, name: mat.name, sy: mat.sy, E: mat.E, rho: mat.rho, crit: mat.crit, vmFree: e.vm.fhi, vmPeak: e.vm.hi, s1Free: e.s1.fhi, sfFree: e.sf.flo, sfAll: e.sf.lo, disp: R.maxDisp * ref.E / mat.E, mass: R.volume * mat.rho * 1e-6 };
+      });
+      results.push({ name: cases[ci].name, note: cases[ci].note || '', nom: cases[ci].nom || null, volume: R.volume, bricks: R.nEl, h: R.h, iters: R.iterations, react: R.reactions, applied: R.applied, rows });
+    }
+  } finally { Object.assign(s, save); }
+  return results;
+}
+const studySFClass = v => v < 1 ? 'f' : v < 1.5 ? 'w' : v < 2.5 ? 'm' : 'g';
+const studyVerdict = v => v >= 2.5 ? 'comfortable' : v >= 1.5 ? 'adequate' : v >= 1 ? 'thin margin' : 'yields';
+const studyNum = (v, d = 3) => stressNum(v, d);
+const studyYield = v => Math.round(v).toLocaleString('en-US');
+function studyMatrixHTML(R, U) {
+  const keys = R[0].rows.map(r => r.key);
+  return `<table class="stm"><tr><th>Alloy</th><th>Yield (${U.sn})</th>${R.map((c, i) => `<th title="${c.name}">${i + 1}</th>`).join('')}</tr>${keys.map((k, j) => `<tr><td>${R[0].rows[j].name}</td><td>${studyYield(R[0].rows[j].sy / U.s)}</td>${R.map((c, i) => { const r = c.rows[j]; return `<td class="${studySFClass(r.sfFree)}" data-sty-open="${i}:${k}" title="${c.name}: ${studyVerdict(r.sfFree)}. Click to open this setup in the model.">${r.sfFree >= 100 ? '99+' : studyNum(r.sfFree, 2)}</td>`; }).join('')}</tr>`).join('')}</table>
+    <ol class="stl">${R.map(c => `<li>${c.name}</li>`).join('')}</ol>`;
+}
+function studyDetailHTML(R, U) {
+  return R.map((c, i) => `<details class="std" ${R.length === 1 ? 'open' : ''}><summary><b>${i + 1}. ${c.name}</b><small>${c.bricks.toLocaleString()} bricks of ${studyNum(c.h)} mm · ${c.iters} iterations</small></summary>
+    ${c.note ? `<p class="note">${c.note}</p>` : ''}
+    <table class="stm stt"><tr><th>Alloy</th><th>Peak vM free (${U.sn})</th><th>Peak vM anywhere (${U.sn})</th><th>Safety factor, free</th><th>Safety factor, anywhere</th><th>Movement (${isIn() ? 'in' : 'mm'})</th><th>Mass (${isIn() ? 'oz' : 'g'})</th><th>Verdict</th></tr>
+    ${c.rows.map(r => `<tr><td>${r.name}</td><td>${studyNum(r.vmFree / U.s)}</td><td>${studyNum(r.vmPeak / U.s)}</td><td class="${studySFClass(r.sfFree)}">${studyNum(r.sfFree, 3)}</td><td class="${studySFClass(r.sfAll)}">${studyNum(r.sfAll, 3)}</td><td>${studyNum(isIn() ? r.disp / 25.4 : r.disp, 3)}</td><td>${studyNum(isIn() ? r.mass / 28.3495 : r.mass, 3)}</td><td>${studyVerdict(r.sfFree)}</td></tr>`).join('')}</table>
+    ${c.nom ? `<p class="note">${c.nom}</p>` : ''}</details>`).join('');
+}
+function studyCSV(R) {
+  const rows = [['setup', 'alloy', 'yield_MPa', 'E_MPa', 'vm_free_MPa', 'vm_peak_MPa', 'safety_factor_free', 'safety_factor_anywhere', 'movement_mm', 'mass_g', 'verdict']];
+  for (const c of R) for (const r of c.rows) rows.push([c.name, r.name, r.sy, r.E, r.vmFree.toFixed(2), r.vmPeak.toFixed(2), r.sfFree.toFixed(3), r.sfAll.toFixed(3), r.disp.toFixed(5), r.mass.toFixed(3), studyVerdict(r.sfFree)]);
+  return rows.map(r => r.map(v => /[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : v).join(',')).join('\n');
+}
+function studyDownload(name, text, type) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
+
+// ── the dialog ──
+function studyDialog(mode) {
+  const cases = mode === 'one' || !studyCases() ? [{ name: 'Current setup', cur: true }] : studyCases(), card = document.getElementById('modalCard'), modal = document.getElementById('modal'), U = stressU();
+  const kind = (doc.stressKind || 'any'), keys0 = STUDY.keys || STUDY_SETS[kind] || STUDY_SETS.any;
+  const chips = Object.entries(STRESS_MATS).filter(([k]) => k !== 'custom').map(([k, v]) => `<label class="stc"><input type="checkbox" value="${k}" ${keys0.includes(k) ? 'checked' : ''}><span>${v[0]}</span></label>`).join('');
+  card.innerHTML = `<div class="m-head"><h3>Alloy &amp; setup study</h3><button class="x" data-mx title="Close">×</button></div>
+    <p class="note">${cases.length} setup${cases.length === 1 ? '' : 's'} × the alloys you tick. Each setup is solved once on the voxel mesh, and every alloy is read from that stress field: its yield gives the safety factor, its modulus the movement, its density the mass.</p>
+    <div class="m-sec">Setups</div><ol class="stl open">${cases.map(c => `<li>${c.name}</li>`).join('')}</ol>
+    <div class="m-sec">Alloys</div><div class="stcs">${chips}</div>
+    <div class="m-sec">Mesh</div><div class="seg" id="stq">${STRESS_Q.map(([v, l]) => `<button data-q="${v}" class="${STUDY.q === v ? 'on' : ''}">${l}</button>`).join('')}</div>
+    <div class="btns" style="margin-top:14px"><button class="btn primary" id="stGo">Run the study</button></div>
+    <div id="stOut"></div>`;
+  modal.hidden = false;
+  card.style.width = 'min(980px, 94vw)';
+  const out = card.querySelector('#stOut'), close = () => { if (STUDY.busy) { STUDY.stop = true; if (STRESS.worker) { STRESS.worker.terminate(); STRESS.worker = null; } } card.style.width = ''; closeModal(); };
+  card.querySelector('[data-mx]').addEventListener('click', close);
+  card.querySelectorAll('#stq button').forEach(b => b.addEventListener('click', () => { STUDY.q = b.dataset.q; card.querySelectorAll('#stq button').forEach(x => x.classList.toggle('on', x === b)); }));
+  const show = R => {
+    STUDY.last = R;
+    out.innerHTML = `<div class="m-sec">Safety factor away from supports and loads <small>(yield ÷ von Mises)</small></div>${studyMatrixHTML(R, U)}
+      <div class="m-sec">Details</div>${studyDetailHTML(R, U)}
+      <p class="note">Stress was solved once per setup at the mesh above; the alloys differ only in yield, stiffness and density (stress does not depend on stiffness when the loads are forces). Peaks right at a support or load, and at sharp inside corners, are mesh-sensitive: “free” leaves out the bricks within two cells of a support or load. A screening analysis, not a certification.</p>
+      <div class="btns"><button class="btn" id="stCsv">Download CSV</button><button class="btn" id="stHtml">Download report</button></div>`;
+    out.querySelector('#stCsv').addEventListener('click', () => studyDownload('stress-study.csv', studyCSV(R), 'text/csv'));
+    out.querySelector('#stHtml').addEventListener('click', () => studyReport(R));
+    out.querySelectorAll('[data-sty-open]').forEach(td => td.addEventListener('click', () => { const [i, k] = td.dataset.styOpen.split(':'); close(); studyOpen(cases[+i], k); }));
+  };
+  card.querySelector('#stGo').addEventListener('click', async () => {
+    const keys = [...card.querySelectorAll('.stcs input:checked')].map(i => i.value);
+    if (!keys.length) { toast('Tick at least one alloy.'); return; }
+    STUDY.keys = keys; STUDY.busy = true; STUDY.stop = false; const go = card.querySelector('#stGo'); go.disabled = true;
+    out.innerHTML = `<p class="note" id="stMsg">Starting</p><div class="sbar"><i id="stBar" style="width:0"></i></div>`;
+    try {
+      const R = await studyRun(cases, keys, STUDY.q, (p, msg) => { const m = out.querySelector('#stMsg'), b = out.querySelector('#stBar'); if (m) m.textContent = msg; if (b) b.style.width = (p * 100).toFixed(0) + '%'; });
+      if (R.length) show(R); else out.innerHTML = '<p class="note">Stopped.</p>';
+    } catch (e) { if (!STUDY.stop) out.innerHTML = `<p class="note err-note">${e.message}</p>`; }
+    STUDY.busy = false; go.disabled = false;
+  });
+}
+// open one setup and alloy in the model and solve it, to look at the colours
+function studyOpen(c, key) {
+  try { if (!(CMD && CMD.type === 'stress')) cmdStress(); studyApply(c); stressSetup().mat = key; stressClear(true); STRESS.result = null; refreshPanel(); rebuildHighlights(); requestDraw(); setTimeout(() => stressRun(), 60); } catch (e) { toast(e.message); }
+}
+function studyReport(R) {
+  const U = stressU(), esc = t => String(t).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  const cls = { f: '#f3b4ae', w: '#f7d9a6', m: '#e8efb0', g: '#b7e4c1' };
+  const html = `<!doctype html><meta charset="utf-8"><title>Stress study</title><style>body{font:14px/1.5 system-ui,sans-serif;max-width:980px;margin:28px auto;padding:0 18px;color:#1a2029}h1{margin:0 0 4px}h2{margin:26px 0 8px;font-size:16px}table{border-collapse:collapse;margin:8px 0}td,th{border:1px solid #d5dbe3;padding:4px 9px;text-align:right}td:first-child,th:first-child{text-align:left}th{background:#f2f5f9}small{color:#667}.f{background:${cls.f}}.w{background:${cls.w}}.m{background:${cls.m}}.g{background:${cls.g}}</style>
+<h1>Alloy &amp; setup study</h1><small>${new Date().toLocaleString()} · ${esc(doc.name || 'Datum model')} · linear elastic, small deformation, voxel-brick mesh</small>
+<h2>Safety factor (yield ÷ von Mises, away from supports and loads)</h2>
+<table><tr><th>Alloy</th><th>Yield (${U.sn})</th>${R.map((c, i) => `<th>${i + 1}</th>`).join('')}</tr>${R[0].rows.map((r0, j) => `<tr><td>${esc(r0.name)}</td><td>${studyYield(r0.sy / U.s)}</td>${R.map(c => `<td class="${studySFClass(c.rows[j].sfFree)}">${studyNum(c.rows[j].sfFree, 2)}</td>`).join('')}</tr>`).join('')}</table>
+<ol>${R.map(c => `<li>${esc(c.name)}</li>`).join('')}</ol>
+${R.map((c, i) => `<h2>${i + 1}. ${esc(c.name)}</h2><small>${c.bricks.toLocaleString()} bricks of ${studyNum(c.h)} mm, ${c.iters} iterations</small>${c.note ? `<p>${esc(c.note)}</p>` : ''}
+<table><tr><th>Alloy</th><th>Peak vM free (${U.sn})</th><th>Peak vM anywhere (${U.sn})</th><th>Safety factor, free</th><th>Safety factor, anywhere</th><th>Movement (mm)</th><th>Mass (g)</th><th>Verdict</th></tr>${c.rows.map(r => `<tr><td>${esc(r.name)}</td><td>${studyNum(r.vmFree / U.s)}</td><td>${studyNum(r.vmPeak / U.s)}</td><td class="${studySFClass(r.sfFree)}">${studyNum(r.sfFree, 3)}</td><td class="${studySFClass(r.sfAll)}">${studyNum(r.sfAll, 3)}</td><td>${studyNum(r.disp, 3)}</td><td>${studyNum(r.mass, 3)}</td><td>${studyVerdict(r.sfFree)}</td></tr>`).join('')}</table>${c.nom ? `<p><small>${esc(c.nom)}</small></p>` : ''}`).join('')}
+<p><small>Each setup was solved once; the alloys differ in yield, stiffness and density. Peaks at supports, loads and sharp inside corners depend on the mesh. Screening analysis: confirm critical parts with a body-fitted mesh and test.</small></p>`;
+  studyDownload('stress-study.html', html, 'text/html'); toast('Saved stress-study.html');
+}
+
+// ── the stress panel gets a Study section ──
+const stressSetupPanel1T = stressSetupPanel;
+stressSetupPanel = function () {
+  const h = stressSetupPanel1T(), cs = studyCases(), cur = doc.stressCase || 0;
+  const sec = `<div class="field"><span>Study</span>${cs ? `<select data-st="case">${cs.map((c, i) => `<option value="${i}" ${i === cur ? 'selected' : ''}>${i + 1}. ${c.name}</option>`).join('')}</select><p class="note" style="margin:0">${cs[cur].note || ''}</p>` : ''}
+    <div class="btns"><button class="btn" data-st="one" title="Solve this setup once and read every alloy off it">Compare alloys</button>${cs ? `<button class="btn" data-st="all" title="Every setup in the list × every alloy you tick">All setups</button>` : ''}</div></div>`;
+  return h.replace('<div class="pn-body">', '<div class="pn-body">' + sec);
+};
+const bindStressPanel1T = bindStressPanel;
+bindStressPanel = function () {
+  bindStressPanel1T();
+  const sel = panel.querySelector('[data-st="case"]');
+  if (sel) sel.addEventListener('change', () => { try { doc.stressCase = +sel.value; studyApply(studyCases()[+sel.value]); refreshPanel(); rebuildHighlights(); requestDraw(); } catch (e) { toast(e.message); } });
+  panel.querySelectorAll('button[data-st]').forEach(b => b.addEventListener('click', () => studyDialog(b.dataset.st)));
+};
+{
+  const st = document.createElement('style');
+  st.textContent = `.stm { border-collapse: collapse; font-size: 12px; margin: 4px 0 2px; width: 100%; }
+.stm th, .stm td { border: 1px solid var(--rule); padding: 4px 8px; text-align: right; }
+.stm th:first-child, .stm td:first-child { text-align: left; }
+.stm th { background: var(--panel-2); font-weight: 600; color: var(--ink-2); }
+.stm td[data-sty-open] { cursor: pointer; font-variant-numeric: tabular-nums; font-weight: 600; color: #1a2029; }
+.stm td[data-sty-open]:hover { outline: 2px solid var(--accent); outline-offset: -2px; }
+.stm .g { background: #b7e4c1; } .stm .m { background: #e8efb0; } .stm .w { background: #f7d9a6; } .stm .f { background: #f3b4ae; }
+.stl { margin: 4px 0 0; padding-left: 20px; font-size: 12px; color: var(--ink-2); columns: 2; } .stl:not(.open) { margin-top: 8px; } .stl.open { columns: 1; }
+.stcs { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 3px 12px; } .stc { display: flex; align-items: center; gap: 7px; font-size: 12px; cursor: pointer; } .stc input { accent-color: var(--accent); }
+details.std { margin: 8px 0; border: 1px solid var(--rule); border-radius: 8px; padding: 6px 10px; } details.std summary { cursor: pointer; display: flex; gap: 10px; align-items: baseline; font-size: 12.5px; } details.std summary small { color: var(--muted); margin-left: auto; }
+.stt td:nth-child(n+2), .stt th:nth-child(n+2) { font-variant-numeric: tabular-nums; }
+#modalCard { max-height: 90vh; overflow-y: auto; }`;
+  document.head.appendChild(st);
+}
+
+// ── a sample whose setups are already made ──
+const cmdStress1T = cmdStress;
+cmdStress = function () { cmdStress1T(); if (studyCases() && CMD && CMD.type === 'stress') studyAutoApply(0); };
+function studyAutoApply(tries) {
+  try {
+    const s = stressSetup(); if (s.cons.some(c => c.faces.length)) return;
+    if (!CMD || CMD.type !== 'stress') return;
+    if (!visibleBodies().length) throw new Error('waiting');
+    studyApply(studyCases()[doc.stressCase || 0]); refreshPanel(); rebuildHighlights(); requestDraw();
+  } catch (e) { if (tries < 24) setTimeout(() => studyAutoApply(tries + 1), 250); }
+}
+// a toe clamp: the cap screw pulls the strap down on its seat; the toe pad rests on the work (free to slide), the heel pad on its screw
+function studyClampCases(id, d) {
+  const S = (t, o) => ({ feat: id, part: 0, t, ...o });
+  const cons = [{ kind: 'frictionless', sel: S('P', { n: [0, 0, -1], at: [15, 0, 0] }) }, { kind: 'fixed', sel: S('P', { n: [0, 0, -1], at: [-18, 0, 0.5] }) }];
+  const seat = S('P', { n: [0, 0, 1], at: [0, 0, 14] }), nose = S('P', { n: [1, 0, 0], at: [25, 0, 8] });
+  const pre = (T, extra) => ({ kind: 'force', mag: T / (0.2 * d / 1000), dir: 'z-', sel: seat, ...extra });
+  const nm = (T, s) => `${s}, ${(T / (0.2 * d / 1000) / 1000).toFixed(0)} kN (${T} N·m on the M${d})`;
+  const note = (T, more) => `Preload ${(T / (0.2 * d / 1000)).toFixed(0)} N = torque ÷ (K × d), K 0.2. The cap screw bears on the counterbore seat; the toe pad is frictionless (rests on the work), the heel pad is fixed (its screw).${more || ''}`;
+  return [
+    { name: nm(10, 'Light clamping'), note: note(10), cons, loads: [pre(10)] },
+    { name: nm(30, 'Normal clamping'), note: note(30), cons, loads: [pre(30)] },
+    { name: nm(50, 'Wrench-tight'), note: note(50), cons, loads: [pre(50)] },
+    { name: nm(30, 'Normal clamping') + ' + 3 kN cutting load', note: note(30, ' A 3 kN cutting force pushes the work against the toe face, toward the heel.'), cons, loads: [pre(30), { kind: 'force', mag: 3000, dir: 'x-', sel: nose }] },
+  ];
+}
+// a socket head cap screw with the engaged thread as a stress-area cylinder: the thread is held, the load comes through the head
+function studyScrewCases(id, d, L, tl, p) {
+  const S = (t, o) => ({ feat: id, part: 0, t, ...o });
+  const ds = d - 0.9382 * p, As = Math.PI / 4 * ds * ds, Ag = Math.PI / 4 * d * d, rs = ds / 2, rd = d / 2, hd = d * 1.6 / 2, hk = d;
+  const thr = S('C', { r: [rs - 0.2, rs + 0.2], at: [0, 0, -(L - tl / 2)] }), under = S('P', { n: [0, 0, -1], at: [0, 0, 0] }), top = S('P', { n: [0, 0, 1], at: [0, 0, hk] });
+  const grip = S('C', { r: [rd - 0.2, rd + 0.2], at: [0, 0, -(L - tl) / 2] }), head = S('C', { r: [hd - 0.5, hd + 0.5], at: [0, 0, hk / 2] });
+  const cons = [{ kind: 'fixed', sel: thr }], m = v => v.toFixed(0), arm = (L - tl) + hk / 2;
+  const kN = F => (F / 1000).toFixed(F % 1000 ? 1 : 0);
+  const ax = F => ({ kind: 'force', mag: F, dir: 'z+', sel: under });
+  const Mb = (F, a) => F * a, sb = (M, dd) => 32 * M / (Math.PI * dd ** 3), tt = (T, dd) => 16 * T / (Math.PI * dd ** 3);
+  return [
+    { name: `Axial tension ${kN(10000)} kN`, note: 'The joint pushes up on the underside of the head, the thread holds: a plain preload.', cons, loads: [ax(10000)],
+      nom: `Hand check: F ÷ stress area ${m(As)} mm² = ${m(10000 / As)} MPa in the threaded part, F ÷ ${m(Ag)} mm² = ${m(10000 / Ag)} MPa in the shank (uniform, so von Mises equals it).` },
+    { name: `Axial tension ${kN(25000)} kN (about 75 % of proof load, class 8.8)`, note: 'The usual tightening target for a class 8.8 M10.', cons, loads: [ax(25000)],
+      nom: `Hand check: ${m(25000 / As)} MPa in the threaded part, ${m(25000 / Ag)} MPa in the shank.` },
+    { name: `Sideways 1 kN along the grip (shear and bending)`, note: 'A transverse load spread over the unthreaded length, held at the thread.', cons, loads: [{ kind: 'force', mag: 1000, dir: 'x+', sel: grip }],
+      nom: `Hand check: bending moment at the top of the thread 1000 × ${m((L - tl) / 2)} mm = ${(1000 * (L - tl) / 2 / 1000).toFixed(1)} N·m, 32 M ÷ π d³ = ${m(sb(1000 * (L - tl) / 2, ds))} MPa on the thread's stress diameter, plus shear 1000 ÷ ${m(As)} mm² = ${m(1000 / As)} MPa.` },
+    { name: `Bending: 500 N sideways on the head`, note: 'A prying load on the head, held at the thread.', cons, loads: [{ kind: 'force', mag: 500, dir: 'x+', sel: head }],
+      nom: `Hand check: lever arm ≈ ${m(arm)} mm, M = ${(500 * arm / 1000).toFixed(1)} N·m, 32 M ÷ π d³ = ${m(sb(500 * arm, ds))} MPa on the thread's stress diameter.` },
+    { name: `Tightening torque 20 N·m`, note: 'The wrench turns the head, the thread holds.', cons, loads: [{ kind: 'moment', mag: 20000, dir: 'out', sel: top }],
+      nom: `Hand check: 16 T ÷ π d³ = ${m(tt(20000, d))} MPa shear in the shank (von Mises ${m(Math.sqrt(3) * tt(20000, d))} MPa), ${m(tt(20000, ds))} MPa shear (${m(Math.sqrt(3) * tt(20000, ds))} von Mises) on the thread's stress diameter.` },
+    { name: `Tightening: ${kN(15000)} kN preload + 15 N·m torque`, note: 'Both together, the state while tightening.', cons, loads: [ax(15000), { kind: 'moment', mag: 15000, dir: 'out', sel: top }],
+      nom: `Hand check on the thread's stress diameter: σ ${m(15000 / As)} MPa, τ ${m(tt(15000, ds))} MPa, von Mises √(σ² + 3τ²) = ${m(Math.hypot(15000 / As, Math.sqrt(3) * tt(15000, ds)))} MPa.` },
+  ];
+}
+SAMPLES.push({ axes: 'model', name: 'Toe clamp: stress study', desc: 'An M10 toe clamp with four clamping setups ready: preload from 10 to 50 N·m, and with a cutting load. Open Stress, then Compare alloys.', make() {
+  const k = sampleKit(), id = k.nid();
+  k.features.push({ id, type: 'shop', name: 'ToeClamp1', ...FEATS.shop.init(), ...shopDefaults('toeClamp'), kind: 'toeClamp', cx: 0, cy: 0 });
+  const d = k.doc(); d.stressKind = 'clamp'; d.stressCases = studyClampCases(id, 10); d.stressCase = 1; d.openStress = true; d.stress = { mat: 'steel1018' };
+  return d;
+} });
+SAMPLES.push({ axes: 'model', name: 'Cap screw: stress study', desc: 'An M10 × 40 socket head cap screw with six setups ready: tension, shear, bending, torque and tightening. Open Stress, then Compare alloys.', make() {
+  const k = sampleKit(), id = k.nid(), f = { id, type: 'screw', name: 'Screw1', ...FEATS.screw.init(), kind: 'socket', L: 40, tlen: 15, thread: 'stress' };
+  hwSetSize(f, 'M10'); f.thread = 'stress'; f.L = 40; f.tlen = 15; k.features.push(f);
+  const d = k.doc(); d.stressKind = 'screw'; d.stressCases = studyScrewCases(id, 10, 40, 15, 1.5); d.stressCase = 1; d.openStress = true; d.stress = { mat: 'grade88' };
+  return d;
+} });
+</script>
+<!-- STUDY-END -->
 <!-- RIB2-BEGIN -->
 <style>
 /* ═════ RIB2: ribbon layout, hover cards for everything, step-by-step side panels ═════ */
@@ -30318,7 +30585,8 @@ const GD = {
       gS('Fix some faces', 'Add a <b>Constraint</b> and click the faces that are held: bolt holes, a clamped end.', () => nc > 0),
       gS('Apply loads', 'Add a <b>Load</b> — force, pressure, torque or bearing — and click the faces it acts on.', () => nl > 0),
       gS('Solve', 'Press <b>Solve</b>. A coarse mesh is quick; refine it to check the answer converges.', () => !!R),
-      gS('Read the colour map', 'Switch between von Mises, displacement and safety factor. Click the part to probe a point.', () => !!R, true)];
+      gS('Read the colour map', 'Switch between von Mises, displacement and safety factor. Click the part to probe a point.', () => !!R, true),
+      gS('Compare alloys', 'Use <b>Compare alloys</b> to read the same setup for many materials at once.', null, true)];
   }],
   'cam:overview': ['Manufacture steps', () => {
     const C = cam(), n = C.ops.length;
