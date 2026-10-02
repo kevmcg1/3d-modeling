@@ -3624,6 +3624,15 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 }
 .rb-panel { display: flex; flex-direction: column; flex: none; padding: 0 6px; border-right: 1px solid var(--rule); }
 .rb-panel:last-child { border-right: 0; }
+/* color categories: a ramp that fades down from the category's color */
+.rb-panel { --rb-a: hsl(var(--h) 78% 88%); --rb-b: hsl(var(--h) 70% 95%); --rb-ink: hsl(var(--h) 62% 34%); --rb-bar: hsl(var(--h) 58% 46%); border-radius: 8px 8px 0 0; margin: 0 1px; background: linear-gradient(180deg, var(--rb-a) 0%, var(--rb-b) 62%, transparent 100%); }
+.rb-panel .rb-title { color: #fff; background: linear-gradient(90deg, var(--rb-bar), color-mix(in srgb, var(--rb-bar) 78%, #fff)); margin: 0 -6px; padding: 5px 6px; }
+.rb-panel .rb-btn svg { stroke: var(--rb-ink); }
+.rb-panel .rb-btn:hover { background: hsl(var(--h) 80% 99% / .85); border-color: var(--rb-bar); }
+.rb-panel .rb-btn.on { background: hsl(var(--h) 85% 99%); color: var(--rb-ink); border-color: var(--rb-bar); box-shadow: inset 0 0 0 1px var(--rb-bar); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .rb-panel { --rb-a: hsl(var(--h) 46% 25%); --rb-b: hsl(var(--h) 34% 17%); --rb-ink: hsl(var(--h) 85% 76%); --rb-bar: hsl(var(--h) 52% 38%); } :root:not([data-theme="light"]) .rb-panel .rb-btn:hover, :root:not([data-theme="light"]) .rb-panel .rb-btn.on { background: hsl(var(--h) 40% 12% / .8); } }
+:root[data-theme="dark"] .rb-panel { --rb-a: hsl(var(--h) 46% 25%); --rb-b: hsl(var(--h) 34% 17%); --rb-ink: hsl(var(--h) 85% 76%); --rb-bar: hsl(var(--h) 52% 38%); }
+:root[data-theme="dark"] .rb-panel .rb-btn:hover, :root[data-theme="dark"] .rb-panel .rb-btn.on { background: hsl(var(--h) 40% 12% / .8); }
 .rb-body { display: flex; align-items: stretch; gap: 2px; flex: 1; }
 .rb-title { font: 600 9.5px/1 var(--font); letter-spacing: .09em; text-transform: uppercase; color: var(--muted); text-align: center; padding: 5px 0 5px; white-space: nowrap; }
 .rb-btn { border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--ink-2); cursor: pointer; transition: background .12s, color .12s, border-color .12s; }
@@ -23964,12 +23973,15 @@ function rbBtn(attr, it, size) {
   const [a, l, k, ic, on, cls] = it;
   return `<button class="rb-btn rb-${size} ${on ? 'on' : ''} ${cls || ''}" ${attr}="${a}" title="${l}${k ? ' (' + k + ')' : ''}">${svg(ic || a)}<span>${l}</span></button>`;
 }
+// every ribbon category has its own hue; its panel fades down from that color
+const RB_HUE = { sketch: 214, constrain: 232, finish: 142, create: 152, modify: 26, pattern: 276, construct: 188, transform: 258, select: 222, insert: 14, fixture: 332, setup: 210, machine: 172, automate: 292, '2d': 42, drilling: 8, '3d': 198, actions: 136, inspect: 84, 'wire edm': 52, other: 268, 'setup sheet': 216, hardware: 336, 'hardware & shop': 336, shop: 316 };
+const rbHue = t => { const k = String(t).toLowerCase(); if (k in RB_HUE) return RB_HUE[k]; let h = 0; for (const c of k) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
 function rbPanel(title, items, big = 1, attr = 'data-act') {
   items = items.filter(Boolean);
   if (!items.length) return '';
   const bigs = items.slice(0, big), rest = items.slice(big), cols = [];
   for (let i = 0; i < rest.length; i += 3) cols.push(rest.slice(i, i + 3));
-  return `<section class="rb-panel" aria-label="${title}"><div class="rb-body">${bigs.map(it => rbBtn(attr, it, 'big')).join('')}${cols.map(c => `<div class="rb-col">${c.map(it => rbBtn(attr, it, 'sm')).join('')}</div>`).join('')}</div><div class="rb-title">${title}</div></section>`;
+  return `<section class="rb-panel" style="--h:${rbHue(title)}" aria-label="${title}"><div class="rb-body">${bigs.map(it => rbBtn(attr, it, 'big')).join('')}${cols.map(c => `<div class="rb-col">${c.map(it => rbBtn(attr, it, 'sm')).join('')}</div>`).join('')}</div><div class="rb-title">${title}</div></section>`;
 }
 
 // ── Design ──
