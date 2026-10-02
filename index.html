@@ -28037,7 +28037,7 @@ function phyLoop(now) {
   const sim = PHY.sim; if (!sim) return;
   if (!PHY.paused) { PHY.acc += dt * PHY.speed; let n = 0; while (PHY.acc >= PHY_H && n < 10) { sim.step(PHY_H); PHY.acc -= PHY_H; n++; } if (n === 10) PHY.acc = 0; }
   sim.frame(dt); if (sim.follow) PHY.cam.updateMatrixWorld(); else phyCamera();
-  PHY.rend.render(PHY.scene, PHY.cam);
+  if (sim.render) sim.render(PHY.rend, PHY.scene, PHY.cam); else PHY.rend.render(PHY.scene, PHY.cam);
   if (((now / 250) | 0) !== PHY.tick) { PHY.tick = (now / 250) | 0; PHY.el.querySelector('#phyInfo').textContent = sim.info(); }
 }
 const phyStyle = document.createElement('style');
@@ -28215,11 +28215,153 @@ function phyChips() {
   return sim;
 }
 
+// ── Water: screen-space fluid rendering (the technique real-time fluid demos use) ──
+// Particles are drawn as depth-writing sphere sprites, the depth is smoothed with a bilateral blur so the
+// spheres melt into one surface, thickness is accumulated additively, and a composite pass shades it:
+// normals from the smoothed depth, Fresnel reflection of a sky, refraction of what is behind, Beer-Lambert
+// absorption by thickness, a sun glint and foam where the water moves fast or thins out.
+const PHY_LIQUIDS = {
+  water: { name: 'Water', absorb: [0.55, 0.16, 0.07], deep: [0.04, 0.2, 0.36], foam: 1, milk: 0 },
+  coolant: { name: 'Coolant (milky)', absorb: [0.35, 0.18, 0.28], deep: [0.62, 0.78, 0.7], foam: 0.7, milk: 0.55 },
+  oil: { name: 'Cutting oil', absorb: [0.35, 0.7, 1.7], deep: [0.55, 0.32, 0.04], foam: 0.25, milk: 0 },
+  slime: { name: 'Green slime', absorb: [1.2, 0.2, 0.9], deep: [0.1, 0.5, 0.1], foam: 0.3, milk: 0.1 },
+};
+function phyWaterRenderer(CAP) {
+  const R = { ok: false, pts: null, scene: new THREE.Scene(), n: 0, radius: 0.13, liquid: 'water' };
+  const geo = new THREE.BufferGeometry(), pos = new Float32Array(CAP * 3), spd = new Float32Array(CAP);
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('aSpeed', new THREE.BufferAttribute(spd, 1));
+  geo.setDrawRange(0, 0);
+  const sprite = `
+    uniform float uRadius, uPx; uniform mat4 uProj;
+    attribute float aSpeed; varying vec3 vMV; varying float vSpeed;
+    void main() { vec4 mv = modelViewMatrix * vec4(position, 1.0); vMV = mv.xyz; vSpeed = aSpeed; gl_Position = projectionMatrix * mv; gl_PointSize = max(2.0, 2.0 * uRadius * uPx / -mv.z); }`;
+  const depthMat = new THREE.ShaderMaterial({
+    uniforms: { uRadius: { value: R.radius }, uPx: { value: 800 }, uProj: { value: new THREE.Matrix4() } }, vertexShader: sprite, extensions: { fragDepth: true },
+    fragmentShader: `uniform float uRadius; uniform mat4 uProj; varying vec3 vMV; varying float vSpeed;
+      void main() { vec2 c = gl_PointCoord * 2.0 - 1.0; float d2 = dot(c, c); if (d2 > 1.0) discard; float nz = sqrt(1.0 - d2);
+        vec3 p = vMV + vec3(c.x, -c.y, nz) * uRadius; vec4 clip = uProj * vec4(p, 1.0); gl_FragDepthEXT = clip.z / clip.w * 0.5 + 0.5; gl_FragColor = vec4(-p.z, 1.0, 0.0, 1.0); }` });
+  const thickMat = new THREE.ShaderMaterial({
+    uniforms: { uRadius: { value: R.radius }, uPx: { value: 800 }, uProj: { value: new THREE.Matrix4() } }, vertexShader: sprite, depthTest: false, depthWrite: false, transparent: true,
+    blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneFactor,
+    fragmentShader: `uniform float uRadius; varying vec3 vMV; varying float vSpeed;
+      void main() { vec2 c = gl_PointCoord * 2.0 - 1.0; float d2 = dot(c, c); if (d2 > 1.0) discard; float t = sqrt(1.0 - d2) * uRadius * 0.55; gl_FragColor = vec4(t, t * min(vSpeed, 12.0), 0.0, 1.0); }` });
+  R.pts = new THREE.Points(geo, depthMat); R.pts.frustumCulled = false; R.scene.add(R.pts);
+  const quadGeo = new THREE.PlaneGeometry(2, 2), quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), quadScene = new THREE.Scene(), quad = new THREE.Mesh(quadGeo, null); quadScene.add(quad);
+  const vs = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
+  const smoothMat = new THREE.ShaderMaterial({
+    uniforms: { tDepth: { value: null }, uDir: { value: new THREE.Vector2() }, uPx: { value: 800 }, uSig: { value: 0.3 } }, vertexShader: vs, depthTest: false,
+    fragmentShader: `uniform sampler2D tDepth; uniform vec2 uDir; uniform float uPx, uSig; varying vec2 vUv;
+      void main() {
+        vec4 c = texture2D(tDepth, vUv); float cd = c.r;
+        float ref = cd > 0.0 ? cd : 0.0;
+        // the radius follows the water's projected size; empty pixels borrow it from the nearest water
+        float r = clamp(uPx * 0.9 / max(ref, 6.0), 2.0, 30.0), sd = 0.0, sw = 0.0, cs = 0.0, ws = 0.0;
+        for (int i = -12; i <= 12; i++) {
+          float f = float(i) / 12.0; vec4 s = texture2D(tDepth, vUv + uDir * f * r); float w = exp(-f * f * 3.0);
+          ws += w; cs += w * s.g;
+          if (s.g > 0.001) { float wr = ref > 0.0 ? exp(-(s.r - ref) * (s.r - ref) / (2.0 * uSig * uSig)) : 1.0; sd += s.r * w * s.g * wr; sw += w * s.g * wr; }
+        }
+        float cov = cs / ws; gl_FragColor = vec4(sw > 1e-5 ? sd / sw : 0.0, cov, 0.0, 1.0); }` });
+  const compMat = new THREE.ShaderMaterial({
+    uniforms: { tScene: { value: null }, tSceneDepth: { value: null }, tDepth: { value: null }, tFar: { value: null }, tThick: { value: null }, uTexel: { value: new THREE.Vector2() }, uTan: { value: new THREE.Vector2() }, uNear: { value: 0.1 }, uFar: { value: 100 },
+      uV2W: { value: new THREE.Matrix3() }, uSunV: { value: new THREE.Vector3() }, uSunW: { value: new THREE.Vector3(0.4, 0.8, 0.45).normalize() }, uAbsorb: { value: new THREE.Vector3() }, uDeep: { value: new THREE.Vector3() }, uFoam: { value: 1 }, uMilk: { value: 0 } },
+    vertexShader: vs, depthTest: false,
+    fragmentShader: `uniform sampler2D tScene, tSceneDepth, tDepth, tFar, tThick; uniform vec2 uTexel, uTan; uniform float uNear, uFar, uFoam, uMilk; uniform mat3 uV2W; uniform vec3 uSunV, uSunW, uAbsorb, uDeep; varying vec2 vUv;
+      vec3 vpos(vec2 uv, float d) { vec2 n = uv * 2.0 - 1.0; return vec3(n.x * uTan.x * d, n.y * uTan.y * d, -d); }
+      float lin(float z) { float n = z * 2.0 - 1.0; return 2.0 * uNear * uFar / (uFar + uNear - n * (uFar - uNear)); }
+      float dep(vec2 uv, float fallback) { vec4 t = texture2D(tFar, uv); return t.g < 0.4 || t.r <= 0.0 ? fallback : t.r; }
+      void main() {
+        vec4 sc = texture2D(tScene, vUv); vec4 dq = texture2D(tDepth, vUv); float d = dq.r;
+        float edge = smoothstep(0.44, 0.56, dq.g);
+        if (d <= 0.0 || edge <= 0.0) { gl_FragColor = sc; return; }
+        float sd = lin(texture2D(tSceneDepth, vUv).r);
+        if (sd < d - 0.02) { gl_FragColor = sc; return; }
+        vec2 tx = vec2(uTexel.x, 0.0), ty = vec2(0.0, uTexel.y);
+        float df = dep(vUv, d); d = df;
+        float dl = dep(vUv - tx, d), dr = dep(vUv + tx, d), du = dep(vUv + ty, d), dd = dep(vUv - ty, d);
+        vec3 pc = vpos(vUv, d);
+        vec3 px = abs(dr - d) < abs(d - dl) ? vpos(vUv + tx, dr) - pc : pc - vpos(vUv - tx, dl);
+        vec3 py = abs(du - d) < abs(d - dd) ? vpos(vUv + ty, du) - pc : pc - vpos(vUv - ty, dd);
+        vec3 N = normalize(cross(px, py)); if (N.z < 0.0) N = -N;
+        vec3 V = normalize(-pc);
+        vec4 tk = vec4(0.0); for (int i = -2; i <= 2; i++) for (int j = -2; j <= 2; j++) tk += texture2D(tThick, vUv + vec2(float(i), float(j)) * uTexel * 3.0); tk /= 25.0;
+        float th = tk.r, speed = tk.g / max(th, 1e-4);
+        float F = 0.02 + 0.98 * pow(1.0 - max(dot(N, V), 0.0), 5.0);
+        vec3 Rw = normalize(uV2W * reflect(-V, N));
+        vec3 sky = mix(vec3(0.82, 0.88, 0.95), vec3(0.32, 0.55, 0.92), smoothstep(0.0, 0.9, Rw.y));
+        vec3 env = Rw.y < 0.0 ? mix(vec3(0.82, 0.88, 0.95), vec3(0.16, 0.2, 0.26), smoothstep(0.0, -0.6, Rw.y)) : sky;
+        env += vec3(1.0, 0.96, 0.85) * pow(max(dot(Rw, uSunW), 0.0), 180.0) * 2.0;
+        vec2 off = N.xy * (0.025 + 0.06 * clamp(th * 2.0, 0.0, 1.0)); vec2 ruv = clamp(vUv + off, 0.001, 0.999);
+        if (lin(texture2D(tSceneDepth, ruv).r) < d) ruv = vUv;
+        vec3 bg = texture2D(tScene, ruv).rgb;
+        vec3 T = exp(-uAbsorb * th * 3.2);
+        vec3 body = bg * T + uDeep * (1.0 - T) * (0.55 + 0.45 * max(dot(N, uSunV), 0.0));
+        body = mix(body, uDeep * 1.15, uMilk * clamp(th * 3.0, 0.0, 1.0));
+        vec3 col = mix(body, env, F);
+        vec3 H = normalize(uSunV + V); col += vec3(1.0, 0.97, 0.9) * pow(max(dot(N, H), 0.0), 150.0) * 0.9;
+        float foam = (smoothstep(5.0, 11.0, speed) * 0.6 + smoothstep(0.35, 0.0, th) * 0.35) * uFoam;
+        col = mix(col, vec3(0.95, 0.97, 1.0) * (0.75 + 0.25 * max(dot(N, uSunV), 0.0)), clamp(foam, 0.0, 0.8));
+        gl_FragColor = vec4(mix(sc.rgb, col, edge), 1.0); }` });
+  let rts = null, W = 0, H = 0, ftype = null;
+  const sunDir = new THREE.Vector3(), v2 = new THREE.Vector2();
+  R.init = rend => {
+    const caps = rend.capabilities, ext = rend.extensions;
+    const full = caps.isWebGL2 ? ext.get('EXT_color_buffer_float') : (ext.get('OES_texture_float') && ext.get('WEBGL_color_buffer_float'));
+    const half = caps.isWebGL2 ? full : (ext.get('OES_texture_half_float') && ext.get('EXT_color_buffer_half_float'));
+    ftype = full ? THREE.FloatType : half ? THREE.HalfFloatType : null;
+    R.ok = !!ftype && (caps.isWebGL2 || ext.get('EXT_frag_depth'));
+    return R.ok;
+  };
+  const mk = (w, h, o = {}) => new THREE.WebGLRenderTarget(w, h, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, format: THREE.RGBAFormat, type: ftype, depthBuffer: false, stencilBuffer: false, ...o });
+  const size = rend => {
+    rend.getDrawingBufferSize(v2);
+    if (rts && v2.x === W && v2.y === H) return;
+    W = v2.x; H = v2.y;
+    if (rts) { for (const k in rts) rts[k].dispose(); }
+    const dt = new THREE.DepthTexture(W, H);
+    rts = { scene: new THREE.WebGLRenderTarget(W, H, { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthTexture: dt, depthBuffer: true }), depth: mk(W, H, { depthBuffer: true }), thick: mk(W, H), a: mk(W, H), b: mk(W, H), c: mk(W, H), d: mk(W, H) };
+  };
+  R.set = (x, y, z, s, i) => { pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z; spd[i] = s; };
+  R.count = n => { R.n = n; geo.setDrawRange(0, n); geo.attributes.position.needsUpdate = true; geo.attributes.aSpeed.needsUpdate = true; };
+  R.render = (rend, scene, cam, hide) => {
+    size(rend);
+    const old = { t: rend.getRenderTarget(), ac: rend.autoClear, cc: rend.getClearColor(new THREE.Color()), ca: rend.getClearAlpha() };
+    const tanH = Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)), px = H / (2 * tanH);
+    for (const m of [depthMat, thickMat]) { m.uniforms.uPx.value = px; m.uniforms.uRadius.value = R.radius; m.uniforms.uProj.value.copy(cam.projectionMatrix); }
+    // 1 · everything but the water
+    hide(true); rend.setRenderTarget(rts.scene); rend.autoClear = true; rend.render(scene, cam); hide(false);
+    rend.autoClear = false; rend.setClearColor(0x000000, 0);
+    // 2 · water depth (nearest sphere surface), 3 · water thickness
+    R.pts.material = depthMat; rend.setRenderTarget(rts.depth); rend.clear(true, true, false); rend.render(R.scene, cam);
+    R.pts.material = thickMat; rend.setRenderTarget(rts.thick); rend.clear(true, false, false); rend.render(R.scene, cam);
+    // 4 · smooth the depth so the spheres become a surface
+    smoothMat.uniforms.uPx.value = px * R.radius;
+    let src = rts.depth, dst = rts.a;
+    quad.material = smoothMat;
+    for (let i = 0; i < 6; i++) { smoothMat.uniforms.tDepth.value = src.texture; smoothMat.uniforms.uDir.value.set(i % 2 ? 0 : 1 / W, i % 2 ? 1 / H : 0); rend.setRenderTarget(dst); rend.render(quadScene, quadCam); src = dst; dst = src === rts.a ? rts.b : rts.a; }
+    // 5 · shade it onto the screen
+    const u = compMat.uniforms, L = PHY_LIQUIDS[R.liquid] || PHY_LIQUIDS.water;
+    u.tScene.value = rts.scene.texture; u.tSceneDepth.value = rts.scene.depthTexture; u.tDepth.value = src.texture; u.tThick.value = rts.thick.texture;
+    u.uTexel.value.set(1 / W, 1 / H); u.uTan.value.set(tanH * cam.aspect, tanH); u.uNear.value = cam.near; u.uFar.value = cam.far;
+    u.uV2W.value.setFromMatrix4(cam.matrixWorld);
+    sunDir.copy(u.uSunW.value).transformDirection(cam.matrixWorldInverse); u.uSunV.value.copy(sunDir);
+    u.uAbsorb.value.set(...L.absorb); u.uDeep.value.set(...L.deep); u.uFoam.value = L.foam; u.uMilk.value = L.milk;
+    quad.material = smoothMat; let far = src, fdst = rts.c;
+    for (let i = 0; i < 4; i++) { smoothMat.uniforms.tDepth.value = far.texture; smoothMat.uniforms.uDir.value.set(i % 2 ? 0 : 1 / W, i % 2 ? 1 / H : 0); rend.setRenderTarget(fdst); rend.render(quadScene, quadCam); far = fdst; fdst = far === rts.c ? rts.d : rts.c; }
+    u.tFar.value = far.texture;
+    quad.material = compMat; rend.setRenderTarget(null); rend.setClearColor(old.cc, old.ca); rend.clear(true, true, true); rend.render(quadScene, quadCam);
+    rend.autoClear = old.ac; rend.setRenderTarget(old.t);
+  };
+  R.dispose = () => { if (rts) for (const k in rts) rts[k].dispose(); rts = null; geo.dispose(); depthMat.dispose(); thickMat.dispose(); smoothMat.dispose(); compMat.dispose(); quadGeo.dispose(); };
+  return R;
+}
+
 // ── Fluid: 2-D position-based fluid (Macklin & Müller) in a glass tank, with a coolant jet that washes the cut ──
 function phyFluid() {
-  const g = new THREE.Group(), S = { preset: 'dam', visc: 0.05, grav: 9.81, tank: 1 };
+  const g = new THREE.Group(), S = { preset: 'dam', visc: 0.05, grav: 9.81, tank: 1, draw: 'water', liquid: 'water' };
   const W = 8, H = 5, h = 0.2, sp = 0.1, CAP = 3200, EPS = 8, CELL = h;
-  const px = new Float32Array(CAP), py = new Float32Array(CAP), vx = new Float32Array(CAP), vy = new Float32Array(CAP), ox = new Float32Array(CAP), oy = new Float32Array(CAP), lam = new Float32Array(CAP), dx = new Float32Array(CAP), dy = new Float32Array(CAP);
+  const px = new Float32Array(CAP), py = new Float32Array(CAP), vx = new Float32Array(CAP), vy = new Float32Array(CAP), ox = new Float32Array(CAP), oy = new Float32Array(CAP), lam = new Float32Array(CAP), dx = new Float32Array(CAP), dy = new Float32Array(CAP), pz = new Float32Array(CAP);
+  const water = phyWaterRenderer(CAP); let waterInit = false;
   let N = 0, t = 0, tick = 0, push = null, nozzle = null, emitAcc = 0, obst = [], slosh = 0;
   const poly6 = r2 => { const d = h * h - r2; return d > 0 ? 4 / (Math.PI * Math.pow(h, 8)) * d * d * d : 0; };
   const spikyK = -30 / (Math.PI * Math.pow(h, 5));
@@ -28228,11 +28370,13 @@ function phyFluid() {
   for (let i = -4; i <= 4; i++) for (let j = -4; j <= 4; j++) rho0 += poly6((i * sp) ** 2 + (j * sp) ** 2);
   const frame = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(W, H, 0.5)), new THREE.LineBasicMaterial({ color: 0x6b7a8c })); frame.position.set(W / 2, H / 2, 0); g.add(frame);
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(W + 6, 8), phyMat(0xdfe5ec)); floor.rotation.x = -Math.PI / 2; floor.position.set(W / 2, -0.02, 0); g.add(floor);
+  const wallTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 256; const x = c.getContext('2d'), gr = x.createLinearGradient(0, 0, 0, 256); gr.addColorStop(0, '#eef3f8'); gr.addColorStop(1, '#cfd8e2'); x.fillStyle = gr; x.fillRect(0, 0, 256, 256); x.strokeStyle = 'rgba(90,110,135,.28)'; x.lineWidth = 2; x.strokeRect(1, 1, 254, 254); const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(W / 0.5, (H + 3) / 0.5); return t; })();
+  const wall = new THREE.Mesh(new THREE.PlaneGeometry(W + 6, H + 3), new THREE.MeshBasicMaterial({ map: wallTex })); wall.position.set(W / 2, (H + 3) / 2 - 0.02, -0.9); g.add(wall);
   const inst = new THREE.InstancedMesh(new THREE.SphereGeometry(sp * 0.62, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }), CAP);
   inst.setColorAt(0, new THREE.Color(1, 1, 1)); inst.count = 0; inst.frustumCulled = false; g.add(inst);
   const obstGroup = new THREE.Group(); g.add(obstGroup);
   const tmp = new THREE.Object3D(), col = new THREE.Color(), cA = new THREE.Color(0x1d6fe0), cB = new THREE.Color(0xdff3ff);
-  const add = (x, y, ux = 0, uy = 0) => { if (N >= CAP) { for (let i = 1; i < N; i++) { px[i - 1] = px[i]; py[i - 1] = py[i]; vx[i - 1] = vx[i]; vy[i - 1] = vy[i]; } N--; } px[N] = x; py[N] = y; vx[N] = ux; vy[N] = uy; N++; };
+  const add = (x, y, ux = 0, uy = 0) => { if (N >= CAP) { for (let i = 1; i < N; i++) { px[i - 1] = px[i]; py[i - 1] = py[i]; vx[i - 1] = vx[i]; vy[i - 1] = vy[i]; } N--; } px[N] = x; py[N] = y; pz[N] = (Math.random() - 0.5) * 0.2; vx[N] = ux; vy[N] = uy; N++; };
   function build() {
     N = 0; t = 0; nozzle = null; slosh = 0; obst = []; obstGroup.clear();
     const block = (x0, y0, x1, y1) => { for (let x = x0; x < x1; x += sp) for (let y = y0; y < y1; y += sp) add(x + (Math.random() - 0.5) * 0.01, y + (Math.random() - 0.5) * 0.01); };
@@ -28290,27 +28434,34 @@ function phyFluid() {
     group: g, camera: { th: 0, ph: 0, d: 11, t: [4, 2.5, 0] }, speed: 1,
     controls: [
       { k: 'preset', t: 'sel', label: 'Scene', v: S.preset, opts: [['dam', 'Dam break'], ['wave', 'Wave tank'], ['pour', 'Pouring from a jug'], ['slosh', 'Sloshing tank (shaken)'], ['coolant', 'Coolant jet on a cut']] },
+      { k: 'draw', t: 'sel', label: 'Draw the fluid as', v: S.draw, opts: [['water', 'Water (surface rendering)'], ['spheres', 'Particles']] },
+      { k: 'liquid', t: 'sel', label: 'Liquid', v: S.liquid, opts: Object.entries(PHY_LIQUIDS).map(([k, v]) => [k, v.name]) },
       { k: 'visc', t: 'range', label: 'Viscosity (water → oil → syrup)', v: S.visc, min: 0, max: 0.4, step: 0.01 },
       { k: 'grav', t: 'range', label: 'Gravity', v: S.grav, min: 0, max: 20, step: 0.1 },
       { k: 'more', t: 'btn', label: 'Add a block of fluid' }, { k: 'stir', t: 'btn', label: 'Stir' },
     ],
     reset: build, raw: () => ({ px, py, vx, vy, dx, dy, lam, N }), dbg: () => ({ rho0, N, vmax: Math.max(...Array.from(vx.slice(0, N)).map(Math.abs)), y0: py[0], lam0: lam[N >> 1] }),
-    set(k, v) { if (k === 'more') { for (let x = 1; x < 2.4; x += sp) for (let y = 3.4; y < 4.7; y += sp) add(x, y); return; } if (k === 'stir') { for (let i = 0; i < N; i++) { vx[i] += (Math.random() - 0.5) * 4; vy[i] += Math.random() * 3; } return; } S[k] = v; if (k === 'preset') { slosh = v === 'slosh' ? 1 : 0; build(); } },
+    set(k, v) { if (k === 'more') { for (let x = 1; x < 2.4; x += sp) for (let y = 3.4; y < 4.7; y += sp) add(x, y); return; } if (k === 'stir') { for (let i = 0; i < N; i++) { vx[i] += (Math.random() - 0.5) * 4; vy[i] += Math.random() * 3; } return; } S[k] = v; if (k === 'liquid') water.liquid = v; if (k === 'preset') { slosh = v === 'slosh' ? 1 : 0; build(); } },
     step(dt) { if (++tick % 2) return; t += dt * 2; update(1 / 120); },
     frame() {
-      let ke = 0;
+      let ke = 0; const wm = S.draw === 'water' && water.ok;
       for (let i = 0; i < N; i++) {
         const sp2 = Math.hypot(vx[i], vy[i]); ke += sp2 * sp2;
-        tmp.position.set(px[i], py[i], 0); tmp.updateMatrix(); inst.setMatrixAt(i, tmp.matrix);
-        col.copy(cA).lerp(cB, Math.min(1, sp2 / 6)); inst.setColorAt(i, col);
+        if (wm) water.set(px[i], py[i], pz[i], sp2, i);
+        else { tmp.position.set(px[i], py[i], 0); tmp.updateMatrix(); inst.setMatrixAt(i, tmp.matrix); col.copy(cA).lerp(cB, Math.min(1, sp2 / 6)); inst.setColorAt(i, col); }
       }
-      inst.count = N; inst.instanceMatrix.needsUpdate = true; if (inst.instanceColor) inst.instanceColor.needsUpdate = true; sim.ke = ke / Math.max(1, N);
+      if (wm) water.count(N);
+      inst.visible = !wm; inst.count = N; inst.instanceMatrix.needsUpdate = true; if (inst.instanceColor) inst.instanceColor.needsUpdate = true; sim.ke = ke / Math.max(1, N);
+    },
+    render(rend, scene, cam) {
+      if (!waterInit) { waterInit = true; water.init(rend); water.liquid = S.liquid; }
+      if (S.draw === 'water' && water.ok) water.render(rend, scene, cam, () => {}); else rend.render(scene, cam);
     },
     info: () => `${N} particles of position-based fluid (incompressible, ${S.visc > 0.2 ? 'syrupy' : S.visc > 0.08 ? 'oily' : 'watery'}).  Mean speed² ${(sim.ke || 0).toFixed(1)}.  Drag in the tank to push the fluid.${S.preset === 'coolant' ? '  Coolant flood: the jet hits the cutter and the part and washes down — chips would ride it out.' : ''}`,
     pointerDown(ray) { const tt = -ray.origin.z / ray.direction.z; if (!isFinite(tt)) return false; push = { x: ray.origin.x + ray.direction.x * tt, y: ray.origin.y + ray.direction.y * tt, vx: 0, vy: 0 }; return true; },
     pointerMove(ray) { if (!push) return; const tt = -ray.origin.z / ray.direction.z, nx2 = ray.origin.x + ray.direction.x * tt, ny2 = ray.origin.y + ray.direction.y * tt; push.vx = (nx2 - push.x) * 60; push.vy = (ny2 - push.y) * 60; push.x = nx2; push.y = ny2; },
     pointerUp() { push = null; },
-    dispose() { phyDisposeGroup(g); },
+    dispose() { water.dispose(); phyDisposeGroup(g); },
   };
   build();
   return sim;
@@ -28851,27 +29002,6 @@ SAMPLES.push({ axes: 'model', name: 'Workholding table', desc: 'A 6 in vise, 1-2
   [['vise', 0, 0], ['block123', -170, 10], ['toeClamp', 140, 0], ['dovetailFixture', 0, 110], ['parallels', -170, 80], ['cClamp', 170, 90]].forEach(([kd, x, y], i) => k.features.push({ id: k.nid(), type: 'shop', name: kd + (i + 1), ...FEATS.shop.init(), kind: kd, cx: x, cy: y }));
   return k.doc();
 } });
-// axles, pulleys and drives: every item is a parametric Workholding-style part, so click one to change any size
-const driveSample = (name, desc, items) => SAMPLES.push({ axes: 'model', name, desc, make() {
-  const k = sampleKit(), colors = {};
-  items.forEach(([kd, x, y, extra], i) => { const f = { id: k.nid(), type: 'shop', name: SHOP[kd].name.replace(/[^A-Za-z0-9]+/g, '').slice(0, 10) + (i + 1), ...FEATS.shop.init(), ...shopDefaults(kd), kind: kd, cx: x, cy: y, ...(extra || {}) }; k.features.push(f); SHOP[kd].parts.forEach(([, c], j) => { colors[j ? f.id + j / 1000 : f.id] = c; }); });
-  return { ...k.doc(), colors };
-} });
-// stress-analysis samples: a part with its supports and loads already picked (open Stress and press Run)
-const stressSample = (name, desc, build, setup) => SAMPLES.push({ axes: 'model', name, desc, make() {
-  const k = sampleKit(); build(k);
-  const face = (x, y, z) => ({ m: null, ms: [], pt: mPt(x, y, z) });
-  return { ...k.doc(), stress: { mat: 'steel', cust: { E: 70000, nu: 0.3, sy: 200, rho: 2700 }, grav: false, q: 'normal', active: 'sup', show: 'vm', scale: 0, ...setup(face) }, openStress: true };
-} });
-stressSample('Stress: cantilever bar', 'A 100 × 10 × 10 steel bar held at one end with 100 N on the other: the textbook bending check (tip moves 0.2 mm, 60 MPa at the root).', k => kBox(k, -50, -5, 50, 5, 10),
-  f => ({ sup: [f(-50, 0, 5)], loads: [{ faces: [f(50, 0, 5)], kind: 'force', mag: 100, dir: 'z-' }] }));
-stressSample('Stress: plate with a hole', 'A steel strip pulled with 1000 N: stress piles up at the Ø10 hole (about 2.5 × the average, the classic stress concentration).', k => { kBox(k, -60, -20, 60, 20, 5); kHole(k, [0, 0, 5], [0, 0, 1], 10, 5); },
-  f => ({ sup: [f(-60, 0, 2.5)], loads: [{ faces: [f(60, 0, 2.5)], kind: 'force', mag: 1000, dir: 'out' }] }));
-stressSample('Stress: bridge under pressure', 'An aluminum beam fixed at both ends with 2 MPa pressing on its top and a Ø12 hole through the middle.', k => { kBox(k, -80, -15, 80, 15, 20); kHole(k, [0, 0, 20], [0, 0, 1], 12, 20); },
-  f => ({ mat: 'al6061', sup: [f(-80, 0, 10), f(80, 0, 10)], loads: [{ faces: [f(0, 0, 20)], kind: 'pressure', mag: 2, dir: 'in' }] }));
-driveSample('Belt drive', 'Two V pulleys on shafts, a belt and a base plate: change the pitch diameters, centre distance or belt section.', [['beltDrive', 0, 0]]);
-driveSample('Pulley and sprocket set', 'A V-belt pulley, a flat-belt pulley, a GT2 timing pulley, a chain sprocket and a rope sheave laid out for comparison.', [['vPulley', 0, 0, { ori: 'z', n: 2 }], ['flatPulley', 170, 0, { ori: 'z' }], ['timingPulley', 0, 140, { ori: 'z', z: 40 }], ['sprocket', 110, 140, { ori: 'z' }], ['ropeSheave', 210, 140, { ori: 'z' }]]);
-driveSample('Cart axle and shafts', 'A wheel-and-axle set beside a stepped, keyed axle with a shoulder and circlip grooves.', [['wheelAxle', 0, 0], ['axle', 0, 110]]);
 SAMPLES.push({ axes: 'model', name: 'Deform gallery', desc: 'The same bar bent, twisted, tapered and warped. Edit any deform to change its angle, axis or range.', make() {
   const k = sampleKit(), mk = (y, mode, extra) => { const s = k.sketch(k.XZ, k.rect(-40, y - 6, 40, y + 6), { k: 'origin', w: 'XZ' }), e = k.extrude(s, [P2(0, y)], 8, 'new'); k.features.push({ id: k.nid(), type: 'deform', name: mode, ...FEATS.deform.init(), bodies: [e.id], mode, ax: 'X', dir: 'Z', ...extra }); };
   mk(-45, 'bend', { angle: 60 }); mk(-15, 'twist', { angle: 120 }); mk(15, 'taper', { scale: 0.35 }); mk(45, 'wave', { amp: 5, wavelength: 40 });
