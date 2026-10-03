@@ -137,6 +137,33 @@ const path = require('path'), assert = require('assert');
   await ev(() => { document.querySelector('#cv').focus(); GFX.imageSizeDialog(); document.activeElement.blur(); }); await page.keyboard.press('Escape');
   ok('Escape closes a dialog', await ev(() => !document.getElementById('modal').classList.contains('show')));
 
+  // hover cards: every tool has name, description and Before/After; filters show a real before/after; no native tooltips
+  const hoverCard = async sel => { await page.mouse.move(5, 830); await page.hover(sel); await page.waitForTimeout(650); return ev(() => { const c = document.getElementById('tipcard'); return { show: !c.hidden && c.classList.contains('in'), name: c.querySelector('.tip-head b')?.textContent || '', what: c.querySelector('.tip-what')?.textContent || '', pics: c.querySelectorAll('.tip-pics figure').length }; }); };
+  const badCards = []; for (const id of tools) { const c = await hoverCard('.tool[data-tool=' + id + ']'); if (!c.show || !c.name || !c.what || c.pics !== 2) badCards.push([id, c]); }
+  ok('every tool shows a hover card with a description and Before/After', badCards.length === 0, badCards);
+  await page.click('.mb >> text=Filter'); await page.hover('#pop .mi >> nth=0'); await page.waitForTimeout(450);
+  const fxCard = await ev(() => ({ imgs: document.querySelectorAll('#tipcard .tip-pics img').length, differ: (() => { const i = document.querySelectorAll('#tipcard .tip-pics img'); return i.length === 2 && i[0].src !== i[1].src; })() }));
+  ok('menu filters preview a real before and after', fxCard.imgs === 2 && fxCard.differ, fxCard); await page.keyboard.press('Escape');
+  // dropdowns and number fields are custom, animated and still drive the original controls
+  await ev(() => GFX.setTool('text')); await page.click('#optbar .ddb'); await page.waitForTimeout(250);
+  ok('dropdown opens as a styled list', await ev(() => document.getElementById('ddlist').classList.contains('in') && document.getElementById('ddlist').children.length > 4));
+  await page.keyboard.press('ArrowDown'); await page.keyboard.press('Enter'); await page.waitForTimeout(200);
+  ok('dropdown keyboard pick fires change', /Arial/.test(await ev(() => GFX.OPT.font)));
+  await ev(() => { const L = GFX.ensureVectorLayer(), s = GFX.newShape('rect', [GFX.rectSub(100, 100, 100, 100, 0)]); s.stroke = { type: 'solid', color: '#000', w: 5, cap: 'butt', join: 'miter' }; L.shapes.push(s); GFX.setVSel([s.id]); });
+  const num = page.locator('#props .numw input[type=number]').first(), n0 = +await num.inputValue(); await num.focus(); await page.keyboard.press('ArrowUp'); await page.waitForTimeout(700);
+  const nv = +await num.inputValue(), sw = await ev(() => GFX.activeLayer().shapes.map(s => s.stroke && s.stroke.w));
+  ok('number field arrow key steps and updates the shape', nv > n0 && sw.some(w => w > 5), [n0, nv, sw]);
+  // the main tools do their job
+  await ev(() => { GFX.resetDoc(800, 600, '#ffffff'); const g = GFX.activeLayer().cv.getContext('2d'); g.fillStyle = '#ff0000'; g.fillRect(100, 100, 120, 120); GFX.setColor('fg', '#00ff00'); GFX.fitView(true); });
+  const scr = async (x, y) => { const bb = await page.locator('#cv').boundingBox(), q = await ev(([x, y]) => GFX.toScr(x, y), [x, y]); return [bb.x + q[0], bb.y + q[1]]; };
+  const drag = async pts => { const q = []; for (const [x, y] of pts) q.push(await scr(x, y)); await page.mouse.move(...q[0]); await page.mouse.down(); for (const a of q.slice(1)) await page.mouse.move(a[0], a[1], { steps: 4 }); await page.mouse.up(); };
+  await ev(() => GFX.setTool('wand')); { const q = await scr(150, 150); await page.mouse.click(...q); } const wb = await ev(() => GFX.SEL.box);
+  ok('magic wand selects the red square', wb && Math.abs(wb.x0 - 100) < 2 && Math.abs(wb.x1 - 219) < 2, wb);
+  await ev(() => GFX.setTool('bucket')); { const q = await scr(150, 150); await page.mouse.click(...q); } const fp = await px(150, 150);
+  ok('paint bucket fills inside the selection', fp[0] === 0 && fp[1] === 255, fp);
+  await ev(() => { GFX.selNone(); GFX.setTool('brush'); }); await drag([[400, 400], [500, 450], [560, 410]]); const bp = await px(500, 450);
+  ok('brush paints with the foreground color', bp[1] > 200 && bp[0] < 80, bp);
+
   // a heavy document still composes quickly
   const heavy = await ev(() => {
     GFX.resetDoc(4000, 3000, '#ffffff'); GFX.addLayer('raster'); GFX.activeLayer().cv.getContext('2d').fillRect(100, 100, 3000, 2000);
