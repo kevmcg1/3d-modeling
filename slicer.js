@@ -591,8 +591,13 @@ async function slice(meshIn, cfgIn, opts = {}) {
   const M = transformMesh(meshIn, cfg);
   const sizeZ = M.max[2];
   if (!M.V.length || sizeZ <= 0) throw new Error('The model has no height to slice.');
+  if (Math.max(M.max[0] - M.min[0], M.max[1] - M.min[1], sizeZ) > 4 * Math.max(...cfg.bed)) throw new Error('The part is far larger than the printer. Check the scale.');
   if (M.min[0] < -0.01 || M.min[1] < -0.01 || M.max[0] > cfg.bed[0] + 0.01 || M.max[1] > cfg.bed[1] + 0.01) warnings.push(`The part is outside the ${cfg.bed[0]} × ${cfg.bed[1]} mm bed.`);
   if (sizeZ > cfg.bed[2] + 0.01) warnings.push(`The part is ${sizeZ.toFixed(1)} mm tall; the printer's limit is ${cfg.bed[2]} mm.`);
+
+  { const pr = printerById(cfg.printer);
+    for (const k of ['nozzleTemp', 'firstNozzleTemp']) if (cfg[k] > pr.maxHotend) { warnings.push(`${pr.name} tops out at ${pr.maxHotend} °C, so the nozzle temperature was lowered from ${cfg[k]} °C.`); cfg[k] = pr.maxHotend; }
+    for (const k of ['bedTemp', 'firstBedTemp']) if (cfg[k] > pr.maxBed) { warnings.push(`${pr.name} tops out at ${pr.maxBed} °C on the bed, so the bed temperature was lowered from ${cfg[k]} °C.`); cfg[k] = pr.maxBed; } }
 
   const lh = cfg.layerHeight, lh0 = Math.min(cfg.firstLayerHeight, sizeZ);
   const lw = cfg.lineWidth, lw0 = cfg.firstLineWidth;
@@ -735,6 +740,9 @@ async function slice(meshIn, cfgIn, opts = {}) {
   }
   let raftRegion = null;
   if (raftOn && footAll.length) raftRegion = clean(offset(footAll, cfg.raftMargin), 0.05).filter(r => area(r) > 0);
+  { const rings = [].concat(...adhesion.skirt, ...adhesion.brim, raftRegion || []); let lo = [1e9, 1e9], hi = [-1e9, -1e9];
+    for (const r of rings) for (const q of r) { lo = [Math.min(lo[0], q.X / SC), Math.min(lo[1], q.Y / SC)]; hi = [Math.max(hi[0], q.X / SC), Math.max(hi[1], q.Y / SC)]; }
+    if (rings.length && (lo[0] < -0.01 || lo[1] < -0.01 || hi[0] > cfg.bed[0] + 0.01 || hi[1] > cfg.bed[1] + 0.01)) warnings.push(`The ${cfg.adhesion} reaches past the edge of the bed. Make it narrower, use no adhesion, or shrink the part.`); }
 
   // build per-layer plans
   const rnd = rng(12345);
@@ -865,7 +873,10 @@ function orderLines(lines, from) {
 /* ── G-code ───────────────────────────────────────────────────────── */
 const f3 = x => (+x.toFixed(3)).toString();
 const f5 = x => (+x.toFixed(5)).toString();
-function gcode(result, cfg = result.cfg) {
+function gcode(result, cfgIn = result.cfg) {
+  const cfg = Object.assign({}, cfgIn), lim = printerById(cfg.printer);
+  for (const k of ['nozzleTemp', 'firstNozzleTemp']) cfg[k] = Math.min(cfg[k], lim.maxHotend);
+  for (const k of ['bedTemp', 'firstBedTemp']) cfg[k] = Math.min(cfg[k], lim.maxBed);
   const pr = printerById(cfg.printer), out = [];
   const fil = Math.PI * (cfg.filamentDia / 2) ** 2, flowK = cfg.flow / 100;
   const eFor = (len, w, h) => (len * w * h * flowK) / fil;          // mm of filament
@@ -1004,7 +1015,7 @@ function gcode(result, cfg = result.cfg) {
       if (cfg.retraction && cfg.wipeDist > 0 && p.closed && seq.length > 2) {
         let rem = cfg.wipeDist, i0 = 1; retracted = false;
         const per = cfg.retractDist, sgm = [];
-        while (rem > 0 && i0 < seq.length) { const b = seq[i0], d = Math.hypot(b.x - x, b.y - y); const use = Math.min(d, rem); const t = use / d; sgm.push([x + (b.x - x) * t, y + (b.y - y) * t, use]); rem -= use; i0++; if (use < d) break; }
+        while (rem > 0 && i0 < seq.length) { const b = seq[i0], d = Math.hypot(b.x - x, b.y - y); if (d < 1e-6) { i0++; continue; } const use = Math.min(d, rem); const t = use / d; sgm.push([x + (b.x - x) * t, y + (b.y - y) * t, use]); rem -= use; i0++; if (use < d) break; }
         const tot = sgm.reduce((s, q) => s + q[2], 0) || 1;
         for (const q of sgm) { const de = -per * q[2] / tot; emit(`G1 X${f3(q[0])} Y${f3(q[1])} E${f5(cfg.relativeE ? de : (e += de))} F${Math.round(cfg.travelSpeed * 60 * 0.5)}`); if (cfg.relativeE) e += de; time += q[2] / (cfg.travelSpeed * 0.5); x = q[0]; y = q[1]; }
         lastF = -1; retracted = true;

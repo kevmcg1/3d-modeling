@@ -34,6 +34,10 @@ Datum has a **3D Print** workspace (next to Design and Manufacture) that slices 
 
 **Production cost** (appears after slicing): material, machine time at your shop's cost per hour, electricity, labor for setup and hands-on time (setup is spread over the quantity), overhead percent and a failed-print allowance give the cost per part. Enter a profit margin and it shows the price to charge, the profit, the markup and the profit per machine hour, and warns below which price you lose money. The rates are saved in the browser.
 
+**Safety limits**: the slicer lowers temperatures to what the chosen printer allows, warns when the part, skirt, brim or raft reaches past the bed, and refuses parts more than four times larger than the bed (usually a scale mistake).
+
+**Stress test**: `NODE_PATH=<dir with clipper-lib> node test/slicer.stress.js` (add `--quick` to sample) slices 20 awkward parts (thin walls, overhangs, open or degenerate meshes, floating bodies), about 100 extreme setting combinations, every printer with every material and a 2000-layer job, and checks each G-code file for bad numbers, moves outside the bed, absurd extrusion, temperatures above printer limits and speeds above machine limits.
+
 ## Not included
 
 Tree support, adaptive layer height, per-model settings and modifier meshes, multi-part arrangement, multi-color printing, and sending the file to the printer over the network (copy the `.gcode` to a USB stick or microSD card instead). Print-time estimates are approximate. The K1 family runs Klipper but accepts the same G-code.
