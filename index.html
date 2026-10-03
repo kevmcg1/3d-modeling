@@ -34753,5 +34753,28 @@ function gsPick(i) {
 <script src="slicer.js"></script>
 <script src="costing.js"></script>
 <script src="print-ui.js"></script>
+<script>
+/* Graphics: a Photoshop + Illustrator style editor (graphics.html) in a full-window tab right after 3D Print */
+(function () {
+  const st = document.createElement('style');
+  st.textContent = '#gfxWs{display:none;min-height:0}#gfxWs iframe{width:100%;height:100%;border:0;display:block;background:var(--bg)}' +
+    'body.ws-gfx #main,body.ws-gfx #toolbar,body.ws-gfx #modeChip,body.ws-gfx #gsearch,body.ws-gfx #btnUndo,body.ws-gfx #btnRedo,body.ws-gfx #btnFile{display:none!important}body.ws-gfx #gfxWs{display:block}';
+  document.head.appendChild(st);
+  const host = document.createElement('div'); host.id = 'gfxWs';
+  host.innerHTML = '<iframe id="gfxFrame" title="Graphics editor" allow="clipboard-read; clipboard-write"></iframe>';
+  (document.getElementById('houseWs') || document.body).after(host);
+  const tabs = document.querySelector('.ws'), after = tabs && (tabs.querySelector('[data-ws="print"]') || tabs.lastElementChild);
+  const b = document.createElement('button'); b.dataset.ws = 'gfx'; b.textContent = 'Graphics';
+  b.title = 'Graphics: raster layers, brushes and filters plus vector pen, shapes and boolean ops in one editor';
+  b.addEventListener('click', () => setWorkspace('gfx'));
+  if (after) after.after(b); else if (tabs) tabs.appendChild(b);
+  const prev = setWorkspace;
+  setWorkspace = function (ws) {
+    prev.apply(this, arguments);
+    document.body.classList.toggle('ws-gfx', ws === 'gfx');
+    if (ws === 'gfx') { const f = document.getElementById('gfxFrame'); if (!f.getAttribute('src')) f.src = 'graphics.html'; }
+  };
+})();
+</script>
 </body>
 </html>
