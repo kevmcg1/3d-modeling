@@ -30968,7 +30968,7 @@ function bpAudit() {
       for (let j = 0; j < items.length; j++) {
         if (j === i) continue; const o = items[j];
         for (const tx of o.texts) if (segHitsBox(s, grow(tx, 0.1))) { bad('leader-label', a.id + ' / ' + o.id, `${kind} leader runs through another label`, [s[0], s[1]]); break; }
-        if (j > i) for (const s2 of o.segs) if (crossS(s, s2)) { bad('leader-cross', a.id + ' / ' + o.id, 'two leaders cross', [s[0], s[1]]); break; }
+        if (j > i && !(a.kind === 'o' || o.kind === 'o')) for (const s2 of o.segs) if (crossS(s, s2)) {   // an ordinate's extension line may cross a callout's leader bad('leader-cross', a.id + ' / ' + o.id, 'two leaders cross', [s[0], s[1]]); break; }
       }
       for (const fx of fixed) if (segHitsBox(s, grow(fx, 0.1))) { bad('leader-label', a.id, `${kind} leader runs through a view name or note`, [s[0], s[1]]); break; }
       for (const [vk, q] of Object.entries(r.views)) if (vk !== a.view && segHitsBox(s, grow(q.box, -0.5))) { bad('leader-view', a.id, `${kind} leader crosses the ${vk} view`, [s[0], s[1]]); break; }
