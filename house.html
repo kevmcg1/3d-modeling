@@ -109,6 +109,7 @@ kbd { display:inline-block; min-width:18px; padding:0 5px; border:1px solid var(
 #plan { background:var(--paper); cursor:crosshair; touch-action:none; } #v3 { background:var(--sky); }
 #split { background:var(--rule); cursor:col-resize; transition:background .15s; } #split:hover, #split.drag { background:var(--accent); }
 #plan canvas, #v3 canvas { position:absolute; inset:0; width:100%; height:100%; display:block; outline:none; }
+.noteEd { position:absolute; z-index:6; margin:0; padding:0 3px; border:1.5px dashed var(--accent); border-radius:4px; background:color-mix(in srgb, var(--panel) 85%, transparent); color:var(--ink); resize:none; overflow:hidden; outline:none; white-space:pre; line-height:1.25; box-sizing:content-box; }
 #lenIn { position:absolute; display:none; z-index:5; border:2px solid var(--accent) !important; border-radius:8px !important; padding:3px 9px; font:600 13px var(--font); background:var(--panel); box-shadow:var(--shadow); width:140px !important; height:32px !important; }
 .hud { position:absolute; display:flex; gap:4px; z-index:4; }
 .hud button { border:1px solid var(--rule); background:color-mix(in srgb,var(--panel) 92%,transparent); backdrop-filter:blur(6px); border-radius:7px; padding:4px 10px; font-size:12px; font-weight:500; color:var(--ink2); transition:all .15s; box-shadow:var(--shadow2); }
@@ -269,7 +270,7 @@ const ROOM_NAMES = ['Living Room', 'Kitchen', 'Dining', 'Bedroom', 'Primary Bedr
 const FLOOR_COLORS = { 'Living Room': '#c9a77c', Kitchen: '#d8d2c4', Dining: '#c9a77c', Bedroom: '#d2b88f', 'Primary Bedroom': '#d2b88f', Bath: '#bcc8d2', Hall: '#c9a77c', Entry: '#b9b2a4', Closet: '#d2b88f', Laundry: '#cfd5da', Garage: '#a9adb2' };
 let doc = newDoc();
 function newDoc() {
-  return { v: 1, name: 'Untitled house', seq: 1, levels: [{ id: 'L1', name: 'Level 1', elev: 0, height: 108 }], walls: [], opens: [], rooms: [], roofs: [], stairs: [], dims: [],
+  return { v: 1, name: 'Untitled house', seq: 1, levels: [{ id: 'L1', name: 'Level 1', elev: 0, height: 108 }], walls: [], opens: [], rooms: [], roofs: [], stairs: [], dims: [], texts: [],
     set: { floorT: 6, wallT: 6, wallType: 1, grid: 6, doorW: 36, doorH: 80, winW: 36, winH: 48, winSill: 36 } };
 }
 const nid = p => p + (doc.seq++);
@@ -309,6 +310,7 @@ function sanitize(o) {
   d.roofs = A(o.roofs).filter(chk).map(r => ({ id: r.id, lv: lv(r.lv), x0: num(+r.x0), y0: num(+r.y0), x1: num(+r.x1), y1: num(+r.y1), type: ['gable', 'hip', 'shed', 'flat'].includes(r.type) ? r.type : 'gable', pitch: clamp(num(+r.pitch, 6), 0, 24), oh: clamp(num(+r.oh, 12), 0, 72), thk: clamp(num(+r.thk, 6), 1, 36), ridge: r.ridge === 'y' ? 'y' : 'x', flip: r.flip ? 1 : 0, c: /^#[0-9a-f]{6}$/i.test(r.c) ? r.c : '#7b5a4a' }));
   d.stairs = A(o.stairs).filter(chk).map(s => ({ id: s.id, lv: lv(s.lv), p: P(s.p) || [0, 0], ang: num(+s.ang), w: clamp(num(+s.w, 36), 12, 120), run: clamp(num(+s.run, 10), 5, 20), shape: s.shape === 'L' ? 'L' : 'straight', turn: s.turn === 'right' ? 'right' : 'left', rail: ['both', 'left', 'right', 'none'].includes(s.rail) ? s.rail : 'both', c: /^#[0-9a-f]{6}$/i.test(s.c) ? s.c : '#b08d62' }));
   d.dims = A(o.dims).filter(chk).map(m => ({ id: m.id, lv: lv(m.lv), p1: P(m.p1), p2: P(m.p2), off: num(+m.off, 24), mode: ['aligned', 'horizontal', 'vertical'].includes(m.mode) ? m.mode : 'aligned' })).filter(m => m.p1 && m.p2);
+  d.texts = A(o.texts).filter(chk).map(t => ({ id: t.id, lv: lv(t.lv), p: P(t.p), str: String(t.str == null ? '' : t.str).slice(0, 300), h: clamp(num(+t.h, 12), 1, 240), rot: num(+t.rot), c: /^#[0-9a-f]{6}$/i.test(t.c) ? t.c : '#1f2733', bold: !!t.bold })).filter(t => t.p && t.str.trim());
   d.seq = Math.max(num(+o.seq, 1), 1);
   for (const id of ids) { const n = parseInt(String(id).replace(/\D/g, ''), 10); if (n >= d.seq) d.seq = n + 1; }
   return d;
@@ -880,6 +882,7 @@ const OPT = {
   roof: { type: 'gable', pitch: 6, oh: 18, thk: 6, ridge: 'auto', c: '#7b5a4a' },
   stair: { shape: 'straight', turn: 'left', w: 36, run: 10, rail: 'both', c: '#b08d62' },
   dim: { mode: 'aligned' },
+  text: { str: '', h: null, rot: 0, bold: false, c: '#1f2733' },
   split: { at: 'click' },
 };
 const PREF_KEY = 'datum-house-prefs-v2';
@@ -891,7 +894,7 @@ function loadPrefs() {
   } catch (_) { }
 }
 function savePrefs() { try { localStorage.setItem(PREF_KEY, JSON.stringify({ pref: PREF, opt: OPT })); } catch (_) { } }
-const ARR = { wall: 'walls', open: 'opens', room: 'rooms', roof: 'roofs', stair: 'stairs', dim: 'dims' };
+const ARR = { wall: 'walls', open: 'opens', room: 'rooms', roof: 'roofs', stair: 'stairs', dim: 'dims', text: 'texts' };
 const getItem = s => byId(doc[ARR[s.type]], s.id);
 const selItems = () => S.sel.map(s => ({ type: s.type, id: s.id, o: getItem(s) })).filter(x => x.o);
 const isSel = (type, id) => S.sel.some(s => s.type === type && s.id === id);
@@ -979,6 +982,7 @@ function pick(sx, sy) {
     const w = byId(doc.walls, o.wall); if (!w || w.lv !== S.lv) continue;
     const g = openGeom(o, w), r = ptSeg(p, g.a, g.b); if (r.d <= w.t / 2 + tol * 0.5) return { type: 'open', id: o.id };
   }
+  { const t = noteAt(p, tol * 0.6); if (t) return { type: 'text', id: t.id }; }
   for (const m of doc.dims) { if (m.lv !== S.lv) continue; const g = dimGeom(m); if (ptSeg(p, g.d1, g.d2).d < tol * 1.2) return { type: 'dim', id: m.id }; }
   for (const s of doc.stairs) { if (s.lv !== S.lv) continue; for (const r of stairInfo(s).rects) if (pip(p, r)) return { type: 'stair', id: s.id }; }
   let bw = null, bd = Infinity;
@@ -997,7 +1001,26 @@ function dimGeom(m) {                                  // aligned, or measured a
   if (mode === 'horizontal') { e2 = m.p2; d2 = [m.p2[0], d1[1]]; } else if (mode === 'vertical') { e2 = m.p2; d2 = [d1[0], m.p2[1]]; }
   return { d, n, e1: a, e2, d1, d2, len: dist(a, b) };
 }
+/* Text notes: p is the left end of the first line's baseline, h the letter size in inches, rot degrees counter-clockwise. */
+let noteCtx = null;
+function noteW(t, line) {
+  try { noteCtx = noteCtx || document.createElement('canvas').getContext('2d'); noteCtx.font = (t.bold ? '700 ' : '500 ') + '100px "Inter","Segoe UI",system-ui,sans-serif'; return noteCtx.measureText(line).width * t.h / 100; }
+  catch (_) { return line.length * t.h * 0.56; }
+}
+function noteGeom(t) {
+  const lines = String(t.str).split('\n'), lh = t.h * 1.25, w = Math.max(t.h * 0.6, ...lines.map(l => noteW(t, l))), a = (t.rot || 0) * D2R, c = Math.cos(a), s = Math.sin(a);
+  const L = (x, y) => [t.p[0] + x * c - y * s, t.p[1] + x * s + y * c], y1 = 0.8 * t.h, y0 = -(lines.length - 1) * lh - 0.25 * t.h;
+  return { lines, lh, w, a, L, corners: [L(0, y0), L(w, y0), L(w, y1), L(0, y1)] };
+}
+function noteAt(p, tol) {
+  for (let i = doc.texts.length - 1; i >= 0; i--) {
+    const t = doc.texts[i]; if (t.lv !== S.lv) continue; const g = noteGeom(t);
+    if (pip(p, g.corners) || g.corners.some((q, k) => ptSeg(p, q, g.corners[(k + 1) % 4]).d < tol)) return t;
+  }
+  return null;
+}
 function itemBox(type, o) {
+  if (type === 'text') return bboxOf(noteGeom(o).corners);
   if (type === 'wall') return bboxOf([o.a, o.b]);
   if (type === 'roof') return roofRect(o);
   if (type === 'stair') return bboxOf(stairInfo(o).rects.flat());
@@ -1047,6 +1070,7 @@ function duplicateSel() {
     if (it.type === 'roof') { const c = JSON.parse(JSON.stringify(it.o)); c.id = nid('r'); c.x0 += off[0]; c.x1 += off[0]; c.y0 += off[1]; c.y1 += off[1]; doc.roofs.push(c); ns.push({ type: 'roof', id: c.id }); }
     if (it.type === 'stair') { const c = JSON.parse(JSON.stringify(it.o)); c.id = nid('s'); c.p = add(c.p, off); doc.stairs.push(c); ns.push({ type: 'stair', id: c.id }); }
     if (it.type === 'dim') { const c = JSON.parse(JSON.stringify(it.o)); c.id = nid('m'); c.p1 = add(c.p1, off); c.p2 = add(c.p2, off); doc.dims.push(c); ns.push({ type: 'dim', id: c.id }); }
+    if (it.type === 'text') { const c = JSON.parse(JSON.stringify(it.o)); c.id = nid('t'); c.p = add(c.p, off); doc.texts.push(c); ns.push({ type: 'text', id: c.id }); }
   }
   if (ns.length) { S.sel = ns; commit(); say('Duplicated ' + ns.length + ' item(s)'); }
 }
@@ -1059,7 +1083,7 @@ function deleteLevel(id) {
   const lv = lvOf(id);
   return askConfirm('Delete "' + lv.name + '" and everything drawn on it?', 'Delete level', true).then(ok => {
     if (!ok || !byId(doc.levels, id) || doc.levels.length < 2) return false;
-    for (const k of ['walls', 'rooms', 'roofs', 'stairs', 'dims']) doc[k] = doc[k].filter(x => x.lv !== id);
+    for (const k of ['walls', 'rooms', 'roofs', 'stairs', 'dims', 'texts']) doc[k] = doc[k].filter(x => x.lv !== id);
     doc.opens = doc.opens.filter(p => byId(doc.walls, p.wall));
     doc.levels = doc.levels.filter(l => l.id !== id);
     if (S.lv === id) S.lv = doc.levels[0].id; S.sel = []; cancelOps(); ui.lv = true; commit(); return true;
@@ -1078,6 +1102,82 @@ function chainVerts(pts, t, loc, closed) {
   for (let i = 1; i < n; i++) V.push(join(i - 1, i, i));
   V.push(closed ? V[0].slice() : add(pts[n], off(n - 1)));
   return V;
+}
+/* Quick trim (like AutoCAD's quick TRIM): every wall is a cutting edge. Click a wall to remove the stretch between the walls
+   that cross it; drag across several walls to trim them all; hold Shift to extend instead. */
+function wallCuts(w) {                                   // distances along w where other walls on its level cross it
+  const L = wallLen(w), out = [];
+  for (const o of doc.walls) {
+    if (o === w || o.lv !== w.lv) continue;
+    const s = segSeg(w.a, w.b, o.a, o.b); if (!s) continue;
+    const slack = (w.t / 2) / Math.max(wallLen(o), 1e-6); if (s.u < -slack || s.u > 1 + slack) continue;
+    const d = s.t * L; if (d <= 0.5 || d >= L - 0.5) continue; out.push(d);
+  }
+  return out.sort((x, y) => x - y);
+}
+function trimSpan(w, d) {                                // the stretch [lo, hi] a trim click at distance d would remove, or null
+  const L = wallLen(w), cuts = wallCuts(w); if (!cuts.length) return null;
+  let lo = 0, hi = L; for (const c of cuts) { if (c < d) lo = c; else { hi = c; break; } }
+  return { lo, hi, L };
+}
+function extendTarget(w, d) {                            // where the nearer end of w would run to: {end, pt, grow} or null
+  const L = wallLen(w), end = d > L / 2 ? 'b' : 'a', best = { grow: Infinity, pt: null };
+  for (const pass of [0, 1]) {
+    for (const o of doc.walls) {
+      if (o === w || o.lv !== w.lv) continue;
+      const s = segSeg(w.a, w.b, o.a, o.b); if (!s) continue;
+      const slack = (w.t / 2) / Math.max(wallLen(o), 1e-6); if (pass === 0 && (s.u < -slack || s.u > 1 + slack)) continue;
+      const grow = end === 'b' ? (s.t - 1) * L : -s.t * L; if (grow <= 0.5 || grow > (pass ? 240 : 1e6) || grow >= best.grow) continue;
+      best.grow = grow; best.pt = add(w.a, mul(sub(w.b, w.a), s.t));
+    }
+    if (best.pt) break;                                   // a wall actually in the way; otherwise fall back to where the lines would meet
+  }
+  return best.pt ? { end, pt: best.pt, grow: best.grow } : null;
+}
+function quickTrimWall(w, d, extend) {                   // returns { ids } for the walls that now stand in w's place, or null
+  if (extend) {
+    const x = extendTarget(w, d); if (!x) return null; const L0 = wallLen(w);
+    w[x.end] = x.pt.map(v => Math.round(v * 1000) / 1000);
+    if (x.end === 'a') for (const p of doc.opens) if (p.wall === w.id) p.d += wallLen(w) - L0;
+    fixOpenings(); return { ids: [w.id] };
+  }
+  const sp = trimSpan(w, d); if (!sp) return null;
+  const { lo, hi, L } = sp, P = x => lerp2(w.a, w.b, x / L).map(v => Math.round(v * 1000) / 1000), keepLo = lo > 0.5, keepHi = hi < L - 0.5;
+  const mine = doc.opens.filter(p => p.wall === w.id), ids = [];
+  const drop = new Set();
+  for (const p of mine) {
+    const a0 = p.d - p.w / 2, a1 = p.d + p.w / 2;
+    if (keepHi && a0 >= hi - 0.01) continue;
+    if (keepLo && a1 <= lo + 0.01) continue;
+    drop.add(p.id);
+  }
+  doc.opens = doc.opens.filter(p => !drop.has(p.id));
+  const hiPt = P(hi), loPt = P(lo), bOld = w.b.slice();
+  if (keepLo && keepHi) {
+    const n = Object.assign({}, w, { id: nid('w'), a: hiPt, b: bOld });
+    for (const p of doc.opens) if (p.wall === w.id && p.d >= hi - 0.01) { p.wall = n.id; p.d -= hi; }
+    w.b = loPt; doc.walls.push(n); ids.push(w.id, n.id);
+  } else if (keepLo) { w.b = loPt; ids.push(w.id); }
+  else if (keepHi) { for (const p of doc.opens) if (p.wall === w.id) p.d -= hi; w.a = hiPt; ids.push(w.id); }
+  else { deleteItems([{ type: 'wall', id: w.id }]); return { ids: [], gone: true }; }
+  for (const id of ids) { const k = byId(doc.walls, id); if (k && wallLen(k) < 1) { deleteItems([{ type: 'wall', id }]); } }
+  fixOpenings(); return { ids: ids.filter(id => byId(doc.walls, id)) };
+}
+function fenceTrim(fence, extend) {                      // trim / extend every wall the dragged line crosses; returns the number of cuts
+  let n = 0; const fam = new Map();
+  const hits = [];
+  for (const w of wallsHere()) for (let i = 0; i + 1 < fence.length; i++) {
+    const s = segSeg(fence[i], fence[i + 1], w.a, w.b); if (!s || s.t < 0 || s.t > 1 || s.u < 0 || s.u > 1) continue;
+    hits.push({ id: w.id, q: lerp2(w.a, w.b, s.u) });
+  }
+  for (const h of hits) {
+    const ids = fam.get(h.id) || [h.id]; let best = null, bd = 1.5;
+    for (const id of ids) { const k = byId(doc.walls, id); if (!k) continue; const r = ptSeg(h.q, k.a, k.b); if (r.d < bd) { bd = r.d; best = { k, d: r.t * wallLen(k) }; } }
+    if (!best) continue;
+    const r = quickTrimWall(best.k, best.d, extend); if (!r) continue;
+    n++; fam.set(h.id, ids.filter(id => id !== best.k.id).concat(r.ids));
+  }
+  return n;
 }
 function trimToCorner(w1, c1, w2, c2) {                 // join two walls at the corner of their lines; the ends away from the clicks move
   const d1 = sub(w1.b, w1.a), d2 = sub(w2.b, w2.a), x = isect(w1.a, d1, w2.a, d2);
@@ -1122,6 +1222,7 @@ function transformSel(kind) {
     if (it.type === 'stair') { o.p = T(o.p); o.ang = ang(o.ang); if (mirror) o.turn = o.turn === 'left' ? 'right' : 'left'; }
     if (it.type === 'dim') { o.p1 = T(o.p1); o.p2 = T(o.p2); if (mirror) o.off = -o.off; if (kind !== 'x' && kind !== 'y' && o.mode && o.mode !== 'aligned') o.mode = o.mode === 'horizontal' ? 'vertical' : 'horizontal'; }
     if (it.type === 'room') o.pt = T(o.pt);
+    if (it.type === 'text') { o.p = T(o.p); const r0 = o.rot || 0; o.rot = kind === 'cw' ? r0 - 90 : kind === 'ccw' ? r0 + 90 : kind === 'x' ? 180 - r0 : -r0; o.rot = ((o.rot % 360) + 360) % 360; }
   }
   if (mirror) for (const p of doc.opens) if (walls.has(p.wall)) p.flip ^= 1;
   fixOpenings(); return true;
@@ -1136,7 +1237,7 @@ function copyLevelUp() {                                 // new level above with
   const map = {};
   for (const w of doc.walls.filter(w => w.lv === src.id)) { const c = JSON.parse(JSON.stringify(w)); c.id = nid('w'); c.lv = id; map[w.id] = c.id; doc.walls.push(c); }
   for (const p of doc.opens.slice()) if (map[p.wall]) { const c = JSON.parse(JSON.stringify(p)); c.id = nid('o'); c.wall = map[p.wall]; doc.opens.push(c); }
-  for (const k of ['rooms', 'dims']) for (const x of doc[k].filter(x => x.lv === src.id)) { const c = JSON.parse(JSON.stringify(x)); c.id = nid(k === 'rooms' ? 'r' : 'm'); c.lv = id; doc[k].push(c); }
+  for (const k of ['rooms', 'dims', 'texts']) for (const x of doc[k].filter(x => x.lv === src.id)) { const c = JSON.parse(JSON.stringify(x)); c.id = nid(k === 'rooms' ? 'r' : k === 'texts' ? 't' : 'm'); c.lv = id; doc[k].push(c); }
   S.lv = id; S.sel = []; ui.lv = true; return lv;
 }
 
@@ -1170,14 +1271,17 @@ const GUIDE = {
   dim: { n: 'Dimension', d: 'Measure and annotate.',
     steps: [['First point', 'Click a wall end or corner.'], ['Second point', 'Click the other end. "Aligned" follows the line; Horizontal and Vertical measure along one axis.'], ['Place the line', 'Move out and click to set how far the dimension line sits from the measured points.']],
     tips: ['Dimensions snap to mitred wall corners', 'Change the mode later in the properties'] },
+  text: { n: 'Text', d: 'Add a note, label or dimension remark anywhere on the plan.',
+    steps: [['Click where it goes', 'The note starts at the point you click. Click an existing note to edit it instead.'], ['Type it', 'Press Enter to finish, or Shift+Enter for a new line. Esc cancels.'], ['Style it', 'Size, rotation, weight and colour are in the options. Change them later from the properties.']],
+    tips: ['Drag a note with the Select tool to move it', 'Double-click a note to edit the words', 'Notes export to DXF as text'] },
   split: { n: 'Split Wall', d: 'Cut a wall in two to move or style the parts separately.',
     steps: [['Hover a wall', 'A red cross shows where the cut will be.'], ['Click to cut', 'Click to split. "Middle" splits at the middle of whichever wall you click.']],
     tips: ['You cannot cut through a door or window', 'Splits snap to the grid'] },
-  trim: { n: 'Trim / Extend', d: 'Join two walls into a clean corner.',
-    steps: [['First wall', 'Click the wall, near the part you want to keep.'], ['Second wall', 'Click the other wall, near the part you want to keep. Both walls meet at the corner.']],
-    tips: ['Works on walls that cross or fall short of each other', 'Parallel walls cannot be joined'] },
+  trim: { n: 'Trim / Extend', d: 'Quick trim: click a piece of wall to cut it back to the walls that cross it.',
+    steps: [['Hover a wall', 'The piece that will go turns red, between the walls that cross it.'], ['Click, or drag across several', 'Click the piece to remove it. Press and drag a line across many walls to cut them all at once.'], ['Shift to extend', 'Hold Shift and click near a wall end to run it out to the next wall. Press Esc or pick another tool to finish.']],
+    tips: ['Every wall on the level is a cutting edge', 'Doors and windows on the removed piece go with it', 'Undo restores the last cut'] },
 };
-const TOOLS = ['select', 'wall', 'rect', 'door', 'window', 'room', 'roof', 'stair', 'dim', 'split', 'trim'];
+const TOOLS = ['select', 'wall', 'rect', 'door', 'window', 'room', 'roof', 'stair', 'dim', 'text', 'split', 'trim'];
 
 /* ════════ Plan rendering ════════ */
 const pcv = $('#pc'), pctx = pcv.getContext('2d'), wl = document.createElement('canvas'), wctx = wl.getContext('2d');
@@ -1301,6 +1405,7 @@ function drawPlan() {
     label(c, fmtArea(g.area), [cp[0], cp[1] - 8 / S.view.s], { size: 10.5, color: TH.muted });
   }
   for (const m of doc.dims) if (m.lv === lv.id) drawDim(c, m, selId.has(m.id));
+  for (const t of doc.texts) if (t.lv === lv.id && t.id !== noteEd.id) drawNote(c, t, selId.has(t.id));
   for (const sx of S.sel) if (sx.type === 'wall') {       // length readout on selected walls
     const w = byId(doc.walls, sx.id); if (!w || w.lv !== lv.id) continue; const u = unit(sub(w.b, w.a)), n = perp(u);
     let rot = -Math.atan2(u[1], u[0]); if (rot > Math.PI / 2 || rot < -Math.PI / 2) rot += Math.PI;
@@ -1311,8 +1416,20 @@ function drawPlan() {
   if (S.snapInfo && S.tool !== 'select' || (S.snapInfo && S.drag)) drawSnap(c);
   drawScaleBar(c);
 }
+function drawNote(c, t, sel, ghost) {
+  const g = noteGeom(t), q = toS(t.p), px = t.h * S.view.s;
+  c.save(); c.translate(q[0], q[1]); c.rotate(-g.a);
+  if (sel) { c.setLineDash([5, 4]); c.strokeStyle = TH.accent; c.lineWidth = 1.4; const k = S.view.s; c.strokeRect(-0.15 * t.h * k, -0.8 * t.h * k - 0.1 * t.h * k, g.w * k + 0.3 * t.h * k, (0.8 + 0.25) * t.h * k + (g.lines.length - 1) * g.lh * k + 0.2 * t.h * k); c.setLineDash([]); }
+  c.font = (t.bold ? '700 ' : '500 ') + px + 'px "Inter","Segoe UI",system-ui,sans-serif'; c.textAlign = 'left'; c.textBaseline = 'alphabetic';
+  if (ghost) c.globalAlpha = 0.55;
+  g.lines.forEach((ln, i) => {
+    if (px >= 3) { c.lineWidth = Math.max(2, px * 0.14); c.lineJoin = 'round'; c.strokeStyle = TH.paper; c.strokeText(ln, 0, i * g.lh * S.view.s); }
+    c.fillStyle = sel ? TH.accent : (t.c || TH.ink); c.fillText(ln, 0, i * g.lh * S.view.s);
+  });
+  c.restore();
+}
 function drawHover(c) {
-  const h = S.hover && S.hover.item; if (!h || S.tool !== 'select' || S.drag || isSel(h.type, h.id)) return;
+  const h = S.hover && S.hover.item; if (!h || (S.tool !== 'select' && S.tool !== 'text') || S.drag || isSel(h.type, h.id)) return;
   const o = getItem(h); if (!o) return; c.save(); c.strokeStyle = TH.accent; c.fillStyle = 'rgba(47,125,225,.14)'; c.lineWidth = 2; c.globalAlpha = 0.9;
   if (h.type === 'wall') { const f = footprints(S.lv)[o.id]; if (f) { pathPoly(c, wallPoly(f)); c.fill(); c.stroke(); } }
   else if (h.type === 'open') { const w = byId(doc.walls, o.wall); if (w) { pathPoly(c, openGeom(o, w).corners); c.fill(); c.stroke(); } }
@@ -1320,6 +1437,7 @@ function drawHover(c) {
   else if (h.type === 'stair') { for (const r of stairInfo(o).rects) { pathPoly(c, r); c.fill(); c.stroke(); } }
   else if (h.type === 'roof') { const q = roofRect(o); pathPoly(c, [[q[0], q[1]], [q[2], q[1]], [q[2], q[3]], [q[0], q[3]]]); c.setLineDash([9, 5]); c.stroke(); }
   else if (h.type === 'dim') { const g = dimGeom(o); line(c, g.d1, g.d2); }
+  else if (h.type === 'text') { pathPoly(c, noteGeom(o).corners); c.fill(); c.stroke(); }
   c.restore();
 }
 function drawSnap(c) {
@@ -1360,6 +1478,39 @@ function openLenInput(init, ph) {
 }
 function closeLenInput() { lenIn.style.display = 'none'; lenIn.value = ''; lenIn.style.borderColor = ''; if (document.activeElement === lenIn) pcv.focus && pcv.focus({ preventScroll: true }); }
 const typedActive = () => lenIn.style.display === 'block';
+/* Text notes: click to place, type in the box that appears, Enter to finish (Shift+Enter starts a new line). */
+const noteEd = { id: null, el: null, isNew: false, t0: 0 };
+function noteEdClose(save) {
+  if (!noteEd.id) return; const el = noteEd.el, t = byId(doc.texts, noteEd.id), isNew = noteEd.isNew; noteEd.id = null; noteEd.el = null;
+  const val = el.value.replace(/\s+$/g, ''); el.remove();
+  if (t) {
+    if (save && val.trim()) { const was = t.str; t.str = val.slice(0, 300); if (isNew || was !== t.str) { commit(); say(isNew ? 'Text added' : 'Text changed'); } else S.dirty = true; }
+    else if (isNew) { doc.texts = doc.texts.filter(x => x !== t); S.sel = S.sel.filter(x => x.id !== t.id); S.dirty = true; ui.side = true; }
+    else if (save && !val.trim()) { doc.texts = doc.texts.filter(x => x !== t); S.sel = []; commit(); say('Text deleted'); }
+    else S.dirty = true;
+  }
+  ui.side = true; S.dirty = true; if (pcv.focus) pcv.focus({ preventScroll: true });
+}
+function noteEdit(t, isNew) {
+  noteEdClose(true);
+  const el = document.createElement('textarea'), q = toS(t.p), px = Math.max(13, t.h * S.view.s);
+  el.className = 'noteEd'; el.spellcheck = false; el.rows = 1; el.value = t.str || ''; el.placeholder = 'Type a note';
+  el.style.font = (t.bold ? '700 ' : '500 ') + px + 'px "Inter","Segoe UI",system-ui,sans-serif'; el.style.left = q[0] + 'px'; el.style.top = (q[1] - px * 1.0) + 'px';
+  el.style.transformOrigin = '0 ' + px + 'px'; el.style.transform = 'rotate(' + (-(t.rot || 0)) + 'deg)'; el.style.color = t.c || '';
+  const fit = () => { const lines = el.value.split('\n'); el.rows = lines.length; el.style.width = Math.max(px * 4, ...lines.map(l => l.length * px * 0.62)) + px + 'px'; };
+  noteEd.id = t.id; noteEd.el = el; noteEd.isNew = !!isNew; noteEd.t0 = performance.now();
+  el.addEventListener('input', fit);
+  el.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); noteEdClose(true); } else if (e.key === 'Escape') { e.preventDefault(); noteEdClose(false); } });
+  el.addEventListener('blur', () => { if (noteEd.el !== el) return; if (performance.now() - noteEd.t0 < 250) { setTimeout(() => { if (noteEd.el === el) el.focus(); }, 0); return; } noteEdClose(true); });   // the click that placed it can still steal focus
+  $('#plan').appendChild(el); fit(); el.focus(); el.select(); S.dirty = true;
+}
+const noteSize = () => OPT.text.h || clamp(Math.round(14 / S.view.s / 2) * 2, 4, 48);   // blank size = letters about 14 px tall at the current zoom
+function placeNote(wp, p) {
+  const hit = noteAt(wp, 8 / S.view.s);
+  if (hit) { S.sel = [{ type: 'text', id: hit.id }]; ui.side = true; noteEdit(hit, false); return; }
+  const o = OPT.text, t = { id: nid('t'), lv: S.lv, p: [p[0], p[1]], str: o.str || '', h: noteSize(), rot: o.rot, c: o.c, bold: o.bold };
+  doc.texts.push(t); S.sel = [{ type: 'text', id: t.id }]; ui.side = true; noteEdit(t, true);
+}
 const curSnap = o => snap(S.mx, S.my, o);
 
 function stepIdx() {                                    // index of the step the current tool is on
@@ -1373,7 +1524,8 @@ function stepIdx() {                                    // index of the step the
   if (T === 'stair') return t ? 2 : 1;
   if (T === 'dim') return !t ? 0 : !t.p2 ? 1 : 2;
   if (T === 'split') return S.hover && S.hover.split ? 1 : 0;
-  if (T === 'trim') return t ? 1 : 0;
+  if (T === 'text') return S.hover && S.hover.note ? 2 : 0;
+  if (T === 'trim') return 0;
   return 0;
 }
 
@@ -1478,6 +1630,7 @@ function fitRoofToLevel() {
 function drawToolPreview(c) {
   const t = S.tmp, si = S.snapInfo, T = S.tool; if (!S.inside && !S.drag && !t) return;
   const cur = si ? si.p : S.cur;
+  if (T === 'text' && S.inside && cur && !noteEd.id && !(S.hover && S.hover.note)) drawNote(c, { p: cur, str: OPT.text.str || 'Text', h: noteSize(), rot: OPT.text.rot, c: OPT.text.c, bold: OPT.text.bold }, false, true);
   c.lineWidth = 1.5; c.strokeStyle = TH.accent;
   if (T === 'wall' && t && t.pts) {
     const th = wallThick(), V = chainVerts(t.pts.concat([cur]), th, OPT.wall.loc, false), n = V.length - 1;
@@ -1523,11 +1676,21 @@ function drawToolPreview(c) {
   if (T === 'split' && S.hover && S.hover.split) { const q = toS(S.hover.split.q); c.strokeStyle = TH.danger; c.lineWidth = 2; c.beginPath(); c.moveTo(q[0] - 7, q[1] - 7); c.lineTo(q[0] + 7, q[1] + 7); c.moveTo(q[0] + 7, q[1] - 7); c.lineTo(q[0] - 7, q[1] + 7); c.stroke(); }
   if (T === 'trim') {
     const hl = (w, col) => { const f = footprints(S.lv)[w.id]; if (f) { pathPoly(c, wallPoly(f)); c.fillStyle = col; c.fill(); c.strokeStyle = TH.accent; c.lineWidth = 2; c.stroke(); } };
-    if (t && t.w1) hl(byId(doc.walls, t.w1), 'rgba(47,125,225,.3)');
-    if (S.hover && S.hover.trim) hl(S.hover.trim.w, 'rgba(47,125,225,.16)');
-    if (t && t.w1 && S.hover && S.hover.trim && S.hover.trim.w.id !== t.w1) {
-      const w1 = byId(doc.walls, t.w1), x = w1 && isect(w1.a, sub(w1.b, w1.a), S.hover.trim.w.a, sub(S.hover.trim.w.b, S.hover.trim.w.a));
-      if (x && isFinite(x[0])) { const q = toS(x); c.beginPath(); c.arc(q[0], q[1], 6, 0, TAU); c.strokeStyle = TH.ok; c.lineWidth = 2; c.stroke(); }
+    const h = S.hover;
+    if (h && h.trim && !S.qt) {
+      const w = h.trim.w;
+      if (h.span) {                                      // the stretch a click would remove
+        const a = toS(lerp2(w.a, w.b, h.span.lo / h.span.L)), b = toS(lerp2(w.a, w.b, h.span.hi / h.span.L));
+        c.save(); c.lineCap = 'butt'; c.strokeStyle = 'rgba(229,83,61,.35)'; c.lineWidth = Math.max(4, w.t * S.view.s); c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke();
+        c.strokeStyle = TH.danger; c.lineWidth = 2; c.setLineDash([6, 4]); c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke(); c.restore();
+      } else if (h.ext) {                                // the extension a Shift-click would add
+        const a = toS(w[h.ext.end]), b = toS(h.ext.pt);
+        c.save(); c.strokeStyle = TH.ok; c.lineWidth = Math.max(4, w.t * S.view.s); c.globalAlpha = .35; c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke(); c.restore();
+        c.beginPath(); c.arc(b[0], b[1], 6, 0, TAU); c.strokeStyle = TH.ok; c.lineWidth = 2; c.stroke();
+      } else hl(w, 'rgba(47,125,225,.16)');
+    }
+    if (S.qt && S.qt.moved && S.qt.pts.length > 1) {      // the dragged fence
+      c.save(); c.strokeStyle = TH.accent; c.lineWidth = 1.8; c.setLineDash([7, 5]); c.beginPath(); S.qt.pts.map(toS).forEach((q, i) => i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1])); c.stroke(); c.restore();
     }
   }
 }
@@ -1564,7 +1727,8 @@ function hintHTML() {
   if (T === 'stair') return !t ? B('Stair') + 'click the foot of the stair' : B('Click') + 'to set the direction (snaps to 15°) · ' + K('Esc') + ' cancel';
   if (T === 'dim') return !t ? B('Dimension') + 'click the first point' : !t.p2 ? B('Click') + 'the second point' : B('Click') + 'to place the dimension line';
   if (T === 'split') return h && h.split ? B('Click') + 'to cut the wall here' : B('Split Wall') + 'hover over a wall';
-  if (T === 'trim') return !t ? B('Trim') + 'click the first wall (near the part to keep)' : B('Click') + 'the second wall (near the part to keep)';
+  if (T === 'text') return h && h.note ? B('Click') + 'to edit this note' : B('Text') + 'click where the note goes, type, then ' + K('Enter');
+  if (T === 'trim') return S.shift ? B('Extend') + 'click near a wall end · release ' + K('Shift') + ' to trim' : B('Trim') + 'click a piece or drag across · ' + K('Shift') + ' extends';
   return '';
 }
 
@@ -1572,7 +1736,7 @@ function hintHTML() {
 function localXY(e) { const r = pcv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
 function setTool(t) {
   if (!GUIDE[t]) return; if (S.tool === t) { ui.ribbon = ui.side = true; return; }
-  closeLenInput(); cancelDrag(); S.tool = t; S.hover = null; S.tmp = null; S.snapInfo = null; ui.ribbon = ui.side = true; S.dirty = true;
+  closeLenInput(); cancelDrag(); S.tool = t; S.hover = null; S.tmp = null; S.qt = null; S.snapInfo = null; ui.ribbon = ui.side = true; S.dirty = true;
   pcv.style.cursor = t === 'select' ? 'default' : 'crosshair'; say('');
 }
 function setLevel(id) {
@@ -1629,16 +1793,10 @@ function onDown(e) {
     if (OPT.split.at === 'mid') best.d = wallLen(best.w) / 2; else { const g = doc.set.grid; if (g > 0) best.d = Math.round(best.d / g) * g; }
     const n = splitWall(best.w, best.d); if (!n) { say('Cannot split here (too close to an end, or inside a door / window)', true); return; }
     S.sel = [{ type: 'wall', id: n.id }]; commit();
+  } else if (T === 'text') {
+    placeNote(wp, p);
   } else if (T === 'trim') {
-    const best = nearestWall(wp, 14 / S.view.s); if (!best) { say('Click on a wall', true); return; }
-    if (!S.tmp) { S.tmp = { w1: best.w.id, c1: wp }; }
-    else {
-      const w1 = byId(doc.walls, S.tmp.w1), c1 = S.tmp.c1; if (!w1) { S.tmp = null; return; }
-      if (w1.id === best.w.id) { say('Pick a different wall for the second click', true); return; }
-      const r = trimToCorner(w1, c1, best.w, wp);
-      if (r) { restore(H.stack[H.i]); say(r === 'parallel' ? 'Those walls are parallel and never meet' : r === 'short' ? 'That would make a wall too short' : 'The walls meet too far away', true); S.tmp = null; return; }
-      S.tmp = null; S.sel = [{ type: 'wall', id: w1.id }, { type: 'wall', id: best.w.id }]; commit(); say('Walls joined');
-    }
+    S.qt = { pts: [wp], moved: false, shift: e.shiftKey, sx, sy };
   }
   S.dirty = true;
 }
@@ -1664,7 +1822,16 @@ function onMove(e) {
   if (T === 'door' || T === 'window') { const hit = wallUnder(wp); if (hit) S.hover = { ghost: openGhost(hit, wp) }; }
   else if (T === 'room') { const f = faceAt(S.lv, wp); if (f) S.hover = { face: f }; }
   else if (T === 'split') { let best = nearestWall(wp, 12 / S.view.s); if (best) { if (OPT.split.at === 'mid') best.q = lerp2(best.w.a, best.w.b, 0.5); S.hover = { split: best }; } }
-  else if (T === 'trim') { const best = nearestWall(wp, 14 / S.view.s); if (best) S.hover = { trim: best }; }
+  else if (T === 'trim') {
+    S.shift = e.shiftKey;
+    if (S.qt) {                                          // dragging a fence across walls
+      if (Math.hypot(sx - S.qt.sx, sy - S.qt.sy) > 4) S.qt.moved = true;
+      const l = S.qt.pts[S.qt.pts.length - 1]; if (S.qt.moved && dist(l, wp) * S.view.s >= 3) S.qt.pts.push(wp);
+    } else {
+      trimHoverAt(wp, e.shiftKey);
+    }
+  }
+  else if (T === 'text') { const n = noteAt(wp, 8 / S.view.s); if (n) S.hover = { note: n.id, item: { type: 'text', id: n.id } }; }
   else if (T === 'select') { const h = pick(sx, sy); S.hover = { item: h }; pcv.style.cursor = handleAt(sx, sy) ? 'move' : h ? 'pointer' : 'default'; }
   $('#stXY').textContent = 'X ' + fmtLen(si.p[0], { den: 8 }) + '   Y ' + fmtLen(si.p[1], { den: 8 });
   $('#stSnap').textContent = si.kind ? ({ end: 'endpoint', mid: 'midpoint', corner: 'corner', on: 'on wall', grid: 'grid', angle: 'angle' }[si.kind] || '') : '';
@@ -1675,6 +1842,21 @@ function onUp(e) {
   if (S.panning) {
     const p = S.panning; S.panning = null; pcv.style.cursor = S.tool === 'select' ? 'default' : 'crosshair';
     if (p.button === 2 && !p.moved) { if (S.tmp) { S.tool === 'wall' && S.tmp.count ? finishChain() : (S.tmp = null); } else if (S.tool !== 'select') setTool('select'); else { S.sel = []; ui.side = true; } S.dirty = true; }
+    return;
+  }
+  if (S.qt) {
+    const q = S.qt; S.qt = null; S.dirty = true; if (e.button !== 0 && e.type !== 'pointercancel') return;
+    const ext = !!(q.shift || e.shiftKey);
+    if (q.moved && q.pts.length > 1) {
+      const n = fenceTrim(q.pts, ext);
+      if (n) { S.sel = []; commit(); say(n + (ext ? ' wall end' : ' cut') + (n > 1 ? 's' : '') + (ext ? ' extended' : ' made')); } else say('The line did not cross a wall that could be ' + (ext ? 'extended' : 'trimmed'), true);
+    } else {
+      const wp = q.pts[0], best = nearestWall(wp, 14 / S.view.s); if (!best) { say('Click on a wall', true); return; }
+      const r = quickTrimWall(best.w, best.d, ext);
+      if (!r) { say(ext ? 'Nothing to extend to in that direction' : 'No wall crosses this one here, so there is nothing to trim to', true); return; }
+      S.sel = r.ids.map(id => ({ type: 'wall', id })); commit(); say(ext ? 'Wall extended' : 'Trimmed');
+      const hv = nearestWall(wp, 14 / S.view.s); S.hover = hv ? { trim: hv, span: ext ? null : trimSpan(hv.w, hv.d) } : null;
+    }
     return;
   }
   if (S.drag || S.marquee) selectUp(e);
@@ -1702,7 +1884,7 @@ function selectDown(e, sx, sy) {
     ui.side = true; cleanSel();
     const items = selItems(); if (!isSel(hit.type, hit.id)) { S.dirty = true; return; }
     const anchorItem = items.find(i => i.type === hit.type && i.id === hit.id) || items[0];
-    S.drag = { kind: 'move', start: wp, startS: [sx, sy], hit, orig: JSON.parse(JSON.stringify({ walls: doc.walls, opens: doc.opens, roofs: doc.roofs, stairs: doc.stairs, dims: doc.dims })), moved: false, shift: e.shiftKey, wasSel: already, anchor: anchorPoint(anchorItem, wp) };
+    S.drag = { kind: 'move', start: wp, startS: [sx, sy], hit, orig: JSON.parse(JSON.stringify({ walls: doc.walls, opens: doc.opens, roofs: doc.roofs, stairs: doc.stairs, dims: doc.dims, texts: doc.texts })), moved: false, shift: e.shiftKey, wasSel: already, anchor: anchorPoint(anchorItem, wp) };
     const moving = new Set(items.filter(i => i.type === 'wall').map(i => i.id));
     S.drag.moving = moving;
     S.drag.ends = [];
@@ -1719,7 +1901,7 @@ function selectDown(e, sx, sy) {
 function anchorPoint(it, wp) {
   const o = it.o;
   if (it.type === 'wall') return dist(o.a, wp) < dist(o.b, wp) ? o.a.slice() : o.b.slice();
-  if (it.type === 'roof') return [o.x0, o.y0]; if (it.type === 'stair') return o.p.slice(); if (it.type === 'dim') return o.p1.slice();
+  if (it.type === 'roof') return [o.x0, o.y0]; if (it.type === 'stair') return o.p.slice(); if (it.type === 'dim') return o.p1.slice(); if (it.type === 'text') return o.p.slice();
   return wp.slice();
 }
 function selectMove(e, sx, sy) {
@@ -1747,6 +1929,7 @@ function selectMove(e, sx, sy) {
     if (it.type === 'roof') { it.o.x0 = ow.x0 + delta[0]; it.o.x1 = ow.x1 + delta[0]; it.o.y0 = ow.y0 + delta[1]; it.o.y1 = ow.y1 + delta[1]; }
     if (it.type === 'stair') it.o.p = add(ow.p, delta);
     if (it.type === 'dim') { it.o.p1 = add(ow.p1, delta); it.o.p2 = add(ow.p2, delta); }
+    if (it.type === 'text') it.o.p = add(ow.p, delta);
   }
   fixOpenings(); changed();
 }
@@ -1774,7 +1957,7 @@ function selectUp(e) {
     if (Math.hypot(m.x1 - m.x0, m.y1 - m.y0) > 4) {
       const a = toW(Math.min(m.x0, m.x1), Math.max(m.y0, m.y1)), b = toW(Math.max(m.x0, m.x1), Math.min(m.y0, m.y1)), cross = m.x1 < m.x0, sel = e.shiftKey ? m.base.slice() : [];
       const inside = bx => cross ? !(bx[2] < a[0] || bx[0] > b[0] || bx[3] < a[1] || bx[1] > b[1]) : (bx[0] >= a[0] && bx[2] <= b[0] && bx[1] >= a[1] && bx[3] <= b[1]);
-      for (const type of ['wall', 'open', 'stair', 'roof', 'dim', 'room']) for (const o of doc[ARR[type]]) { if ((o.lv || (byId(doc.walls, o.wall) || {}).lv) !== S.lv) continue; if (inside(itemBox(type, o)) && !sel.some(s => s.id === o.id)) sel.push({ type, id: o.id }); }
+      for (const type of ['wall', 'open', 'stair', 'roof', 'dim', 'room', 'text']) for (const o of doc[ARR[type]]) { if ((o.lv || (byId(doc.walls, o.wall) || {}).lv) !== S.lv) continue; if (inside(itemBox(type, o)) && !sel.some(s => s.id === o.id)) sel.push({ type, id: o.id }); }
       S.sel = sel;
     }
     ui.side = true; S.dirty = true; return;
@@ -1807,6 +1990,7 @@ function zoomFit(instant) {
   for (const r of doc.roofs) if (r.lv === S.lv) pts.push([r.x0, r.y0], [r.x1, r.y1]);
   for (const s of doc.stairs) if (s.lv === S.lv) pts.push(...stairInfo(s).rects.flat());
   for (const m of doc.dims) if (m.lv === S.lv) pts.push(m.p1, m.p2);
+  for (const t of doc.texts) if (t.lv === S.lv) pts.push(...noteGeom(t).corners);
   const ms = instant === true ? 0 : 260;
   if (!pts.length) { tweenView({ cx: 240, cy: 168, s: 0.9 }, ms); return; }
   const b = bboxOf(pts), w = Math.max(60, b[2] - b[0]), h = Math.max(60, b[3] - b[1]);
@@ -1814,7 +1998,7 @@ function zoomFit(instant) {
 }
 
 /* ── keyboard ── */
-const TOOL_KEYS = { v: 'select', w: 'wall', r: 'rect', d: 'door', n: 'window', m: 'room', f: 'roof', s: 'stair', k: 'dim', x: 'split', t: 'trim' };
+const TOOL_KEYS = { v: 'select', w: 'wall', r: 'rect', d: 'door', n: 'window', m: 'room', f: 'roof', s: 'stair', k: 'dim', a: 'text', x: 'split', t: 'trim' };
 function nudge(dx, dy) {
   const items = selItems(); if (!items.length) return;
   const mv = p => [p[0] + dx, p[1] + dy], ws = new Set(items.filter(i => i.type === 'wall').map(i => i.id));
@@ -1822,11 +2006,16 @@ function nudge(dx, dy) {
   for (const w of doc.walls) if (w.lv === S.lv) for (const k of ['a', 'b']) { const hit = ws.has(w.id) || [...ws].some(id => { const m = byId(doc.walls, id); return m && (dist(m.a, w[k]) < 1 || dist(m.b, w[k]) < 1); }); if (hit) moved.add(w.id + k); }
   const before = new Map(); for (const w of doc.walls) before.set(w.id, [w.a.slice(), w.b.slice()]);
   for (const w of doc.walls) { const b = before.get(w.id); if (moved.has(w.id + 'a')) w.a = mv(b[0]); if (moved.has(w.id + 'b')) w.b = mv(b[1]); }
-  for (const it of items) { if (it.type === 'roof') { it.o.x0 += dx; it.o.x1 += dx; it.o.y0 += dy; it.o.y1 += dy; } if (it.type === 'stair') it.o.p = mv(it.o.p); if (it.type === 'dim') { it.o.p1 = mv(it.o.p1); it.o.p2 = mv(it.o.p2); } if (it.type === 'open') { it.o.d += dx + dy; } if (it.type === 'room') it.o.pt = mv(it.o.pt); }
+  for (const it of items) { if (it.type === 'roof') { it.o.x0 += dx; it.o.x1 += dx; it.o.y0 += dy; it.o.y1 += dy; } if (it.type === 'stair') it.o.p = mv(it.o.p); if (it.type === 'dim') { it.o.p1 = mv(it.o.p1); it.o.p2 = mv(it.o.p2); } if (it.type === 'text') it.o.p = mv(it.o.p); if (it.type === 'open') { it.o.d += dx + dy; } if (it.type === 'room') it.o.pt = mv(it.o.pt); }
   fixOpenings(); commit();
 }
 function selectAll() { S.sel = []; for (const type of ['wall', 'open', 'stair', 'roof', 'dim', 'room']) for (const o of doc[ARR[type]]) if ((o.lv || (byId(doc.walls, o.wall) || {}).lv) === S.lv) S.sel.push({ type, id: o.id }); ui.side = true; S.dirty = true; }
 function stepLevel(dir) { const i = doc.levels.findIndex(l => l.id === S.lv); setLevel(doc.levels[(i + dir + doc.levels.length) % doc.levels.length].id); }
+function trimHoverAt(wp, shift) {
+  const best = nearestWall(wp, 14 / S.view.s); S.shift = shift;
+  S.hover = best ? { trim: best, span: shift ? null : trimSpan(best.w, best.d), ext: shift ? extendTarget(best.w, best.d) : null } : null; S.dirty = true;
+}
+for (const ev of ['keydown', 'keyup']) window.addEventListener(ev, e => { if (e.key === 'Shift' && S.tool === 'trim' && S.inside && !S.qt && S.mx != null) trimHoverAt(toW(S.mx, S.my), e.type === 'keydown'); });
 window.addEventListener('keydown', e => {
   if (e.target === lenIn) {
     if (e.key === 'Enter') { e.preventDefault(); applyTyped(); } else if (e.key === 'Escape') { e.preventDefault(); closeLenInput(); }
@@ -1916,6 +2105,7 @@ function exportDXF(allLevels) {
       let rot = Math.atan2(dg.d[1], dg.d[0]); if (rot > Math.PI / 2 || rot < -Math.PI / 2) rot += Math.PI;
       text(fmtLen(dg.len), T(add(lerp2(dg.d1, dg.d2, 0.5), mul(dg.n, sg * 4))), 4.5, ly, rot);
     }
+    for (const t of doc.texts) if (t.lv === lv.id) { const g = noteGeom(t), ly = layer(L('A-NOTE'), 3); g.lines.forEach((ln, i) => { if (ln.trim()) text(ln, T(g.L(0, -i * g.lh)), t.h, ly, g.a); }); pts.push(...g.corners.map(q => q)); }
     const bb = pts.length ? bboxOf(pts) : [0, 0, 0, 0]; if (allLevels) { text(lv.name, T([bb[0], bb[3] + 40]), 8, layer(L('A-TEXT'), 2)); ox += bb[2] - bb[0] + 240; }
   }
   g(0, 'SECTION'); g(2, 'HEADER'); g(9, '$ACADVER'); g(1, 'AC1009'); g(9, '$INSUNITS'); g(70, 1); g(0, 'ENDSEC');
@@ -2002,6 +2192,7 @@ const IC = {
   rect: '<rect x="4" y="6" width="16" height="12" fill="currentColor" fill-opacity=".12"/><path d="M4 6h16v12H4z" stroke-width="3"/>', door: '<path d="M4 20h4M16 20h4M8 20V6M8 6a12 12 0 0 1 8 14" /><path d="M8 6v14" stroke-width="2.4"/>',
   window: '<path d="M3 12h4M17 12h4M7 8v8M17 8v8M7 8h10M7 16h10M7 12h10" />', room: '<path d="M4 4h16v16H4z" stroke-dasharray="3 2.5" fill="currentColor" fill-opacity=".1"/><path d="M9 12h6M12 9v6"/>',
   roof: '<path d="M3 13l9-8 9 8M6 12v7h12v-7" /><path d="M3 13h18" stroke-dasharray="2 2"/>', stair: '<path d="M4 20h4v-4h4v-4h4V8h4" /><path d="M4 20v-4M8 16v-4M12 12V8"/>',
+  text: '<path d="M5 6V4h14v2M12 4v16M9 20h6"/>',
   dim: '<path d="M4 8v8M20 8v8M4 12h16M7 10l-3 2 3 2M17 10l3 2-3 2" />', split: '<path d="M12 3v18" stroke-dasharray="3 2.5"/><path d="M4 12h6M14 12h6" stroke-width="2.6"/>',
   trim: '<path d="M5 20V6h14" stroke-width="3"/><path d="M9 20l-4-4M5 6L3 4M19 6l2-2"/>',
   level: '<path d="M3 9l9-5 9 5-9 5zM3 14l9 5 9-5"/>', plus: '<path d="M12 5v14M5 12h14"/>', up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
@@ -2010,13 +2201,13 @@ const IC = {
   mirx: '<path d="M12 3v18" stroke-dasharray="2.5 2.5"/><path d="M8 7L3 12l5 5zM16 7l5 5-5 5z"/>', miry: '<path d="M3 12h18" stroke-dasharray="2.5 2.5"/><path d="M7 8l5-5 5 5zM7 16l5 5 5-5z"/>',
 };
 const ico = (k, sz) => '<svg viewBox="0 0 24 24"' + (sz ? ' width="' + sz + '" height="' + sz + '"' : '') + ' fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' + (IC[k] || '') + '</svg>';
-const RIBBON = [['select', 'Select', 'V'], null, ['wall', 'Wall', 'W'], ['rect', 'Room Box', 'R'], ['door', 'Door', 'D'], ['window', 'Window', 'N'], null, ['room', 'Room', 'M'], ['roof', 'Roof', 'F'], ['stair', 'Stair', 'S'], null, ['dim', 'Dimension', 'K'], ['split', 'Split Wall', 'X'], ['trim', 'Trim', 'T']];
+const RIBBON = [['select', 'Select', 'V'], null, ['wall', 'Wall', 'W'], ['rect', 'Room Box', 'R'], ['door', 'Door', 'D'], ['window', 'Window', 'N'], null, ['room', 'Room', 'M'], ['roof', 'Roof', 'F'], ['stair', 'Stair', 'S'], null, ['dim', 'Dimension', 'K'], ['text', 'Text', 'A'], ['split', 'Split Wall', 'X'], ['trim', 'Trim', 'T']];
 function renderRibbon() {
   const r = $('#ribbon'); r.innerHTML = RIBBON.map(t => t ? '<button class="rb' + (S.tool === t[0] ? ' on' : '') + '" data-tool="' + t[0] + '">' + ico(t[0]) + '<kbd>' + t[2] + '</kbd><span>' + t[1] + '</span></button>' : '<div class="rgap"></div>').join('');
   r.querySelectorAll('[data-tool]').forEach(b => b.onclick = () => { setTool(b.dataset.tool); b.blur(); });
   $('#bUndo').disabled = H.i <= 0; $('#bRedo').disabled = H.i >= H.stack.length - 1;
 }
-const TYPE_NAMES = { wall: 'Wall', open: 'Opening', room: 'Room', roof: 'Roof', stair: 'Stair', dim: 'Dimension' };
+const TYPE_NAMES = { wall: 'Wall', open: 'Opening', room: 'Room', roof: 'Roof', stair: 'Stair', dim: 'Dimension', text: 'Text' };
 const DOOR_STYLES = [['single', 'Single'], ['double', 'Double'], ['patio', 'Sliding glass'], ['opening', 'Cased opening']], WIN_STYLES = [['double-hung', 'Double-hung'], ['casement', 'Casement'], ['sliding', 'Sliding'], ['fixed', 'Fixed']];
 
 /* ── form rows: one description drives both the tool options and the selection properties ── */
@@ -2066,6 +2257,8 @@ function optRows(T) {
   if (T === 'stair') return [O(OPT.stair, 'shape', 'Shape', 'sel', { opts: [['straight', 'Straight'], ['L', 'L-shaped with landing']] }), O(OPT.stair, 'turn', 'Turns', 'seg', { tip: 'turn', opts: [['left', 'Left'], ['right', 'Right']], show: () => OPT.stair.shape === 'L' }),
     O(OPT.stair, 'w', 'Width', 'len', { u: 'in', min: 24, max: 96 }), O(OPT.stair, 'run', 'Tread depth', 'len', { u: 'in', min: 7, max: 16 }), O(OPT.stair, 'rail', 'Handrails', 'sel', { opts: [['both', 'Both sides'], ['left', 'Left only'], ['right', 'Right only'], ['none', 'None']] }), O(OPT.stair, 'c', 'Colour', 'color', { def: '#b08d62' })];
   if (T === 'dim') return [O(OPT.dim, 'mode', 'Measure', 'seg', { tip: 'dim', opts: [['aligned', 'Aligned'], ['horizontal', 'Horiz.'], ['vertical', 'Vert.']] })];
+  if (T === 'text') return [O(OPT.text, 'str', 'Text', 'text', { ph: 'Type here or after you click', set: (o, v) => { OPT.text.str = String(v).slice(0, 300); } }), O(OPT.text, 'h', 'Letter size', 'lenoptin', { min: 1, max: 240, ph: 'Auto (follows zoom)' }), O(OPT.text, 'rot', 'Rotation °', 'num', { min: -360, max: 360 }),
+    O(OPT.text, 'bold', 'Weight', 'bool', { label: 'Bold' }), O(OPT.text, 'c', 'Colour', 'color', { def: '#1f2733' })];
   if (T === 'split') return [O(OPT.split, 'at', 'Cut at', 'seg', { tip: 'splitat', opts: [['click', 'Click point'], ['mid', 'Middle']] })];
   return [];
 }
@@ -2105,6 +2298,12 @@ function propRows(type, its) {
       P('Handrails', 'sel', o => o.rail || 'both', (o, v) => { o.rail = v; }, { opts: [['both', 'Both sides'], ['left', 'Left only'], ['right', 'Right only'], ['none', 'None']] }),
       P('Direction°', 'num', o => Math.round(o.ang / D2R * 10) / 10, (o, v) => { o.ang = v * D2R; }), P('Risers', 'ro', o => { const s = stairInfo(o); return s.n + ' × ' + fmtLen(s.r, { den: 16 }); }),
       P('Rises', 'ro', o => fmtLen(stairInfo(o).rise, { short: true })), P('Colour', 'color', o => o.c, (o, v) => { o.c = v; }),
+    ],
+    text: [
+      P('Text', 'text', o => String(o.str).replace(/\n/g, ' ↵ '), (o, v) => { const n = String(v).replace(/ ?↵ ?/g, '\n').slice(0, 300); if (n.trim()) o.str = n; }, { ph: 'Use ↵ for a new line' }),
+      P('Letter size', 'in', o => o.h, (o, v) => { o.h = clamp(v, 1, 240); }), P('Rotation °', 'num', o => Math.round((o.rot || 0) * 10) / 10, (o, v) => { o.rot = ((v % 360) + 360) % 360; }),
+      P('Weight', 'bool', o => !!o.bold, (o, v) => { o.bold = v; }, { label: 'Bold' }), P('Colour', 'color', o => o.c, (o, v) => { o.c = v; }),
+      P('Sits on', 'sel', o => o.lv, (o, v) => { o.lv = v; }, { opts: lvOpts }),
     ],
     dim: [
       P('Measure', 'seg', o => o.mode || 'aligned', (o, v) => { o.mode = v; }, { tip: 'dim', opts: [['aligned', 'Aligned'], ['horizontal', 'Horiz.'], ['vertical', 'Vert.']] }),
@@ -2237,7 +2436,7 @@ function onLeftAction(k, v) {
 function showHelp() {
   const sec = (t, rows) => '<h4>' + t + '</h4><table>' + rows.map(r => '<tr><td>' + r[0] + '</td><td>' + r[1] + '</td></tr>').join('') + '</table>';
   $('#dlg').innerHTML = '<h3>House Design</h3><p style="color:var(--muted);margin:0 0 4px">Draw on the plan; the 3D model updates live. Everything is in feet and inches. The panel on the right walks you through each tool.</p>'
-    + sec('Tools', [[K('V') + ' ' + K('W') + ' ' + K('R') + ' ' + K('D') + ' ' + K('N'), 'Select · Wall · Room Box · Door · Window'], [K('M') + ' ' + K('F') + ' ' + K('S') + ' ' + K('K') + ' ' + K('X') + ' ' + K('T'), 'Room · Roof · Stair · Dimension · Split Wall · Trim']])
+    + sec('Tools', [[K('V') + ' ' + K('W') + ' ' + K('R') + ' ' + K('D') + ' ' + K('N'), 'Select · Wall · Room Box · Door · Window'], [K('M') + ' ' + K('F') + ' ' + K('S') + ' ' + K('K') + ' ' + K('A') + ' ' + K('X') + ' ' + K('T'), 'Room · Roof · Stair · Dimension · Text · Split Wall · Trim']])
     + sec('Drawing', [['Type a number', 'While drawing a wall, type 12\'6" (or 12.5, or 150") and press Enter. 10<90 gives length and angle. Room Box takes 30 x 20.'], [K('Shift'), 'Lock the direction to 45° steps; adds to the selection'], [K('⌫') + ' ' + K('Enter') + ' ' + K('Esc'), 'Remove the last corner · finish the chain · cancel'], [K('Space'), 'Hold and drag to pan (flips a door hinge while the Door tool is active)']])
     + sec('Selecting', [['Click · drag', 'Select · move; drag a square handle to reshape'], ['Box select', 'Drag right for items fully inside, left for anything touching'], [K('Ctrl') + K('A'), 'Select everything on this level'], [K('Del') + ' ' + K('Ctrl') + K('D'), 'Delete · duplicate'], ['Arrow keys', 'Nudge by the snap step (Shift: 1 ft)']])
     + sec('View', [['Wheel · ' + K('Home'), 'Zoom · fit the level'], [K('Tab') + ' ' + K('PgUp') + ' ' + K('PgDn'), 'Change level'], ['3D view', 'Drag to orbit, right-drag or Shift-drag to pan, wheel to zoom, double-click to fit. The Cut slider slices the model open.'], [K('Ctrl') + K('Z') + ' ' + K('Ctrl') + K('Y'), 'Undo · redo']])
@@ -2322,6 +2521,7 @@ const TIPS = (() => {
   const { C, svg, poly, wall, line, dot, hnd, txt, rect, cursor, house, slab, cubeIso, tile, rot, flip, shape, small, layout, guideline, dimLine, stairs } = TA;
   const T = {}, add = (k, n, d, a, extra = {}) => { T[k] = Object.assign({ n, d, a }, extra); };
   const H0 = () => svg(house()), E0 = () => svg('');
+  const txtSvg = (x, y, str, size = 14) => `<text x="${x}" y="${y}" font-size="${size}" font-weight="600" font-family="Inter, system-ui, sans-serif" fill="${C.acc}">${str}</text>`;
   const ghost = () => poly([[22, 24], [98, 24], [98, 68], [22, 68]], 'none', C.mut, 1, 'stroke-dasharray="3 3"');
   add('select', 'Select', 'Pick, move and reshape anything on the plan.', [() => svg(house() + cursor(62, 30)), () => svg(house({ hi: 'e' }) + hnd(98, 24) + hnd(98, 68) + cursor(80, 48))]);
   add('wall', 'Wall', 'Draw walls corner by corner.', [() => svg(dot(26, 62) + line(26, 62, 74, 62, C.acc, 1.4, '3 3')), () => svg(wall(26, 62, 74, 62) + wall(74, 62, 74, 30) + dot(74, 30))]);
@@ -2331,9 +2531,10 @@ const TIPS = (() => {
   add('room', 'Room', 'Name an enclosed loop of walls and give it a floor.', [H0, () => svg(rect(25, 27, 70, 38, C.room) + house() + txt(60, 44, 'Living', C.edge, 8) + txt(60, 54, '270 sf', C.mut, 7))]);
   add('roof', 'Roof', 'Gable, hip, shed or flat roof over a rectangle.', [H0, () => svg(poly([[12, 14], [108, 14], [108, 78], [12, 78]], 'rgba(162,87,63,.14)', '#a2573f', 1.2, 'stroke-dasharray="5 3"') + house() + line(12, 46, 108, 46, '#a2573f', 1, '3 3'))]);
   add('stair', 'Stair', 'Straight or L-shaped stair up to the next level.', [H0, () => svg(house() + stairs(30, 34, 56, 24, true) + txt(58, 31, 'UP', C.acc, 6.5))]);
+  add('text', 'Text', 'Click to place a note on the plan, type it, press Enter. Click a note to edit it.', [() => svg(wall(22, 62, 98, 62) + dot(40, 40)), () => svg(wall(22, 62, 98, 62) + txtSvg(30, 42, 'Deck', 16))]);
   add('dim', 'Dimension', 'Measure and annotate a distance.', [() => svg(wall(22, 62, 98, 62) + dot(22, 62) + dot(98, 62)), () => svg(wall(22, 62, 98, 62) + dimLine(22, 62, 98, 62, "12'-0\"", 16))]);
   add('split', 'Split Wall', 'Cut a wall in two.', [() => svg(wall(12, 46, 108, 46) + line(54, 40, 66, 52, C.red, 2) + line(66, 40, 54, 52, C.red, 2)), () => svg(wall(12, 46, 60, 46) + wall(60, 46, 108, 46, { hi: true }) + dot(60, 46, 2.4, C.red))]);
-  add('trim', 'Trim', 'Join two walls into a clean corner.', [() => svg(wall(30, 70, 30, 38) + wall(50, 28, 100, 28) + line(30, 38, 30, 28, C.acc, 1, '2 2') + line(30, 28, 50, 28, C.acc, 1, '2 2')), () => svg(wall(30, 70, 30, 28) + wall(30, 28, 100, 28) + dot(30, 28, 2.6, C.acc))]);
+  add('trim', 'Trim', 'Click a piece of wall to cut it back to the walls that cross it. Drag across several, or hold Shift to extend.', [() => svg(wall(35, 20, 35, 72) + wall(75, 20, 75, 72) + wall(12, 46, 98, 46) + line(37, 46, 73, 46, C.red, 3, '5 3')), () => svg(wall(35, 20, 35, 72) + wall(75, 20, 75, 72) + wall(12, 46, 33, 46) + wall(77, 46, 98, 46))]);
   add('undo', 'Undo', 'Step back one change.', [H0, () => svg(wall(22, 24, 98, 24) + wall(98, 68, 22, 68) + wall(22, 68, 22, 24) + wall(98, 24, 98, 68, { dash: true, fill: 'none', stroke: C.mut }))]);
   add('redo', 'Redo', 'Bring back the change you undid.', [() => svg(wall(22, 24, 98, 24) + wall(98, 68, 22, 68) + wall(22, 68, 22, 24) + wall(98, 24, 98, 68, { dash: true, fill: 'none', stroke: C.mut })), H0]);
   add('new', 'New', 'Start an empty project.', [H0, () => svg(ghost())]);
@@ -2536,7 +2737,7 @@ function boot() {
   pcv.tabIndex = 0;
   pcv.addEventListener('pointerdown', onDown); pcv.addEventListener('pointermove', onMove); pcv.addEventListener('pointerup', onUp); pcv.addEventListener('pointercancel', onUp);
   pcv.addEventListener('wheel', onWheel, { passive: false }); pcv.addEventListener('contextmenu', e => e.preventDefault());
-  pcv.addEventListener('dblclick', e => { if (S.tool === 'wall' && S.tmp) finishChain(); });
+  pcv.addEventListener('dblclick', e => { if (S.tool === 'wall' && S.tmp) finishChain(); else if (S.tool === 'select') { const [sx, sy] = localXY(e), n = noteAt(toW(sx, sy), 8 / S.view.s); if (n) { S.sel = [{ type: 'text', id: n.id }]; noteEdit(n, false); } } });
   pcv.addEventListener('pointerleave', onLeave); pcv.addEventListener('pointerenter', () => { S.inside = true; S.dirty = true; });
   $('#zIn').onclick = () => zoomBy(1.3); $('#zOut').onclick = () => zoomBy(1 / 1.3); $('#zFit').onclick = () => zoomFit();
   $('#bUndo').onclick = undo; $('#bRedo').onclick = redo; $('#bSave').onclick = saveFile; $('#bHelp').onclick = showHelp;

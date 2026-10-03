@@ -523,7 +523,7 @@ function newDoc() {
     hatch: { pat: 'ANSI31', sc: 1, ang: 0, solid: false },
     ltscale: 1, ents: [], blocks: {}, nid: 1, base: [0, 0],
     view: { cx: 6, cy: 4, s: 80 },                           // s = pixels per drawing unit
-    vars: { lwt: false, snap: false, grid: true, ortho: false, polar: false, osnap: true, snapd: 0.5, gridd: 1, polara: 15, osmodes: ['end', 'mid', 'cen', 'int', 'perp', 'tan', 'node', 'quad', 'ins', 'near'], mirrtext: false, fillet: 0.5, chamfer: [0.5, 0.5], offerase: false, trimmode: true },
+    vars: { lwt: false, snap: false, grid: true, ortho: false, polar: false, osnap: true, snapd: 0.5, gridd: 1, polara: 15, osmodes: ['end', 'mid', 'cen', 'int', 'perp', 'tan', 'node', 'quad', 'ins', 'near'], mirrtext: false, fillet: 0.5, chamfer: [0.5, 0.5], offerase: false, trimmode: true, trimquick: true },
   };
 }
 let doc = newDoc();
@@ -1030,6 +1030,14 @@ function drawOv() {
   P = pal();
   ox.setTransform(VW.dpr, 0, 0, VW.dpr, 0, 0); ox.clearRect(0, 0, VW.W, VW.H); ox.lineCap = 'butt'; ox.lineJoin = 'round';
   if (UI.hover && !SEL.has(UI.hover) && visible(UI.hover)) { ox.save(); drawEnt(ox, UI.hover, { color: P.hover, bold: true }); ox.restore(); }
+  if (UI.trimHL && UI.trimHL.length) {                         // the piece a quick-trim click would remove
+    ox.save(); ox.strokeStyle = '#e5533d'; ox.lineWidth = 3; ox.setLineDash([6, 4]); ox.lineCap = 'round'; ox.beginPath();
+    for (const at of UI.trimHL) { const pts = tessAtom(at, pxw(0.6)).map(toS); pts.forEach((q, i) => i ? ox.lineTo(q[0], q[1]) : ox.moveTo(q[0], q[1])); }
+    ox.stroke(); ox.restore();
+  }
+  if (UI.fence && UI.fence.length > 1) {                       // the freehand trim fence
+    ox.save(); ox.strokeStyle = P.winLine; ox.lineWidth = 1.6; ox.setLineDash([7, 5]); ox.beginPath(); UI.fence.map(toS).forEach((q, i) => i ? ox.lineTo(q[0], q[1]) : ox.moveTo(q[0], q[1])); ox.stroke(); ox.restore();
+  }
   // rubber band / ghost entities
   if (UI.pv) { ox.save(); for (const e of UI.pv) drawEnt(ox, e, { color: P.ghost, ghost: true, nodash: false }); ox.restore(); }
   if (UI.guide) { ox.save(); ox.setLineDash([4, 4]); ox.strokeStyle = P.snap; ox.globalAlpha = .55; ox.lineWidth = 1; const a = toS(UI.guide[0]), b = toS(UI.guide[1]); ox.beginPath(); ox.moveTo(a[0], a[1]); ox.lineTo(b[0], b[1]); ox.stroke(); ox.restore(); }
@@ -1259,6 +1267,7 @@ const entsInRect = (R, crossing, filter) => doc.ents.filter(e => selectable(e) &
 function refreshHover() {
   const r = CM.req; let h = null;
   if (UI.cursor && (!r || r.kind === 'ent' || r.kind === 'sel') && !UI.rect && !UI.panning) h = pickAt(UI.cursor.w, r && r.o.filter);
+  if (r && r.kind === 'ent' && UI.trimHover && UI.cursor && !(ptrDown && ptrDown.fence && ptrDown.moved)) UI.trimHover(UI.cursor.w, UI.shift);
   if (h !== UI.hover) { UI.hover = h; redrawOv(); }
 }
 
@@ -1337,11 +1346,17 @@ function onMove(s, ev) {
   const r = CM.req;
   if (ptrDown && ptrDown.rectStart && (!r || r.kind === 'sel')) { if (ptrDown.moved) UI.rect = [ptrDown.rectStart, s.w]; redrawOv(); }
   if (!r && !ptrDown && !UI.rect) hoverGrips(s);
+  UI.shift = !!(ev && ev.shiftKey);
+  if (r && r.kind === 'ent' && r.o.drag && ptrDown && ptrDown.fence && ptrDown.moved) {      // dragging a trim fence
+    const f = ptrDown.fence, last = f[f.length - 1]; if (Math.hypot((s.w[0] - last[0]) * doc.view.s, (s.w[1] - last[1]) * doc.view.s) >= 3) f.push(s.w);
+    UI.fence = f; UI.trimHL = null; redrawOv(); return;
+  }
+  if (UI.trimHover && r && r.kind === 'ent') { UI.trimHover(s.w, UI.shift); redrawOv(); }
 }
 function onDown(s, ev) {
   const r = CM.req;
   if (r && ['point', 'num', 'ang'].includes(r.kind)) return;                    // handled on release
-  if (r && r.kind === 'ent') return;
+  if (r && r.kind === 'ent') { if (r.o.drag && ptrDown) ptrDown.fence = [s.w]; return; }
   if (r && r.kind === 'sel') { ptrDown.rectStart = s.w; return; }
   if (!r) {
     const g = gripAt(s); if (g) { ptrDown = null; startGrip(g); return; }
@@ -1358,7 +1373,8 @@ function onUp(s, pd, ev) {
     if (r.kind === 'ang') { const b = r.base || r.anchor; if (b) return deliver({ ang: angOf(sub(p, b)) }); r.anchor = p; msg('Second point:'); return; }
   }
   if (r && r.kind === 'ent') {
-    const e = pickAt(s.w, r.o.filter); if (e) { CM.lastShift = !!pd.shift; return deliver({ e, pt: s.w }); } msg('Nothing selected.', 'err'); return;
+    if (pd.fence && pd.moved && pd.fence.length > 1) { const f = pd.fence; UI.fence = null; return deliver({ fence: f, shift: !!pd.shift }); }
+    const e = pickAt(s.w, r.o.filter); if (e) { CM.lastShift = !!pd.shift; return deliver({ e, pt: s.w }); } if (!r.o.drag) msg('Nothing selected.', 'err'); return;
   }
   if (r && r.kind === 'sel') return selectClick(s, pd, r, ev);
   if (!r) return idleSelect(s, pd, ev);
@@ -2108,17 +2124,39 @@ function pieceEnt(e, atoms) {
   if ((e.type === 'arc' || e.type === 'circle') && atoms.length === 1 && atoms[0].t === 'a') return mkEnt('arc', { ...base, ...atomToArc(atoms[0]) });
   return mkEnt('pline', { ...base, pts: atomsToPts(atoms, false), closed: false });
 }
-function trimAt(e, pt, edges) {
-  if (!['line', 'arc', 'circle', 'pline'].includes(e.type)) { msg(`Cannot trim a ${e.type}.`, 'err'); return false; }
-  const path = prims(e).paths[0], cut = pathCuts(path, edges, e, CMDS.trim.ext); if (!cut.length) { msg('No edge in that direction.', 'err'); return false; }
+const TRIMMABLE = ['line', 'arc', 'circle', 'pline', 'ellipse', 'spline'];
+// the stretch of a path between the cuts on either side of parameter s: [lo, hi] (lo > hi means it wraps past the end of a closed path)
+function trimSpan(path, cut, s) {
+  const n = path.atoms.length; let lo = null, hi = null;
+  if (!path.closed) {
+    for (const c of cut) { if (c.s <= s + 1e-12) lo = c; if (c.s > s + 1e-12 && !hi) hi = c; }
+    return { lo: lo ? lo.s : 0, hi: hi ? hi.s : n, cutLo: lo, cutHi: hi };
+  }
+  if (cut.length < 2) return null;
+  for (const c of cut) if (c.s <= s) lo = c; for (const c of cut) if (c.s > s) { hi = c; break; }
+  if (!lo) lo = cut[cut.length - 1]; if (!hi) hi = cut[0];
+  return { lo: lo.s, hi: hi.s, cutLo: lo, cutHi: hi };
+}
+// what a quick-trim click at pt would remove: the atoms of that stretch (null when nothing would happen)
+function trimPreview(e, pt, edges, ext) {
+  if (!TRIMMABLE.includes(e.type)) return null;
+  const path = prims(e).paths[0]; if (!path) return null;
+  const cut = pathCuts(path, edges, e, ext); if (!cut.length) return null;
+  const sp = trimSpan(path, cut, pathClosest(path, pt).s); if (!sp) return null;
+  const n = path.atoms.length;
+  return sp.lo < sp.hi ? pathSlice(path, sp.lo, sp.hi) : [...pathSlice(path, sp.lo, n), ...pathSlice(path, 0, sp.hi)];
+}
+function trimAt(e, pt, edges, quiet) {
+  trimAt.pieces = null;
+  if (!TRIMMABLE.includes(e.type)) { if (!quiet) msg(`Cannot trim a ${e.type}.`, 'err'); return false; }
+  const path = prims(e).paths[0], cut = pathCuts(path, edges, e, CMDS.trim.ext); if (!cut.length) { if (!quiet) msg('No edge in that direction.', 'err'); return false; }
   const cl = pathClosest(path, pt), s = cl.s, n = path.atoms.length;
   let pieces = [];
   if (!path.closed) {
     let lo = null, hi = null; for (const c of cut) { if (c.s <= s + 1e-12) lo = c; if (c.s > s + 1e-12 && !hi) hi = c; }
-    if (lo && lo.s > s - 1e-9 && hi) { /* exactly on a cut: remove the following piece */ }
     if (lo) pieces.push(pathSlice(path, 0, lo.s)); if (hi) pieces.push(pathSlice(path, hi.s, n));
   } else {
-    if (cut.length < 2) { msg('A closed object needs two edge crossings to be trimmed.', 'err'); return false; }
+    if (cut.length < 2) { if (!quiet) msg('A closed object needs two edge crossings to be trimmed.', 'err'); return false; }
     let lo = null, hi = null; for (const c of cut) if (c.s <= s) lo = c; for (const c of cut) if (c.s > s) { hi = c; break; }
     if (!lo) lo = cut[cut.length - 1]; if (!hi) hi = cut[0];
     const keep = []; let a = hi.s, b = lo.s;
@@ -2127,9 +2165,9 @@ function trimAt(e, pt, edges) {
   }
   const ents = pieces.map(p => pieceEnt(e, p)).filter(Boolean);
   const i = doc.ents.indexOf(e); if (i < 0) return false;
-  if (!ents.length) { delEnt(e); SEL.delete(e); return true; }
+  if (!ents.length) { delEnt(e); SEL.delete(e); trimAt.pieces = []; return true; }
   ents[0].id = e.id; doc.ents[i] = ents[0]; for (const x of ents.slice(1)) { x.id = doc.nid++; doc.ents.splice(i + 1, 0, x); }
-  return true;
+  trimAt.pieces = ents; return true;
 }
 function extendAt(e, pt, edges) {
   const path = prims(e).paths[0]; if (!path || path.closed || !['line', 'arc', 'pline'].includes(e.type)) { msg(`Cannot extend a ${e.type}.`, 'err'); return false; }
@@ -2154,41 +2192,65 @@ function extendAt(e, pt, edges) {
   }
   replaceEnt(e, c); return true;
 }
+// Quick mode (the default, like AutoCAD's quick TRIM/EXTEND): every visible object is an edge; click a piece to trim it,
+// or press and drag across several pieces to trim them all. Shift swaps trim ↔ extend. Enter / Esc / right-click finishes.
 async function trimExtend(isTrim) {
   const C = CMDS[isTrim ? 'trim' : 'extend']; C.ext = false;
-  const edgesSel = await getSel(isTrim ? 'Select cutting edges (press Enter to select all)' : 'Select boundary edges (press Enter to select all)', { enter: 'All ↵' });
-  let edges = edgesSel.length ? edgesSel : doc.ents.filter(e => visible(e));
-  const kws = [['Fence', 'F'], ['Crossing', 'C'], ['Edge', 'E'], ['Undo', 'U']];
-  let snapBefore = [];
+  let quick = doc.vars.trimquick !== false, erase = false, picked = null;
+  const word = isTrim ? 'trim' : 'extend', other = isTrim ? 'extend' : 'trim';
+  const pickEdges = async () => { const sel = await getSel(isTrim ? 'Select cutting edges (press Enter to select all)' : 'Select boundary edges (press Enter to select all)', { enter: 'All ↵' }); picked = sel.length ? new Set(sel.map(e => e.id)) : null; };
+  if (!quick) await pickEdges();
+  const edgesNow = () => doc.ents.filter(e => visible(e) && (!picked || picked.has(e.id)));
+  const canDo = e => erase || TRIMMABLE.includes(e.type) && (isTrim || e.type !== 'circle');
+  const hist = [];
+  const apply = (e, pt, shift, quiet) => {
+    if (erase) { delEnt(e); SEL.delete(e); return true; }
+    return ((isTrim !== !!shift) ? trimAt : extendAt)(e, pt, edgesNow(), quiet);
+  };
+  const hover = (w, shift) => {                                    // live preview: the piece a click would remove
+    UI.trimHL = null; const r = CM.req; if (!r) return;
+    const e = pickAt(w, canDo); if (!e) return;
+    if (erase) { UI.trimHL = prims(e).paths.flatMap(p => p.atoms); return; }
+    if (isTrim !== !!shift) UI.trimHL = trimPreview(e, w, edgesNow(), C.ext);
+  };
   for (;;) {
-    const r = await getEnt(`Select object to ${isTrim ? 'trim' : 'extend'} or shift-select to ${isTrim ? 'extend' : 'trim'} or`, { filter: selectable, kws });
+    const kws = [['Mode', 'M'], ['Edge', 'E'], ['eRase', 'R'], ['Undo', 'U']];
+    const prompt = quick && !erase ? `Click or drag across objects to ${word}  (hold Shift to ${other})  [Mode/Edge/eRase/Undo]`
+      : erase ? 'Click objects to erase [Mode/Edge/eRase/Undo]' : `Select object to ${word} or shift-select to ${other} or [Mode/Edge/eRase/Undo]`;
+    UI.trimHover = hover;
+    const r = await getEnt(prompt, { filter: canDo, kws, drag: quick, rightEnter: true });
+    UI.trimHL = null; UI.fence = null;
     if (r.enter) break;
-    if (r.kw === 'Edge') { const k = await getKw('Enter an implied edge extension mode', [['Extend', 'E'], ['No extend', 'N']], { def: 'No extend' }); C.ext = k.kw === 'Extend'; continue; }
-    if (r.kw === 'Undo') { if (snapBefore.length) { restore(snapBefore.pop()); SEL.clear(); redrawAll(); } continue; }
-    if (r.kw === 'Fence' || r.kw === 'Crossing') {
-      if (r.kw === 'Crossing') {
-        const a = await getPt('Specify first crossing point'); if (!a.pt) continue; const b = await getPt('Specify opposite corner', { base: a.pt }); if (!b.pt) continue;
-        const R = [Math.min(a.pt[0], b.pt[0]), Math.min(a.pt[1], b.pt[1]), Math.max(a.pt[0], b.pt[0]), Math.max(a.pt[1], b.pt[1])];
-        for (const e of entsInRect(R, true)) { snapBefore.push(snap()); (isTrim ? trimAt : extendAt)(e, mid([R[0], R[1]], [R[2], R[3]]), edges); }
-      } else {
-        const fp = []; for (;;) { const q = await getPt(fp.length ? 'Specify next fence point or' : 'Specify first fence point', { base: fp[fp.length - 1], preview: p => fp.length ? [ghost('pline', { pts: [...fp, p].map(x => [x[0], x[1], 0]), closed: false })] : null }); if (q.enter || !q.pt) break; fp.push(q.pt); }
-        if (fp.length < 2) continue; const fence = polyPath(fp, false);
-        for (const e of doc.ents.filter(selectable)) {
-          const path = prims(e).paths[0]; if (!path || path.hatchLines) continue;
-          const pts = []; for (const fa of fence.atoms) for (const a of path.atoms) for (const rr of inter(a, fa, false, false)) pts.push(rr.p);
-          for (const q of pts) { snapBefore.push(snap()); const cur = doc.ents.filter(x => x.id === e.id)[0] || e; (isTrim ? trimAt : extendAt)(cur, q, edges); }
+    if (r.kw === 'Mode') { const k = await getKw('Enter a trim mode option', [['Quick', 'Q'], ['Standard', 'S']], { def: quick ? 'Quick' : 'Standard' }); const q = k.kw ? k.kw === 'Quick' : quick; if (q !== quick) { quick = q; doc.vars.trimquick = q; picked = null; if (!quick) await pickEdges(); } continue; }
+    if (r.kw === 'Edge') { const k = await getKw('Enter an implied edge extension mode', [['Extend', 'E'], ['No extend', 'N']], { def: C.ext ? 'Extend' : 'No extend' }); C.ext = k.kw === 'Extend'; continue; }
+    if (r.kw === 'eRase') { erase = !erase; msg(erase ? 'Erase on: clicking deletes whole objects.' : 'Erase off.'); continue; }
+    if (r.kw === 'Undo') { if (hist.length) { restore(hist.pop()); SEL.clear(); redrawAll(); } else msg('Nothing to undo.', 'err'); continue; }
+    if (r.fence) {                                                 // freehand fence: every object it crosses is cut at each crossing
+      const fence = polyPath(r.fence, false); if (!fence.atoms.length) continue;
+      hist.push(snap()); let n = 0; const tol = pxw(PICKBOX + 3);
+      for (const e0 of doc.ents.filter(canDo)) {
+        const path = prims(e0).paths[0]; if (!path || path.hatchLines) continue;
+        const pts = []; for (const fa of fence.atoms) for (const a of path.atoms) for (const rr of inter(a, fa, false, false)) pts.push(rr.p);
+        if (!pts.length) continue;
+        let family = [e0];
+        for (const q of pts) {
+          let cur = null, bd = 1e300; for (const x of family) { if (!doc.ents.includes(x)) continue; const d = entDist(x, q, tol * 4); if (d < bd) { bd = d; cur = x; } }
+          if (!cur || !canDo(cur)) continue;
+          const wasErase = erase; if (apply(cur, q, r.shift, true)) { n++; if (!wasErase && trimAt.pieces) family = family.filter(x => x !== cur).concat(trimAt.pieces); else family = family.filter(x => x !== cur); }
         }
       }
+      if (!n) hist.pop(); else msg(`${n} cut${n > 1 ? 's' : ''} made.`);
       redrawAll(); continue;
     }
     if (!r.e) continue;
-    snapBefore.push(snap()); if (snapBefore.length > 20) snapBefore.shift();
-    const doTrim = isTrim !== !!CM.lastShift;
-    (doTrim ? trimAt : extendAt)(r.e, r.pt, edges); redrawAll();
+    const before = snap(); if (apply(r.e, r.pt, CM.lastShift)) { hist.push(before); if (hist.length > 40) hist.shift(); }
+    redrawAll();
   }
+  UI.trimHover = null; UI.trimHL = null; UI.fence = null;
 }
-cmd('trim', ['tr'], () => trimExtend(true), { help: 'Trim objects at the edges of other objects' });
-cmd('extend', ['ex'], () => trimExtend(false), { help: 'Extend objects to meet the edges of other objects' });
+const quickDone = () => { UI.trimHover = null; UI.trimHL = null; UI.fence = null; redrawOv(); };
+cmd('trim', ['tr'], () => trimExtend(true).finally(quickDone), { help: 'Trim objects at the edges of other objects' });
+cmd('extend', ['ex'], () => trimExtend(false).finally(quickDone), { help: 'Extend objects to meet the edges of other objects' });
 
 // ── EXPLODE / JOIN / BREAK / LENGTHEN / PEDIT ──
 function explodeEnt(e) {
@@ -3411,6 +3473,8 @@ function setupKeys() {
     // typing in the command line stays in the command line, except shortcuts that make sense with an empty line (Ctrl+Z, F-keys…)
     if (!(e.key.length > 1 && /^F\d+$/.test(e.key)) && !((e.ctrlKey || e.metaKey) && !cmdIn.value)) e.stopPropagation();
   });
+  const shiftWatch = e => { if (e.key !== 'Shift' || UI.shift === (e.type === 'keydown')) return; UI.shift = e.type === 'keydown'; if (UI.trimHover && CM.req && CM.req.kind === 'ent' && UI.cursor) { UI.trimHover(UI.cursor.w, UI.shift); redrawOv(); } };
+  document.addEventListener('keydown', shiftWatch); document.addEventListener('keyup', shiftWatch);
   document.addEventListener('keydown', e => {
     if (!$('#dlg').hidden) return;
     const tag = (e.target.tagName || '').toLowerCase(); const inField = (tag === 'input' || tag === 'textarea' || tag === 'select') && e.target !== cmdIn;
