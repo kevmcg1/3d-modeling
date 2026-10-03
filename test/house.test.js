@@ -9,7 +9,7 @@ cut('/* ════════ Plan rendering', '/* ════════ E
 cut('/* ════════ Boot');
 const noop = () => ({ style: {}, classList: { add() { }, remove() { }, toggle() { } }, addEventListener() { }, querySelectorAll: () => [] });
 const ctx = vm.createContext({ document: { querySelector: noop, querySelectorAll: () => [], documentElement: { dataset: {} }, createElement: noop }, window: { addEventListener() { } }, console, Math, JSON, Set, Map, Float32Array, isFinite, parseInt, parseFloat });
-vm.runInContext(src + '\n;this.T = { get doc() { return doc; }, set doc(v) { doc = v; }, fmtLen, parseLen, sanitize, newDoc, addWall, footprints, faceAt, roomGeom, stairInfo, floorHoles, triangulate, subtractConvex, area2, buildScene, exportDXF, exportOBJ, sampleDoc, splitWall, openFits, S, REVUP: () => { REV++; } };', ctx);
+vm.runInContext(src + '\n;this.T = { get doc() { return doc; }, set doc(v) { doc = v; }, fmtLen, parseLen, sanitize, newDoc, addWall, footprints, faceAt, roomGeom, stairInfo, floorHoles, triangulate, subtractConvex, area2, buildScene, exportDXF, exportOBJ, sampleDoc, splitWall, openFits, S, OPT, PREF, chainVerts, trimToCorner, transformSel, offsetWall, copyLevelUp, dimGeom, GUIDE, TOOLS, TIPS, tipInfo, RIBBON, byId, REVUP: () => { REV++; } };', ctx);
 const T = ctx.T, near = (a, b, e = 1e-6) => assert(Math.abs(a - b) < e, `${a} != ${b}`);
 
 // lengths: feet-inches in, feet-inches out
@@ -71,6 +71,58 @@ for (const bad of [{}, { levels: [] }, { levels: 'x', walls: 5 }, { walls: [null
   { levels: [{ id: 'A', elev: 'abc', height: -5 }], walls: [{ id: 'w1', lv: 'zzz', a: [0, 0], b: [100, 0], t: 1e9 }], opens: [{ id: 'o1', wall: 'w1', d: 1e12, w: 1e9 }, { id: 'o2', wall: 'none' }], rooms: [{ id: 'r', pt: [NaN, 1] }] }]) {
   const d = T.sanitize(bad); T.doc = d; T.REVUP(); T.S.lv = d.levels[0].id; assert(d.levels.length >= 1); T.buildScene(true); T.exportDXF(true); T.exportOBJ();
 }
+{ const huge = T.sanitize({ levels: [{ id: 'A', elev: 0, height: 1e12 }, { id: 'B', elev: 1e15, height: 1e9 }], stairs: [{ id: 's', lv: 'A', p: [0, 0], ang: 0, w: 36, run: 10 }], walls: [{ id: 'w', lv: 'A', a: [0, 0], b: [100, 0] }] });
+  assert(huge.levels.every(l => l.height <= 600 && l.elev <= 12000)); T.doc = huge; T.REVUP(); T.S.lv = 'A'; assert(T.stairInfo(huge.stairs[0]).blocks.length <= 120); T.buildScene(true); T.exportDXF(true); T.exportOBJ(); }
 assert.throws(() => T.sanitize(null));
 const rt = T.sanitize(JSON.parse(JSON.stringify(sd))); assert.deepStrictEqual(JSON.parse(JSON.stringify(rt)), JSON.parse(JSON.stringify(sd)), 'save → load round trip');
+
+// ── wall location line: drawing the left face of a 6" wall moves the centre line 3" to the right of the drawn line
+{
+  const v = T.chainVerts([[0, 0], [100, 0]], 6, 'left', false); near(v[0][1], -3); near(v[1][1], -3);
+  const c = T.chainVerts([[0, 0], [100, 0], [100, 100]], 6, 'right', false);      // corner joins at the intersection of the offset lines
+  near(c[1][0], 97); near(c[1][1], 3);
+  const closed = T.chainVerts([[0, 0], [100, 0], [100, 100], [0, 100], [0, 0]], 6, 'left', true);   // CCW box drawn on its inside face: walls grow outward
+  near(closed[0][0], -3); near(closed[0][1], -3); assert.strictEqual(closed.length, 5);
+}
+// ── trim joins two walls at the corner of their lines
+{
+  const D2 = T.newDoc(); T.doc = D2; T.REVUP(); T.S.lv = 'L1';
+  const w1 = T.addWall([0, 0], [80, 0], 'L1'), w2 = T.addWall([120, -50], [120, 90], 'L1');
+  assert.strictEqual(T.trimToCorner(w1, [10, 0], w2, [120, 60]), null);
+  near(w1.b[0], 120); near(w1.b[1], 0); near(w2.a[1], 0, 1e-6) || 0;
+  const p1 = T.addWall([0, 200], [50, 200], 'L1'), p2 = T.addWall([0, 220], [50, 220], 'L1');
+  assert.strictEqual(T.trimToCorner(p1, [0, 200], p2, [0, 220]), 'parallel');
+}
+// ── rotate and mirror about the middle of the selection are exact inverses; mirroring flips door swing
+{
+  const D3 = T.newDoc(); T.doc = D3; T.REVUP(); T.S.lv = 'L1';
+  const a = T.addWall([0, 0], [240, 0], 'L1'), b = T.addWall([240, 0], [240, 100], 'L1'); D3.opens.push({ id: 'oo', wall: a.id, kind: 'door', style: 'single', d: 60, w: 36, h: 80, sill: 0, flip: 0, hinge: 0 });
+  T.S.sel = [{ type: 'wall', id: a.id }, { type: 'wall', id: b.id }]; const snap0 = JSON.stringify(D3.walls);
+  T.transformSel('cw'); assert.notStrictEqual(JSON.stringify(D3.walls), snap0); T.transformSel('ccw'); assert.strictEqual(JSON.stringify(D3.walls), snap0);
+  T.transformSel('x'); assert.strictEqual(D3.opens[0].flip, 1); T.transformSel('x'); assert.strictEqual(JSON.stringify(D3.walls), snap0); assert.strictEqual(D3.opens[0].flip, 0);
+  const o = T.offsetWall(a, 48, 1); near(o.a[1], 48); near(o.b[1], 48);
+  const n0 = D3.walls.length, lv2 = T.copyLevelUp(); assert.strictEqual(D3.walls.filter(w => w.lv === lv2.id).length, n0); assert.strictEqual(D3.opens.length, 2);
+}
+// ── dimensions: horizontal / vertical modes measure along one axis only
+{
+  const m = { p1: [0, 0], p2: [120, 90], off: 20, mode: 'aligned' };
+  near(T.dimGeom(m).len, 150); m.mode = 'horizontal'; near(T.dimGeom(m).len, 120); m.mode = 'vertical'; near(T.dimGeom(m).len, 90);
+  assert(T.dimGeom(m).d2.every(Number.isFinite));
+}
+// ── stair handrails: sides follow the rail option, and the rail climbs one rise per tread
+{
+  const D4 = T.newDoc(); T.doc = D4; D4.levels.push({ id: 'L2', name: 'Level 2', elev: 108, height: 96 });
+  const s = { id: 's9', lv: 'L1', p: [0, 0], ang: 0, w: 36, run: 10, shape: 'straight', turn: 'left', rail: 'both', c: '#b08d62' }; D4.stairs.push(s); T.REVUP();
+  let st = T.stairInfo(s); assert.strictEqual(st.rails.length, 2); near(st.rails[0].zb - st.rails[0].za, (st.n - 1) * st.r, 1e-6);
+  s.rail = 'left'; T.REVUP(); assert.strictEqual(JSON.stringify(T.stairInfo(s).rails.map(r => r.side)), '["left"]');
+  s.rail = 'none'; T.REVUP(); assert.strictEqual(T.stairInfo(s).rails.length, 0);
+  s.rail = 'both'; s.shape = 'L'; T.REVUP(); st = T.stairInfo(s); assert.strictEqual(st.rails.length, 4); assert(st.rails.every(r => [r.a, r.b].every(p => p.every(Number.isFinite))));
+  const bad = T.sanitize({ stairs: [{ id: 'x', rail: 'sideways' }], dims: [{ id: 'd', p1: [0, 0], p2: [5, 5], mode: 'weird' }] }); assert.strictEqual(bad.stairs[0].rail, 'both'); assert.strictEqual(bad.dims[0].mode, 'aligned');
+}
+// ── every tool has a complete step-by-step guide
+for (const t of T.TOOLS) { const g = T.GUIDE[t]; assert(g && g.n && g.d && g.steps.length >= 2 && g.steps.every(x => x[0] && x[1]) && g.tips.length, 'guide for ' + t); }
+// ── every button has a hover tip card with a before and an after drawing; every tool also has steps
+for (const r of T.RIBBON.filter(Boolean)) { const i = T.tipInfo(r[0]); assert(i && i.name && i.what && i.steps.length && i.art, 'tip for tool ' + r[0]); }
+for (const k of Object.keys(T.TIPS)) { const i = T.tipInfo(k); assert(i.name && i.what, 'tip text ' + k); if (i.art) for (const f of i.art) { const svg = f(); assert(/^<svg/.test(svg) && !/NaN|undefined|Infinity/.test(svg), 'tip art ' + k); } }
+for (const k of ['undo', 'redo', 'new', 'open', 'save', 'export', 'sample', 'left', 'right', 'theme', 'zoomin', 'zoomout', 'zoomfit', 'lvl', 'addlv', 'copylv', 'dellv', 'rotcw', 'rotccw', 'mirx', 'miry', 'dup', 'del', 'offl', 'offr', 'layout:plan', 'layout:split', 'layout:3d', 'v:iso', 'v:top', 'v:front', 'v:right', 'v:back', 'v:left', 'v:fit', 'v:png', 'loc:left', 'loc:right', 'loc:center', 'from:corner', 'from:center', 'rloc:inside', 'rloc:outside', 'rloc:center', 'dim:aligned', 'dim:horizontal', 'dim:vertical', 'turn:left', 'turn:right', 'splitat:click', 'splitat:mid', 'hinge:0', 'hinge:1', 'fitroof', 'fitwalls', 'roomcolor']) assert(T.TIPS[k] && T.TIPS[k].a, 'before/after for ' + k);
 console.log('house tests passed');
