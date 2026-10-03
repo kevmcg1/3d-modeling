@@ -4070,6 +4070,11 @@ body.sim-on #mouseLegend { bottom: 132px; }
 .ws button { border: 0; background: transparent; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 12px; color: var(--muted); }
 .ws button:hover { color: var(--ink); }
 .ws button.on { background: var(--panel); color: var(--accent); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
+/* 2D Drawing is its own app, so its tab stands apart from the 3D workspaces */
+.ws button[data-ws="draw"] { margin-left: 6px; background: var(--accent); color: #fff; display: inline-flex; align-items: center; gap: 5px; }
+.ws button[data-ws="draw"]::before { content: ""; width: 12px; height: 12px; background: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 17L17 3M3 17V11M3 17h6M11 5l4 4'/%3E%3C/svg%3E") center/contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 17L17 3M3 17V11M3 17h6M11 5l4 4'/%3E%3C/svg%3E") center/contain no-repeat; }
+.ws button[data-ws="draw"]:hover { color: #fff; filter: brightness(1.1); }
+.ws button[data-ws="draw"].on { background: var(--accent); color: #fff; box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); }
 body.ws-cam #viewport { background: linear-gradient(180deg, color-mix(in srgb, var(--view-top) 92%, var(--snap)), var(--view-bot)); }
 
 /* ── CAM panels ── */
@@ -4283,7 +4288,7 @@ html.calm *, html.calm *::before, html.calm *::after { transition: none !importa
     <button class="tb mob-only" id="btnTree" title="Browser"><svg viewBox="0 0 20 20"><path d="M3 5h14M3 10h14M3 15h14"/></svg></button>
     <svg class="brand-mark" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.7" stroke-linejoin="round"><path d="M3 8l9-5 9 5-9 5z"/><path d="M3 8v8l9 5 9-5V8" opacity=".55"/><path d="M12 13v8" opacity=".55"/></svg>
     <span class="brand-name">Datum</span>
-    <div class="ws" role="tablist" aria-label="Workspace"><button data-ws="design" class="on">Design</button><button data-ws="cam">Manufacture</button><button data-ws="sheet">Setup Sheet</button><button data-ws="draw" title="2D drafting: a separate AutoCAD-style workspace">2D Drawing</button></div>
+    <div class="ws" role="tablist" aria-label="Workspace"><button data-ws="design" class="on">Design</button><button data-ws="cam">Manufacture</button><button data-ws="sheet">Setup Sheet</button><button data-ws="draw" title="2D Drawing: a separate AutoCAD-style drafting app (no 3D model)">2D Drawing</button></div>
     <span class="mode-chip" id="modeChip">Model</span>
   </div>
   <div class="tb-right">
