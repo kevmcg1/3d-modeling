@@ -11902,46 +11902,47 @@ function lookShadowMake() {
   scene.add(m);
   return m;
 }
-// Screen-space ambient occlusion: the bodies' depth is rendered once, then a full-screen pass darkens pixels whose neighbours
-// stand well in front of them (inside corners, pockets, under overhangs). Orthographic depth is linear, which keeps it simple.
+// Screen-space ambient occlusion: the bodies' depth and smooth view-space normals are rendered once, then a full-screen pass
+// darkens pixels with nearby geometry standing out of their own surface (inside corners, pockets, holes, under overhangs).
+// Using the real vertex normals keeps curved walls smooth. Orthographic depth is linear, which keeps the maths simple.
 function lookAO() {
   const bs = renderer.getDrawingBufferSize(new THREE.Vector2());
   if (!LOOK.ao) {
     const rt = new THREE.WebGLRenderTarget(2, 2, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
     rt.depthTexture = new THREE.DepthTexture(2, 2); rt.depthTexture.type = THREE.UnsignedIntType;
     const mat = new THREE.ShaderMaterial({
-      uniforms: { tDepth: { value: rt.depthTexture }, uRes: { value: new THREE.Vector2(2, 2) }, uNear: { value: 0 }, uFar: { value: 1 }, uRpx: { value: 10 }, uRw: { value: 1 }, uStr: { value: 1 } },
+      uniforms: { tDepth: { value: rt.depthTexture }, tNormal: { value: rt.texture }, uRes: { value: new THREE.Vector2(2, 2) }, uNear: { value: 0 }, uFar: { value: 1 },
+        uRpx: { value: 10 }, uWpp: { value: 1 }, uRw: { value: 1 }, uStr: { value: 1 } },
       transparent: true, depthTest: false, depthWrite: false,
       vertexShader: 'void main(){ gl_Position = vec4(position.xy, 0.0, 1.0); }',
-      fragmentShader: `uniform sampler2D tDepth; uniform vec2 uRes; uniform float uNear, uFar, uRpx, uRw, uStr;
+      fragmentShader: `uniform sampler2D tDepth, tNormal; uniform vec2 uRes; uniform float uNear, uFar, uRpx, uWpp, uRw, uStr;
         float lin(vec2 uv){ return uNear + texture2D(tDepth, uv).x * (uFar - uNear); }
         void main(){
           vec2 uv = gl_FragCoord.xy / uRes;
           if (texture2D(tDepth, uv).x >= 0.99999) discard;
+          vec3 N = normalize(texture2D(tNormal, uv).xyz * 2.0 - 1.0);       // view space, +z toward the camera
           float z0 = lin(uv), occ = 0.0;
-          vec2 px = 1.0 / uRes;
-          float zl = lin(uv - vec2(px.x, 0.0)), zr = lin(uv + vec2(px.x, 0.0)), zd = lin(uv - vec2(0.0, px.y)), zu = lin(uv + vec2(0.0, px.y));
-          float gx = abs(z0 - zl) < abs(zr - z0) ? z0 - zl : zr - z0, gy = abs(z0 - zd) < abs(zu - z0) ? z0 - zd : zu - z0;   // surface slope per pixel
-          if (abs(gx) > uRw || abs(gy) > uRw) { gx = 0.0; gy = 0.0; }
           float rot = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) * 6.2831853;
-          for (int i = 0; i < 32; i++) {
-            float fi = float(i), a = rot + fi * 2.39996323, r = sqrt((fi + 0.5) / 32.0) * uRpx;
+          for (int i = 0; i < 24; i++) {
+            float fi = float(i), a = rot + fi * 2.39996323, r = sqrt((fi + 0.5) / 24.0) * uRpx;
             vec2 o = vec2(cos(a), sin(a)) * r;
             vec2 u2 = uv + o / uRes;
             if (texture2D(tDepth, u2).x >= 0.99999) continue;
-            float dz = (z0 + gx * o.x + gy * o.y) - lin(u2);           // > 0: that neighbour is nearer the camera than this pixel's own surface plane
-            occ += smoothstep(uRw * 0.05, uRw * 0.3, dz) * (1.0 - smoothstep(uRw * 1.2, uRw * 4.0, dz));
+            vec3 d = vec3(o * uWpp, z0 - lin(u2));                         // from this pixel to the neighbour surface point, in world units (z toward the camera)
+            float len = length(d);
+            if (len < 1e-5) continue;
+            occ += max(dot(N, d / len) - 0.2, 0.0) * (1.0 - smoothstep(uRw * 0.6, uRw * 1.6, len));
           }
-          gl_FragColor = vec4(0.07, 0.06, 0.08, clamp(occ / 32.0 * uStr, 0.0, 0.55));
+          gl_FragColor = vec4(0.07, 0.06, 0.08, clamp(occ / 24.0 * uStr, 0.0, 0.6));
         }`
     });
     const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); quad.frustumCulled = false;
     const qs = new THREE.Scene(); qs.add(quad);
-    LOOK.ao = { rt, mat, qs, qc: new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), depthMat: new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }) };
+    LOOK.ao = { rt, mat, qs, qc: new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), depthMat: new THREE.MeshNormalMaterial({ side: THREE.DoubleSide }) };
   }
   const A = LOOK.ao;
   if (A.rt.width !== bs.x || A.rt.height !== bs.y) { A.rt.setSize(bs.x, bs.y); A.mat.uniforms.uRes.value.set(bs.x, bs.y); }
-  // bodies only, flat depth material, into the target
+  // bodies only, normal material, into the target
   const prevRT = renderer.getRenderTarget(), hidden = [];
   for (const c of scene.children) if (c !== bodyGroup && c.visible) { c.visible = false; hidden.push(c); }
   for (const m of bodyMeshes) m.group.children[1].visible = false;
@@ -11950,8 +11951,8 @@ function lookAO() {
   scene.overrideMaterial = null; renderer.setRenderTarget(prevRT);
   for (const c of hidden) c.visible = true;
   applyShadeVis();
-  const rw = Math.max(sceneR * 0.035, 1e-3), px = Math.min(70, Math.max(4, rw * ppu() * bs.x / W));
-  const u = A.mat.uniforms; u.uNear.value = camera.near; u.uFar.value = camera.far; u.uRw.value = rw; u.uRpx.value = px; u.uStr.value = 2.0;
+  const rw = Math.max(sceneR * 0.04, 1e-3), wpp = view.viewH / bs.y, px = Math.min(80, Math.max(4, rw / wpp));
+  const u = A.mat.uniforms; u.uNear.value = camera.near; u.uFar.value = camera.far; u.uRw.value = rw; u.uRpx.value = px; u.uWpp.value = wpp; u.uStr.value = 2.2;
   renderer.render(A.qs, A.qc);
 }
 function applyLook() {
