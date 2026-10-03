@@ -3720,6 +3720,13 @@ body.col-drag { cursor: col-resize; user-select: none; }
 #viewport { position: relative; min-width: 0; min-height: 0; overflow: hidden;
   background: linear-gradient(180deg, var(--view-top), var(--view-bot)); touch-action: none; }
 #gl, #ov { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+/* Shaded mode "studio look": a moody radial backdrop; sketch ink and grid flip to the light set so they stay readable on it */
+:root[data-look="shaded"] { --look-a: #56606e; --look-b: #2c323c; --look-c: #12151a;
+  --sk-line: #edf1f6; --sk-cons: #f0994a; --sk-proj: #b88af0; --sk-sel: #6ea3ff; --sk-hot: #8db8ff; --sk-pt: #edf1f6;
+  --sk-profile: rgba(240, 176, 70, .16); --sk-profile-hot: rgba(240, 176, 70, .36); --sk-profile-sel: rgba(91, 150, 246, .30);
+  --sk-dim: rgba(237, 241, 246, .45); --grid-minor: rgba(215, 228, 245, .05); --grid-major: rgba(215, 228, 245, .11); --edge: #0b0e12; --body: #c9d0d9; }
+:root[data-look="shaded"] #viewport { background:
+  radial-gradient(ellipse 85% 75% at 50% 42%, var(--look-a) 0%, var(--look-b) 55%, var(--look-c) 100%); }
 #ov { cursor: crosshair; }
 #ov.nav { cursor: grabbing; }
 #ov.pointer { cursor: pointer; }
@@ -8737,6 +8744,7 @@ function applyModel(ctx, req) {
   }
   if (typeof applyShade === 'function' && SHADE !== 'solid') applyShade();
   computeSceneBounds();
+  if (typeof lookShadowUpdate === 'function') lookShadowUpdate();
   refreshUI();
   clearHover3D();
   if (typeof camModelChanged === 'function') camModelChanged();
@@ -11809,8 +11817,88 @@ document.getElementById('btnFit').addEventListener('click', () => fitAll());
 // How bodies are drawn: Solid (lit, with edge lines), Shaded (lit, no lines), Wireframe (edges only).
 let SHADE = 'solid';
 try { const v = localStorage.getItem('datum.shade'); if (v === 'shaded' || v === 'wire') SHADE = v; } catch (e) { /* storage unavailable */ }
+// Studio look (Shaded mode): image-based reflections from a softbox environment, a key/fill/rim light rig and a satin
+// metal finish, over a moody gradient backdrop. Solid and Wireframe keep the plain engineering look.
+const LOOK = { on: false, env: null, plain: null };
+function lookEnv() {
+  if (LOOK.env !== null) return LOOK.env;
+  LOOK.env = false;
+  try {
+    const sc = new THREE.Scene(), sg = new THREE.SphereGeometry(50, 32, 16), pos = sg.attributes.position, col = new Float32Array(pos.count * 3);
+    const ramp = (h) => {   // sky gradient by height: dim cold top, dark horizon, near-black floor
+      const T = [0.30, 0.34, 0.40], M = [0.07, 0.085, 0.105], B = [0.012, 0.014, 0.018], k = h > 0 ? Math.min(1, h / 0.9) : Math.min(1, -h / 0.6), a = h > 0 ? T : B;
+      return [0, 1, 2].map(i => M[i] + (a[i] - M[i]) * k * k * (3 - 2 * k));
+    };
+    for (let i = 0; i < pos.count; i++) col.set(ramp(pos.getY(i) / 50), i * 3);
+    sg.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    const sky = new THREE.Mesh(sg, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, depthWrite: false }));
+    sc.add(sky);
+    const box = (w, h, gain, x, y, z) => {   // emissive softbox facing the origin; gain > 1 gives HDR highlights
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(gain, gain, gain * 1.03), side: THREE.DoubleSide }));
+      m.position.set(x, y, z); m.lookAt(0, 0, 0); sc.add(m);
+    };
+    box(34, 22, 1.5, -20, 34, 22);     // key: big overhead softbox, front left
+    box(8, 34, 1.0, 40, 8, 6);         // strip light, right
+    box(30, 6, 0.9, 0, 6, -42);        // rim: long strip behind
+    box(18, 14, 0.4, -38, 4, -14);     // dim fill, left
+    const pm = new THREE.PMREMGenerator(renderer);
+    LOOK.env = pm.fromScene(sc, 0.03).texture; pm.dispose();
+    sky.geometry.dispose(); sky.material.dispose();
+  } catch (e) { LOOK.env = false; }
+  return LOOK.env;
+}
+const lookRig = { fill: null, rim: null, shadow: null };   // extra lights and the contact shadow, made the first time the look turns on
+// A soft elliptical contact shadow just under the lowest body (Z is up), so the part sits on the backdrop instead of floating.
+function lookShadowUpdate() {
+  const sh = lookRig.shadow;
+  if (!sh) return;
+  const bb = bodyMeshes.map(m => m.body.bb);
+  sh.visible = LOOK.on && bb.length > 0;
+  if (!sh.visible) return;
+  const x0 = Math.min(...bb.map(b => b[0])), y0 = Math.min(...bb.map(b => b[1])), z0 = Math.min(...bb.map(b => b[2]));
+  const x1 = Math.max(...bb.map(b => b[3])), y1 = Math.max(...bb.map(b => b[4]));
+  const w = x1 - x0, h = y1 - y0, d = Math.max(w, h, 1e-3);
+  sh.position.set((x0 + x1) / 2, (y0 + y1) / 2, z0 - d * 0.004);
+  sh.scale.set(Math.max(w, d * 0.35) * 1.5, Math.max(h, d * 0.35) * 1.5, 1);
+}
+function lookShadowMake() {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 128;
+  const g = cv.getContext('2d'), rg = g.createRadialGradient(64, 64, 4, 64, 64, 62);
+  rg.addColorStop(0, 'rgba(0,0,0,0.62)'); rg.addColorStop(0.55, 'rgba(0,0,0,0.30)'); rg.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = rg; g.fillRect(0, 0, 128, 128);
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cv), transparent: true, depthWrite: false, toneMapped: false }));
+  m.renderOrder = -1; m.raycast = () => {}; m.visible = false;
+  scene.add(m);
+  return m;
+}
+function applyLook() {
+  const on = SHADE === 'shaded' && typeof UIX !== 'undefined' && UIX.ws !== 'cam' && UIX.ws !== 'sheet';
+  if (on === LOOK.on && LOOK.plain) return;
+  LOOK.on = on;
+  const env = on ? lookEnv() : null;
+  if (!LOOK.plain) LOOK.plain = { head: headLight.intensity, hemi: hemi.intensity };
+  if (on) document.documentElement.setAttribute('data-look', 'shaded'); else document.documentElement.removeAttribute('data-look');
+  if (on && !lookRig.fill) {
+    lookRig.fill = new THREE.DirectionalLight(0x9db4d6, 0.28); lookRig.fill.position.set(-0.9, -0.2, 0.5);
+    lookRig.rim = new THREE.DirectionalLight(0xdce8ff, 0.5); lookRig.rim.position.set(0.5, 0.7, -1);
+    camera.add(lookRig.fill, lookRig.fill.target, lookRig.rim, lookRig.rim.target);
+    lookRig.shadow = lookShadowMake();
+    lookRig.fill.target.position.set(0, 0, -1); lookRig.rim.target.position.set(0, 0, -1);
+  }
+  if (lookRig.fill) lookRig.fill.visible = lookRig.rim.visible = on;
+  lookShadowUpdate();
+  headLight.intensity = on ? 0.62 : LOOK.plain.head; hemi.intensity = on ? 0.16 : LOOK.plain.hemi;
+  const mats = [bodyMat, ...(typeof BODY_MATS !== 'undefined' ? BODY_MATS.values() : [])];
+  for (const m of mats) {
+    if (on) { m.envMap = env || null; m.envMapIntensity = 0.8; m.metalness = env ? 0.3 : 0.08; m.roughness = env ? 0.42 : 0.62; }
+    else { m.envMap = null; m.envMapIntensity = 1; m.metalness = 0.08; m.roughness = 0.62; }
+    m.needsUpdate = true;
+  }
+  readTheme();   // re-reads the sketch ink / body colors for the backdrop that is now showing
+}
 function applyShade() {
   for (const m of bodyMeshes) { m.me.visible = SHADE !== 'wire'; m.group.children[1].visible = SHADE !== 'shaded'; }
+  applyLook();
   document.querySelectorAll('#shadeToggle [data-shade]').forEach(b => { b.classList.toggle('on', b.dataset.shade === SHADE); b.setAttribute('aria-pressed', b.dataset.shade === SHADE); });
   requestDraw();
 }
@@ -11887,7 +11975,7 @@ function boot() {
   } catch (e) { /* storage unavailable */ }
   doc = { features: [], next: 1 };
   histReset('New model');
-  readTheme();
+  readTheme(); applyLook();
   PLANES = planesOnly().planes;
   view.quat.copy(ISO());
   resize();
@@ -14509,6 +14597,7 @@ function setWorkspace(ws) {
   if (ws === 'cam') { cam(); camGeomCache = { model: null }; }
   // outside Manufacture only the model shows: no toolpaths, stock, tools, fixture or CAM highlights
   else { camDraw(); if (typeof AUTO !== 'undefined') AUTO.hl = null; }
+  applyLook();
   refreshUI(); applyVis(); rebuildHighlights(); requestDraw();
 }
 </script>
