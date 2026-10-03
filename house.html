@@ -130,6 +130,28 @@ kbd { display:inline-block; min-width:18px; padding:0 5px; border:1px solid var(
 #dlgBack { position:fixed; inset:0; background:rgba(10,15,25,.4); display:none; align-items:center; justify-content:center; z-index:60; }
 #dlg { background:var(--panel); border-radius:14px; box-shadow:var(--shadow); width:min(600px,92vw); max-height:86vh; overflow:auto; padding:20px 22px; }
 #dlg h3 { margin:0 0 4px; font-size:17px; letter-spacing:-.01em; } #dlg table { width:100%; border-collapse:collapse; font-size:12.5px; } #dlg td { padding:6px 8px; border-bottom:1px solid var(--rule); vertical-align:top; } #dlg td:first-child { white-space:nowrap; font-weight:600; color:var(--accent); }
+
+/* ── hover tip cards (before / after) ── */
+#tipcard { position:fixed; z-index:70; width:290px; background:var(--panel); border:1px solid var(--rule); border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.18),var(--shadow); padding:11px 12px 12px; pointer-events:none; opacity:0; transform:translateY(-4px) scale(.98); transform-origin:top center; transition:opacity .2s var(--ease),transform .25s var(--ease); }
+#tipcard[hidden] { display:none; } #tipcard.in { opacity:1; transform:none; }
+.tip-head { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ink); } .tip-head b { font-weight:650; } .tip-head .kbd { margin-left:auto; padding:0 6px; border:1px solid var(--rule2); border-bottom-width:2px; border-radius:5px; font:600 10.5px/16px var(--font); color:var(--ink2); }
+.tip-what { margin:5px 0 8px; font-size:12px; line-height:1.45; color:var(--ink2); }
+.tip-pics { display:flex; align-items:center; gap:4px; } .tip-pics figure { margin:0; flex:1; min-width:0; } .tip-pics svg { display:block; width:100%; height:auto; border-radius:8px; border:1px solid var(--rule); }
+.tip-pics figcaption { font-size:10.5px; font-weight:600; color:var(--muted); text-align:center; margin-top:3px; text-transform:uppercase; letter-spacing:.04em; } .tip-arr { color:var(--accent); font-weight:700; font-size:16px; margin-bottom:14px; }
+.tip-more { max-height:0; overflow:hidden; opacity:0; transition:max-height .35s var(--ease),opacity .3s ease,margin .3s ease; } #tipcard.more .tip-more { max-height:260px; opacity:1; margin-top:9px; }
+.tip-step { font-size:10.5px; font-weight:700; color:var(--accent); text-transform:uppercase; letter-spacing:.05em; margin-bottom:4px; border-top:1px solid var(--rule); padding-top:8px; }
+.tip-more ol { margin:0; padding-left:18px; font-size:12px; line-height:1.5; color:var(--ink2); } .tip-more li { margin-bottom:3px; } .tip-more li b { color:var(--ink); font-weight:600; }
+/* ── dropdowns ── */
+.dd { position:relative; min-width:0; width:100%; } .dd > select { display:none; }
+.ddb { width:100%; height:30px; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:0 9px; border:1px solid var(--rule); border-radius:7px; background:var(--panel); color:var(--ink); text-align:left; transition:border-color .15s,box-shadow .15s,background .15s; }
+.ddb:hover { border-color:var(--rule2); } .ddb span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .ddb svg { width:12px; height:12px; flex:none; color:var(--muted); transition:transform .22s var(--ease); }
+.ddb.open, .ddb:focus-visible { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 18%,transparent); } .ddb.open svg { transform:rotate(180deg); color:var(--accent); }
+.ddm { position:fixed; z-index:80; background:var(--panel); border:1px solid var(--rule); border-radius:10px; box-shadow:var(--shadow); padding:4px; max-height:288px; overflow:auto; scrollbar-width:thin; opacity:0; transform:translateY(-5px) scale(.98); transform-origin:top; transition:opacity .15s,transform .2s var(--ease); }
+.ddm.up { transform-origin:bottom; transform:translateY(5px) scale(.98); } .ddm.in { opacity:1; transform:none; }
+.ddo { display:flex; align-items:center; gap:8px; padding:6px 9px; border-radius:6px; cursor:pointer; color:var(--ink2); font-weight:500; white-space:nowrap; transition:background .1s,color .1s; } .ddo span { flex:1; }
+.ddo.act { background:var(--accent-soft); color:var(--accent); } .ddo.sel { color:var(--ink); font-weight:600; } .ddo.sel.act { color:var(--accent); } .ddo .ck { width:12px; height:12px; flex:none; opacity:0; color:var(--accent); } .ddo.sel .ck { opacity:1; }
+#v3Opt .dd { width:auto; min-width:150px; } #v3Opt .ddb { height:26px; }
+.btn.dng2 { background:var(--danger); border-color:var(--danger); color:#fff; } .btn.dng2:hover { background:var(--danger); filter:brightness(1.08); color:#fff; }
 @media (max-width:1180px) { #main { grid-template-columns:210px minmax(0,1fr) 6px minmax(0,1fr) 270px; } }
 @media (max-width:900px) { #main:not(.v-3d):not(.v-plan) #v3, #main:not(.v-3d):not(.v-plan) #split { display:none; } .rb { min-width:52px; } }
 @media (max-width:760px) { #side, #rside { display:none !important; } }
@@ -140,20 +162,20 @@ kbd { display:inline-block; min-width:18px; padding:0 5px; border:1px solid var(
   <div id="top">
     <span class="logo"><i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7M5 10v10h14V10"/></svg></i>House Design</span><span id="fname"></span>
     <div class="sep"></div>
-    <button class="tb" id="bNew" title="Start an empty project">New</button>
-    <button class="tb" id="bOpen" title="Open a saved .house.json project">Open</button>
-    <button class="tb" id="bSave" title="Save the project as .house.json (Ctrl+S)">Save</button>
-    <button class="tb" id="bExport" title="Export DXF plans, an OBJ model or a PNG">Export ▾</button>
-    <button class="tb" id="bSample" title="Load the sample two-storey house">Sample</button>
+    <button class="tb" id="bNew">New</button>
+    <button class="tb" id="bOpen">Open</button>
+    <button class="tb" id="bSave">Save</button>
+    <button class="tb" id="bExport">Export ▾</button>
+    <button class="tb" id="bSample">Sample</button>
     <div class="sep"></div>
-    <button class="tb" id="bUndo" title="Undo (Ctrl+Z)">↶ Undo</button>
-    <button class="tb" id="bRedo" title="Redo (Ctrl+Y)">↷ Redo</button>
+    <button class="tb" id="bUndo">↶ Undo</button>
+    <button class="tb" id="bRedo">↷ Redo</button>
     <div class="spacer"></div>
-    <button class="tb on" id="bLeft" title="Show or hide the levels panel">Levels</button>
-    <button class="tb on" id="bRight" title="Show or hide the tool panel">Tool panel</button>
-    <div class="seg" id="viewSeg" title="Layout"><button data-v="plan">Plan</button><button data-v="split" class="on">Plan + 3D</button><button data-v="3d">3D</button></div>
-    <button class="tb" id="bTheme" title="Toggle light / dark theme">◐</button>
-    <button class="tb" id="bHelp" title="Shortcuts and tips (?)">Help</button>
+    <button class="tb on" id="bLeft">Levels</button>
+    <button class="tb on" id="bRight">Tool panel</button>
+    <div class="seg" id="viewSeg"><button data-v="plan">Plan</button><button data-v="split" class="on">Plan + 3D</button><button data-v="3d">3D</button></div>
+    <button class="tb" id="bTheme">◐</button>
+    <button class="tb" id="bHelp">Help</button>
     <input type="file" id="fileIn" accept=".json,.house,application/json" hidden>
   </div>
   <div id="ribbon"></div>
@@ -162,7 +184,7 @@ kbd { display:inline-block; min-width:18px; padding:0 5px; border:1px solid var(
     <section id="plan"><canvas id="pc"></canvas><input id="lenIn" type="text" autocomplete="off" spellcheck="false">
       <div id="hintPill"></div>
       <div class="hud" id="planHud"></div>
-      <div class="hud" id="zoomHud"><button id="zIn" title="Zoom in">+</button><button id="zOut" title="Zoom out">−</button><button id="zFit" title="Zoom to fit (Home)">Fit</button></div>
+      <div class="hud" id="zoomHud"><button id="zIn">+</button><button id="zOut">−</button><button id="zFit">Fit</button></div>
     </section>
     <div id="split"></div>
     <section id="v3"><canvas id="gl"></canvas><div id="glMsg">WebGL is not available in this browser, so the 3D view cannot be shown. The plan editor and exports still work.</div>
@@ -271,7 +293,7 @@ function sanitize(o) {
   const d = newDoc(); d.name = typeof o.name === 'string' ? o.name.slice(0, 80) : d.name;
   const A = x => Array.isArray(x) ? x : [];
   const P = p => Array.isArray(p) && p.length >= 2 && isFinite(+p[0]) && isFinite(+p[1]) ? [+p[0], +p[1]] : null;
-  d.levels = A(o.levels).filter(l => l && typeof l.id === 'string').map(l => ({ id: l.id, name: String(l.name || 'Level').slice(0, 40), elev: num(+l.elev), height: Math.max(24, num(+l.height, 108)) }));
+  d.levels = A(o.levels).filter(l => l && typeof l.id === 'string').map(l => ({ id: l.id, name: String(l.name || 'Level').slice(0, 40), elev: clamp(num(+l.elev), -600, 12000), height: clamp(num(+l.height, 108), 24, 600) }));
   if (!d.levels.length) d.levels = [{ id: 'L1', name: 'Level 1', elev: 0, height: 108 }];
   d.levels.sort((a, b) => a.elev - b.elev);
   const lvIds = new Set(d.levels.map(l => l.id)), L0 = d.levels[0].id, ids = new Set();
@@ -440,7 +462,7 @@ function roomGeom(r) { const C = derived(); if (!(r.id in C.rooms)) C.rooms[r.id
 function stairInfo(s) {
   const C = derived(); if (C.stairs[s.id]) return C.stairs[s.id];
   const lv = lvOf(s.lv), nx = nextLevel(lv.id), rise = nx ? nx.elev - lv.elev : lv.height;
-  const n = Math.max(2, Math.round(rise / 7.25)), r = rise / n, d = [Math.cos(s.ang), Math.sin(s.ang)], nn = perp(d), w = s.w, run = s.run;
+  const n = clamp(Math.round(rise / 7.25), 2, 120), r = rise / n, d = [Math.cos(s.ang), Math.sin(s.ang)], nn = perp(d), w = s.w, run = s.run;
   const rect = (o, dir, ln, wd) => { const nrm = perp(dir), h = wd / 2; return [add(o, mul(nrm, h)), add(add(o, mul(dir, ln)), mul(nrm, h)), sub(add(o, mul(dir, ln)), mul(nrm, h)), sub(o, mul(nrm, h))]; };
   const blocks = [], rects = [];
   if (s.shape === 'L' && n >= 4) {
@@ -1035,11 +1057,13 @@ function addLevel() {
 function deleteLevel(id) {
   if (doc.levels.length < 2) { toast('A project needs at least one level'); return; }
   const lv = lvOf(id);
-  if (!confirm('Delete "' + lv.name + '" and everything drawn on it?')) return;
-  for (const k of ['walls', 'rooms', 'roofs', 'stairs', 'dims']) doc[k] = doc[k].filter(x => x.lv !== id);
-  doc.opens = doc.opens.filter(p => byId(doc.walls, p.wall));
-  doc.levels = doc.levels.filter(l => l.id !== id);
-  if (S.lv === id) S.lv = doc.levels[0].id; S.sel = []; ui.lv = true; commit();
+  return askConfirm('Delete "' + lv.name + '" and everything drawn on it?', 'Delete level', true).then(ok => {
+    if (!ok || !byId(doc.levels, id) || doc.levels.length < 2) return false;
+    for (const k of ['walls', 'rooms', 'roofs', 'stairs', 'dims']) doc[k] = doc[k].filter(x => x.lv !== id);
+    doc.opens = doc.opens.filter(p => byId(doc.walls, p.wall));
+    doc.levels = doc.levels.filter(l => l.id !== id);
+    if (S.lv === id) S.lv = doc.levels[0].id; S.sel = []; cancelOps(); ui.lv = true; commit(); return true;
+  });
 }
 
 /* ════════ Wall location line, trim, transforms, level copy ════════ */
@@ -1809,7 +1833,7 @@ window.addEventListener('keydown', e => {
     e.stopPropagation(); return;
   }
   const tag = (e.target.tagName || '').toLowerCase(); if (tag === 'input' || tag === 'select' || tag === 'textarea') { if (e.key === 'Escape') e.target.blur(); return; }
-  if (!$('#dlgBack') || $('#dlgBack').style.display === 'flex') { if (e.key === 'Escape') $('#dlgBack').style.display = 'none'; return; }
+  if ($('#dlgBack').style.display === 'flex') { if (e.key === 'Escape') closeDlg(false); return; }
   if (e.ctrlKey || e.metaKey) {
     const k = e.key.toLowerCase();
     if (k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } else if (k === 'y') { e.preventDefault(); redo(); } else if (k === 's') { e.preventDefault(); saveFile(); }
@@ -1988,7 +2012,7 @@ const IC = {
 const ico = (k, sz) => '<svg viewBox="0 0 24 24"' + (sz ? ' width="' + sz + '" height="' + sz + '"' : '') + ' fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' + (IC[k] || '') + '</svg>';
 const RIBBON = [['select', 'Select', 'V'], null, ['wall', 'Wall', 'W'], ['rect', 'Room Box', 'R'], ['door', 'Door', 'D'], ['window', 'Window', 'N'], null, ['room', 'Room', 'M'], ['roof', 'Roof', 'F'], ['stair', 'Stair', 'S'], null, ['dim', 'Dimension', 'K'], ['split', 'Split Wall', 'X'], ['trim', 'Trim', 'T']];
 function renderRibbon() {
-  const r = $('#ribbon'); r.innerHTML = RIBBON.map(t => t ? '<button class="rb' + (S.tool === t[0] ? ' on' : '') + '" data-tool="' + t[0] + '" title="' + t[1] + ' (' + t[2] + ')">' + ico(t[0]) + '<kbd>' + t[2] + '</kbd><span>' + t[1] + '</span></button>' : '<div class="rgap"></div>').join('');
+  const r = $('#ribbon'); r.innerHTML = RIBBON.map(t => t ? '<button class="rb' + (S.tool === t[0] ? ' on' : '') + '" data-tool="' + t[0] + '">' + ico(t[0]) + '<kbd>' + t[2] + '</kbd><span>' + t[1] + '</span></button>' : '<div class="rgap"></div>').join('');
   r.querySelectorAll('[data-tool]').forEach(b => b.onclick = () => { setTool(b.dataset.tool); b.blur(); });
   $('#bUndo').disabled = H.i <= 0; $('#bRedo').disabled = H.i >= H.stack.length - 1;
 }
@@ -2002,11 +2026,11 @@ function formHTML(rows, o, grp) {
     if (r.show && !r.show(o)) return;
     const v = r.get ? r.get(o) : '', id = 'data-g="' + grp + '" data-r="' + i + '"', lab = r.k === 'btn' ? '<span></span>' : '<label>' + esc(r.l) + '</label>';
     if (r.k === 'sel') { const opts = typeof r.opts === 'function' ? r.opts(o) : r.opts; h += lab + '<select ' + id + '>' + opts.map(op => '<option value="' + esc(op[0]) + '"' + (String(op[0]) === String(v) ? ' selected' : '') + '>' + esc(op[1]) + '</option>').join('') + '</select>'; }
-    else if (r.k === 'seg') { const opts = typeof r.opts === 'function' ? r.opts(o) : r.opts; h += lab + '<div class="segc">' + opts.map(op => '<button type="button" ' + id + ' data-v="' + esc(op[0]) + '" class="' + (String(op[0]) === String(v) ? 'on' : '') + '">' + esc(op[1]) + '</button>').join('') + '</div>'; }
+    else if (r.k === 'seg') { const opts = typeof r.opts === 'function' ? r.opts(o) : r.opts; h += lab + '<div class="segc">' + opts.map(op => '<button type="button" ' + id + (r.tip ? ' data-tip="' + r.tip + ':' + esc(op[0]) + '"' : '') + ' data-v="' + esc(op[0]) + '" class="' + (String(op[0]) === String(v) ? 'on' : '') + '">' + esc(op[1]) + '</button>').join('') + '</div>'; }
     else if (r.k === 'bool') h += '<span></span><label class="chk"><input type="checkbox" ' + id + (v ? ' checked' : '') + '><span>' + esc(r.label || r.l) + '</span></label>';
     else if (r.k === 'color') h += lab + '<input type="color" ' + id + ' value="' + esc(v || r.def || '#c9a77c') + '">';
     else if (r.k === 'ro') h += lab + '<span class="ro">' + esc(v) + '</span>';
-    else if (r.k === 'btn') h += lab + '<button type="button" class="btn" ' + id + '>' + esc(r.label) + '</button>';
+    else if (r.k === 'btn') h += lab + '<button type="button" class="btn" ' + id + (r.tip ? ' data-tip="' + r.tip + '"' : '') + '>' + esc(r.label) + '</button>';
     else if (r.k === 'text') h += lab + '<input type="text" ' + id + ' list="dl' + grp + i + '" value="' + esc(v) + '"' + (r.ph ? ' placeholder="' + esc(r.ph) + '"' : '') + '><datalist id="dl' + grp + i + '">' + (r.list || []).map(x => '<option value="' + esc(x) + '">').join('') + '</datalist>';
     else h += lab + '<input type="text" ' + id + ' value="' + esc(r.k === 'len' || r.k === 'len0' ? fmtLen(v) : r.k === 'in' ? fmtIn(v) : r.k === 'lenopt' || r.k === 'lenoptin' ? (v ? (r.k === 'lenoptin' ? fmtIn(v) : fmtLen(v)) : '') : v) + '"' + (r.ph ? ' placeholder="' + esc(typeof r.ph === 'function' ? r.ph() : r.ph) + '"' : '') + ' autocomplete="off">';
   });
@@ -2029,20 +2053,20 @@ const wallThickRow = () => ({ l: 'Thickness', k: 'lenoptin', ph: () => fmtIn((WA
 function optRows(T) {
   const O = (obj, key, l, k, x) => Object.assign({ l, k, get: () => obj[key], set: (o, v) => { obj[key] = v; } }, x || {});
   if (T === 'wall') return [wallTypeRow(), wallThickRow(), O(OPT.wall, 'h', 'Height', 'lenopt', { u: 'ft', ph: 'level height', min: 12, max: 600 }),
-    O(OPT.wall, 'loc', 'Location line', 'seg', { opts: [['center', 'Centre'], ['left', 'Left'], ['right', 'Right']] }), O(OPT.wall, 'chain', 'Chain', 'bool', { label: 'Keep drawing connected walls' })];
-  if (T === 'rect') return [wallTypeRow(), wallThickRow(), O(OPT.rect, 'from', 'Draw from', 'seg', { opts: [['corner', 'Corner'], ['center', 'Centre']] }), O(OPT.rect, 'loc', 'Location line', 'seg', { opts: [['center', 'Centre'], ['inside', 'Inside'], ['outside', 'Outside']] })];
+    O(OPT.wall, 'loc', 'Location line', 'seg', { tip: 'loc', opts: [['center', 'Centre'], ['left', 'Left'], ['right', 'Right']] }), O(OPT.wall, 'chain', 'Chain', 'bool', { label: 'Keep drawing connected walls' })];
+  if (T === 'rect') return [wallTypeRow(), wallThickRow(), O(OPT.rect, 'from', 'Draw from', 'seg', { tip: 'from', opts: [['corner', 'Corner'], ['center', 'Centre']] }), O(OPT.rect, 'loc', 'Location line', 'seg', { tip: 'rloc', opts: [['center', 'Centre'], ['inside', 'Inside'], ['outside', 'Outside']] })];
   if (T === 'door') return [O(OPT.door, 'style', 'Style', 'sel', { opts: DOOR_STYLES }), O(OPT.door, 'w', 'Width', 'len', { u: 'in', min: 12, max: 240 }), O(OPT.door, 'h', 'Height', 'len', { u: 'in', min: 24, max: 192 }),
-    O(OPT.door, 'swing', 'Swings to', 'sel', { opts: [['auto', 'Mouse side (auto)'], ['left', 'Left of wall'], ['right', 'Right of wall']] }), O(OPT.door, 'hinge', 'Hinge', 'seg', { opts: [[0, 'Left'], [1, 'Right']], set: (o, v) => { OPT.door.hinge = +v; } })];
+    O(OPT.door, 'swing', 'Swings to', 'sel', { opts: [['auto', 'Mouse side (auto)'], ['left', 'Left of wall'], ['right', 'Right of wall']] }), O(OPT.door, 'hinge', 'Hinge', 'seg', { tip: 'hinge', opts: [[0, 'Left'], [1, 'Right']], set: (o, v) => { OPT.door.hinge = +v; } })];
   if (T === 'window') return [O(OPT.window, 'style', 'Style', 'sel', { opts: WIN_STYLES }), O(OPT.window, 'w', 'Width', 'len', { u: 'in', min: 12, max: 240 }), O(OPT.window, 'h', 'Height', 'len', { u: 'in', min: 12, max: 192 }), O(OPT.window, 'sill', 'Sill height', 'len0', { u: 'in', min: 0, max: 150 })];
   if (T === 'room') return [O(OPT.room, 'name', 'Name', 'text', { list: ROOM_NAMES, ph: 'Room 1, Room 2…', set: (o, v) => { OPT.room.name = String(v).slice(0, 40); } }), O(OPT.room, 'floor', 'Floor', 'bool', { label: 'Add a floor slab' }),
-    O(OPT.room, 'c', 'Floor colour', 'color', { def: '#c9a77c' }), { l: '', k: 'btn', label: 'Colour from room name', run: () => { OPT.room.c = ''; } }];
+    O(OPT.room, 'c', 'Floor colour', 'color', { def: '#c9a77c' }), { l: '', k: 'btn', tip: 'roomcolor', label: 'Colour from room name', run: () => { OPT.room.c = ''; } }];
   if (T === 'roof') return [O(OPT.roof, 'type', 'Type', 'sel', { opts: [['gable', 'Gable'], ['hip', 'Hip'], ['shed', 'Shed'], ['flat', 'Flat']] }), O(OPT.roof, 'pitch', 'Pitch (:12)', 'num', { min: 0, max: 24 }), O(OPT.roof, 'oh', 'Overhang', 'len0', { u: 'in', min: 0, max: 72 }),
     O(OPT.roof, 'thk', 'Thickness', 'in', { min: 1, max: 36 }), O(OPT.roof, 'ridge', 'Ridge runs', 'sel', { opts: [['auto', 'Along the long side'], ['x', 'East – West'], ['y', 'North – South']] }), O(OPT.roof, 'c', 'Colour', 'color', { def: '#7b5a4a' }),
-    { l: '', k: 'btn', label: 'Roof over all walls on this level', run: () => { const r = fitRoofToLevel(); if (r) { doc.roofs.push(r); S.sel = [{ type: 'roof', id: r.id }]; commit(); setTool('select'); } } }];
-  if (T === 'stair') return [O(OPT.stair, 'shape', 'Shape', 'sel', { opts: [['straight', 'Straight'], ['L', 'L-shaped with landing']] }), O(OPT.stair, 'turn', 'Turns', 'seg', { opts: [['left', 'Left'], ['right', 'Right']], show: () => OPT.stair.shape === 'L' }),
+    { l: '', k: 'btn', tip: 'fitroof', label: 'Roof over all walls on this level', run: () => { const r = fitRoofToLevel(); if (r) { doc.roofs.push(r); S.sel = [{ type: 'roof', id: r.id }]; commit(); setTool('select'); } } }];
+  if (T === 'stair') return [O(OPT.stair, 'shape', 'Shape', 'sel', { opts: [['straight', 'Straight'], ['L', 'L-shaped with landing']] }), O(OPT.stair, 'turn', 'Turns', 'seg', { tip: 'turn', opts: [['left', 'Left'], ['right', 'Right']], show: () => OPT.stair.shape === 'L' }),
     O(OPT.stair, 'w', 'Width', 'len', { u: 'in', min: 24, max: 96 }), O(OPT.stair, 'run', 'Tread depth', 'len', { u: 'in', min: 7, max: 16 }), O(OPT.stair, 'rail', 'Handrails', 'sel', { opts: [['both', 'Both sides'], ['left', 'Left only'], ['right', 'Right only'], ['none', 'None']] }), O(OPT.stair, 'c', 'Colour', 'color', { def: '#b08d62' })];
-  if (T === 'dim') return [O(OPT.dim, 'mode', 'Measure', 'seg', { opts: [['aligned', 'Aligned'], ['horizontal', 'Horiz.'], ['vertical', 'Vert.']] })];
-  if (T === 'split') return [O(OPT.split, 'at', 'Cut at', 'seg', { opts: [['click', 'Click point'], ['mid', 'Middle']] })];
+  if (T === 'dim') return [O(OPT.dim, 'mode', 'Measure', 'seg', { tip: 'dim', opts: [['aligned', 'Aligned'], ['horizontal', 'Horiz.'], ['vertical', 'Vert.']] })];
+  if (T === 'split') return [O(OPT.split, 'at', 'Cut at', 'seg', { tip: 'splitat', opts: [['click', 'Click point'], ['mid', 'Middle']] })];
   return [];
 }
 /* ── properties of the selection ── */
@@ -2059,7 +2083,7 @@ function propRows(type, its) {
       P('Style', 'sel', o => o.style, (o, v) => { o.style = v; }, { opts: o => o.kind === 'door' ? DOOR_STYLES : WIN_STYLES }),
       P('Width', 'len', o => o.w, (o, v) => { o.w = clamp(v, 6, 400); const w = byId(doc.walls, o.wall); if (w) clampOpen(o, w); }), P('Height', 'len', o => o.h, (o, v) => { o.h = clamp(v, 6, 240); }),
       P('Sill height', 'len0', o => o.sill, (o, v) => { o.sill = clamp(v, 0, 200); }), P('Position', 'len', o => o.d, (o, v) => { o.d = v; const w = byId(doc.walls, o.wall); if (w) clampOpen(o, w); }),
-      P('Hinge', 'seg', o => o.hinge, (o, v) => { o.hinge = +v; }, { only: 'door', opts: [[0, 'Left'], [1, 'Right']] }), P('Swings to', 'seg', o => o.flip, (o, v) => { o.flip = +v; }, { only: 'door', opts: [[0, 'Left'], [1, 'Right']] }),
+      P('Hinge', 'seg', o => o.hinge, (o, v) => { o.hinge = +v; }, { tip: 'hinge', only: 'door', opts: [[0, 'Left'], [1, 'Right']] }), P('Swings to', 'seg', o => o.flip, (o, v) => { o.flip = +v; }, { only: 'door', opts: [[0, 'Left'], [1, 'Right']] }),
     ],
     room: [
       P('Name', 'text', o => o.name, (o, v) => { o.name = String(v).slice(0, 40) || 'Room'; if (FLOOR_COLORS[o.name]) o.c = FLOOR_COLORS[o.name]; }, { list: ROOM_NAMES }),
@@ -2073,17 +2097,17 @@ function propRows(type, its) {
       P('Ridge runs', 'sel', o => o.ridge, (o, v) => { o.ridge = v; }, { opts: [['x', 'East – West'], ['y', 'North – South']] }), P('Shed rises', 'bool', o => !!o.flip, (o, v) => { o.flip = v ? 1 : 0; }, { label: 'toward the far side' }),
       P('Colour', 'color', o => o.c, (o, v) => { o.c = v; }), P('Sits on', 'sel', o => o.lv, (o, v) => { o.lv = v; }, { opts: lvOpts }),
       P('Size', 'ro', o => { const q = roofRect(o); return fmtLen(q[2] - q[0], { short: true }) + ' × ' + fmtLen(q[3] - q[1], { short: true }); }),
-      { l: '', k: 'btn', label: 'Fit to walls', run: o => { const b = levelBox(o.lv); if (!b) return; o.x0 = b[0]; o.y0 = b[1]; o.x1 = b[2]; o.y1 = b[3]; } },
+      { l: '', k: 'btn', tip: 'fitwalls', label: 'Fit to walls', run: o => { const b = levelBox(o.lv); if (!b) return; o.x0 = b[0]; o.y0 = b[1]; o.x1 = b[2]; o.y1 = b[3]; } },
     ],
     stair: [
-      P('Shape', 'sel', o => o.shape, (o, v) => { o.shape = v; }, { opts: [['straight', 'Straight'], ['L', 'L-shaped']] }), P('Turns', 'seg', o => o.turn, (o, v) => { o.turn = v; }, { opts: [['left', 'Left'], ['right', 'Right']], show: o => o.shape === 'L' }),
+      P('Shape', 'sel', o => o.shape, (o, v) => { o.shape = v; }, { opts: [['straight', 'Straight'], ['L', 'L-shaped']] }), P('Turns', 'seg', o => o.turn, (o, v) => { o.turn = v; }, { tip: 'turn', opts: [['left', 'Left'], ['right', 'Right']], show: o => o.shape === 'L' }),
       P('Width', 'len', o => o.w, (o, v) => { o.w = clamp(v, 12, 120); }, { u: 'in' }), P('Tread depth', 'len', o => o.run, (o, v) => { o.run = clamp(v, 5, 20); }, { u: 'in' }),
       P('Handrails', 'sel', o => o.rail || 'both', (o, v) => { o.rail = v; }, { opts: [['both', 'Both sides'], ['left', 'Left only'], ['right', 'Right only'], ['none', 'None']] }),
       P('Direction°', 'num', o => Math.round(o.ang / D2R * 10) / 10, (o, v) => { o.ang = v * D2R; }), P('Risers', 'ro', o => { const s = stairInfo(o); return s.n + ' × ' + fmtLen(s.r, { den: 16 }); }),
       P('Rises', 'ro', o => fmtLen(stairInfo(o).rise, { short: true })), P('Colour', 'color', o => o.c, (o, v) => { o.c = v; }),
     ],
     dim: [
-      P('Measure', 'seg', o => o.mode || 'aligned', (o, v) => { o.mode = v; }, { opts: [['aligned', 'Aligned'], ['horizontal', 'Horiz.'], ['vertical', 'Vert.']] }),
+      P('Measure', 'seg', o => o.mode || 'aligned', (o, v) => { o.mode = v; }, { tip: 'dim', opts: [['aligned', 'Aligned'], ['horizontal', 'Horiz.'], ['vertical', 'Vert.']] }),
       P('Length', 'ro', o => fmtLen(dimGeom(o).len)), P('Offset', 'len0', o => o.off, (o, v) => { o.off = v; }),
     ],
   };
@@ -2118,7 +2142,7 @@ function renderRight() {
   }
   h += '<div class="card"><div class="ch">Good to know</div><ul class="tips">' + g.tips.map(t => '<li>' + esc(t) + '</li>').join('') + '</ul></div>';
   keepFocus(P, () => { P.innerHTML = h; });
-  bindForms(P); updateSteps(true);
+  bindForms(P); enhanceSelects(P); updateSteps(true);
 }
 function propsCard(its) {
   const types = [...new Set(its.map(i => i.type))]; let h = '';
@@ -2129,9 +2153,9 @@ function propsCard(its) {
   }
   const hasWall = its.some(i => i.type === 'wall');
   h += '<div class="ch" style="margin:14px 0 7px">Transform</div><div class="btns">'
-    + '<button class="ib" data-p="rotccw" title="Rotate 90° counter-clockwise">' + ico('rotccw') + '</button><button class="ib" data-p="rotcw" title="Rotate 90° clockwise">' + ico('rotcw') + '</button>'
-    + '<button class="ib" data-p="mirx" title="Mirror left–right">' + ico('mirx') + '</button><button class="ib" data-p="miry" title="Mirror up–down">' + ico('miry') + '</button>'
-    + '<button class="ib" data-p="dup" title="Duplicate (Ctrl+D)">' + ico('copy') + '</button><button class="ib dng" data-p="del" title="Delete (Del)">' + ico('trash') + '</button></div>';
+    + '<button class="ib" data-p="rotccw">' + ico('rotccw') + '</button><button class="ib" data-p="rotcw">' + ico('rotcw') + '</button>'
+    + '<button class="ib" data-p="mirx">' + ico('mirx') + '</button><button class="ib" data-p="miry">' + ico('miry') + '</button>'
+    + '<button class="ib" data-p="dup">' + ico('copy') + '</button><button class="ib dng" data-p="del">' + ico('trash') + '</button></div>';
   if (hasWall) h += '<div class="form" style="margin-top:10px"><label>Offset copy</label><input type="text" data-p="offd" value="' + esc(fmtLen(formCtx.offd || 48)) + '"><span></span><div class="btns"><button class="btn sm" data-p="offl">Left side</button><button class="btn sm" data-p="offr">Right side</button></div></div>';
   return h + '</div>';
 }
@@ -2186,7 +2210,7 @@ function renderPlanHud() {
 }
 function renderLeft() {
   const P = $('#side'), lv = lvOf(S.lv), nW = doc.walls.filter(w => w.lv === lv.id).length, nR = doc.rooms.filter(r => r.lv === lv.id).length;
-  let h = '<div class="card"><div class="ch">Levels<span class="acts"><button class="ib" data-p="addlv" title="Add a level on top">' + ico('plus') + '</button><button class="ib" data-p="copylv" title="New level above, copied from this one">' + ico('copy') + '</button><button class="ib dng" data-p="dellv" title="Delete this level">' + ico('trash') + '</button></span></div>'
+  let h = '<div class="card"><div class="ch">Levels<span class="acts"><button class="ib" data-p="addlv">' + ico('plus') + '</button><button class="ib" data-p="copylv">' + ico('copy') + '</button><button class="ib dng" data-p="dellv">' + ico('trash') + '</button></span></div>'
     + doc.levels.slice().reverse().map(l => '<div class="lvl' + (l.id === S.lv ? ' on' : '') + '" data-l="' + l.id + '">' + ico('level', 15) + esc(l.name) + '<small>' + fmtLen(l.elev, { short: true }) + '</small></div>').join('') + '</div>';
   h += '<div class="card"><div class="ch">' + esc(lv.name) + '</div><div class="form"><label>Name</label><input type="text" data-p="lname" value="' + esc(lv.name) + '"><label>Elevation</label><input type="text" data-p="lelev" value="' + fmtLen(lv.elev) + '"><label>Floor to floor</label><input type="text" data-p="lh" value="' + fmtLen(lv.height) + '"></div><div class="empty" style="margin-top:8px">' + nW + ' wall' + (nW === 1 ? '' : 's') + ', ' + nR + ' room' + (nR === 1 ? '' : 's') + '</div></div>';
   h += '<div class="card"><div class="ch">Project</div><div class="form"><label>Name</label><input type="text" data-p="name" value="' + esc(doc.name) + '"><label>Floor slab</label><input type="text" data-p="ft" value="' + fmtIn(doc.set.floorT) + '"></div></div>';
@@ -2197,7 +2221,7 @@ function renderLeft() {
   P.querySelectorAll('.lvl').forEach(el => el.onclick = () => setLevel(el.dataset.l));
   P.querySelectorAll('[data-p]').forEach(el => el.addEventListener(el.tagName === 'BUTTON' ? 'click' : 'change', () => onLeftAction(el.dataset.p, el.value)));
   P.querySelectorAll('[data-v]').forEach(el => el.addEventListener('change', () => { PREF[el.dataset.v] = el.checked; savePrefs(); S.dirty = true; }));
-  renderPlanHud();
+  enhanceSelects(P); renderPlanHud();
 }
 function onLeftAction(k, v) {
   const lv = lvOf(S.lv);
@@ -2207,7 +2231,7 @@ function onLeftAction(k, v) {
   if (k === 'grid') { doc.set.grid = +v; pushHistory(); S.dirty = true; return; }
   if (k === 'name') { doc.name = v.slice(0, 80) || 'Untitled'; $('#fname').textContent = doc.name; }
   else if (k === 'lname') lv.name = v.slice(0, 40) || 'Level';
-  else { const n = parseLen(v, k === 'ft' ? 'in' : 'ft'); if (!isFinite(n) || (k !== 'lelev' && n <= 0)) { say('Could not read "' + v + '"', true); ui.lv = true; return; } if (k === 'lelev') { lv.elev = n; sortLevels(); } else if (k === 'lh') lv.height = Math.max(24, n); else if (k === 'ft') doc.set.floorT = clamp(n, 1, 36); }
+  else { const n = parseLen(v, k === 'ft' ? 'in' : 'ft'); if (!isFinite(n) || (k !== 'lelev' && n <= 0)) { say('Could not read "' + v + '"', true); ui.lv = true; return; } if (k === 'lelev') { lv.elev = clamp(n, -600, 12000); sortLevels(); } else if (k === 'lh') lv.height = clamp(n, 24, 600); else if (k === 'ft') doc.set.floorT = clamp(n, 1, 36); }
   ui.lv = true; commit();
 }
 function showHelp() {
@@ -2218,12 +2242,12 @@ function showHelp() {
     + sec('Selecting', [['Click · drag', 'Select · move; drag a square handle to reshape'], ['Box select', 'Drag right for items fully inside, left for anything touching'], [K('Ctrl') + K('A'), 'Select everything on this level'], [K('Del') + ' ' + K('Ctrl') + K('D'), 'Delete · duplicate'], ['Arrow keys', 'Nudge by the snap step (Shift: 1 ft)']])
     + sec('View', [['Wheel · ' + K('Home'), 'Zoom · fit the level'], [K('Tab') + ' ' + K('PgUp') + ' ' + K('PgDn'), 'Change level'], ['3D view', 'Drag to orbit, right-drag or Shift-drag to pan, wheel to zoom, double-click to fit. The Cut slider slices the model open.'], [K('Ctrl') + K('Z') + ' ' + K('Ctrl') + K('Y'), 'Undo · redo']])
     + '<div style="text-align:right;margin-top:14px"><button class="btn pri" id="dlgOk">Got it</button></div>';
-  $('#dlgBack').style.display = 'flex'; $('#dlgOk').onclick = () => $('#dlgBack').style.display = 'none';
+  $('#dlgBack').style.display = 'flex'; $('#dlgOk').onclick = () => closeDlg(true);
 }
 
 /* ════════ 3D controls and layout ════════ */
 function renderV3Ui() {
-  $('#v3Hud').innerHTML = [['iso', 'Iso'], ['top', 'Top'], ['front', 'Front'], ['right', 'Right'], ['back', 'Back'], ['left', 'Left']].map(v => '<button data-v="' + v[0] + '">' + v[1] + '</button>').join('') + '<button id="vFit">Fit</button><button id="vPng" title="Save a PNG of this view">PNG</button>';
+  $('#v3Hud').innerHTML = [['iso', 'Iso'], ['top', 'Top'], ['front', 'Front'], ['right', 'Right'], ['back', 'Back'], ['left', 'Left']].map(v => '<button data-v="' + v[0] + '">' + v[1] + '</button>').join('') + '<button id="vFit">Fit</button><button id="vPng">PNG</button>';
   $('#v3Hud').querySelectorAll('[data-v]').forEach(b => b.onclick = () => view3D(b.dataset.v)); $('#vFit').onclick = fit3D; $('#vPng').onclick = () => { draw3D(); download(fileBase() + '-3d.png', dataURLtoBlob($('#gl').toDataURL('image/png'))); };
   const chk = (id, l, on) => '<label class="chk"><input type="checkbox" id="' + id + '"' + (on ? ' checked' : '') + '><span>' + l + '</span></label>';
   $('#v3Opt').innerHTML = '<label>Show <select id="vLv">' + [['all', 'All levels'], ['upto', 'Up to current level'], ['only', 'Current level only']].map(o => '<option value="' + o[0] + '"' + (o[0] === V3.levels ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select></label>'
@@ -2231,6 +2255,7 @@ function renderV3Ui() {
   $('#vLv').onchange = e => { V3.levels = e.target.value; V3.need = true; }; $('#vRoof').onchange = e => { V3.roofs = e.target.checked; V3.need = true; };
   $('#vEdge').onchange = e => { V3.edges = e.target.checked; V3.dirty = true; }; $('#vGround').onchange = e => { V3.ground = e.target.checked; V3.dirty = true; };
   $('#vOrtho').onchange = e => { V3.ortho = e.target.checked; V3.dirty = true; }; $('#vCut').oninput = e => { V3.clip = +e.target.value; V3.dirty = true; };
+  enhanceSelects($('#v3Opt'));
 }
 function syncV3UI() { const o = $('#vOrtho'); if (o) o.checked = V3.ortho; }
 function setLayout(v) {
@@ -2252,6 +2277,231 @@ function setupSplitter() {
   sp.addEventListener('pointermove', e => { if (!on) return; const m = $('#main').getBoundingClientRect(), pw = panelW(), L = PREF.left ? pw[0] : 0, R = PREF.right ? pw[1] : 0; splitF = clamp((e.clientX - m.left - L) / (m.width - L - R - 6), 0.15, 0.85); applySplit(); resizeAll(); });
   sp.addEventListener('pointerup', () => { on = false; sp.classList.remove('drag'); });
   sp.addEventListener('dblclick', () => { splitF = 0.5; applySplit(); resizeAll(); });
+}
+
+/* ════════ Hover tip cards (before / after), custom dropdowns, confirm dialog ════════ */
+/* Small plan drawings used by the tip cards: a "before" and an "after" for every button. */
+const TA = (() => {
+  const C = { bg: '#f6f8fb', grid: '#e3e8ef', wall: '#c9d0da', edge: '#2b3441', acc: '#2f7de1', accS: 'rgba(47,125,225,.22)', red: '#d6453d', mut: '#8794a6', room: 'rgba(222,196,150,.55)', dark: '#1a1e25', dgrid: '#2a313c' };
+  const n = v => (+v).toFixed(1);
+  const grid = (c = C.grid) => { let s = ''; for (let x = 12; x < 120; x += 12) s += `<line x1="${x}" y1="0" x2="${x}" y2="92" stroke="${c}" stroke-width=".6"/>`; for (let y = 12; y < 92; y += 12) s += `<line x1="0" y1="${y}" x2="120" y2="${y}" stroke="${c}" stroke-width=".6"/>`; return s; };
+  const poly = (pts, fill, stroke, w = 1, extra = '') => `<polygon points="${pts.map(q => n(q[0]) + ',' + n(q[1])).join(' ')}" fill="${fill || 'none'}" stroke="${stroke || 'none'}" stroke-width="${w}" stroke-linejoin="miter" ${extra}/>`;
+  const wall = (x1, y1, x2, y2, o = {}) => {
+    const t = o.t || 6, dx = x2 - x1, dy = y2 - y1, l = Math.hypot(dx, dy) || 1, nx = -dy / l * t / 2, ny = dx / l * t / 2;
+    return poly([[x1 + nx, y1 + ny], [x2 + nx, y2 + ny], [x2 - nx, y2 - ny], [x1 - nx, y1 - ny]], o.fill || (o.hi ? C.accS : C.wall), o.stroke || (o.hi ? C.acc : C.edge), o.hi ? 1.6 : 1, o.dash ? 'stroke-dasharray="3 2"' : '');
+  };
+  const line = (x1, y1, x2, y2, c = C.acc, w = 1.4, d = '') => `<line x1="${n(x1)}" y1="${n(y1)}" x2="${n(x2)}" y2="${n(y2)}" stroke="${c}" stroke-width="${w}" ${d ? `stroke-dasharray="${d}"` : ''} stroke-linecap="round"/>`;
+  const dot = (x, y, r = 2.6, c = C.acc) => `<circle cx="${n(x)}" cy="${n(y)}" r="${r}" fill="${c}"/>`;
+  const hnd = (x, y) => `<rect x="${n(x - 2.6)}" y="${n(y - 2.6)}" width="5.2" height="5.2" fill="#fff" stroke="${C.acc}" stroke-width="1.3"/>`;
+  const txt = (x, y, s, c = C.acc, sz = 7.5, o = '') => `<text x="${n(x)}" y="${n(y)}" font-size="${sz}" font-family="Inter,system-ui,sans-serif" font-weight="600" fill="${c}" text-anchor="middle" ${o}>${s}</text>`;
+  const rect = (x, y, w, h, fill, stroke, sw = 1, d = '') => `<rect x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" rx="1.5" fill="${fill || 'none'}" stroke="${stroke || 'none'}" stroke-width="${sw}" ${d ? `stroke-dasharray="${d}"` : ''}/>`;
+  const cursor = (x, y) => `<path d="M${x},${y} l0,13 l3.4,-3.2 l2.7,6 l2.2,-1 l-2.7,-5.9 l4.7,-.3z" fill="#fff" stroke="#18212d" stroke-width="1" stroke-linejoin="round"/>`;
+  const house = (o = {}) => { const L = o.l ?? 22, T = o.t ?? 24, R = o.r ?? 98, B = o.b ?? 68, h = o.hi || '';
+    return wall(L, T, R, T, { hi: h === 'n' }) + wall(R, T, R, B, { hi: h === 'e' }) + wall(R, B, L, B, { hi: h === 's' }) + wall(L, B, L, T, { hi: h === 'w' }); };
+  const svg = (body, dark) => `<svg viewBox="0 0 120 92" xmlns="http://www.w3.org/2000/svg"><rect width="120" height="92" rx="8" fill="${dark ? C.dark : C.bg}"/>${grid(dark ? C.dgrid : C.grid)}${body}</svg>`;
+  const slab = (y, walls) => poly([[26, y], [94, y], [106, y + 12], [38, y + 12]], '#dfe6f1', C.mut, 1) + (walls ? poly([[26, y], [94, y], [94, y - 14], [26, y - 14]], 'rgba(201,208,218,.8)', C.edge, 1) : '');
+  const cubeIso = (c = 1) => `<g transform="translate(60 46) scale(${c})">${poly([[-22, -4], [0, -16], [22, -4], [0, 8]], '#e9eef5', C.edge, 1)}${poly([[-22, -4], [0, 8], [0, 32], [-22, 20]], C.wall, C.edge, 1)}${poly([[22, -4], [0, 8], [0, 32], [22, 20]], '#aeb8c6', C.edge, 1)}</g>`;
+  const tile = (x, y, label) => rect(x, y, 34, 40, '#fff', C.mut, 1) + txt(x + 17, y + 24, label, C.acc, 8);
+  const rot = (b, deg) => `<g transform="rotate(${deg} 60 46)">${b}</g>`;
+  const flip = (b, sx, sy) => `<g transform="translate(60 46) scale(${sx} ${sy}) translate(-60 -46)">${b}</g>`;
+  const shape = () => wall(34, 62, 34, 28) + wall(34, 28, 78, 28) + wall(78, 28, 78, 44);
+  const small = (b, k) => `<g transform="translate(60 46) scale(${k}) translate(-60 -46)">${b}</g>`;
+  const pane = (x, y, w, h, kind) => rect(x, y, w, h, kind === 'plan' ? '#fff' : kind === '3d' ? '#dfe7f1' : '#e8edf4', C.mut, 1) + (kind === '3d' ? poly([[x + w / 2 - 8, y + h / 2], [x + w / 2, y + h / 2 - 5], [x + w / 2 + 8, y + h / 2], [x + w / 2, y + h / 2 + 5]], '#aeb8c6', C.edge, .8) : kind === 'plan' ? wall(x + 6, y + 8, x + w - 6, y + 8, { t: 3 }) + wall(x + w - 6, y + 8, x + w - 6, y + h - 8, { t: 3 }) : '');
+  const layout = (left, mode, right) => (left ? pane(6, 8, 18, 76, 'side') : '') + (right ? pane(96, 8, 18, 76, 'side') : '')
+    + (mode === 'plan' ? pane(left ? 28 : 6, 8, (right ? 64 : 108) - (left ? 22 : 0), 76, 'plan') : mode === '3d' ? pane(left ? 28 : 6, 8, (right ? 64 : 108) - (left ? 22 : 0), 76, '3d')
+      : pane(left ? 28 : 6, 8, ((right ? 64 : 108) - (left ? 22 : 0)) / 2 - 2, 76, 'plan') + pane((left ? 28 : 6) + ((right ? 64 : 108) - (left ? 22 : 0)) / 2 + 2, 8, ((right ? 64 : 108) - (left ? 22 : 0)) / 2 - 2, 76, '3d'));
+  const guideline = () => line(18, 46, 102, 46, C.acc, 1.2, '4 3') + `<path d="M98,42 l5,4 l-5,4z" fill="${C.acc}"/>`;
+  const dimLine = (x1, y1, x2, y2, label, off = -14) => { const dx = x2 - x1, dy = y2 - y1, l = Math.hypot(dx, dy) || 1, nx = -dy / l * off, ny = dx / l * off; const a = [x1 + nx, y1 + ny], b = [x2 + nx, y2 + ny];
+    return line(x1, y1, a[0] + nx * .15, a[1] + ny * .15, C.edge, .8) + line(x2, y2, b[0] + nx * .15, b[1] + ny * .15, C.edge, .8) + line(a[0], a[1], b[0], b[1], C.edge, 1) + txt((a[0] + b[0]) / 2, (a[1] + b[1]) / 2 - 2.5, label, C.edge, 7); };
+  const stairs = (x, y, w, h, up) => { let s = rect(x, y, w, h, 'rgba(255,255,255,.6)', C.edge, 1); const k = 7; for (let i = 1; i < k; i++) s += line(x + w * i / k, y, x + w * i / k, y + h, C.edge, .8); return s + (up ? line(x + 3, y + h / 2, x + w - 5, y + h / 2, C.acc, 1.2) + `<path d="M${x + w - 5},${y + h / 2 - 3} l5,3 l-5,3z" fill="${C.acc}"/>` : ''); };
+  return { C, svg, poly, wall, line, dot, hnd, txt, rect, cursor, house, slab, cubeIso, tile, rot, flip, shape, small, layout, guideline, dimLine, stairs, pane };
+})();
+
+/* key → name, shortcut, what it does, optional how-to, and [before(), after()] drawings. Tool keys also pull their steps from GUIDE. */
+const TIPS = (() => {
+  const { C, svg, poly, wall, line, dot, hnd, txt, rect, cursor, house, slab, cubeIso, tile, rot, flip, shape, small, layout, guideline, dimLine, stairs } = TA;
+  const T = {}, add = (k, n, d, a, extra = {}) => { T[k] = Object.assign({ n, d, a }, extra); };
+  const H0 = () => svg(house()), E0 = () => svg('');
+  const ghost = () => poly([[22, 24], [98, 24], [98, 68], [22, 68]], 'none', C.mut, 1, 'stroke-dasharray="3 3"');
+  add('select', 'Select', 'Pick, move and reshape anything on the plan.', [() => svg(house() + cursor(62, 30)), () => svg(house({ hi: 'e' }) + hnd(98, 24) + hnd(98, 68) + cursor(80, 48))]);
+  add('wall', 'Wall', 'Draw walls corner by corner.', [() => svg(dot(26, 62) + line(26, 62, 74, 62, C.acc, 1.4, '3 3')), () => svg(wall(26, 62, 74, 62) + wall(74, 62, 74, 30) + dot(74, 30))]);
+  add('rect', 'Room Box', 'Four walls in two clicks.', [() => svg(dot(26, 28) + rect(26, 28, 68, 38, 'none', C.acc, 1.2, '4 3')), H0]);
+  add('door', 'Door', 'Cut a door into a wall.', [() => svg(wall(12, 52, 108, 52)), () => svg(wall(12, 52, 42, 52) + wall(78, 52, 108, 52) + line(42, 52, 42, 18, C.edge, 1.6) + `<path d="M42,18 A34,34 0 0 1 76,52" fill="none" stroke="${C.edge}" stroke-width=".9"/>`)]);
+  add('window', 'Window', 'Cut a window into a wall.', [() => svg(wall(12, 46, 108, 46)), () => svg(wall(12, 46, 38, 46) + wall(82, 46, 108, 46) + line(38, 43, 38, 49, C.edge, 1.2) + line(82, 43, 82, 49, C.edge, 1.2) + line(38, 43, 82, 43, C.edge, 1) + line(38, 49, 82, 49, C.edge, 1) + line(38, 46, 82, 46, C.acc, .9))]);
+  add('room', 'Room', 'Name an enclosed loop of walls and give it a floor.', [H0, () => svg(rect(25, 27, 70, 38, C.room) + house() + txt(60, 44, 'Living', C.edge, 8) + txt(60, 54, '270 sf', C.mut, 7))]);
+  add('roof', 'Roof', 'Gable, hip, shed or flat roof over a rectangle.', [H0, () => svg(poly([[12, 14], [108, 14], [108, 78], [12, 78]], 'rgba(162,87,63,.14)', '#a2573f', 1.2, 'stroke-dasharray="5 3"') + house() + line(12, 46, 108, 46, '#a2573f', 1, '3 3'))]);
+  add('stair', 'Stair', 'Straight or L-shaped stair up to the next level.', [H0, () => svg(house() + stairs(30, 34, 56, 24, true) + txt(58, 31, 'UP', C.acc, 6.5))]);
+  add('dim', 'Dimension', 'Measure and annotate a distance.', [() => svg(wall(22, 62, 98, 62) + dot(22, 62) + dot(98, 62)), () => svg(wall(22, 62, 98, 62) + dimLine(22, 62, 98, 62, "12'-0\"", 16))]);
+  add('split', 'Split Wall', 'Cut a wall in two.', [() => svg(wall(12, 46, 108, 46) + line(54, 40, 66, 52, C.red, 2) + line(66, 40, 54, 52, C.red, 2)), () => svg(wall(12, 46, 60, 46) + wall(60, 46, 108, 46, { hi: true }) + dot(60, 46, 2.4, C.red))]);
+  add('trim', 'Trim', 'Join two walls into a clean corner.', [() => svg(wall(30, 70, 30, 38) + wall(50, 28, 100, 28) + line(30, 38, 30, 28, C.acc, 1, '2 2') + line(30, 28, 50, 28, C.acc, 1, '2 2')), () => svg(wall(30, 70, 30, 28) + wall(30, 28, 100, 28) + dot(30, 28, 2.6, C.acc))]);
+  add('undo', 'Undo', 'Step back one change.', [H0, () => svg(wall(22, 24, 98, 24) + wall(98, 68, 22, 68) + wall(22, 68, 22, 24) + wall(98, 24, 98, 68, { dash: true, fill: 'none', stroke: C.mut }))]);
+  add('redo', 'Redo', 'Bring back the change you undid.', [() => svg(wall(22, 24, 98, 24) + wall(98, 68, 22, 68) + wall(22, 68, 22, 24) + wall(98, 24, 98, 68, { dash: true, fill: 'none', stroke: C.mut })), H0]);
+  add('new', 'New', 'Start an empty project.', [H0, () => svg(ghost())]);
+  add('open', 'Open', 'Open a saved .house.json project.', [E0, H0]);
+  add('save', 'Save', 'Download the project as a .house.json file.', [H0, () => svg(TA.tile(43, 26, '.json'))], { k: 'Ctrl+S' });
+  add('export', 'Export', 'Plan DXF, an OBJ model or PNG pictures.', [H0, () => svg(TA.tile(16, 26, 'DXF') + TA.tile(70, 26, 'OBJ'))]);
+  add('sample', 'Sample', 'Load the sample two-storey house.', [E0, () => svg(house() + poly([[16, 24], [60, 8], [104, 24]], 'rgba(162,87,63,.4)', '#a2573f', 1))]);
+  add('left', 'Levels panel', 'Show or hide the levels and project panel.', [() => svg(layout(true, 'split', true)), () => svg(layout(false, 'split', true))]);
+  add('right', 'Tool panel', 'Show or hide the step-by-step tool panel.', [() => svg(layout(true, 'split', true)), () => svg(layout(true, 'split', false))]);
+  add('layout:plan', 'Plan only', 'Give the whole workspace to the 2D plan.', [() => svg(layout(true, 'split', true)), () => svg(layout(true, 'plan', true))]);
+  add('layout:split', 'Plan + 3D', 'Draw on the left, watch the 3D model on the right.', [() => svg(layout(true, 'plan', true)), () => svg(layout(true, 'split', true))]);
+  add('layout:3d', '3D only', 'Give the whole workspace to the 3D model.', [() => svg(layout(true, 'split', true)), () => svg(layout(true, '3d', true))]);
+  add('theme', 'Light / dark', 'Switch the colour theme.', [() => svg(house()), () => svg(house({}).replace(new RegExp(C.edge, 'g'), '#cfd7e3'), true)]);
+  add('help', 'Help', 'Shortcuts and tips.', null, { k: '?' });
+  add('zoomin', 'Zoom in', 'Magnify the plan.', [H0, () => svg(small(house(), 1.5))], { k: '+' });
+  add('zoomout', 'Zoom out', 'Show more of the plan.', [() => svg(small(house(), 1.5)), H0], { k: '−' });
+  add('zoomfit', 'Fit', 'Zoom so the whole level fills the view.', [() => svg(small(house(), 0.5)), () => svg(house({ l: 10, t: 12, r: 110, b: 80 }))], { k: 'Home' });
+  add('lvl', 'Switch level', 'Show another level on the plan.', [H0, () => svg(wall(30, 30, 90, 30, { t: 5 }) + wall(90, 30, 90, 62, { t: 5 }) + wall(90, 62, 30, 62, { t: 5 }) + wall(30, 62, 30, 30, { t: 5 }) + house({}).replace(/fill="#c9d0da"/g, 'fill="rgba(135,148,166,.18)"').replace(new RegExp(C.edge, 'g'), '#aab4c3'))], { k: 'Tab' });
+  add('addlv', 'Add level', 'Add a new level on top of the stack.', [() => svg(slab(60, true)), () => svg(slab(60, true) + slab(30, true))]);
+  add('copylv', 'Copy level up', 'New level above, with this level’s walls, doors, rooms and dimensions copied.', [() => svg(slab(60, true)), () => svg(slab(60, true) + slab(30, true))]);
+  add('dellv', 'Delete level', 'Remove this level and everything on it (asks first).', [() => svg(slab(60, true) + slab(30, true)), () => svg(slab(60, true))]);
+  add('rotcw', 'Rotate clockwise', 'Turn the selection a quarter turn.', [() => svg(shape()), () => svg(rot(shape(), 90))]);
+  add('rotccw', 'Rotate counter-clockwise', 'Turn the selection a quarter turn.', [() => svg(shape()), () => svg(rot(shape(), -90))]);
+  add('mirx', 'Mirror left–right', 'Flip the selection across its middle.', [() => svg(shape()), () => svg(flip(shape(), -1, 1))]);
+  add('miry', 'Mirror up–down', 'Flip the selection top to bottom.', [() => svg(shape()), () => svg(flip(shape(), 1, -1))]);
+  add('dup', 'Duplicate', 'Copy the selection a little to the side.', [() => svg(wall(20, 30, 70, 30, { hi: true }) + wall(70, 30, 70, 56, { hi: true })), () => svg(wall(20, 30, 70, 30) + wall(70, 30, 70, 56) + wall(44, 52, 94, 52, { hi: true }) + wall(94, 52, 94, 78, { hi: true }))], { k: 'Ctrl+D' });
+  add('del', 'Delete', 'Remove the selection.', [() => svg(house({ hi: 'e' })), () => svg(wall(22, 24, 98, 24) + wall(98, 68, 22, 68) + wall(22, 68, 22, 24))], { k: 'Del' });
+  add('offl', 'Offset copy, left', 'Copy the wall parallel to itself, on its left side, by the distance above.', [() => svg(wall(18, 56, 102, 56, { hi: true })), () => svg(wall(18, 56, 102, 56) + wall(18, 32, 102, 32, { hi: true }))]);
+  add('offr', 'Offset copy, right', 'Copy the wall parallel to itself, on its right side, by the distance above.', [() => svg(wall(18, 36, 102, 36, { hi: true })), () => svg(wall(18, 36, 102, 36) + wall(18, 60, 102, 60, { hi: true }))]);
+  // 3D views
+  const view = k => ({ iso: cubeIso(), top: rect(32, 22, 56, 48, '#e9eef5', C.edge, 1), front: rect(32, 28, 56, 36, C.wall, C.edge, 1), right: rect(40, 28, 40, 36, '#aeb8c6', C.edge, 1), back: rect(32, 28, 56, 36, '#b9c2cf', C.edge, 1), left: rect(40, 28, 40, 36, C.wall, C.edge, 1) }[k]);
+  const vn = { iso: 'Isometric', top: 'Top', front: 'Front', right: 'Right', back: 'Back', left: 'Left' };
+  for (const k of Object.keys(vn)) add('v:' + k, vn[k] + ' view', 'Turn the 3D camera to the ' + vn[k].toLowerCase() + '.', [() => svg(cubeIso()), () => svg(view(k) + txt(60, 82, vn[k], C.mut, 7))]);
+  add('v:fit', 'Fit 3D', 'Frame the whole model in the 3D view.', [() => svg(small(cubeIso(), .5)), () => svg(cubeIso(1.5))]);
+  add('v:png', 'Save PNG', 'Save a picture of the 3D view.', [() => svg(cubeIso()), () => svg(TA.tile(43, 26, '.png'))]);
+  // tool options
+  const bar = (dy, o = {}) => wall(18, 46 + dy, 102, 46 + dy, o);
+  add('loc:center', 'Centre line', 'The line you draw runs down the middle of the wall.', [() => svg(guideline()), () => svg(bar(0) + guideline())]);
+  add('loc:left', 'Left face', 'The line you draw is the wall’s left face; the wall grows to the right of travel.', [() => svg(guideline()), () => svg(bar(5) + guideline())]);
+  add('loc:right', 'Right face', 'The line you draw is the wall’s right face; the wall grows to the left of travel.', [() => svg(guideline()), () => svg(bar(-5) + guideline())]);
+  add('from:corner', 'Draw from a corner', 'First click is a corner; the second is the opposite one.', [() => svg(dot(30, 28) + rect(30, 28, 56, 36, 'none', C.acc, 1.2, '4 3')), H0]);
+  add('from:center', 'Draw from the centre', 'First click is the middle; the second is a corner.', [() => svg(dot(60, 46) + rect(28, 28, 64, 36, 'none', C.acc, 1.2, '4 3')), H0]);
+  const rl = (inset) => svg(rect(26, 28, 68, 36, 'none', C.acc, 1, '3 3') + wall(26, 28 + inset, 94, 28 + inset, {}) + wall(94 - inset, 28, 94 - inset, 64, {}) + wall(94, 64 - inset, 26, 64 - inset, {}) + wall(26 + inset, 64, 26 + inset, 28, {}));
+  add('rloc:center', 'Centre line', 'Your box is the middle of the walls.', [() => svg(rect(26, 28, 68, 36, 'none', C.acc, 1.2, '4 3')), () => rl(0)]);
+  add('rloc:inside', 'Inside face', 'Your box is the inside of the room; walls grow outward.', [() => svg(rect(30, 30, 60, 32, 'none', C.acc, 1.2, '4 3')), () => svg(house({ l: 27, t: 27, r: 93, b: 65 }) + rect(30, 30, 60, 32, 'none', C.acc, 1, '3 3'))]);
+  add('rloc:outside', 'Outside face', 'Your box is the outside of the building; walls grow inward.', [() => svg(rect(22, 24, 76, 44, 'none', C.acc, 1.2, '4 3')), () => svg(house({ l: 25, t: 27, r: 95, b: 65 }) + rect(22, 24, 76, 44, 'none', C.acc, 1, '3 3'))]);
+  add('dim:aligned', 'Aligned', 'Measures straight from point to point, whatever the angle.', [() => svg(dot(26, 66) + dot(92, 28)), () => svg(dot(26, 66) + dot(92, 28) + dimLine(26, 66, 92, 28, "6'-3\"", 12))]);
+  add('dim:horizontal', 'Horizontal', 'Measures only the east–west distance.', [() => svg(dot(26, 66) + dot(92, 28)), () => svg(dot(26, 66) + dot(92, 28) + line(92, 28, 92, 66, C.mut, .8, '2 2') + dimLine(26, 66, 92, 66, "5'-6\"", 12))]);
+  add('dim:vertical', 'Vertical', 'Measures only the north–south distance.', [() => svg(dot(26, 66) + dot(92, 28)), () => svg(dot(26, 66) + dot(92, 28) + line(26, 28, 92, 28, C.mut, .8, '2 2') + dimLine(26, 66, 26, 28, "3'-2\"", -12))]);
+  add('turn:left', 'Turns left', 'The second flight turns left at the landing.', [() => svg(stairs(24, 52, 40, 16, true)), () => svg(stairs(24, 52, 40, 16, false) + rect(64, 52, 16, 16, 'rgba(160,140,100,.25)', C.edge, 1) + stairs(64, 20, 16, 32, true))]);
+  add('turn:right', 'Turns right', 'The second flight turns right at the landing.', [() => svg(stairs(24, 28, 40, 16, true)), () => svg(stairs(24, 28, 40, 16, false) + rect(64, 28, 16, 16, 'rgba(160,140,100,.25)', C.edge, 1) + stairs(64, 44, 16, 32, true))]);
+  add('splitat:click', 'Cut where you click', 'The wall is cut at the clicked point (snapped to the grid).', [() => svg(wall(12, 46, 108, 46) + cursor(40, 32)), () => svg(wall(12, 46, 36, 46) + wall(36, 46, 108, 46, { hi: true }) + dot(36, 46, 2.4, C.red))]);
+  add('splitat:mid', 'Cut in the middle', 'The wall is cut exactly in half.', [() => svg(wall(12, 46, 108, 46) + cursor(30, 32)), () => svg(wall(12, 46, 60, 46) + wall(60, 46, 108, 46, { hi: true }) + dot(60, 46, 2.4, C.red))]);
+  add('hinge:0', 'Hinge on the left', 'The door leaf is hinged at the left jamb.', [() => svg(wall(12, 52, 42, 52) + wall(78, 52, 108, 52)), () => svg(wall(12, 52, 42, 52) + wall(78, 52, 108, 52) + line(42, 52, 42, 18, C.edge, 1.6) + `<path d="M42,18 A34,34 0 0 1 76,52" fill="none" stroke="${C.edge}" stroke-width=".9"/>`)], { k: 'Space' });
+  add('hinge:1', 'Hinge on the right', 'The door leaf is hinged at the right jamb.', [() => svg(wall(12, 52, 42, 52) + wall(78, 52, 108, 52)), () => svg(wall(12, 52, 42, 52) + wall(78, 52, 108, 52) + line(78, 52, 78, 18, C.edge, 1.6) + `<path d="M78,18 A34,34 0 0 0 44,52" fill="none" stroke="${C.edge}" stroke-width=".9"/>`)], { k: 'Space' });
+  add('fitroof', 'Roof over all walls', 'One click: a roof sized to every wall on this level.', T.roof.a);
+  add('fitwalls', 'Fit to walls', 'Resize this roof to cover the walls on its level.', [() => svg(house() + rect(40, 30, 30, 20, 'none', '#a2573f', 1.2, '4 3')), T.roof.a[1]]);
+  add('roomcolor', 'Colour from name', 'Use the standard floor colour for this room name.', [() => svg(rect(25, 27, 70, 38, '#c9d0da') + house()), () => svg(rect(25, 27, 70, 38, C.room) + house())]);
+  add('dlgok', 'OK', 'Close this dialog.', null);
+  return T;
+})();
+
+const TIP_IDS = { bNew: 'new', bOpen: 'open', bSave: 'save', bExport: 'export', bSample: 'sample', bUndo: 'undo', bRedo: 'redo', bLeft: 'left', bRight: 'right', bTheme: 'theme', bHelp: 'help', zIn: 'zoomin', zOut: 'zoomout', zFit: 'zoomfit', vFit: 'v:fit', vPng: 'v:png' };
+function tipKeyOf(el) {
+  if (el.dataset.tip) return el.dataset.tip;
+  if (el.id && TIP_IDS[el.id]) return TIP_IDS[el.id];
+  if (el.dataset.tool) return el.dataset.tool;
+  if (el.closest('#viewSeg') && el.dataset.v) return 'layout:' + el.dataset.v;
+  if (el.closest('#v3Hud') && el.dataset.v) return 'v:' + el.dataset.v;
+  if (el.closest('#planHud')) return 'lvl';
+  if (el.dataset.p && TIPS[el.dataset.p]) return el.dataset.p;
+  return '';
+}
+function tipInfo(k) {
+  const t = TIPS[k]; if (!t) return null;
+  const g = GUIDE[k], tool = RIBBON.find(r => r && r[0] === k);
+  return { name: g ? g.n : t.n, key: tool ? tool[2] : t.k || '', what: g ? g.d : t.d, steps: g ? g.steps : t.s, art: t.a };
+}
+function initTips() {
+  const card = document.createElement('div'); card.id = 'tipcard'; card.hidden = true; document.body.appendChild(card);
+  let el = null, t1 = 0, t2 = 0, lx = 0, ly = 0;
+  document.addEventListener('pointermove', e => { lx = e.clientX; ly = e.clientY; }, true);
+  const hide = () => { clearTimeout(t1); clearTimeout(t2); card.classList.remove('in', 'more'); card.hidden = true; el = null; };
+  const place = () => {
+    if (!el || !el.isConnected) return; const r = el.getBoundingClientRect(), w = card.offsetWidth, h = card.offsetHeight;
+    let x = r.left + r.width / 2 - w / 2, y = r.bottom + 8; if (y + h > innerHeight - 8) y = Math.max(8, r.top - h - 8);
+    card.style.left = clamp(x, 8, innerWidth - w - 8) + 'px'; card.style.top = y + 'px';
+  };
+  const show = () => {
+    if (el && !el.isConnected) { const n = document.elementFromPoint(lx, ly); el = n && n.closest ? n.closest('button, .rb, [data-tip]') : null; }   // the panel was redrawn under the pointer
+    if (!el || !el.isConnected) return; const k = tipKeyOf(el), i = tipInfo(k); if (!i) return;
+    const pics = i.art ? '<div class="tip-pics"><figure>' + i.art[0]() + '<figcaption>Before</figcaption></figure><span class="tip-arr">→</span><figure>' + i.art[1]() + '<figcaption>After</figcaption></figure></div>' : '';
+    const steps = i.steps && i.steps.length ? '<div class="tip-more"><div class="tip-step">How to use it</div><ol>' + i.steps.map(s => typeof s === 'string' ? '<li>' + esc(s) + '</li>' : '<li><b>' + esc(s[0]) + '.</b> ' + esc(s[1]) + '</li>').join('') + '</ol></div>' : '';
+    card.innerHTML = '<div class="tip-head"><b>' + esc(i.name) + '</b>' + (i.key ? '<span class="kbd">' + esc(i.key) + '</span>' : '') + '</div>' + (i.what ? '<p class="tip-what">' + esc(i.what) + '</p>' : '') + pics + steps;
+    card.hidden = false; place(); requestAnimationFrame(() => card.classList.add('in'));
+    if (steps) t2 = setTimeout(() => { card.classList.add('more'); requestAnimationFrame(place); setTimeout(place, 260); }, 1400);
+  };
+  document.addEventListener('pointerover', e => {
+    const b = e.target.closest && e.target.closest('button, .rb, [data-tip]'); if (b === el) return;
+    hide(); if (!b || e.pointerType === 'touch' || b.disabled && !TIPS[tipKeyOf(b)]) return;
+    if (!tipKeyOf(b)) return; el = b; t1 = setTimeout(show, 450);
+  });
+  document.addEventListener('pointerleave', hide, true);
+  document.addEventListener('pointerdown', hide, true); document.addEventListener('keydown', hide, true); addEventListener('scroll', hide, true); addEventListener('blur', hide);
+  document.addEventListener('pointerout', e => { if (el && !el.contains(e.relatedTarget)) hide(); });
+}
+
+/* ── dropdowns: the native <select> stays in the page (hidden) so every handler keeps working; this draws the menu ── */
+let ddOpen = null;
+function closeDD() { if (!ddOpen) return; const { menu, btn, off } = ddOpen; ddOpen = null; btn.classList.remove('open'); menu.classList.remove('in'); off(); setTimeout(() => menu.remove(), 160); }
+function openDD(sel, btn) {
+  closeDD(); const menu = document.createElement('div'); menu.className = 'ddm'; menu.setAttribute('role', 'listbox');
+  const opts = [...sel.options]; let act = Math.max(0, sel.selectedIndex);
+  menu.innerHTML = opts.map((o, i) => '<div class="ddo' + (i === sel.selectedIndex ? ' sel' : '') + '" role="option" data-i="' + i + '"><span>' + esc(o.text) + '</span><svg class="ck" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.5l2.5 2.5 4.5-5.5"/></svg></div>').join('');
+  document.body.appendChild(menu);
+  const r = btn.getBoundingClientRect(), mh = Math.min(menu.scrollHeight, 280); menu.style.minWidth = Math.max(r.width, 140) + 'px';
+  const up = r.bottom + mh + 10 > innerHeight && r.top > mh + 10; menu.classList.toggle('up', up);
+  menu.style.left = clamp(r.left, 6, innerWidth - menu.offsetWidth - 6) + 'px'; menu.style.top = (up ? r.top - mh - 6 : r.bottom + 6) + 'px';
+  const items = [...menu.children], mark = () => items.forEach((n, i) => n.classList.toggle('act', i === act));
+  const pick = i => { closeDD(); if (i !== sel.selectedIndex) { sel.selectedIndex = i; sel.dispatchEvent(new Event('change', { bubbles: true })); } syncDD(sel); btn.focus({ preventScroll: true }); };
+  menu.addEventListener('pointermove', e => { const n = e.target.closest('.ddo'); if (n) { act = +n.dataset.i; mark(); } });
+  menu.addEventListener('pointerdown', e => e.preventDefault());
+  menu.addEventListener('click', e => { const n = e.target.closest('.ddo'); if (n) pick(+n.dataset.i); });
+  const key = e => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeDD(); btn.focus({ preventScroll: true }); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); act = (act + 1) % items.length; mark(); items[act].scrollIntoView({ block: 'nearest' }); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); act = (act + items.length - 1) % items.length; mark(); items[act].scrollIntoView({ block: 'nearest' }); }
+    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); pick(act); }
+    else if (e.key === 'Tab') closeDD();
+    else if (e.key.length === 1) { const i = opts.findIndex((o, j) => j > act && o.text.toLowerCase().startsWith(e.key.toLowerCase())); const k = i >= 0 ? i : opts.findIndex(o => o.text.toLowerCase().startsWith(e.key.toLowerCase())); if (k >= 0) { act = k; mark(); items[k].scrollIntoView({ block: 'nearest' }); } e.stopPropagation(); }
+  };
+  const away = e => { if (!menu.contains(e.target) && !btn.contains(e.target)) closeDD(); };
+  document.addEventListener('keydown', key, true); document.addEventListener('pointerdown', away, true); addEventListener('resize', closeDD); addEventListener('blur', closeDD);
+  const sc = e => { if (!menu.contains(e.target)) closeDD(); }; addEventListener('scroll', sc, true);
+  const off = () => { document.removeEventListener('keydown', key, true); document.removeEventListener('pointerdown', away, true); removeEventListener('resize', closeDD); removeEventListener('blur', closeDD); removeEventListener('scroll', sc, true); };
+  ddOpen = { menu, btn, off }; btn.classList.add('open'); mark(); requestAnimationFrame(() => { menu.classList.add('in'); items[act] && items[act].scrollIntoView({ block: 'nearest' }); });
+}
+function syncDD(sel) { const b = sel.parentNode && sel.parentNode.querySelector(':scope > .ddb'); if (b) b.firstChild.textContent = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : ''; }
+function enhanceSelects(root) {
+  (root || document).querySelectorAll('select:not([data-dd])').forEach(sel => {
+    sel.dataset.dd = '1'; const w = document.createElement('div'); w.className = 'dd'; sel.parentNode.insertBefore(w, sel);
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'ddb'; b.innerHTML = '<span></span><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5l3 3 3-3"/></svg>';
+    w.appendChild(b); w.appendChild(sel); syncDD(sel);
+    b.addEventListener('click', () => { if (ddOpen && ddOpen.btn === b) closeDD(); else openDD(sel, b); });
+    b.addEventListener('keydown', e => { if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !ddOpen) { e.preventDefault(); openDD(sel, b); } });
+    sel.addEventListener('change', () => syncDD(sel));
+  });
+}
+
+/* ── in-page confirm dialog (replaces the browser's confirm box) ── */
+let dlgDone = null;
+function closeDlg(v) { $('#dlgBack').style.display = 'none'; const f = dlgDone; dlgDone = null; if (f) f(!!v); }
+function askConfirm(msg, okLabel, danger) {
+  return new Promise(res => {
+    if (dlgDone) closeDlg(false); dlgDone = res;
+    $('#dlg').innerHTML = '<h3>' + esc(okLabel || 'Confirm') + '?</h3><p style="margin:6px 0 16px;color:var(--ink2)">' + esc(msg) + '</p><div class="btns" style="justify-content:flex-end"><button class="btn" id="dlgNo">Cancel</button><button class="btn ' + (danger ? 'dng2' : 'pri') + '" id="dlgYes">' + esc(okLabel || 'OK') + '</button></div>';
+    $('#dlgBack').style.display = 'flex'; $('#dlgNo').onclick = () => closeDlg(false); $('#dlgYes').onclick = () => closeDlg(true); $('#dlgYes').focus();
+  });
+}
+
+/* ── text inputs: select on focus, Enter applies, Esc puts the old value back ── */
+function initInputs() {
+  document.addEventListener('focusin', e => { const t = e.target; if (t.tagName === 'INPUT' && t.type === 'text' && t.id !== 'lenIn') { t.dataset.orig = t.value; setTimeout(() => { try { if (document.activeElement === t && t.value === t.dataset.orig) t.select(); } catch (_) { } }, 0); } });
+  document.addEventListener('keydown', e => {
+    const t = e.target; if (!(t.tagName === 'INPUT' && t.type === 'text') || t.id === 'lenIn') return;
+    if (e.key === 'Enter') { e.preventDefault(); t.blur(); } else if (e.key === 'Escape' && t.dataset.orig != null) t.value = t.dataset.orig;
+  }, true);
+  document.addEventListener('change', e => { if (e.target.tagName === 'SELECT') syncDD(e.target); });
 }
 
 /* ════════ Boot ════════ */
@@ -2292,21 +2542,21 @@ function boot() {
   $('#bUndo').onclick = undo; $('#bRedo').onclick = redo; $('#bSave').onclick = saveFile; $('#bHelp').onclick = showHelp;
   $('#bExport').onclick = e => { e.stopPropagation(); exportMenu(e.currentTarget); };
   $('#bOpen').onclick = () => $('#fileIn').click(); $('#fileIn').onchange = e => { const f = e.target.files[0]; if (f) openFile(f); e.target.value = ''; };
-  $('#bNew').onclick = () => { if (doc.walls.length && !confirm('Start a new empty project? Unsaved work will be lost (Undo is cleared).')) return; doc = newDoc(); loadDoc(doc, 'New project'); };
-  $('#bSample').onclick = () => { if (doc.walls.length && !confirm('Replace the current project with the sample house?')) return; loadDoc(sampleDoc(), 'Sample house loaded'); };
+  $('#bNew').onclick = async () => { if (doc.walls.length && !(await askConfirm('Start a new empty project? Unsaved work will be lost (Undo is cleared).', 'Start new', true))) return; doc = newDoc(); loadDoc(doc, 'New project'); };
+  $('#bSample').onclick = async () => { if (doc.walls.length && !(await askConfirm('Replace the current project with the sample house?', 'Load sample', true))) return; loadDoc(sampleDoc(), 'Sample house loaded'); };
   $('#bLeft').onclick = () => { PREF.left = !PREF.left; savePrefs(); applySplit(); resizeAll(); }; $('#bRight').onclick = () => { PREF.right = !PREF.right; savePrefs(); applySplit(); resizeAll(); };
   $('#bTheme').onclick = () => { const d = document.documentElement; d.dataset.theme = d.dataset.theme === 'dark' ? 'light' : 'dark'; try { localStorage.setItem('datum-house-theme', d.dataset.theme); } catch (_) { } loadTheme(); S.dirty = V3.dirty = V3.need = true; };
   document.querySelectorAll('#viewSeg button').forEach(b => b.onclick = () => setLayout(b.dataset.v));
-  $('#dlgBack').addEventListener('pointerdown', e => { if (e.target.id === 'dlgBack') $('#dlgBack').style.display = 'none'; });
+  $('#dlgBack').addEventListener('pointerdown', e => { if (e.target.id === 'dlgBack') closeDlg(false); });
   window.addEventListener('dragover', e => e.preventDefault()); window.addEventListener('drop', e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) openFile(f); });
   window.addEventListener('beforeunload', () => { try { localStorage.setItem(storeKey, JSON.stringify(doc)); } catch (_) { } });
   document.addEventListener('change', e => { if (e.target.tagName === 'SELECT') e.target.blur(); });   // keep the one-key tool shortcuts working after a dropdown
-  setupSplitter(); applySplit();
+  initTips(); initInputs(); setupSplitter(); applySplit();
   ui.lv = ui.side = ui.ribbon = true; V3.need = true; S.dirty = true;
   window.addEventListener('resize', () => { applySplit(); resizeAll(); });
   requestAnimationFrame(() => { sizePlan(); zoomFit(true); tick(); });
   setTimeout(() => { if (!S.tv && !S.fitUser) { sizePlan(); zoomFit(true); } }, 250);
-  window.HOUSE = { get doc() { return doc; }, S, V3, ui, H, exportDXF, exportOBJ, sanitize, loadDoc, sampleDoc, newDoc, fmtLen, parseLen, faceAt, footprints, stairInfo, roomGeom, buildScene, setTool, commit, undo, redo, addWall, deleteItems, pick, snap, toS, toW, zoomFit, nid, splitWall, duplicateSel, setLayout, view3D, showHelp, PREF, OPT, GUIDE, hintHTML, stepIdx, tweenView, transformSel, trimToCorner, chainVerts, offsetWall, copyLevelUp, setLevel, cancelDrag, cancelOps, selectAll, onRow, renderRight, renderLeft, dimGeom, tick };
+  window.HOUSE = { TIPS, tipInfo, tipKeyOf, enhanceSelects, askConfirm, get doc() { return doc; }, S, V3, ui, H, exportDXF, exportOBJ, sanitize, loadDoc, sampleDoc, newDoc, fmtLen, parseLen, faceAt, footprints, stairInfo, roomGeom, buildScene, setTool, commit, undo, redo, addWall, deleteItems, pick, snap, toS, toW, zoomFit, nid, splitWall, duplicateSel, setLayout, view3D, showHelp, PREF, OPT, GUIDE, hintHTML, stepIdx, tweenView, transformSel, trimToCorner, chainVerts, offsetWall, copyLevelUp, setLevel, cancelDrag, cancelOps, selectAll, onRow, renderRight, renderLeft, dimGeom, tick };
 }
 boot();
 </script>
