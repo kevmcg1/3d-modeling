@@ -13356,10 +13356,12 @@ function simProgram() {
     if (!P || P.pending) continue;
     for (let i = 1; i < P.m.length; i++) {
       const a = P.m[i - 1], b = P.m[i], L = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z), dt = L / (b.r ? RAPID : b.f) + (b.dw || 0) / 60;
-      out.push({ a, b, r: b.r, tool: b.tool || P.tool, t0: t, t1: t + dt, op: op.id, mi: i, fin: op.type === 'parallel', ax: opAxis(op) });
+      out.push({ a, b, r: b.r, tool: b.tool || P.tool, t0: t, t1: t + dt, op: op.id, mi: i, fin: op.type === 'parallel', ax: opAxis(op), slug: b.slug, stop: b.stop });
       t += dt;
     }
   }
+  // an optional stop before each tool change, when the post writes one
+  if (cam().post.optStop) for (let i = 1; i < out.length; i++) if (out[i].op !== out[i - 1].op && out[i].tool !== out[i - 1].tool && !out[i - 1].stop) out[i - 1].stop = { code: 'M01', why: 'optional stop before the tool change' };
   return { segs: out, total: t };
 }
 // Radius of the cut a tool makes at height h above its tip (0 = no cut).
@@ -13527,6 +13529,15 @@ class StockModel {
     this.low = null;
   }
   pendAbove(i) { for (let k = i + 1; k < this.n; k++) if (this.pend[k].size) return true; return false; }
+  // A piece comes free of the stock (a wire's slug, the scrap round a part): mode 'drop' takes the region out of every slab, 'keep' leaves only that region
+  removeRegion(sl) {
+    this.flush();
+    for (let i = 0; i < this.n; i++) {
+      if (!this.P[i].length) continue;
+      this.P[i] = cBool(sl.mode === 'keep' ? ClipperLib.ClipType.ctIntersection : ClipperLib.ClipType.ctDifference, this.P[i], sl.paths).filter(p => p.length >= 3);
+      this.dirty.add(i); this.ver[i]++;
+    }
+  }
   // Material left in slab i: what the cuts from above left, minus the cuts from the side.
   eff(i) {
     if (!this.S[i].length) return this.P[i];
@@ -13645,8 +13656,8 @@ const StockLook = (() => {
     if (mats && matKey === key) return mats;
     const env = ToolLook.env();
     mats = {
-      raw: new THREE.MeshStandardMaterial({ color: M.raw, map: saw(), roughness: 0.78, metalness: 0.35, envMap: env, envMapIntensity: 0.5, side: THREE.DoubleSide }),
-      cut: new THREE.MeshStandardMaterial({ color: M.cut, map: machined(), roughness: 0.28, metalness: 0.8, envMap: env, envMapIntensity: 1, side: THREE.DoubleSide }),
+      raw: new THREE.MeshStandardMaterial({ color: M.raw, roughness: 0.78, metalness: 0.35, envMap: env, envMapIntensity: 0.5, side: THREE.DoubleSide }),
+      cut: new THREE.MeshStandardMaterial({ color: M.cut, roughness: 0.28, metalness: 0.8, envMap: env, envMapIntensity: 1, side: THREE.DoubleSide }),
     };
     matKey = key;
     return mats;
@@ -13802,6 +13813,7 @@ function simApplyTo(t, noFlush) {
       break;
     }
     if (!sg.r) S.model.cut(sg.a, sg.b, sg.tool, sg.fin, sg.ax);
+    if (sg.slug) S.model.removeRegion(sg.slug);
   }
   S.applied = i;
   if (!noFlush) { S.model.flush(); S.view.update(); }
@@ -14156,7 +14168,7 @@ function postGcode() {
     L.push(`(${op.name} — ${toolName(t)})`);
     if (grbl && P.tap) L.push('(WARNING: GRBL has no synchronized tapping cycle - use a floating tap holder)');
     if (lastTool !== t.n) {
-      if (lastTool !== null) { if (pf.coolant) L.push('M9'); L.push('M5'); }
+      if (lastTool !== null) { if (pf.coolant) L.push('M9'); L.push('M5'); if (pf.optStop && !grbl) L.push('M1 (OPTIONAL STOP)'); }
       L.push(grbl ? `M0 (Change to ${toolName(t)})` : `T${t.n} M6`);
       L.push(op.kind === 'bsf' ? `S${Math.round(t.rpm)} (SPINDLE STAYS OFF UNTIL THE BLADE IS BELOW THE PART)` : `S${Math.round(t.rpm)} M3`);
       if (pf.coolant && op.kind !== 'bsf') L.push('M8');
@@ -14693,7 +14705,7 @@ function camPanel() {
     return `<div class="pn-head"><h2>G-code</h2><span class="tag">${g.lines} lines · ${fmtTime(g.min)}</span></div><div class="pn-body">
       <div class="field"><span>Controller</span><div class="pick"><span>Haas mill (NGC)</span></div></div>
       <div class="field"><span>Indexed ops</span><div class="seg"><button data-post="multi:setup" class="${pf.multi !== 'g682' ? 'on' : ''}">Rotary / trunnion (A, B, A+C)</button><button data-post="multi:g682" class="${pf.multi === 'g682' ? 'on' : ''}">Tilted plane G68.2</button></div></div>
-      <div class="row2">${num('postProg', pf.program, 'Program number', 1)}<div class="field"><span>Options</span><label class="chk"><input type="checkbox" id="postArcs" ${pf.arcs ? 'checked' : ''}> Arcs (G2/G3)</label><label class="chk"><input type="checkbox" id="postCool" ${pf.coolant ? 'checked' : ''}> Coolant</label></div></div>
+      <div class="row2">${num('postProg', pf.program, 'Program number', 1)}<div class="field"><span>Options</span><label class="chk"><input type="checkbox" id="postArcs" ${pf.arcs ? 'checked' : ''}> Arcs (G2/G3)</label><label class="chk"><input type="checkbox" id="postCool" ${pf.coolant ? 'checked' : ''}> Coolant</label><label class="chk"><input type="checkbox" id="postOpt" ${pf.optStop ? 'checked' : ''}> Optional stop (M01) before each tool change</label></div></div>
       <p class="note">The program is open in the G-code editor beside this panel: colored, with line numbers, and you can edit it before you save.</p>
       <div class="btns"><button class="btn" data-camdo="showed">Show editor</button><button class="btn" data-camdo="copyg">Copy</button><button class="btn primary" data-camdo="saveg">Save .nc</button></div>
       <p class="note">Check the program in your controller or a simulator before running it — feeds, speeds and work holding are yours to confirm.</p></div>`;
@@ -14754,6 +14766,7 @@ function bindCamPanel() {
   const ck = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('change', () => fn(el.checked)); };
   ck('postArcs', setup(v => { C.post.arcs = v; }, 'Post arcs'));
   ck('postCool', setup(v => { C.post.coolant = v; }, 'Post coolant'));
+  ck('postOpt', setup(v => { C.post.optStop = v; }, 'Post optional stop'));
   panel.querySelectorAll('[data-post]').forEach(b => b.addEventListener('click', () => { const [k, v] = b.dataset.post.split(':'); setup(() => { C.post[k] = v; }, 'Post ' + v)(); }));
   // tools
   panel.querySelectorAll('.tool-card').forEach(card => {
@@ -19421,6 +19434,7 @@ function simWorkerMain() {
         break;
       }
       if (!sg.r) S.model.cut(sg.a, sg.b, sg.tool, sg.fin, sg.ax);
+      if (sg.slug) S.model.removeRegion(sg.slug);
     }
     S.applied = i;
     S.model.flush();
@@ -19453,6 +19467,7 @@ function simWorkerMain() {
           prog[i] = { a: { x: D[d], y: D[d + 1], z: D[d + 2] }, b: { x: D[d + 3], y: D[d + 4], z: D[d + 5] }, t0: D[d + 6], t1: D[d + 7], tool: m.tools[I[i * 4]], r: fl & 1, fin: !!(fl & 2), op: I[i * 4 + 2], ax: I[i * 4 + 3] >= 0 ? m.axes[I[i * 4 + 3]] : null };
           if (i && prog[i - 1].b.x === prog[i].a.x && prog[i - 1].b.y === prog[i].a.y && prog[i - 1].b.z === prog[i].a.z) prog[i].a = prog[i - 1].b;
         }
+        for (const [i, k] of m.slugAt) prog[i].slug = m.slugs[k];
         S = { st: m.st, levels: m.levels, prog, ck: new Map() };
         reset(null);
         const t0 = performance.now(), g = meshes();
@@ -19487,19 +19502,20 @@ const SimWorker = {
   // Hand the program to the worker; returns false when there is no worker to use.
   start(st, segs, levels) {
     if (!this.init()) return false;
-    const tools = [], ti = new Map(), opIx = new Map(), axes = [], axIx = new Map(), D = new Float64Array(segs.length * 8), I = new Int32Array(segs.length * 4);
+    const slugs = [], slugIx = new Map(), tools = [], ti = new Map(), opIx = new Map(), axes = [], axIx = new Map(), D = new Float64Array(segs.length * 8), I = new Int32Array(segs.length * 4);
     segs.forEach((s, i) => {
       let k = ti.get(s.tool); if (k === undefined) { k = tools.length; tools.push({ d: s.tool.d, type: s.tool.type, r: s.tool.r, cone: s.tool.cone, up: s.tool.up }); ti.set(s.tool, k); }
       let o = opIx.get(s.op); if (o === undefined) { o = opIx.size; opIx.set(s.op, o); }
       D.set([s.a.x, s.a.y, s.a.z, s.b.x, s.b.y, s.b.z, s.t0, s.t1], i * 8);
       let x = -1;
       if (s.ax) { const key = s.ax.join(','); x = axIx.get(key); if (x === undefined) { x = axes.length; axes.push(s.ax); axIx.set(key, x); } }
-      I[i * 4] = k; I[i * 4 + 1] = (s.r ? 1 : 0) | (s.fin ? 2 : 0); I[i * 4 + 2] = o; I[i * 4 + 3] = x;
+      I[i * 4] = k; I[i * 4 + 1] = (s.r ? 1 : 0) | (s.fin ? 2 : 0) | (s.slug ? 4 : 0); I[i * 4 + 2] = o; I[i * 4 + 3] = x;
+      if (s.slug) { slugIx.set(i, slugs.length); slugs.push({ mode: s.slug.mode, paths: s.slug.paths }); }
     });
     if (this.view) this.view.dispose();
     this.view = new SimChunks();
     this.busy = true; this.sentT = 0; this.wantT = 0;
-    this.w.postMessage({ k: 'init', seq: ++this.seq, st, levels, tools, axes, D, I }, [D.buffer, I.buffer]);
+    this.w.postMessage({ k: 'init', seq: ++this.seq, st, levels, tools, axes, slugs, slugAt: [...slugIx], D, I }, [D.buffer, I.buffer]);
     return true;
   },
   // Ask for the stock at time t; requests made while one is running collapse into the newest.
@@ -24708,15 +24724,31 @@ GEN.wire = (op, tool, st, part, P) => {
       pts = [...pts.slice(k), ...pts.slice(0, k)];
       passes.push({ off, dir: i % 2 ? -1 : 1, pts, cond: w.cond[i] || i + 1, D: i + 1 });
     });
+    const mi0 = P.m.length;
     P.rapid(S.x, S.y, zu); P.rapid(S.x, S.y, zc);                     // thread the wire at the start point
     for (const p of passes) {
+      p.mi0 = P.m.length;
       const fz = p.D === 1 ? tool.feed : tool.feed * (2 + p.D);         // skims take little and go faster
-      for (const q of p.pts) P.feed(q.x, q.y, zc, fz);
-      P.feed(p.pts[0].x, p.pts[0].y, zc, fz);
+      // the cut that frees a slug or the part stops (M00) w.hold short of closing, for the operator to secure it
+      const hold = p.D === 1 ? Math.max(0, w.hold == null ? 2.54 : w.hold) : 0, run = [...p.pts, p.pts[0]];
+      let stopAt = -1, stopPt = null;
+      if (hold > 0) {
+        let len = 0; const cum = [0]; for (let j = 1; j < run.length; j++) { len += Math.hypot(run[j].x - run[j - 1].x, run[j].y - run[j - 1].y); cum.push(len); }
+        if (len > hold * 2) { const at = len - hold; stopAt = cum.findIndex(c => c >= at); if (stopAt > 0) { const seg = cum[stopAt] - cum[stopAt - 1] || 1, t = (at - cum[stopAt - 1]) / seg; stopPt = P2(run[stopAt - 1].x + (run[stopAt].x - run[stopAt - 1].x) * t, run[stopAt - 1].y + (run[stopAt].y - run[stopAt - 1].y) * t); } }
+      }
+      if (stopPt) {
+        for (let j = 1; j < stopAt; j++) P.feed(run[j].x, run[j].y, zc, fz);
+        P.feed(stopPt.x, stopPt.y, zc, fz); P.m[P.m.length - 1].stop = { code: 'M00', why: `0.100" before the ${l.outer ? 'part' : 'slug'} is free: secure it` }; p.stopMi = P.m.length - 1;
+        for (let j = stopAt; j < run.length; j++) P.feed(run[j].x, run[j].y, zc, fz);
+      } else { for (const q of p.pts) P.feed(q.x, q.y, zc, fz); P.feed(p.pts[0].x, p.pts[0].y, zc, fz); }
+      // the rough cut has closed the loop: an opening's slug drops out, the scrap round the part is freed (the simulation takes it off the stock)
+      if (p.D === 1) P.m[P.m.length - 1].slug = { mode: l.outer ? 'keep' : 'drop', paths: cOffset([orient(cP(p.pts), true)], -w.d / 2) };
+      if (p.D === 1 && !l.outer && passes.length > 1) P.m[P.m.length - 1].stop = { code: 'M00', why: 'remove the slug, then the skims' };
       P.feed(S.x, S.y, zc, fz);
+      p.mi1 = P.m.length - 1;
     }
     P.rapid(S.x, S.y, zu);                                               // cut the wire, off to the next start
-    P.wire.push({ outer: l.outer, S, nom, passes });
+    P.wire.push({ outer: l.outer, S, nom, passes, mi0 });
   }
   P.info = `${ordered.filter(l => !l.outer).length} opening${ordered.filter(l => !l.outer).length === 1 ? '' : 's'}${ordered.some(l => l.outer) ? ' + outside' : ''} · ${n ? n + ' skim' + (n > 1 ? 's' : '') : 'rough only'} · wire Ø${fmtLs(w.d)}, gap ${fmtLs(w.gap)}`;
 };
@@ -24733,10 +24765,12 @@ function cum0(pts, cut, hold) {
 function postRobocut() {
   const C = cam(), w = wireOf(), o = camOrigin(), inch = isIn(), k = inch ? 1 / 25.4 : 1, dp = inch ? 4 : 3;
   const N = v => { v *= k; const s = (Math.abs(v) < 0.5 * Math.pow(10, -dp) ? 0 : v).toFixed(dp).replace(/0+$/, '').replace(/\.$/, '.'); return s === '-0.' ? '0.' : s; };
-  const ops = C.ops.filter(op => op.type === 'wire' && !op.sup), L = [];
+  const ops = C.ops.filter(op => op.type === 'wire' && !op.sup), L = [], MAP = [];
+  let SRC = null;
+  L.push = (...xs) => { for (const x of xs) { Array.prototype.push.call(L, x); MAP.push(SRC); } return L.length; };
   const title = (BP.title || (doc.features.find(f => f.type === 'import') || {}).file || 'PART').toUpperCase().replace(/[()]/g, '');
   L.push('%', `O${String(C.post.program || 1001).padStart(4, '0')} (DATUM - FANUC ROBOCUT WIRE EDM)`, `(${title})`, `(WIRE ${inch ? 'D' + (w.d / 25.4).toFixed(4) + ' IN' : 'D' + w.d + ' MM'} ${w.mat.toUpperCase()}, SPARK GAP ${N(w.gap)})`);
-  if (!ops.length) { L.push('(NO WIRE OPERATIONS)', 'M30', '%'); return L.join('\n'); }
+  if (!ops.length) { L.push('(NO WIRE OPERATIONS)', 'M30', '%'); return { text: L.join('\n'), map: MAP }; }
   // offset registers: every pass's D value, listed so the operator can set them
   const regs = new Map();
   const loops = [];
@@ -24749,6 +24783,7 @@ function postRobocut() {
   let cur = s0.slice();
   const arcs = C.post.arcs !== false;
   loops.forEach(({ op, lp }, li) => {
+    SRC = { op: op.id, mi: lp.mi0 };
     const s = rel(lp.S);
     if (li > 0) { L.push('M45 (CUT WIRE)'); L.push(`G00 X${N(s[0])} Y${N(s[1])} (${lp.outer ? 'OUTSIDE START' : 'START HOLE ' + (li + 1)})`); }
     L.push(`M60 (THREAD WIRE)`);
@@ -24758,6 +24793,8 @@ function postRobocut() {
       let kk = 0, best = Infinity; nom.forEach((q, j) => { const d = dst2(q, p.pts[0]); if (d < best) { best = d; kk = j; } });
       nom = [...nom.slice(kk), ...nom.slice(0, kk), nom[kk]];
       const G = p.dir > 0 ? 'G42' : 'G41';                                 // wire on the right going round the part (outer CCW / openings CW), then back
+      const at0 = L.length;
+      SRC = { op: op.id, mi: p.mi0 };
       L.push(`(${lp.outer ? 'OUTSIDE' : 'OPENING'} - ${pi === 0 ? 'ROUGH' : 'SKIM ' + pi})`, `S${p.cond} D${p.D}`);
       const e = rel(nom[0]);
       L.push(`${G} G01 X${N(e[0])} Y${N(e[1])}`);
@@ -24781,21 +24818,25 @@ function postRobocut() {
         emit([q, ...pts.slice(cut)].filter((u, j, A) => !j || dd(u, A[j - 1])));
       } else emit(pts);
       L.push(`G40 G01 X${N(s[0])} Y${N(s[1])}`);
+      // the pass's lines follow its moves in proportion; the M00 lines sit on the moves that stop the simulation
+      const n1 = L.length - at0;
+      for (let q = 0; q < n1; q++) { const f = (q + 1) / n1; MAP[at0 + q] = { op: op.id, mi: Math.min(p.mi1, p.mi0 + Math.round(f * (p.mi1 - p.mi0))) }; if (/^M00 \(STOP/.test(L[at0 + q]) && p.stopMi != null) MAP[at0 + q] = { op: op.id, mi: p.stopMi }; }
+      SRC = { op: op.id, mi: p.mi1 };
       if (pi === 0 && !lp.outer && lp.passes.length > 1) L.push('M00 (REMOVE SLUG, THEN CYCLE START FOR THE SKIMS)');
     });
     cur = s;
   });
   L.push(`G00 X${N(s0[0])} Y${N(s0[1])} (RETURN TO START POINT)`, 'M45 (CUT WIRE)', 'M50 (DRAIN TANK)', 'M30', '%');
   void cur;
-  return L.join('\n');
+  return { text: L.join('\n'), map: MAP };
 }
 const postGcodeW = postGcode;
 postGcode = function (...a) {
   if (!isWire()) return postGcodeW(...a);
   // the same shape as the mill post: the program, its length, and the time — the wire's travel plus a minute to thread each start
-  const text = postRobocut(); let min = 0, threads = 0;
+  const pr = postRobocut(), text = pr.text; let min = 0, threads = 0;
   for (const op of cam().ops) if (op.type === 'wire' && !op.sup) { const P = toolpath(op); if (P && !P.pending) { min += pathStats(P).min || 0; threads += (P.wire || []).length; } }
-  return { text, lines: text.split('\n').length, min: min + threads, part: camPart() };
+  return { text, lines: text.split('\n').length, min: min + threads, part: camPart(), map: pr.map };
 };
 // mills post mill operations only
 const simProgramW = simProgram;
@@ -25674,7 +25715,7 @@ SAMPLES.unshift({ axes: 'model', name: 'Sharp 1640L lathe', make: sSharp1640L, d
 //  highlighted and kept in view. Click a line to put the tool there, or
 //  step through it a line at a time (↑ ↓ with the code open).
 // ═══════════════════════════════════════════════════════════════════
-const SCODE = { open: false, want: false, follow: true, lines: [], map: [], byOp: new Map(), cur: -1, key: '', rowH: 19, drawn: '' };
+const SCODE = { open: false, want: true, follow: true, lines: [], map: [], byOp: new Map(), cur: -1, key: '', rowH: 19, drawn: '' };
 function simCodeBuild() {
   const g = postGcode();
   SCODE.lines = g.text.split('\n'); SCODE.map = g.map || [];
@@ -31299,6 +31340,91 @@ bindPanel = function () {
 };
 </script>
 <!-- THREADS-END -->
+<!-- DOCK-BEGIN -->
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  DOCK + STOPS. The program shown while it runs (and the G-code
+//  editor in Post) sits in a column right beside the left sidebar, not
+//  over the part, and follows the line the machine is on. M00 stops the
+//  simulation the way it stops a machine: it pauses at the line, says why,
+//  and waits for Cycle Start. M01 (optional stop, written before tool
+//  changes when the post option is on) stops it only while Opt stop is on.
+// ═══════════════════════════════════════════════════════════════════
+(() => {
+  const css = document.createElement('style');
+  css.textContent = `
+#codeDock { display: flex; flex-direction: column; width: clamp(300px, 28vw, 470px); min-height: 0; min-width: 0; background: var(--code-bg); border-right: 1px solid var(--rule); }
+#codeDock[hidden] { display: none; }
+body.code-docked #main { grid-template-columns: var(--browser-w, 230px) auto 1fr auto; }
+#codeDock > #simcode, #codeDock > #gced { position: static; left: auto; top: auto; bottom: auto; width: auto; flex: 1; min-height: 0; border: 0; border-radius: 0; box-shadow: none; }
+#codeDock > #simcode[hidden], #codeDock > #gced[hidden] { display: none; }
+@media (max-width: 820px) { #codeDock { position: absolute; left: 0; top: 0; bottom: 0; z-index: 8; width: min(92vw, 430px); } body.code-docked #main { grid-template-columns: 1fr; } }
+#codeDock .ge-sub, #codeDock [data-ge="wide"] { display: none; }
+#codeDock .ge-head { flex-wrap: nowrap; }
+#codeDock .ge-head b { flex: 1; }
+#simStop { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); z-index: 9; display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 12px; background: var(--panel); border: 1.5px solid var(--warn, #d9792a); box-shadow: var(--shadow); font-size: 13px; max-width: calc(100% - 28px); }
+#simStop[hidden] { display: none; }
+#simStop b { font: 700 13px var(--mono); color: var(--warn, #d9792a); }
+#simStop small { color: var(--muted); display: block; font-size: 11.5px; }
+#simStop .btn { white-space: nowrap; }`;
+  document.head.appendChild(css);
+  const dock = document.createElement('aside'); dock.id = 'codeDock'; dock.hidden = true;
+  document.getElementById('browser').after(dock);
+  const sim = document.getElementById('simcode'); dock.append(sim, GCED.el);
+  const sync = () => { const open = !sim.hidden || !GCED.el.hidden; dock.hidden = !open; document.body.classList.toggle('code-docked', open); requestDraw(); };
+  const mo = new MutationObserver(sync); mo.observe(sim, { attributes: true, attributeFilter: ['hidden'] }); mo.observe(GCED.el, { attributes: true, attributeFilter: ['hidden'] });
+  sync();
+  new ResizeObserver(() => gcedDraw()).observe(document.getElementById('geIn'));
+  const ban = document.createElement('div'); ban.id = 'simStop'; ban.hidden = true;
+  ban.innerHTML = '<div><b id="ssCode">M00</b> <span id="ssTitle">Program stop</span><small id="ssWhy"></small></div><button class="btn primary" id="ssGo">Cycle Start</button>';
+  document.getElementById('viewport').appendChild(ban);
+  ban.querySelector('#ssGo').addEventListener('click', () => simStopGo());
+})();
+const SIMSTOP = { opt: (() => { try { return localStorage.getItem('datum.optstop') === '1'; } catch (e) { return false; } })(), at: null };
+function simStopGo() { SIMSTOP.at = null; document.getElementById('simStop').hidden = true; if (SIM.on) { SIM.playing = true; try { simPanelUpdate(); } catch (e) { /* ok */ } requestDraw(); } }
+// pause at the first stop the clock passes this frame
+const simTickStop = simTick;
+simTick = function (now) {
+  const was = SIM.t, wasOn = SIM.on && SIM.playing;
+  simTickStop(now);
+  const ban = document.getElementById('simStop');
+  if (!SIM.on) { if (ban) ban.hidden = true; SIMSTOP.at = null; return; }
+  if (SIMSTOP.at != null && (SIM.playing || Math.abs(SIM.t - SIMSTOP.at) > 1e-9)) { SIMSTOP.at = null; ban.hidden = true; }
+  if (!wasOn || !SIM.playing || !(SIM.t > was)) return;
+  let hit = null;
+  if (SIMSTOP.skip && SIM.t > SIMSTOP.skip.t1 + 1e-6) SIMSTOP.skip = null;
+  for (const sg of SIM.prog) { if (!sg.stop || sg === SIMSTOP.skip) continue; if (sg.t1 <= was) continue; if (sg.t1 > SIM.t) break; if (sg.stop.code === 'M01' && !SIMSTOP.opt) continue; hit = sg; break; }
+  if (!hit) return;
+  SIM.t = hit.t1 - 1e-7; SIM.playing = false; SIMSTOP.at = SIM.t; SIMSTOP.skip = hit;      // just inside the move, so the code view stays on its line
+  simApplyTo(SIM.t); try { simPanelUpdate(); } catch (e) { /* ok */ }
+  const op = cam().ops.find(o => o.id === hit.op);
+  document.getElementById('ssCode').textContent = hit.stop.code; document.getElementById('ssTitle').textContent = hit.stop.code === 'M00' ? 'Program stop' : 'Optional stop';
+  document.getElementById('ssWhy').textContent = (op ? op.name + ' — ' : '') + hit.stop.why + ' · press Cycle Start to go on';
+  ban.hidden = false; requestDraw();
+};
+// Opt stop beside Chips / Flood in the simulation bar
+(() => {
+  const add = () => {
+    if (document.getElementById('sbOpt')) return;
+    const host = document.querySelector('.sb-chipctl'); if (!host) return;
+    const b = document.createElement('button'); b.id = 'sbOpt'; b.textContent = 'Opt stop'; b.dataset.tip = 'Optional stop: M01 stops the simulation like the machine\'s Opt Stop switch (M00 always stops)';
+    b.classList.toggle('on', SIMSTOP.opt);
+    b.addEventListener('click', () => { SIMSTOP.opt = !SIMSTOP.opt; b.classList.toggle('on', SIMSTOP.opt); try { localStorage.setItem('datum.optstop', SIMSTOP.opt ? '1' : '0'); } catch (e) { /* ok */ } });
+    host.appendChild(b);
+  };
+  const t = simStart; simStart = function () { t.apply(this, arguments); setTimeout(add, 0); };
+})();
+// while stopped, the code view sits on the stop line itself (the M00), not the move before it
+const simCodeLineOfS = simCodeLineOf;
+simCodeLineOf = function (sg) {
+  if (sg && SIMSTOP.at != null && SIMSTOP.skip === sg) {
+    const k = SCODE.lines.findIndex((t, i) => /^M0?[01]\b/.test(t) && SCODE.map[i] && SCODE.map[i].op === sg.op && SCODE.map[i].mi === sg.mi);
+    if (k >= 0) return k;
+  }
+  return simCodeLineOfS(sg);
+};
+</script>
+<!-- DOCK-END -->
 <!-- RIB2-BEGIN -->
 <style>
 /* ═════ RIB2: ribbon layout, hover cards for everything, step-by-step side panels ═════ */
