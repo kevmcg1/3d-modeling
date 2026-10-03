@@ -12,7 +12,7 @@
    ══════════════════════════════════════════════════════════════════════ */
 (function () {
 'use strict';
-if (typeof Slicer === 'undefined' || typeof THREE === 'undefined' || typeof setWorkspace !== 'function') return;
+if (typeof Slicer === 'undefined' || typeof Costing === 'undefined' || typeof THREE === 'undefined' || typeof setWorkspace !== 'function') return;
 
 const KEY = 'datum.print.v1';
 const PR = window.PRINT = { cfg: null, mesh: null, meshStale: true, result: null, gcode: null, busy: false, layer: 0, view: 'type', onlyLayer: false, showModel: true, q: '', all: false, open: { Quality: true, Walls: true, 'Top / bottom': false, Infill: true, Material: true, Speed: false, Support: true, 'Bed adhesion': true } };
@@ -22,6 +22,7 @@ function loadCfg() {
   let c = Slicer.defaults('ender3v2', 'pla');
   try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s && s.printer) c = Object.assign(Slicer.defaults(s.printer, s.material || 'pla'), s); } catch (e) { /* defaults */ }
   c.xform = Object.assign({ scale: 100, rx: 0, ry: 0, rz: 0 }, c.xform || {});
+  c.cost = Object.assign({}, Costing.DEFAULTS, c.cost || {});
   return c;
 }
 let saveT = 0;
@@ -71,6 +72,12 @@ css.textContent = `
 .pr-legend { position: absolute; left: 12px; top: 54px; display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; background: color-mix(in srgb, var(--panel) 90%, transparent); border: 1px solid var(--rule); border-radius: 8px; font-size: 11.5px; color: var(--ink-2); z-index: 5; pointer-events: none; }
 .pr-legend[hidden] { display: none; }
 .pr-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
+.pr-cost table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.pr-cost td { padding: 3px 0; color: var(--ink-2); } .pr-cost td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+.pr-cost tr.sum td { border-top: 1px solid var(--rule); font-weight: 600; color: var(--ink); padding-top: 5px; }
+.pr-cost .price { background: color-mix(in srgb, var(--accent) 12%, var(--panel)); border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--rule)); border-radius: 8px; padding: 8px 10px; margin-top: 6px; }
+.pr-cost .price b { font-size: 18px; color: var(--ink); } .pr-cost .price span { display: block; font-size: 11.5px; color: var(--muted); }
+.pr-cost .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 8px; }
 body.ws-print #visGroup, body.ws-print #mouseLegend, body.ws-print #cmdbar, body.ws-print #shadeToggle, body.ws-print #timeline, body.ws-print #brSplit { display: none !important; }
 `;
 document.head.appendChild(css);
@@ -168,56 +175,83 @@ function invalidate() {
   const n = document.getElementById('prStale'); if (n) n.hidden = false;
 }
 
-/* ── layer preview (extrusion ribbons, lines for huge jobs) ───────── */
+/* ── layer preview (rounded extrusion beads, lines for huge jobs) ──── */
 const TYPE_COL = { outer: [0.90, 0.28, 0.30], inner: [0.96, 0.65, 0.14], infill: [0.95, 0.82, 0.30], skin: [0.25, 0.70, 0.50], bridge: [0.56, 0.42, 0.95], support: [0.17, 0.71, 0.79], roof: [0.43, 0.83, 0.88], skirt: [0.62, 0.66, 0.72], brim: [0.62, 0.66, 0.72], raft: [0.62, 0.66, 0.72], iron: [0.48, 0.85, 0.56] };
 const TYPE_NAME = { outer: 'Outer wall', inner: 'Inner wall', infill: 'Infill', skin: 'Top / bottom', bridge: 'Bridge', support: 'Support', roof: 'Support roof', skirt: 'Skirt / brim', raft: 'Raft', iron: 'Ironing' };
 const ramp = t => { t = Math.max(0, Math.min(1, t)); const a = [0.18, 0.36, 0.88], b = [0.2, 0.8, 0.5], c = [0.95, 0.35, 0.25]; const m = t < 0.5 ? [a, b, t * 2] : [b, c, (t - 0.5) * 2]; return [0, 1, 2].map(i => m[0][i] + (m[1][i] - m[0][i]) * m[2]); };
 function clearPreview() { disposeObj(previewObj); previewObj = null; const lb = document.getElementById('prLayers'); if (lb) lb.hidden = true; const lg = document.getElementById('prLegend'); if (lg) lg.hidden = true; }
+// Each toolpath becomes one smooth rounded bead (an elliptical tube, shared vertices along the path, rounded ends),
+// so it reads as extruded filament. Very large jobs fall back to plain lines.
+const BEAD_STEPS = [[8, 160000], [6, 600000], [4, 900000]];       // [points per cross-section, ring budget]: rounder when the job is small
 function buildPreview() {
   disposeObj(previewObj); previewObj = null;
   const res = PR.result; if (!res) return;
   const cfg = res.cfg, nL = res.layers.length;
-  let nSeg = 0;
-  for (const L of res.layers) for (const p of L.paths) nSeg += Math.max(0, p.pts.length - 1 + (p.closed ? 1 : 0));
-  const ribbons = nSeg <= 220000;
+  // drop points that sit on top of each other so every direction is well defined
+  const clean = p => { const o = []; for (const q of p.pts) { const l = o[o.length - 1]; if (!l || Math.hypot(q.x - l.x, q.y - l.y) > 0.02) o.push(q); } if (p.closed && o.length > 2 && Math.hypot(o[0].x - o[o.length - 1].x, o[0].y - o[o.length - 1].y) <= 0.02) o.pop(); return o; };
+  let nRing = 0, nSeg = 0;
+  const cleaned = res.layers.map(L => L.paths.map(p => { const o = clean(p); nRing += o.length + 3; nSeg += Math.max(0, o.length - 1 + (p.closed ? 1 : 0)); return o; }));
+  const step = BEAD_STEPS.find(([, max]) => nRing <= max), tubes = !!step, K = step ? step[0] : 0;
   const maxSpeed = Math.max(...['printSpeed', 'outerWallSpeed', 'innerWallSpeed', 'infillSpeed', 'topSpeed', 'supportSpeed'].map(k => cfg[k]));
-  const VPS = ribbons ? 8 : 2;
-  const pos = new Float32Array(nSeg * VPS * 3), col = new Float32Array(nSeg * VPS * 3), idx = ribbons ? new Uint32Array(nSeg * 18) : null;
-  const layerEnd = new Array(nL), layerStart = new Array(nL);
-  let s = 0, ii = 0;
+  const nV = tubes ? nRing * K : nSeg * 2;
+  const pos = new Float32Array(nV * 3), col = new Uint8Array(nV * 3), nor = tubes ? new Int8Array(nV * 3) : null, idx = tubes ? new Uint32Array(nRing * K * 6) : null;
+  const layerEnd = new Array(nL), layerStart = new Array(nL), CS = [], SN = [];
+  for (let k = 0; k < K; k++) { CS.push(Math.cos(k / K * Math.PI * 2)); SN.push(Math.sin(k / K * Math.PI * 2)); }
+  let v = 0, ii = 0;
+  const ring = (px, py, zc, nx, ny, hw, hh, c) => {              // one cross-section of K points, centre (px,py,zc), side vector (nx,ny)
+    for (let k = 0; k < K; k++) {
+      const X = px + nx * CS[k] * hw, Y = py + ny * CS[k] * hw, Z = zc + SN[k] * hh;
+      let ax = nx * CS[k] / Math.max(hw, 1e-6), ay = ny * CS[k] / Math.max(hw, 1e-6), az = SN[k] / Math.max(hh, 1e-6); const l = Math.hypot(ax, ay, az) || 1;
+      pos.set(W3(X, Y, Z), (v + k) * 3); const nn = W3(ax / l * 127, ay / l * 127, az / l * 127); nor[(v + k) * 3] = nn[0]; nor[(v + k) * 3 + 1] = nn[1]; nor[(v + k) * 3 + 2] = nn[2]; col.set(c, (v + k) * 3);
+    }
+    v += K;
+  };
+  const link = r0 => { const r1 = r0 + K; for (let k = 0; k < K; k++) { const a = r0 + k, b = r0 + (k + 1) % K, c = r1 + k, d = r1 + (k + 1) % K; idx[ii++] = a; idx[ii++] = b; idx[ii++] = d; idx[ii++] = a; idx[ii++] = d; idx[ii++] = c; } };
+  let s = 0;
   for (let li = 0; li < nL; li++) {
     const L = res.layers[li];
-    layerStart[li] = ribbons ? ii : s * 2;
-    for (const p of L.paths) {
-      const pts = p.closed ? p.pts.concat([p.pts[0]]) : p.pts;
+    layerStart[li] = tubes ? ii : s * 2;
+    L.paths.forEach((p, pi) => {
+      const pts = cleaned[li][pi], n = pts.length; if (n < 2) return;
       let c = TYPE_COL[p.type] || [0.7, 0.7, 0.7];
       if (PR.view === 'speed') c = ramp(Slicer.pathSpeed(cfg, p.type, li === 0 && !L.raft) / maxSpeed);
       else if (PR.view === 'layer') c = ramp(li / Math.max(1, nL - 1));
       else if (PR.view === 'flow') c = ramp(Math.min(1, (p.w * p.h * Math.min(Slicer.pathSpeed(cfg, p.type, li === 0 && !L.raft), 1e3)) / (cfg.maxFlowRate || 15)));
-      for (let k = 1; k < pts.length; k++) {
-        const a = pts[k - 1], b = pts[k], dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy);
-        if (d < 1e-6) continue;
-        const nx = -dy / d * p.w / 2, ny = dx / d * p.w / 2, zt = L.z, zb = L.z - p.h;
-        if (ribbons) {
-          const base = s * 8, v = [[a.x + nx, a.y + ny, zt], [a.x - nx, a.y - ny, zt], [b.x + nx, b.y + ny, zt], [b.x - nx, b.y - ny, zt], [a.x + nx, a.y + ny, zb], [a.x - nx, a.y - ny, zb], [b.x + nx, b.y + ny, zb], [b.x - nx, b.y - ny, zb]];
-          for (let j = 0; j < 8; j++) { pos.set(W3(...v[j]), (base + j) * 3); col.set(c, (base + j) * 3); }
-          // top, left side, right side
-          const q = [[0, 1, 3, 2], [0, 2, 6, 4], [1, 5, 7, 3]];
-          for (const f of q) { idx[ii++] = base + f[0]; idx[ii++] = base + f[1]; idx[ii++] = base + f[2]; idx[ii++] = base + f[0]; idx[ii++] = base + f[2]; idx[ii++] = base + f[3]; }
-        } else {
-          pos.set(W3(a.x, a.y, zt), s * 6); pos.set(W3(b.x, b.y, zt), s * 6 + 3); col.set(c, s * 6); col.set(c, s * 6 + 3);
-        }
-        s++;
+      c = c.map(x => Math.round(x * 255));
+      if (!tubes) {
+        for (let k = 1; k < n + (p.closed ? 1 : 0); k++) { const a = pts[k - 1], b = pts[k % n]; pos.set(W3(a.x, a.y, L.z), s * 6); pos.set(W3(b.x, b.y, L.z), s * 6 + 3); col.set(c, s * 6); col.set(c, s * 6 + 3); s++; }
+        return;
       }
-    }
-    layerEnd[li] = ribbons ? ii : s * 2;
+      const hw = p.w / 2, hh = p.h / 2, zc = L.z - hh, closed = p.closed && n > 2, r0 = v / K;
+      const dirAt = i => {                                        // unit direction in and out of point i
+        const a = pts[closed ? (i + n - 1) % n : Math.max(0, i - 1)], b = pts[i], c2 = pts[closed ? (i + 1) % n : Math.min(n - 1, i + 1)];
+        let ix = b.x - a.x, iy = b.y - a.y, ox = c2.x - b.x, oy = c2.y - b.y; const li2 = Math.hypot(ix, iy), lo = Math.hypot(ox, oy);
+        if (li2 < 1e-9) { ix = ox; iy = oy; } else { ix /= li2; iy /= li2; } if (lo < 1e-9) { ox = ix; oy = iy; } else { ox /= lo; oy /= lo; }
+        let mx = ix + ox, my = iy + oy; const lm = Math.hypot(mx, my); if (lm < 1e-6) { mx = ox; my = oy; } else { mx /= lm; my /= lm; }
+        return { dx: mx, dy: my, miter: Math.min(1.8, 1 / Math.max(0.55, mx * ix + my * iy)) };
+      };
+      let first = null, last = null;
+      for (let i = 0; i < n; i++) {
+        const d = dirAt(i), P = pts[i];
+        if (i === 0) first = d; if (i === n - 1) last = d;
+        if (i === 0 && !closed) ring(P.x - d.dx * hw * 0.55, P.y - d.dy * hw * 0.55, zc, -d.dy, d.dx, hw * 0.55, hh * 0.55, c);      // rounded start cap
+        ring(P.x, P.y, zc, -d.dy * d.miter, d.dx * d.miter, hw, hh, c);
+      }
+      if (closed) { const d = first, P = pts[0]; ring(P.x, P.y, zc, -d.dy * d.miter, d.dx * d.miter, hw, hh, c); }
+      else { const d = last, P = pts[n - 1]; ring(P.x + d.dx * hw * 0.55, P.y + d.dy * hw * 0.55, zc, -d.dy, d.dx, hw * 0.55, hh * 0.55, c); }
+      const rings = (v / K) - r0;
+      for (let i = 0; i < rings - 1; i++) link((r0 + i) * K);
+    });
+    layerEnd[li] = tubes ? ii : s * 2;
   }
   const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.BufferAttribute(pos.subarray(0, s * VPS * 3), 3)); g.setAttribute('color', new THREE.BufferAttribute(col.subarray(0, s * VPS * 3), 3));
+  g.setAttribute('position', new THREE.BufferAttribute(pos.subarray(0, (tubes ? v : s * 2) * 3), 3)); g.setAttribute('color', new THREE.BufferAttribute(col.subarray(0, (tubes ? v : s * 2) * 3), 3, true));
   let obj;
-  if (ribbons) { g.setIndex(new THREE.BufferAttribute(idx.subarray(0, ii), 1)); obj = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.0, flatShading: true, side: THREE.DoubleSide })); }
-  else obj = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true }));
-  obj.frustumCulled = false; obj.userData = { layerStart, layerEnd, ribbons };
+  if (tubes) {
+    g.setAttribute('normal', new THREE.BufferAttribute(nor.subarray(0, v * 3), 3, true)); g.setIndex(new THREE.BufferAttribute(idx.subarray(0, ii), 1));
+    obj = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.38, metalness: 0.0, side: THREE.DoubleSide }));
+  } else obj = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true }));
+  obj.frustumCulled = false; obj.userData = { layerStart, layerEnd, tubes };
   previewObj = obj; printGroup.add(obj);
   setLayer(PR.layer, true);
   const lb = document.getElementById('prLayers'); if (lb) { lb.hidden = false; const r = lb.querySelector('input[type=range]'); r.max = nL - 1; r.value = PR.layer; }
@@ -375,6 +409,7 @@ function printPanelHTML() {
     ${PR.error ? `<div class="pr-warn">${esc(PR.error)}</div>` : ''}
     ${!PR.mesh && !PR.busy ? `<p class="note">There is nothing to print yet. Model a body in <b>Design</b> (or open a sample), then come back.</p>` : ''}
     ${stats}
+    ${costSection()}
     ${place}
     <input class="pr-search" id="prSearch" type="search" placeholder="Search settings…" value="${esc(PR.q)}" style="margin-top:8px">
     <label class="pr-row chk" style="margin-top:6px"><span>Show all settings</span><input type="checkbox" id="prAll" ${PR.all ? 'checked' : ''}></label>
@@ -383,8 +418,38 @@ function printPanelHTML() {
     <p class="note" style="margin-top:8px">G-code is Marlin flavor with Creality-style start and end sequences. Edit them under <b>Machine</b> (show all settings). Copy the file to a USB stick or microSD card and print from the printer's screen.</p>
   </div>`;
 }
+// Production cost: material + machine hours + labor + overhead, and the price that leaves the chosen margin
+const COST_FIELDS = [
+  ['shopRate', 'Shop cost per hour', '$/h', 0.5, 'What an hour of the shop costs you: rent, utilities, insurance, machine wear. Charged for every machine hour.'],
+  ['laborRate', 'Labor rate', '$/h', 0.5, 'Hourly cost of whoever sets up and finishes the part.'],
+  ['setupMin', 'Setup time', 'min', 1, 'Once per batch: slicing, loading filament, bed prep. Spread over the quantity.'],
+  ['handMin', 'Hands-on time', 'min/part', 1, 'Per part: removing it, support cleanup, finishing, packing.'],
+  ['qty', 'Quantity', 'parts', 1, 'Parts in the batch.'],
+  ['powerW', 'Printer power', 'W', 10, 'Average draw while printing.'],
+  ['kwh', 'Electricity', '$/kWh', 0.01, ''],
+  ['overheadPct', 'Overhead', '%', 1, 'Admin, software, marketing, as a percent of direct costs.'],
+  ['failurePct', 'Failed prints', '%', 1, 'Allowance for prints that fail and have to be redone.'],
+  ['marginPct', 'Profit margin', '%', 1, 'Share of the sale price you keep as profit.'],
+];
+const money = x => '$' + (Math.abs(x) >= 100 ? x.toFixed(0) : x.toFixed(2));
+function costJob() { const g = PR.gcode, c = PR.cfg; return { materialCost: g.mass / 1000 * (c.filamentCost || 0), machineHours: g.time / 3600, setupMin: c.cost.setupMin, handMin: c.cost.handMin, qty: c.cost.qty }; }
+function costResultHTML() {
+  const q = Costing.quote(costJob(), PR.cfg.cost), many = q.qty > 1;
+  return `<table>${q.lines.map(([k, v]) => `<tr><td>${k}</td><td>${money(v)}</td></tr>`).join('')}<tr class="sum"><td>Cost per part</td><td>${money(q.total)}</td></tr>${many ? `<tr><td>Whole batch of ${q.qty}</td><td>${money(q.batchTotal)}</td></tr>` : ''}</table>
+    <div class="price"><span>Sell for at least</span><b>${money(q.price)}</b> <span style="display:inline">per part · ${PR.cfg.cost.marginPct}% margin</span>
+      <span>Profit ${money(q.profit)} per part${many ? `, ${money(q.batchProfit)} on the batch` : ''} · ${(q.markup * 100).toFixed(0)}% markup · ${money(q.profitPerMachineHour)} per machine hour</span>
+      <span>Below ${money(q.breakEven)} you lose money.</span></div>`;
+}
+function costSection() {
+  if (!PR.result || !PR.gcode) return '';
+  const c = PR.cfg.cost, inp = ([k, lab, unit, step, tip]) => `<label class="field" title="${esc(tip)}"><span>${lab} <span style="text-transform:none;letter-spacing:0">${unit}</span></span><input type="number" data-cost="${k}" value="${c[k]}" step="${step}" min="0"></label>`;
+  return `<details class="pr-sec pr-cost" data-sec="Production cost" ${PR.open['Production cost'] !== false ? 'open' : ''}><summary>Production cost</summary><div class="pr-body">
+    <div class="grid2">${COST_FIELDS.map(inp).join('')}<label class="field" title="Filament price. Also under Material."><span>Filament <span style="text-transform:none;letter-spacing:0">$/kg</span></span><input type="number" data-k="filamentCost" value="${PR.cfg.filamentCost}" step="1" min="0"></label></div>
+    <div id="prCostOut">${costResultHTML()}</div></div></details>`;
+}
 function bindPrintPanel() {
   const root = panel;
+  root.querySelectorAll('[data-cost]').forEach(el => el.addEventListener('input', () => { PR.cfg.cost[el.dataset.cost] = el.value === '' ? 0 : +el.value; saveCfg(); const o = document.getElementById('prCostOut'); if (o) o.innerHTML = costResultHTML(); }));
   root.querySelectorAll('[data-print]').forEach(b => b.addEventListener('click', () => printAction2(b.dataset.print)));
   const prn = root.querySelector('#prPrinter'); prn && prn.addEventListener('change', () => { const x = PR.cfg.xform, px = PR.cfg.partX, py = PR.cfg.partY; Slicer.applyPrinter(PR.cfg, prn.value); PR.cfg.xform = x; PR.cfg.partX = px; PR.cfg.partY = py; PR.cfg.bed = Slicer.printerById(prn.value).bed.slice(); afterPrinter(); });
   const mat = root.querySelector('#prMaterial'); mat && mat.addEventListener('change', () => { Slicer.applyMaterial(PR.cfg, mat.value); settingsChanged(true); });
@@ -398,6 +463,7 @@ function bindPrintPanel() {
   root.querySelectorAll('[data-k]').forEach(el => el.addEventListener('change', () => {
     const k = el.dataset.k, s = Slicer.SETTING_BY_KEY[k];
     PR.cfg[k] = s.type === 'b' ? el.checked : s.type === 'n' ? (isNaN(+el.value) ? PR.cfg[k] : +el.value) : el.value;
+    if (k === 'filamentCost') { const o = document.getElementById('prCostOut'); if (o && PR.gcode) o.innerHTML = costResultHTML(); }
     if (k === 'support' || k === 'adhesion' || k === 'infillPattern' || k === 'vase' || k === 'supportPlacement') settingsChanged(true); else settingsChanged(false);
   }));
   root.querySelectorAll('[data-x]').forEach(el => el.addEventListener('change', () => { PR.cfg.xform[el.dataset.x] = +el.value || (el.dataset.x === 'scale' ? 100 : 0); placementChanged(); }));
@@ -417,10 +483,10 @@ async function printAction2(a) {
   }
   if (a === 'loadprof') {
     const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json';
-    inp.onchange = async () => { try { const d = JSON.parse(await inp.files[0].text()); if (d.format !== 'datum-print-profile') throw new Error('Not a Datum print profile'); PR.cfg = Object.assign(Slicer.defaults(d.settings.printer, d.settings.material), d.settings); PR.cfg.xform = Object.assign({ scale: 100, rx: 0, ry: 0, rz: 0 }, PR.cfg.xform); afterPrinter(); toast('Settings loaded'); } catch (e) { toast('Could not read the profile: ' + e.message); } };
+    inp.onchange = async () => { try { const d = JSON.parse(await inp.files[0].text()); if (d.format !== 'datum-print-profile') throw new Error('Not a Datum print profile'); PR.cfg = Object.assign(Slicer.defaults(d.settings.printer, d.settings.material), d.settings); PR.cfg.xform = Object.assign({ scale: 100, rx: 0, ry: 0, rz: 0 }, PR.cfg.xform); PR.cfg.cost = Object.assign({}, Costing.DEFAULTS, PR.cfg.cost); afterPrinter(); toast('Settings loaded'); } catch (e) { toast('Could not read the profile: ' + e.message); } };
     return inp.click();
   }
-  if (a === 'reset') { const x = PR.cfg.xform; PR.cfg = Slicer.defaults(PR.cfg.printer, PR.cfg.material); PR.cfg.xform = x; saveCfg(); PR.result && invalidate(); return refreshPrintUI(); }
+  if (a === 'reset') { const x = PR.cfg.xform, cost = PR.cfg.cost; PR.cfg = Slicer.defaults(PR.cfg.printer, PR.cfg.material); PR.cfg.xform = x; PR.cfg.cost = cost; saveCfg(); PR.result && invalidate(); return refreshPrintUI(); }
   return printAction(a);
 }
 

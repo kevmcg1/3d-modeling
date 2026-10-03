@@ -4,6 +4,7 @@ Datum has a **3D Print** workspace (next to Design and Manufacture) that slices 
 
 - `slicer.js` is the slicing engine. It has no DOM or THREE dependency, so it runs in Node too. Units are millimeters, Z up.
 - `print-ui.js` is the workspace: printer and filament pickers, the settings panel, bed placement, the layer preview and the G-code download. It plugs into the app by wrapping a few top-level functions, so the modeler's code is otherwise untouched.
+- `costing.js` is the production-cost calculator (pure arithmetic, also usable for machining jobs: feed it material cost, machine hours and hands-on minutes). `node test/costing.test.js`.
 - `test/slicer.test.js` checks the engine (`npm i --no-save clipper-lib@6.4.2 && node test/slicer.test.js`).
 
 ## What it does
@@ -29,7 +30,9 @@ Datum has a **3D Print** workspace (next to Design and Manufacture) that slices 
 | Special modes | spiral vase, fuzzy skin, G-code at chosen layers (for example a filament change) |
 | Machine | relative or absolute extrusion, editable start and end G-code |
 
-**Preview**: a layer-by-layer view with a slider, colored by feature type, speed, flow or layer. **Output**: Marlin-flavor G-code (`;FLAVOR:Marlin`, Cura-style `;LAYER` / `;TYPE` comments, Creality-style purge line and end sequence) with a print-time, filament and weight estimate. Part scale, rotation, position and lay-flat are in the ribbon and the Placement section; settings can be exported and imported as JSON.
+**Preview**: a layer-by-layer view of rounded extruded beads (smooth tubes with rounded ends; very large jobs get fewer facets, and the very largest fall back to lines) with a slider, colored by feature type, speed, flow or layer. **Output**: Marlin-flavor G-code (`;FLAVOR:Marlin`, Cura-style `;LAYER` / `;TYPE` comments, Creality-style purge line and end sequence) with a print-time, filament and weight estimate. Part scale, rotation, position and lay-flat are in the ribbon and the Placement section; settings can be exported and imported as JSON.
+
+**Production cost** (appears after slicing): material, machine time at your shop's cost per hour, electricity, labor for setup and hands-on time (setup is spread over the quantity), overhead percent and a failed-print allowance give the cost per part. Enter a profit margin and it shows the price to charge, the profit, the markup and the profit per machine hour, and warns below which price you lose money. The rates are saved in the browser.
 
 ## Not included
 
