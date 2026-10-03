@@ -12997,6 +12997,7 @@ const GEN = {
     // a spot belongs where a hole starts on the part's face: one starting on the floor
     // of a counterbore is centered by it already, and a wide spot there cuts its wall
     if (tool.type === 'spot') holes = holes.filter(h => !outerHole(h));
+    if (op.at && op.at.length) holes = holes.filter(h => op.at.some(a => Math.hypot(a[0] - h.x, a[1] - h.y) < 0.06));      // only the holes at these places (threads picked by place)
     if (!holes.length) { P.warn.push(want ? 'No holes of the chosen diameters.' : `No Ø${tool.d} holes — choose diameters below.`); return; }
     // nearest-neighbor order starting from the front-left
     const ordered = [];
@@ -14203,6 +14204,30 @@ function postGcode() {
       L.push(`G0 Z${N(last.z - o[2])}`); st.g = 'G0'; st.z = N(last.z - o[2]);
       continue;
     }
+    // thread milling: helical interpolation, one half turn per arc (every control takes that), with a tangent arc in and out
+    if (op.type === 'thread' && P.thr && !grbl && !fr) {
+      const X = v => N(v - o[0]), Y = v => N(v - o[1]), Zc = v => N(v - o[2]), safeZ = camStock().z1 + C.safe;
+      for (const T of P.thr) {
+        const g = T.internal ? 'G3' : 'G2', up = T.zE > T.zS, half = (T.zE - T.zS) / (T.revs * 2), ax = T.internal ? T.cx : T.cx + T.rp + T.e, ay = T.internal ? T.cy : T.cy + T.e;
+        L.push(`(THREAD ${T.name} - ${T.internal ? 'INTERNAL' : 'EXTERNAL'} ${T.hand === 'L' ? 'LEFT' : 'RIGHT'} HAND, ${T.revs} TURN${T.revs > 1 ? 'S' : ''} ${up ? 'UP' : 'DOWN'}, PATH R${N(T.rp)})`);
+        SRC = { op: op.id, mi: T.mi.start };
+        L.push(`G0 X${X(ax)} Y${Y(ay)}`, `G0 Z${Zc(T.zS + 1)}`, `G1 Z${Zc(T.zS)} F${F(T.plunge)}`);
+        SRC = { op: op.id, mi: T.mi.entry };
+        L.push(T.internal ? `G3 X${X(T.cx + T.rp)} Y${Y(T.cy)} I${N(T.rp / 2)} J0. F${F(T.feed)}` : `G3 X${X(T.cx + T.rp)} Y${Y(T.cy)} I0. J${N(-T.e)} F${F(T.feed)}`);
+        let z = T.zS;
+        for (let k = 0; k < T.revs * 2; k++) {
+          const first = k % 2 === 0; z += half;
+          SRC = { op: op.id, mi: T.mi.helix0 + Math.round((k + 1) / (T.revs * 2) * (T.mi.helix1 - T.mi.helix0)) };
+          L.push(first ? `${g} X${X(T.cx - T.rp)} Y${Y(T.cy)} Z${Zc(z)} I${N(-T.rp)} J0.` : `${g} X${X(T.cx + T.rp)} Y${Y(T.cy)} Z${Zc(z)} I${N(T.rp)} J0.`);
+        }
+        SRC = { op: op.id, mi: T.mi.exit };
+        L.push(T.internal ? `G3 X${X(T.cx)} Y${Y(T.cy)} I${N(-T.rp / 2)} J0.` : `G2 X${X(ax)} Y${Y(ay)} I${N(T.e)} J0.`);
+        L.push(`G0 Z${Zc(safeZ)}`);
+      }
+      st.g = null; st.x = st.y = st.z = null; st.f = null;
+      endFrame();
+      continue;
+    }
     // group consecutive feed moves at constant Z for arc fitting
     let i = 1;
     while (i < P.m.length) {
@@ -14537,7 +14562,8 @@ function camTree() {
   return `<div class="sec-title">Setup</div><ul class="tree">
       <li data-camview="setup" class="${CAMUI.view === 'setup' ? 'sel' : ''}">${svg('camsetup', 'ic')}<span class="nm">Stock &amp; origin</span><span class="sub">${st ? [st.x1 - st.x0, st.y1 - st.y0, st.z1 - st.z0].map(x => fmt(toU(x), isIn() ? 2 : 0)).join('×') : '—'}</span></li>
       <li data-camview="tools" class="${CAMUI.view === 'tools' ? 'sel' : ''}">${svg('camtools', 'ic')}<span class="nm">Tool library</span><span class="sub">${C.tools.length}</span></li>
-      <li data-camview="auto" class="${CAMUI.view === 'auto' ? 'sel' : ''}">${svg('auto', 'ic')}<span class="nm">Auto Detect</span><span class="sub">${AUTO.res && CAMUI.view === 'auto' ? AUTO.res.axes + '-axis' : ''}</span></li></ul>
+      <li data-camview="auto" class="${CAMUI.view === 'auto' ? 'sel' : ''}">${svg('auto', 'ic')}<span class="nm">Auto Detect</span><span class="sub">${AUTO.res && CAMUI.view === 'auto' ? AUTO.res.axes + '-axis' : ''}</span></li>
+      <li data-camview="threads" class="${CAMUI.view === 'threads' ? 'sel' : ''}">${svg('camthread', 'ic')}<span class="nm">Threads</span><span class="sub"></span></li></ul>
     <div class="sec-title">Operations <span>${C.ops.length || ''}</span></div>${ops || '<ul class="tree"><li class="empty">Run Auto Detect, or add Face, Contour, Pocket, Drill or 3D Parallel from the toolbar</li></ul>'}`;
 }
 function bindCamTree(el) {
@@ -25622,13 +25648,14 @@ camToolbar = function () {
   const op = k => OP_INFO[k] ? ['add:' + k, OP_INFO[k].name, '', OP_INFO[k].icon] : null;
   const D2 = ['face', 'contour', 'pocket', 'chamfer'], D3 = ['parallel'], known = new Set([...D2, ...D3, 'drill', 'wire']);
   const drilling = Object.entries(DRILL_KINDS).map(([k, d]) => ['add:drill:' + k, d.name.replace(' Drill', ''), '', DRILL_ICON[k]]);
+  drilling.splice(4, 0, ['threads', 'Threads', '', 'camthread', v === 'threads']);
   const other = Object.keys(OP_INFO).filter(k => !known.has(k));
   const P = (title, items, big) => rbPanel(title, items, big, 'data-cam');
   const umc = typeof isUMC === 'function' && isUMC(), mach = [['mach:mill', 'Mill', '', 'cammill', !wire && !umc], ['mach:umc400', 'UMC-400', '', 'camumc', umc], ['mach:wire', 'Wire EDM', '', 'camwire', wire]];
   return P('Setup', [['setup', 'Setup', '', 'camsetup', v === 'setup'], ['tools', 'Tool Library', '', 'camtools', v === 'tools']], 1)
     + P('Machine', mach, 2)
     + (wire ? '' : P('Automate', [['autoprog', 'Auto Program', '', 'autoprog', v === 'report'], ['auto', 'Auto Detect', '', 'auto', v === 'auto'], ['verify', 'Verify', '', 'verify']], 1))
-    + (wire ? P('Wire EDM', [op('wire')], 1) : P('2D', D2.map(op), 2) + P('Drilling', drilling, 4) + P('3D', D3.map(op), 1) + P('Other', other.map(op), 1))
+    + (wire ? P('Wire EDM', [op('wire')], 1) : P('2D', D2.map(op), 2) + P('Drilling', drilling, 5) + P('3D', D3.map(op), 1) + P('Other', other.map(op), 1))
     + P('Actions', [['sim', 'Simulate', '', 'camsim', v === 'sim'], ['post', 'Post G-code', '', 'campost', v === 'post'], ['ws:sheet', 'Setup Sheet', '', 'blueprint']], 1)
     + P('Inspect', [['measure', 'Measure', 'M', 'measure', CMD && CMD.type === 'measure']], 1);
 };
@@ -31425,6 +31452,270 @@ simCodeLineOf = function (sg) {
 };
 </script>
 <!-- DOCK-END -->
+<!-- THREADCAM-BEGIN -->
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  THREADCAM: threads in Manufacture. A Threads panel lists every thread
+//  in the part (and the plain holes that could be threaded). Tick the
+//  ones to cut, or click them in the view; or press Auto-detect, which
+//  ticks them all, picks the tool for each (a tap and its tap drill, or a
+//  thread mill for external, large and hardened-steel threads) and writes
+//  the operations: the G-code carries the places and the depths. Threads
+//  are named the same way as in the Thread panel (1/4-20 UNC, M8×1.25).
+// ═══════════════════════════════════════════════════════════════════
+OP_INFO.thread = { name: 'Thread mill', icon: 'camthread', tip: 'Cuts a thread by helical interpolation with a thread mill: one pitch of climb per turn, with a tangent arc in and out. Inside a hole drilled to the minor diameter, or round a turned boss.' };
+// the path of a thread mill: tangent arc in, a helix of half-turn arcs, tangent arc out
+GEN.thread = function (op, tool, st, part, P) {
+  const list = op.threads || [];
+  if (!list.length) { P.warn.push('No threads chosen. Pick them in the Threads panel.'); return; }
+  const safe = st.z1 + cam().safe, rt = tool.d / 2, a2 = Math.PI / 18;
+  P.thr = [];
+  for (const t of list) {
+    const pitch = t.P, internal = t.int !== false, rh = t.hand !== 'L', rMaj = t.D / 2, rRoot = (t.D - 1.2269 * pitch) / 2;
+    const rp = internal ? rMaj - rt : rRoot + rt;                         // the path of the tool's center: its edge at the major diameter inside, at the root outside
+    const name = t.name || (t.D.toFixed(2) + '×' + pitch.toFixed(2));
+    if (internal && (rp < 0.15 || tool.d > (t.D - 1.0825 * pitch) * 0.85)) { P.warn.push(`The Ø${fmtD(tool.d)} thread mill is too big for ${name}: it must fit the Ø${fmtD(t.D - 1.0825 * pitch)} hole.`); continue; }
+    const up = internal === rh;                                            // right-hand: climbs up inside, down outside (left-hand the other way)
+    const len = Math.max(pitch, t.z1 - t.z0), revs = Math.max(1, Math.round((len - pitch) / pitch));
+    const zS = up ? t.z0 : t.z1 - pitch, zE = zS + (up ? 1 : -1) * revs * pitch, e = Math.max(2, 0.7 * pitch + 1);
+    const feed = tool.feed * (internal ? rp / rMaj : 1), cx = t.x, cy = t.y;
+    const ax = internal ? cx : cx + rp + e, ay = internal ? cy : cy + e, T = { name, cx, cy, rp, internal, hand: rh ? 'R' : 'L', zS, zE, revs, e, feed, plunge: tool.plunge, mi: {} };
+    P.rapid(ax, ay, safe); P.rapid(ax, ay, zS + 1); T.mi.start = P.m.length - 1;
+    P.feed(ax, ay, zS, tool.plunge);
+    // tangent arc onto the circle
+    if (internal) for (let a = Math.PI + a2; a <= 2 * Math.PI + 1e-9; a += a2) P.feed(cx + rp / 2 + rp / 2 * Math.cos(a), cy + rp / 2 * Math.sin(a), zS, feed);
+    else for (let a = Math.PI / 2 + a2; a <= Math.PI + 1e-9; a += a2) P.feed(cx + rp + e + e * Math.cos(a), cy + e * Math.sin(a), zS, feed);
+    T.mi.entry = P.m.length - 1; T.mi.helix0 = P.m.length - 1;
+    const n = revs * 36;
+    for (let k = 1; k <= n; k++) { const th = k * a2 * (internal ? 1 : -1); P.feed(cx + rp * Math.cos(th), cy + rp * Math.sin(th), zS + (zE - zS) * k / n, feed); }
+    T.mi.helix1 = P.m.length - 1;
+    // tangent arc off it
+    if (internal) for (let a = a2; a <= Math.PI + 1e-9; a += a2) P.feed(cx + rp / 2 + rp / 2 * Math.cos(a), cy + rp / 2 * Math.sin(a), zE, feed);
+    else for (let a = Math.PI - a2; a >= Math.PI / 2 - 1e-9; a -= a2) P.feed(cx + rp + e + e * Math.cos(a), cy + e * Math.sin(a), zE, feed);
+    T.mi.exit = P.m.length - 1;
+    P.rapid(P.cur[0], P.cur[1], safe);
+    P.thr.push(T);
+  }
+  P.info = `${P.thr.length} thread${P.thr.length === 1 ? '' : 's'} · Ø${fmtD(tool.d)} thread mill · helical, ${P.thr.reduce((s, q) => s + q.revs, 0)} turns in all`;
+};
+const THR = { sel: new Set(), method: {}, manual: {}, hover: null, seenKey: null, msg: [] };
+const thrCam = h => [h.s.p[0], -h.s.p[2]];
+// every thread the part has, grouped by size, and the plain holes that could be tapped
+function thrRows() {
+  const R = autoResult(); if (!R) return [];
+  const mat = cam().material || 'aluminum', bodies = visibleBodies(), rows = new Map(), used = new Set();
+  const inch = isIn();
+  R.threads.forEach(t => {
+    let lo = Infinity, hi = -Infinity;
+    for (const f of t.faces) for (const v of faceVerts(f.mesh, f.fid)) { const h = dot3(sub3(v, t.p), t.dir); if (h < lo) lo = h; if (h > hi) hi = h; }
+    if (!isFinite(lo)) return;
+    const ya = t.p[1] + t.dir[1] * lo, yb = t.p[1] + t.dir[1] * hi, std = threadStdOf(t.nominal, t.pitch);
+    const name = std ? threadName(std) : `M${t.nominal}×${+t.pitch.toFixed(2)}`;
+    const hole = !t.external && R.holes.find(h => { const w = sub3(h.s.p, t.p); return len3(sub3(w, mul3(t.dir, dot3(w, t.dir)))) < 0.05 && Math.abs(dot3(h.s.dir, t.dir)) > 0.999; });
+    if (hole) used.add(hole);
+    const key = name + '|' + (t.external ? 'ext' : 'int') + '|' + (t.vertical ? 'v' : 'a');
+    let r = rows.get(key);
+    if (!r) rows.set(key, r = { key, name, std, nominal: t.nominal, pitch: t.pitch, internal: !t.external, vertical: t.vertical, hand: t.feat && t.feat.hand === 'L' ? 'L' : 'R', items: [], faces: [], modeled: true });
+    r.items.push({ x: t.p[0], y: -t.p[2], z0: Math.min(ya, yb), z1: Math.max(ya, yb), hole, d: hole ? hole.d : null, depth: hole ? hole.depth : null, through: hole ? hole.through : false });
+    r.faces.push(...t.faces);
+  });
+  // plain holes: drilled, not (yet) threaded
+  const plain = new Map();
+  for (const h of R.holes) {
+    if (!h.fromTop || !h.vertical || used.has(h) || h.d > 20.001 || h.d < 1) continue;
+    const key = 'hole|' + h.d.toFixed(2);
+    let r = plain.get(key); if (!r) plain.set(key, r = { key, name: `Hole ${fmtDia(h.d)}`, d: h.d, internal: true, vertical: true, hand: 'R', items: [], faces: [], modeled: false });
+    const [x, y] = thrCam(h); r.items.push({ x, y, z0: h.s.p[1] + h.s.dir[1] * h.h0, z1: h.s.p[1] + h.s.dir[1] * h.h1, hole: h, d: h.d, depth: h.depth, through: h.through });
+    r.faces.push(...h.faces);
+  }
+  for (const r of plain.values()) {
+    for (const it of r.items) { const a = it.z0, b = it.z1; it.z0 = Math.min(a, b); it.z1 = Math.max(a, b); }
+    const man = THR.manual[r.key];
+    if (man) { r.std = man.entry; r.nominal = man.nominal; r.pitch = man.pitch; r.name = man.label; r.hand = 'R'; r.manual = true; r.items.forEach(it => { it.z1 = it.z1; }); }
+    else r.suggest = THREAD_STD.filter(e => Math.abs((e.d - e.pitch) - r.d) < 0.1 && (e.series === 'UNC' || e.series === 'UNF' || e.series === 'coarse')).sort((a, b) => Math.abs((a.d - a.pitch) - r.d) - Math.abs((b.d - b.pitch) - r.d)).slice(0, 3);
+    rows.set(r.key, r);
+  }
+  for (const r of rows.values()) {
+    r.n = r.items.length; r.len = Math.max(...r.items.map(i => i.z1 - i.z0));
+    // the thread's own length: a modeled thread says it; a named hole is threaded to its depth (less two pitches of lead in a blind one)
+    if (!r.modeled && r.manual) r.items.forEach(it => { it.z1 = it.z1; });
+    const rec = thrRecommend(r, mat); r.rec = rec; r.m = THR.method[r.key] || rec.m;
+  }
+  return [...rows.values()];
+}
+function thrRecommend(r, mat) {
+  if (!r.vertical) return { m: 'manual', why: 'It is at an angle: index the part on the rotary, then tap or thread mill it.' };
+  if (!r.internal) return { m: 'mill', why: 'External: a thread mill circles the boss with a helix.' };
+  if (r.nominal > 20) return { m: 'mill', why: 'Large: a thread mill needs far less torque than a tap.' };
+  if (mat === 'toolsteel') return { m: 'mill', why: 'Hardened steel: a thread mill is gentler on the tool than a tap.' };
+  return { m: 'tap', why: 'Rigid tap (G84) after a tap drill, to the depth of the thread.' };
+}
+const thrSelectable = r => r.modeled || r.manual;
+function thrInit(rows) {
+  const R = AUTO.res; if (!R || THR.seenKey === R) return; THR.seenKey = R;
+  THR.sel = new Set(rows.filter(r => r.modeled && r.vertical).map(r => r.key));
+}
+// the tools and operations for the chosen rows
+function thrBuild(rows) {
+  const C = cam(), newTools = [], ops = [], notes = [];
+  let nextN = nextToolN();
+  const lib = (type, test) => C.tools.find(t => t.type === type && test(t));
+  const mk = (type, d, p) => { const t = { n: nextN++, ...toolDefaults(type, d), ...(p ? { p } : {}) }; newTools.push(t); return t.n; };
+  const tapTool = r => { const t = lib('tap', t => Math.abs(t.d - r.nominal) < 0.011 && Math.abs((toolParams(t).pitch || 0) - r.pitch) < 0.011); return t ? t.n : mk('tap', +r.nominal.toFixed(3), { category: 'tap', dia: +r.nominal.toFixed(3), pitch: +r.pitch.toFixed(4), threadSize: threadName(r.std || { std: 'ISO', d: r.nominal, pitch: r.pitch }), tapType: 'spiralpoint' }); };
+  const drillTool = d => { const t = lib('drill', t => Math.abs(t.d - d) < 0.011) || newTools.find(t => t.type === 'drill' && Math.abs(t.d - d) < 0.011); return t ? t.n : mk('drill', +d.toFixed(3)); };
+  const millTool = r => {
+    const minor = r.nominal - 1.0825 * r.pitch, want = r.internal ? Math.min(0.7 * minor, 16) : clamp(r.nominal * 0.6, 6, 16);
+    const d = [20, 16, 12, 10, 8, 6, 5, 4, 3, 2].find(x => x <= want + 1e-9) || 2;
+    const t = lib('threadmill', t => Math.abs(t.d - d) < 0.011 && Math.abs((toolParams(t).pitch || 0) - r.pitch) < 0.011) || newTools.find(t => t.type === 'threadmill' && Math.abs(t.d - d) < 0.011 && Math.abs(((t.p && t.p.pitch) || 0) - r.pitch) < 0.011);
+    return t ? t.n : mk('threadmill', d, { category: 'threadmill', dia: d, pitch: +r.pitch.toFixed(4), threadRows: 1, threadSize: threadName(r.std || { std: 'ISO', d: r.nominal, pitch: r.pitch }) });
+  };
+  const tapRows = rows.filter(r => r.m === 'tap'), millRows = rows.filter(r => r.m === 'mill');
+  const at = r => r.items.map(i => [+i.x.toFixed(4), +i.y.toFixed(4)]);
+  const diams = rs => [...new Set(rs.flatMap(r => r.items.map(i => +i.d.toFixed(2))))];
+  // spot and drill every hole a tap or an internal thread mill goes into
+  const holeRows = [...tapRows, ...millRows.filter(r => r.internal)].filter(r => r.items.every(i => i.d));
+  if (holeRows.length) {
+    const ds = diams(holeRows), spotRaw = Math.min(12, Math.max(6, Math.max(...ds) + 2)), spotD = isIn() ? [6.35, 9.525, 12.7].find(x => x >= spotRaw - 0.01) || 12.7 : spotRaw;
+    const sp = C.tools.filter(t => t.type === 'spot').sort((a, b) => b.d - a.d)[0], spN = sp ? sp.n : mk('spot', spotD);
+    ops.push({ type: 'drill', kind: 'spot', name: `Spot drill ${holeRows.reduce((s, r) => s + r.n, 0)} thread hole${holeRows.reduce((s, r) => s + r.n, 0) > 1 ? 's' : ''}`, tool: spN, mode: 'spot', diams: ds, at: holeRows.flatMap(at), depth: +Math.max(0.3, Math.min(...ds) / 2 - 0.2).toFixed(2), through: 0, dwell: 0.3, peck: 1, why: 'A short spot keeps the drills and taps on their centers.' });
+    for (const d of ds) {
+      const rs = holeRows.filter(r => r.items.some(i => Math.abs(i.d - d) < 0.02)), items = rs.flatMap(r => r.items.filter(i => Math.abs(i.d - d) < 0.02)), deep = Math.max(...items.map(i => i.depth || 0));
+      ops.push({ type: 'drill', kind: 'drill', name: `Drill ${fmtDia(d)} × ${items.length} for ${[...new Set(rs.map(r => r.name))].join(', ')}`, tool: drillTool(d), mode: deep > 3 * d ? 'peck' : 'drill', peck: +Math.max(1, d).toFixed(1), diams: [+d.toFixed(2)], at: items.map(i => [+i.x.toFixed(4), +i.y.toFixed(4)]), through: 1, why: `The tap drill (${items.some(i => i.through) ? 'through' : 'blind'}, up to ${fmtLs(deep)} deep).` });
+    }
+  }
+  for (const r of tapRows) {
+    if (!r.items.every(i => i.d)) { notes.push(`${r.name}: no drilled hole found to tap.`); continue; }
+    const blind = r.items.filter(i => !i.through), tl = Math.max(...r.items.map(i => i.z1 - i.z0));
+    ops.push({ type: 'drill', kind: 'tap', name: `Tap ${r.name} × ${r.n}`, tool: tapTool(r), mode: 'drill', diams: diams([r]), at: at(r), through: 0.5, depth: blind.length && r.modeled && tl < Math.max(...blind.map(i => i.depth || 0)) - 0.01 ? +tl.toFixed(3) : 0, why: `Rigid tap (G84), feed = RPM × ${+r.pitch.toFixed(3)} mm pitch, to the depth of the thread.` });
+  }
+  for (const r of millRows) {
+    if (!r.vertical) { notes.push(`${r.name}: at an angle — needs the rotary.`); continue; }
+    const tn = millTool(r);
+    ops.push({ type: 'thread', name: `Thread mill ${r.name} × ${r.n}`, tool: tn, threads: r.items.map(i => ({ x: +i.x.toFixed(4), y: +i.y.toFixed(4), z0: +i.z0.toFixed(4), z1: +i.z1.toFixed(4), D: +r.nominal.toFixed(3), P: +r.pitch.toFixed(4), int: r.internal, hand: r.hand, name: r.name })), why: r.rec.why });
+    if (r.internal && r.items.some(i => i.d > 25)) notes.push(`${r.name}: bore the hole to Ø${fmtD(r.nominal - 1.0825 * r.pitch)} first.`);
+  }
+  for (const r of rows) if (r.m === 'manual') notes.push(`${r.name}: ${r.rec.why}`);
+  return { ops, newTools, notes };
+}
+function thrApply(rows) {
+  const C = cam(), plan = thrBuild(rows);
+  if (!plan.ops.length) { THR.msg = plan.notes.length ? plan.notes : ['Nothing to add: tick a thread first.']; refreshPanel(); return 0; }
+  const before = snap();
+  for (const t of plan.newTools) C.tools.push(t);
+  C.tools.sort((a, b) => a.n - b.n);
+  const first = C.next;
+  for (const o of plan.ops) C.ops.push({ id: C.next++, ...o });
+  record(`Threads: ${plan.ops.length} operation${plan.ops.length > 1 ? 's' : ''}${plan.newTools.length ? ' + ' + plan.newTools.length + ' tool' + (plan.newTools.length > 1 ? 's' : '') : ''}`, before);
+  THR.msg = [...plan.ops.map(o => `${o.name}${o.type === 'drill' && o.kind === 'tap' ? ' — ' + (o.depth > 0 ? 'to ' + fmtLs(o.depth) + ' deep' : 'full depth') : ''}`), ...plan.notes];
+  THR.added = plan.ops.length;
+  camRefresh();
+  return plan.ops.length;
+}
+function thrAuto() {
+  const rows = thrRows();
+  if (!rows.length) { toast('No holes or threads to work on.'); return; }
+  const modeled = rows.filter(r => r.modeled);
+  if (!modeled.length) { THR.msg = ['This part has no threads modeled. Name the thread of a hole below (type 1/4-20 UNC, M8x1.25 …) and add it.']; refreshPanel(); return; }
+  THR.sel = new Set(rows.filter(r => thrSelectable(r) && r.vertical).map(r => r.key)); THR.method = {};
+  const pick = rows.filter(r => THR.sel.has(r.key)).map(r => ({ ...r, m: r.rec.m }));
+  thrApply(pick);
+  waitToolpaths().then(() => { if (UIX.ws === 'cam') camRefresh(); });
+}
+// ── the panel ──
+function thrPanel() {
+  const rows = thrRows(); thrInit(rows);
+  const pick = rows.filter(r => THR.sel.has(r.key) && thrSelectable(r)), n = pick.length;
+  const dia = d => fmtDia(d);
+  const list = rows.map(r => {
+    const on = THR.sel.has(r.key) && thrSelectable(r), can = thrSelectable(r);
+    const kind = r.modeled ? `${r.internal ? 'internal' : 'external'}${r.vertical ? '' : ' · at an angle'}` : 'plain drilled hole';
+    const meth = r.vertical && r.internal && can ? `<div class="seg thr-m"><button data-thr-m="${r.key}:tap" class="${r.m === 'tap' ? 'on' : ''}">Tap</button><button data-thr-m="${r.key}:mill" class="${r.m === 'mill' ? 'on' : ''}">Thread mill</button></div>` : '';
+    const tools = !can ? '' : r.m === 'tap' ? `Tap ${r.name} · drill ${r.items[0].d ? dia(r.items[0].d) : '—'}` : r.m === 'mill' ? `Thread mill · ${r.internal ? 'in a ' + (r.items[0].d ? dia(r.items[0].d) : '') + ' hole' : 'round the boss'}` : '';
+    const name = !r.modeled && !r.manual ? `<div class="thr-name"><input type="text" list="thrList" data-thr-name="${r.key}" placeholder="Thread it as… 1/4-20 UNC 2B" autocomplete="off" spellcheck="false">${(r.suggest || []).map(e => `<button class="chip" data-thr-set="${r.key}:${e.name}">${threadName(e)}</button>`).join('')}</div>` : '';
+    return `<li class="thr-row ${on ? 'on' : ''} ${can ? '' : 'plain'}" data-thr="${r.key}"><label class="thr-top"><input type="checkbox" data-thr-sel="${r.key}" ${on ? 'checked' : ''} ${can ? '' : 'disabled'}><span class="thr-n"><b>${r.name}</b><small>${kind} · ×${r.n}${r.len > 0 && r.modeled ? ' · ' + fmtLs(r.len) + ' long' : ''}</small></span></label>${meth}${tools ? `<small class="thr-tool">${tools}</small>` : ''}${r.modeled ? `<small class="thr-why">${r.rec.why}</small>` : ''}${name}</li>`;
+  }).join('');
+  const msg = THR.msg.length ? `<div class="thr-msg"><b>${THR.added ? 'Added to the program' : 'Note'}</b><ul>${THR.msg.map(m => `<li>${m}</li>`).join('')}</ul>${THR.added ? '<div class="btns"><button class="btn" data-camdo="sim">Simulate</button><button class="btn primary" data-camdo="post">G-code</button></div>' : ''}</div>` : '';
+  return `<div class="pn-head"><h2>Threads</h2><span class="tag">${rows.filter(r => r.modeled).length} found</span></div><div class="pn-body">
+    <p class="note">Every thread in the part is listed. Tick the ones to cut — or click a thread in the view. Auto-detect ticks them all, picks each tool and writes the operations with the right places and depths.</p>
+    <div class="btns"><button class="btn primary" data-thr-do="auto">Auto-detect threads</button></div>
+    ${msg}
+    <ul class="thr-list">${list || '<li class="empty">No holes or threads in this part.</li>'}</ul>
+    <datalist id="thrList">${THREAD_STD.map(e => `<option value="${threadName(e)}"></option>`).join('')}</datalist>
+    <div class="btns"><button class="btn" data-thr-do="none" ${n ? '' : 'disabled'}>Clear</button><button class="btn primary" data-thr-do="add" ${n ? '' : 'disabled'}>Add ${n || ''} selected</button></div></div>`;
+}
+(() => {
+  const css = document.createElement('style');
+  css.textContent = `.thr-list { list-style: none; margin: 4px 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.thr-row { border: 1px solid var(--rule); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 5px; cursor: pointer; }
+.thr-row.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.thr-row.plain { cursor: default; } .thr-row:hover { border-color: var(--accent); }
+.thr-top { display: flex; gap: 9px; align-items: flex-start; cursor: pointer; } .thr-top input { margin-top: 3px; }
+.thr-n { display: flex; flex-direction: column; } .thr-n b { font-size: 13px; } .thr-n small, .thr-tool, .thr-why { color: var(--muted); font-size: 11.5px; line-height: 1.4; }
+.thr-tool { color: var(--ink-2); }
+.thr-m { margin: 2px 0; } .thr-m button { padding: 4px 8px; font-size: 11.5px; }
+.thr-name { display: flex; flex-direction: column; gap: 5px; } .thr-name input { width: 100%; } .thr-name .chip { align-self: flex-start; }
+.thr-msg { border: 1px solid var(--rule); border-radius: 10px; padding: 8px 10px; background: var(--panel-2); font-size: 12px; } .thr-msg ul { margin: 4px 0 6px; padding-left: 16px; } .thr-msg li { margin: 2px 0; }`;
+  document.head.appendChild(css);
+})();
+const camPanelTH = camPanel;
+camPanel = function () { if (CAMUI.view === 'threads' && camStock()) return thrPanel(); return camPanelTH.apply(this, arguments); };
+const bindCamPanelTH = bindCamPanel;
+bindCamPanel = function () {
+  bindCamPanelTH.apply(this, arguments);
+  if (CAMUI.view !== 'threads') return;
+  const rerender = () => { THR.msg = THR.msg; refreshPanel(); rebuildHighlights(); requestDraw(); };
+  panel.querySelectorAll('[data-thr-sel]').forEach(c => c.addEventListener('change', () => { if (c.checked) THR.sel.add(c.dataset.thrSel); else THR.sel.delete(c.dataset.thrSel); THR.msg = []; THR.added = 0; rerender(); }));
+  panel.querySelectorAll('[data-thr-m]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); const [k, m] = b.dataset.thrM.split(':'); THR.method[k] = m; rerender(); }));
+  panel.querySelectorAll('[data-thr-do]').forEach(b => b.addEventListener('click', () => {
+    const d = b.dataset.thrDo, rows = thrRows();
+    if (d === 'auto') thrAuto();
+    if (d === 'none') { THR.sel.clear(); rerender(); }
+    if (d === 'add') { const pick = rows.filter(r => THR.sel.has(r.key) && thrSelectable(r)); if (thrApply(pick)) { THR.sel.clear(); waitToolpaths().then(() => { if (UIX.ws === 'cam') camRefresh(); }); } }
+  }));
+  const setName = (key, text) => { const p = parseThread(text); if (!p) { toast('Not a thread size I know — try 1/4-20 UNC 2B or M8x1.25.'); return; } THR.manual[key] = p; THR.sel.add(key); THR.msg = []; THR.added = 0; rerender(); };
+  panel.querySelectorAll('[data-thr-name]').forEach(i => { i.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); setName(i.dataset.thrName, i.value); } }); i.addEventListener('change', () => { if (i.value.trim()) setName(i.dataset.thrName, i.value); }); });
+  panel.querySelectorAll('[data-thr-set]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); const k = b.dataset.thrSet.indexOf(':'); setName(b.dataset.thrSet.slice(0, k), b.dataset.thrSet.slice(k + 1)); }));
+  panel.querySelectorAll('.thr-row').forEach(li => {
+    li.addEventListener('mouseenter', () => { THR.hover = li.dataset.thr; rebuildHighlights(); requestDraw(); });
+    li.addEventListener('mouseleave', () => { THR.hover = null; rebuildHighlights(); requestDraw(); });
+  });
+};
+// faces to light: the ticked threads and the one under the pointer
+const camFacesHLTH = camFacesHL;
+camFacesHL = function () {
+  if (UIX.ws === 'cam' && CAMUI.view === 'threads') {
+    let rows = []; try { rows = thrRows(); } catch (e) { rows = []; }
+    const out = [], bodies = visibleBodies();
+    for (const r of rows) if ((THR.sel.has(r.key) && thrSelectable(r)) || THR.hover === r.key) for (const ref of r.faces) { const f = ref.mesh ? ref : findFace(bodies, ref); if (f) out.push({ mesh: f.mesh, fid: f.fid }); }
+    return out;
+  }
+  return camFacesHLTH.apply(this, arguments);
+};
+// click a thread (or a hole) in the view to tick it
+const thrRowAt = (x, y) => {
+  const h = pick3D(x, y, { faces: true }); if (!h || h.kind !== 'face') return null;
+  const bodies = visibleBodies();
+  for (const r of thrRows()) for (const ref of r.faces) { const f = ref.mesh ? ref : findFace(bodies, ref); if (f && f.fid === h.fid && f.mesh === h.mesh) return { r, h }; }
+  return null;
+};
+const camMoveTH = camMove;
+camMove = function (x, y) {
+  if (CAMUI.view === 'threads') { const hit = thrRowAt(x, y); setHover3D(hit ? hit.h : null); ov.className = hit ? 'pointer' : 'default'; return; }
+  return camMoveTH.apply(this, arguments);
+};
+const camClickTH = camClick;
+camClick = function (x, y) {
+  if (CAMUI.view === 'threads') {
+    const hit = thrRowAt(x, y); if (!hit) return;
+    const r = hit.r;
+    if (!thrSelectable(r)) { toast(`Name the thread of ${r.name} in the panel (type 1/4-20 UNC …) to cut it.`); const i = panel.querySelector(`[data-thr-name="${r.key}"]`); if (i) i.focus(); return; }
+    if (THR.sel.has(r.key)) THR.sel.delete(r.key); else THR.sel.add(r.key);
+    THR.msg = []; THR.added = 0; refreshPanel(); rebuildHighlights(); requestDraw(); return;
+  }
+  return camClickTH.apply(this, arguments);
+};
+</script>
+<!-- THREADCAM-END -->
 <!-- RIB2-BEGIN -->
 <style>
 /* ═════ RIB2: ribbon layout, hover cards for everything, step-by-step side panels ═════ */
