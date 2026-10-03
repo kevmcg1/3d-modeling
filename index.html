@@ -5971,37 +5971,61 @@ function sameSizeFaces(s0, bodies) {
   }
   return out;
 }
+// Several cutters in one body at once. One boolean for the whole batch is far quicker than one after another (each cut makes the
+// body many times heavier), but a batch that fails its check is split in half and each half tried again, down to one cutter.
+// items: [{ mk(zA, zB, n), zA, zB, P, must }]; a cutter that cannot be cut is dropped unless it is the picked one (must).
+function threadBatch(polys, items, N) {
+  if (items.length === 1) {
+    const it = items[0];
+    try { return threadCut(polys, it.mk, it.zA, it.zB, N, it.P); } catch (e) { if (it.must) throw e; return polys; }
+  }
+  const v0 = polyVolume(polys);
+  for (const n of [N, N + 12, Math.max(12, N - 12)]) {
+    const G = [].concat(...items.map(it => it.mk(it.zA, it.zB, n))), r = CSG.subtract(polys, G), v = polyVolume(r), vg = polyVolume(G);
+    if (v <= v0 + 1e-3 && v >= v0 - vg - 1e-3 && v0 - v >= 0.2 * vg) return r;       // took away something, and no more than the cutters hold
+  }
+  const h = items.length >> 1;
+  return threadBatch(threadBatch(polys, items.slice(0, h), N), items.slice(h), N);
+}
 function evalThread(f, ctx) {
   const r0 = findFace(ctx.bodies, f.face);
   if (!r0) throw new Error('Face no longer exists');
   const s0 = Surf.list[r0.fid];
   if (s0.t !== 'C') throw new Error('Threads need a cylindrical face');
-  // the picked face first; with "same size" ticked, every other hole of that exact size too (each keeps its own length)
-  const targets = [{ id: r0.body.id, fid: r0.fid }];
-  if (f.same) for (const o of sameSizeFaces(s0, ctx.bodies)) if (!(o.body.id === r0.body.id && o.fid === r0.fid)) targets.push({ id: o.body.id, fid: o.fid });
-  const tagSet = new Set();
-  targets.forEach((t, ti) => {
-    const body = ctx.bodies.find(b => b.id === t.id); if (!body) return;
-    try {
-      const mesh = bodyMesh(body), s = Surf.list[t.fid], fi = faceInfo(mesh, t.fid), ax = axisFrame(s.p, s.dir);
-      const inset = 1e-3, len = f.len > 0 ? Math.min(f.len, fi.h1 - fi.h0) : fi.h1 - fi.h0;
-      let zA = fi.h0 + inset, zB = fi.h0 + len - inset;
-      if (f.fromEnd) { zB = fi.h1 - inset; zA = fi.h1 - len + inset; }
-      const internal = f.internal === 'auto' || f.internal === undefined ? s.sg < 0 : !!f.internal;
-      const d = 2 * s.r, P = f.pitch > 0 ? f.pitch : isoPitch(internal ? d + 1.0825 * isoPitch(d) : d);
-      if (zB - zA < P * 0.5) throw new Error('Face is shorter than half a pitch');
-      // run out: a thread cut from the end carries on past it, through any chamfer or round there,
-      // the way a die or thread mill leaves it — so a nut starts on it
-      if (f.fromEnd && f.runout !== false) zB = fi.h1 + 1.5 * P;
-      const mk = (a, b, n) => {
-        const G = threadShell({ ...ax, R: s.r, internal, P, hand: f.hand === 'L' ? -1 : 1, zA: a, zB: b, N: n, tag: f.id });
-        for (const p of G) if (!tagSet.has(p.f)) { tagSet.add(p.f); Surf.addMeta(p.f, { feat: f.id }); }
-        return G;
-      };
-      const polys = threadCut(body.polys, mk, zA, zB, f.res || 48, P);
-      ctx.bodies = ctx.bodies.map(b => b === body ? { id: b.id, polys, bb: bboxPolys(polys) } : b);
-    } catch (e) { if (ti === 0) throw e; }                        // a neighbour that cannot take it is skipped; the picked one must
-  });
+  // the picked face, and with "same size" ticked every other hole of that exact size too (each keeps its own length)
+  const targets = [{ id: r0.body.id, fid: r0.fid, must: true }];
+  if (f.same) for (const o of sameSizeFaces(s0, ctx.bodies)) if (!(o.body.id === r0.body.id && o.fid === r0.fid)) targets.push({ id: o.body.id, fid: o.fid, must: false });
+  const tagSet = new Set(), N = f.res || 48;
+  for (const bid of [...new Set(targets.map(t => t.id))]) {
+    const body = ctx.bodies.find(b => b.id === bid); if (!body) continue;
+    const mesh = bodyMesh(body), items = [];
+    for (const t of targets.filter(t => t.id === bid)) {
+      try {
+        const s = Surf.list[t.fid], fi = faceInfo(mesh, t.fid), ax = axisFrame(s.p, s.dir);
+        const inset = 1e-3, len = f.len > 0 ? Math.min(f.len, fi.h1 - fi.h0) : fi.h1 - fi.h0;
+        let zA = fi.h0 + inset, zB = fi.h0 + len - inset;
+        if (f.fromEnd) { zB = fi.h1 - inset; zA = fi.h1 - len + inset; }
+        const internal = f.internal === 'auto' || f.internal === undefined ? s.sg < 0 : !!f.internal;
+        const d = 2 * s.r, P = f.pitch > 0 ? f.pitch : isoPitch(internal ? d + 1.0825 * isoPitch(d) : d);
+        if (zB - zA < P * 0.5) throw new Error('Face is shorter than half a pitch');
+        // run out: a thread cut from the end carries on past it, through any chamfer or round there,
+        // the way a die or thread mill leaves it — so a nut starts on it
+        if (f.fromEnd && f.runout !== false) zB = fi.h1 + 1.5 * P;
+        const mk = (a, b, n) => {
+          const G = threadShell({ ...ax, R: s.r, internal, P, hand: f.hand === 'L' ? -1 : 1, zA: a, zB: b, N: n, tag: f.id });
+          for (const p of G) if (!tagSet.has(p.f)) { tagSet.add(p.f); Surf.addMeta(p.f, { feat: f.id }); }
+          return G;
+        };
+        items.push({ mk, zA, zB, P, must: t.must, bb: bboxPolys(mk(zA, zB, N)) });
+      } catch (e) { if (t.must) throw e; }                          // a neighbour that cannot take it is skipped; the picked one must
+    }
+    // cutters whose boxes touch are cut in separate batches (overlapping cutters are not one clean solid)
+    const batches = [];
+    for (const it of items) { const b = batches.find(q => q.every(o => !bbOverlap(o.bb, it.bb, 0.05))); if (b) b.push(it); else batches.push([it]); }
+    let polys = body.polys;
+    for (const batch of batches) polys = threadBatch(polys, batch, N);
+    ctx.bodies = ctx.bodies.map(b => b === body ? { id: b.id, polys, bb: bboxPolys(polys) } : b);
+  }
 }
 </script>
 <script data-kernel>
