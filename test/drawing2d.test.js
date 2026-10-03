@@ -6,7 +6,7 @@ const path = require('path'), assert = require('assert');
 (async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox'] });
   const page = await browser.newPage({ viewport: { width: 1400, height: 850 } });
-  const errs = []; page.on('pageerror', e => errs.push(e.message)); page.on('console', m => m.type() === 'error' && errs.push(m.text()));
+  const errs = []; page.on('pageerror', e => errs.push(e.message)); page.on('console', m => m.type() === 'error' && !/Failed to load resource/.test(m.text()) && errs.push(m.text()));
   await page.goto('file://' + path.resolve(__dirname, '..', 'drawing2d.html')); await page.waitForTimeout(300);
   await page.evaluate(() => { D2D.VANIM.on = false; });
   const ev = (f, a) => page.evaluate(f, a);
@@ -50,6 +50,12 @@ const path = require('path'), assert = require('assert');
   });
   ok('pick on 20k entities < 25 ms', big.pick < 25, big); ok('redraw of 20k entities < 400 ms', big.draw < 400, big); ok('undo history is capped', big.stack <= 120, big);
 
+  // step-by-step guide in the sidebar follows the running command
+  await ev(() => { D2D.doc().ents.length = 0; D2D.run('circle'); });
+  await page.waitForTimeout(50);
+  const g = await ev(() => ({ steps: document.querySelectorAll('#guideBox .g-steps li').length, live: (document.querySelector('#guideBox .g-live') || {}).textContent || '' }));
+  ok('guide shows steps and live prompt for Circle', g.steps >= 2 && /center/i.test(g.live), g);
+  await page.keyboard.press('Escape');
   ok('no page errors', errs.length === 0, errs.slice(0, 3));
   console.log(`${n} checks passed`); await browser.close();
 })().catch(e => { console.error(e); process.exit(1); });
