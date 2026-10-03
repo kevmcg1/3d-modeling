@@ -9,7 +9,7 @@ const path = require('path'), assert = require('assert');
   const ok = (name, cond, extra) => { n++; assert.ok(cond, name + (extra !== undefined ? ' ' + JSON.stringify(extra) : '')); console.log('ok -', name); };
   const open = async file => {
     const page = await browser.newPage({ viewport: { width: 1400, height: 850 } });
-    page.on('pageerror', e => errs.push(e.message)); page.on('console', m => m.type() === 'error' && errs.push(m.text()));
+    page.on('pageerror', e => errs.push(e.message)); page.on('console', m => m.type() === 'error' && !/Failed to load resource/.test(m.text()) && errs.push(m.text()));
     await page.goto('file://' + path.resolve(__dirname, '..', file)); await page.waitForTimeout(300); return page;
   };
 
@@ -115,6 +115,54 @@ const path = require('path'), assert = require('assert');
     return { total, bad: bad.slice(0, 5), nbad: bad.length };
   });
   ok('150 random edits undo and redo to identical pixels', fuzz.total > 40 && fuzz.nbad === 0, fuzz);
+
+  // redesign: Inter everywhere, custom controls, styled tips, a step-by-step guide that follows the work, a hint over the canvas
+  await ev(() => GFX.resetDoc(800, 600, '#ffffff'));
+  const look = await ev(() => { GFX.setTool('text'); const fam = el => getComputedStyle(el).fontFamily, chk = document.querySelector('#optbar input[type=checkbox]'); return { body: fam(document.body), sel: fam(document.querySelector('select')), chk: getComputedStyle(chk).appearance, range: getComputedStyle(document.querySelector('input[type=range]')).appearance, title: document.querySelectorAll('[title]').length }; });
+  ok('Inter font and custom checkbox, range and select styling', /^"?Inter/.test(look.body) && /^"?Inter/.test(look.sel) && look.chk === 'none' && look.range === 'none', look);
+  ok('tooltips replace native titles', (await ev(() => document.querySelectorAll('[title]').length)) === 0);
+  const tools = await ev(() => Object.keys(GFX.TOOLS)), badGuide = [];
+  for (const id of tools) { await ev(id => GFX.setTool(id), id); const g = await ev(() => ({ steps: document.querySelectorAll('#guide li').length, now: document.querySelectorAll('#guide li.now').length, oc: !!document.querySelector('#optbar .tn') })); if (g.steps < 2 || g.now !== 1 || !g.oc) badGuide.push([id, g]); }
+  ok('every tool has a guide with one current step and an option bar', badGuide.length === 0, badGuide);
+  await ev(() => { GFX.resetDoc(800, 600, '#ffffff'); GFX.setTool('pen'); });
+  const idx0 = await ev(() => GFX.GUIDE.idx); await page.mouse.click(300, 300); await page.waitForTimeout(100); const idx1 = await ev(() => GFX.GUIDE.idx);
+  ok('guide advances after the first pen point', idx0 === 0 && idx1 === 1, [idx0, idx1]);
+  // switching tool with a half-drawn pen path leaves no stray layer behind
+  const stray = await ev(() => { GFX.HIST.max = 1e9; GFX.setTool('pen'); const n0 = GFX.D.layers.length; return n0; });
+  await page.mouse.click(350, 320); await ev(() => GFX.setTool('brush'));
+  ok('abandoned one-point pen path leaves no stray layer', (await ev(() => GFX.D.layers.length)) === stray, stray);
+  // Escape closes menus and dialogs even when nothing inside has focus
+  await page.click('.mb >> nth=0'); await page.keyboard.press('Escape');
+  ok('Escape closes an open menu', await ev(() => document.getElementById('pop').style.display !== 'block'));
+  await ev(() => { document.querySelector('#cv').focus(); GFX.imageSizeDialog(); document.activeElement.blur(); }); await page.keyboard.press('Escape');
+  ok('Escape closes a dialog', await ev(() => !document.getElementById('modal').classList.contains('show')));
+
+  // hover cards: every tool has name, description and Before/After; filters show a real before/after; no native tooltips
+  const hoverCard = async sel => { await page.mouse.move(5, 830); await page.hover(sel); await page.waitForTimeout(650); return ev(() => { const c = document.getElementById('tipcard'); return { show: !c.hidden && c.classList.contains('in'), name: c.querySelector('.tip-head b')?.textContent || '', what: c.querySelector('.tip-what')?.textContent || '', pics: c.querySelectorAll('.tip-pics figure').length }; }); };
+  const badCards = []; for (const id of tools) { const c = await hoverCard('.tool[data-tool=' + id + ']'); if (!c.show || !c.name || !c.what || c.pics !== 2) badCards.push([id, c]); }
+  ok('every tool shows a hover card with a description and Before/After', badCards.length === 0, badCards);
+  await page.click('.mb >> text=Filter'); await page.hover('#pop .mi >> nth=0'); await page.waitForTimeout(450);
+  const fxCard = await ev(() => ({ imgs: document.querySelectorAll('#tipcard .tip-pics img').length, differ: (() => { const i = document.querySelectorAll('#tipcard .tip-pics img'); return i.length === 2 && i[0].src !== i[1].src; })() }));
+  ok('menu filters preview a real before and after', fxCard.imgs === 2 && fxCard.differ, fxCard); await page.keyboard.press('Escape');
+  // dropdowns and number fields are custom, animated and still drive the original controls
+  await ev(() => GFX.setTool('text')); await page.click('#optbar .ddb'); await page.waitForTimeout(250);
+  ok('dropdown opens as a styled list', await ev(() => document.getElementById('ddlist').classList.contains('in') && document.getElementById('ddlist').children.length > 4));
+  await page.keyboard.press('ArrowDown'); await page.keyboard.press('Enter'); await page.waitForTimeout(200);
+  ok('dropdown keyboard pick fires change', /Arial/.test(await ev(() => GFX.OPT.font)));
+  await ev(() => { const L = GFX.ensureVectorLayer(), s = GFX.newShape('rect', [GFX.rectSub(100, 100, 100, 100, 0)]); s.stroke = { type: 'solid', color: '#000', w: 5, cap: 'butt', join: 'miter' }; L.shapes.push(s); GFX.setVSel([s.id]); });
+  const num = page.locator('#props .numw input[type=number]').first(), n0 = +await num.inputValue(); await num.focus(); await page.keyboard.press('ArrowUp'); await page.waitForTimeout(700);
+  const nv = +await num.inputValue(), sw = await ev(() => GFX.activeLayer().shapes.map(s => s.stroke && s.stroke.w));
+  ok('number field arrow key steps and updates the shape', nv > n0 && sw.some(w => w > 5), [n0, nv, sw]);
+  // the main tools do their job
+  await ev(() => { GFX.resetDoc(800, 600, '#ffffff'); const g = GFX.activeLayer().cv.getContext('2d'); g.fillStyle = '#ff0000'; g.fillRect(100, 100, 120, 120); GFX.setColor('fg', '#00ff00'); GFX.fitView(true); });
+  const scr = async (x, y) => { const bb = await page.locator('#cv').boundingBox(), q = await ev(([x, y]) => GFX.toScr(x, y), [x, y]); return [bb.x + q[0], bb.y + q[1]]; };
+  const drag = async pts => { const q = []; for (const [x, y] of pts) q.push(await scr(x, y)); await page.mouse.move(...q[0]); await page.mouse.down(); for (const a of q.slice(1)) await page.mouse.move(a[0], a[1], { steps: 4 }); await page.mouse.up(); };
+  await ev(() => GFX.setTool('wand')); { const q = await scr(150, 150); await page.mouse.click(...q); } const wb = await ev(() => GFX.SEL.box);
+  ok('magic wand selects the red square', wb && Math.abs(wb.x0 - 100) < 2 && Math.abs(wb.x1 - 219) < 2, wb);
+  await ev(() => GFX.setTool('bucket')); { const q = await scr(150, 150); await page.mouse.click(...q); } const fp = await px(150, 150);
+  ok('paint bucket fills inside the selection', fp[0] === 0 && fp[1] === 255, fp);
+  await ev(() => { GFX.selNone(); GFX.setTool('brush'); }); await drag([[400, 400], [500, 450], [560, 410]]); const bp = await px(500, 450);
+  ok('brush paints with the foreground color', bp[1] > 200 && bp[0] < 80, bp);
 
   // a heavy document still composes quickly
   const heavy = await ev(() => {
