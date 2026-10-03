@@ -154,14 +154,33 @@ input[type=text], input[type=number], textarea { border-radius:7px; } input[type
 .g-opt.chk { display:flex; align-items:center; gap:9px; padding:5px 0; } .g-opt.chk span { flex:1; }
 .g-tips { margin:0; padding:2px 14px 12px 28px; font-size:12px; line-height:1.55; color:var(--ink2); } .g-tips li { margin:3px 0; } .g-tips b { color:var(--ink); } .guide.idle .g-head { padding-bottom:6px; }
 /* hover tip */
-#tip { position:fixed; z-index:90; background:#fff; border:1px solid var(--rule); border-radius:12px; box-shadow:0 12px 32px rgba(20,40,80,.18), 0 2px 6px rgba(20,40,80,.08); padding:11px 12px 10px; pointer-events:none; opacity:0; transform:translateY(-4px) scale(.98); transition:opacity .16s var(--ease), transform .16s var(--ease); } #tip[hidden] { display:none; } #tip.in { opacity:1; transform:none; }
+#tip { position:fixed; z-index:90; width:300px; background:#fff; border:1px solid var(--rule); border-radius:12px; box-shadow:0 12px 32px rgba(20,40,80,.18), 0 2px 6px rgba(20,40,80,.08); padding:11px 12px 10px; pointer-events:none; opacity:0; transform:translateY(-4px) scale(.98); transition:opacity .16s var(--ease), transform .16s var(--ease); } #tip[hidden] { display:none; } #tip.in { opacity:1; transform:none; }
 .tip-head { display:flex; align-items:center; gap:9px; } .tip-head b { font-size:13px; font-weight:650; flex:1; } .tip-cmd { font:600 9.5px var(--font); letter-spacing:.06em; color:var(--muted); background:var(--panel2); border-radius:6px; padding:2px 6px; }
 .tip-what { margin:7px 0 6px; font-size:12px; line-height:1.45; color:var(--ink2); } .tip-modes { font-size:11px; color:var(--accent); font-weight:600; margin-bottom:6px; }
-.tip-steps { list-style:none; margin:0; padding:7px 0 0; border-top:1px solid var(--rule); } .tip-steps li { display:flex; gap:8px; align-items:center; padding:2px 0; font-size:11.5px; color:var(--ink2); } .tip-steps li span { width:17px; height:17px; border-radius:50%; background:var(--accent-soft); color:var(--accent); font:700 9.5px var(--font); display:grid; place-items:center; flex:none; }
-.tip-foot { margin-top:7px; font-size:10.5px; color:var(--muted); }
+.tip-pics { display:flex; align-items:center; gap:4px; margin:8px 0 2px; } .tip-pics figure { margin:0; flex:1; min-width:0; } .tip-pics svg { display:block; width:100%; height:auto; border-radius:8px; border:1px solid var(--rule); } .tip-pics figcaption { text-align:center; font:600 9.5px var(--font); letter-spacing:.07em; text-transform:uppercase; color:var(--muted); margin-top:3px; }
+.tip-arr { color:var(--accent); font-weight:700; font-size:15px; margin-bottom:14px; }
+.tip-plate { display:grid; place-items:center; height:58px; margin:8px 0 2px; border-radius:9px; background:var(--accent-soft); color:var(--accent); }
+.tip-more { max-height:0; opacity:0; overflow:hidden; transition:max-height .28s var(--ease), opacity .22s var(--ease), margin .28s var(--ease); } #tip.more .tip-more { max-height:240px; opacity:1; margin-top:9px; } #tip.more .tip-hold { display:none; }
+.tip-step { font:650 10px var(--font); letter-spacing:.07em; text-transform:uppercase; color:var(--accent); margin-bottom:3px; } .tip-more ol { margin:0; padding-left:18px; font-size:11.5px; line-height:1.5; color:var(--ink2); } .tip-more li::marker { color:var(--accent); font-weight:700; }
+.tip-hold { margin-top:6px; font-size:10.5px; color:var(--muted); text-align:center; }
 @keyframes dlgin { from { opacity:0; transform:translateY(8px) scale(.98); } to { opacity:1; transform:none; } } @keyframes fadein { from { opacity:0; } to { opacity:1; } } @keyframes ctxin { from { opacity:0; transform:translateY(-4px) scale(.98); } to { opacity:1; transform:none; } }
 #dlg:not([hidden]) { animation:fadein .16s ease-out; } #dlg:not([hidden]) .card { animation:dlgin .2s var(--ease); } #ctx:not([hidden]) { animation:ctxin .12s var(--ease); transform-origin:top left; }
 .pal { transition:width .2s var(--ease); } #toast { transition:opacity .22s var(--ease), transform .22s var(--ease); }
+/* drop-downs and number steppers (see 10-controls.js) */
+.dd-native { display:none !important; } .dd { position:relative; display:block; width:100%; min-width:0; }
+.dd-btn { display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%; height:28px; padding:0 9px 0 10px; border:1px solid var(--rule); border-radius:8px; background:#fff; color:var(--ink); font-size:12px; text-align:left; cursor:pointer; box-shadow:0 1px 0 rgba(20,40,80,.03); }
+.dd-btn .dd-l { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .dd-btn svg { flex:none; color:#6a778b; transition:transform .2s var(--ease), color .14s var(--ease); }
+.dd-btn:hover:not(:disabled) { border-color:color-mix(in srgb,var(--accent) 60%,var(--rule)); background:#fbfcfe; } .dd.open .dd-btn { border-color:var(--accent); box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 16%,transparent); } .dd.open .dd-btn svg { transform:rotate(180deg); color:var(--accent); }
+.dd.off .dd-btn { opacity:.5; cursor:default; } .dd.g-select .dd-btn { color:var(--accent); font-weight:600; }
+#rbody .dd-btn, .prow .dd-btn { height:26px; border-radius:7px; } #layerTbl td:nth-child(5) .dd { width:92px; } #layerTbl td:nth-child(6) .dd { width:64px; } #layerTbl .dd { width:80px; } #layerTbl .dd-btn { height:22px; font-size:11px; padding:0 6px 0 8px; border-radius:6px; } #dlgCard .dd-btn { height:30px; }
+#ddpop { position:fixed; z-index:120; background:#fff; border:1px solid var(--rule); border-radius:10px; box-shadow:0 14px 36px rgba(20,40,80,.20), 0 2px 6px rgba(20,40,80,.08); padding:4px; overflow:auto; opacity:0; transform:translateY(-6px) scaleY(.94); transition:opacity .14s var(--ease), transform .16s var(--ease); font-size:12px; } #ddpop[hidden] { display:none; } #ddpop.in { opacity:1; transform:none; }
+.dd-o { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; border:0; background:transparent; text-align:left; padding:6px 9px; border-radius:7px; color:var(--ink); font-size:12px; white-space:nowrap; cursor:pointer; } .dd-o.hi { background:var(--accent-soft); } .dd-o.sel { color:var(--accent); font-weight:600; } .dd-o svg { color:var(--accent); flex:none; } .dd-o:disabled { opacity:.4; }
+.dd-grp { padding:7px 9px 3px; font:650 9.5px var(--font); letter-spacing:.07em; text-transform:uppercase; color:var(--muted); }
+.num { position:relative; display:flex; width:100%; min-width:0; } .num input { flex:1; min-width:0; width:100%; padding-right:50px !important; }
+.num-b { position:absolute; top:3px; bottom:3px; width:21px; border:0; border-radius:6px; background:transparent; color:#6a778b; display:grid; place-items:center; opacity:0; transform:scale(.9); transition:opacity .14s var(--ease), background-color .14s var(--ease), color .14s var(--ease), transform .14s var(--ease); cursor:pointer; padding:0; }
+.num-b[data-d="-1"] { right:26px; } .num-b[data-d="1"] { right:4px; } .num:hover .num-b, .num:focus-within .num-b { opacity:1; transform:none; } .num-b:hover { background:var(--accent-soft); color:var(--accent); } .num-b:active { background:color-mix(in srgb,var(--accent) 22%,#fff); }
+.dlg-out { opacity:0 !important; transition:opacity .14s var(--ease); } #dlg.out .card { opacity:0; transform:translateY(6px) scale(.985); transition:opacity .14s var(--ease), transform .14s var(--ease); }
+input[type=text], input[type=number], textarea { background:#fff; border:1px solid var(--rule); padding:0 9px; transition:border-color .14s var(--ease), box-shadow .14s var(--ease), background-color .14s var(--ease); } textarea { padding:7px 9px; } input[type=text]:hover:not(:focus), input[type=number]:hover:not(:focus), textarea:hover:not(:focus) { border-color:color-mix(in srgb,var(--accent) 45%,var(--rule)); } ::placeholder { color:#9aa6b8; }
 @media (prefers-reduced-motion:reduce) { *, *::before, *::after { animation:none !important; transition:none !important; } }
 @media (max-width:900px) { #layerPal, #propPal { position:absolute; z-index:10; top:0; bottom:0; box-shadow:var(--shadow); } #propPal { right:0; } .rbtn { width:50px; } #coord { min-width:150px; } }
 </style>
@@ -1592,7 +1611,7 @@ cmd('arc', ['a'], async (args) => {
   }
   if (mode === 'SCE' || mode === 'SCA' || mode === 'SCL') {
     const s = args.s || (await ptOpt('Specify start point of arc')).pt; if (!s) return;
-    const c = (await ptOpt('Specify center point of arc', { base: s })).pt; if (!c) return; const rr = dst(s, c), a0 = angOf(sub(s, c));
+    const c = args.c || (await ptOpt('Specify center point of arc', { base: s })).pt; if (!c) return; const rr = dst(s, c), a0 = angOf(sub(s, c));
     if (mode === 'SCE') { const e = await ptOpt('Specify end point of arc', { base: c, kws: [['Angle', 'A'], ['chord Length', 'L']], preview: p => [ghost('arc', arcFromCenter(c, s, pol(c, rr, angOf(sub(p, c)))))] }); if (e.kw === 'Angle') return CMDS.arc.fn({ mode: 'SCA', s, c }); if (e.kw === 'chord Length') return CMDS.arc.fn({ mode: 'SCL', s, c }); if (!e.pt) return; addArc(arcFromCenter(c, s, pol(c, rr, angOf(sub(e.pt, c))))); return; }
     if (mode === 'SCA') { const a = await getAng('Specify included angle', { base: c, preview: p => { const sw = nsa(angOf(sub(p, c)) - a0); return [ghost('arc', swArc(c, rr, a0, sw))]; } }); if (a.ang == null) return; const sw = a.num == null ? nsa(a.ang) : a.ang; addArc(swArc(c, rr, a0, sw)); return; }
     const L = await getNum('Specify length of chord', { base: s, min: 0 }); if (!L.num || L.num > 2 * rr) { msg('Chord longer than diameter.', 'err'); return; } addArc(swArc(c, rr, a0, 2 * Math.asin(L.num / 2 / rr))); return;
@@ -3065,7 +3084,7 @@ function exportFile(kind) {
   else if (kind === 'svg') { download(n + '.svg', exportSVG(), 'image/svg+xml'); msg(`Exported ${n}.svg`); }
   else if (kind === 'png') { renderPNG(2400).toBlob(b => download(n + '.png', b), 'image/png'); msg(`Exported ${n}.png`); }
 }
-cmd('new', [], async () => { if (FILE.dirty && !confirm('Discard the current drawing?')) return; const r = await dialog({ title: 'New drawing', body: `<label>Units<select id="nu"><option value="in">Imperial — inches</option><option value="mm">Metric — millimeters</option></select></label>`, read: d => $('#nu', d).value }); if (r) newDrawing(r); }, { repeat: false });
+cmd('new', [], async () => { if (FILE.dirty && !(await dialog({ title: 'Discard the current drawing?', body: '<p style="margin:0;line-height:1.5">You have changes that are not saved. Starting a new drawing will throw them away.</p>', ok: 'Discard' }))) return; const r = await dialog({ title: 'New drawing', body: `<label>Units<select id="nu"><option value="in">Imperial — inches</option><option value="mm">Metric — millimeters</option></select></label>`, read: d => $('#nu', d).value }); if (r) newDrawing(r); }, { repeat: false });
 cmd('open', ['dxfin', 'import'], async () => { $('#fileIn').click(); }, { repeat: false });
 cmd('save', ['qsave', 'saveas'], async () => { saveFile(); }, { repeat: false });
 cmd('dxfout', ['dxfexport'], async () => { exportFile('dxf'); }, { repeat: false });
@@ -3142,7 +3161,7 @@ function panelHTML(p) {
 }
 function btnHTML(b, mode = 'big') {
   const menu = b.menu ? ` data-menu='${JSON.stringify(b.menu).replace(/'/g, '&#39;')}'` : '';
-  return `<button class="rbtn ${mode}" data-cmd="${b.c}" data-args='${JSON.stringify(b.args || {})}'${menu} ${TI[b.c] ? `aria-label="${b.label}"` : `title="${b.label}${b.c.startsWith('_') ? '' : ' (' + b.c.toUpperCase() + ')'}"`} data-id="${b.id}">${ic(b.icon, mode === 'big' ? 28 : 16)}<span>${b.label}</span>${b.menu ? `<i class="rdrop">${ic('chev', 10)}</i>` : ''}</button>`;
+  return `<button class="rbtn ${mode}" data-cmd="${b.c}" data-args='${JSON.stringify(b.args || {})}'${menu} aria-label="${b.label}" data-id="${b.id}">${ic(b.icon, mode === 'big' ? 28 : 16)}<span>${b.label}</span>${b.menu ? `<i class="rdrop">${ic('chev', 10)}</i>` : ''}</button>`;
 }
 function customPanel(k) {
   if (k === 'layerprops') return `<button class="rbtn big" data-cmd="layer" title="Layer properties (LAYER)">${ic('layers', 28)}<span>Layers</span></button>
@@ -3160,6 +3179,7 @@ function ribbonRun(c, args) {
   runCommand(c, fromGuide); const m = modeOf(c); if (m && m.pre && fromGuide === args) preFeed([...m.pre]); cmdIn.focus();
 }
 function showMenu(anchor, items) {
+  TIP.items = items;
   const m = $('#ctx'); const r = anchor.getBoundingClientRect(); m.innerHTML = items.map((it, i) => `<button data-i="${i}">${it[0]}</button>`).join(''); m.hidden = false; m.style.left = Math.min(r.left, innerWidth - 220) + 'px'; m.style.top = (r.bottom + 2) + 'px';
   m.onclick = e => { const b = e.target.closest('[data-i]'); if (!b) return; m.hidden = true; const it = items[+b.dataset.i]; ribbonRun(it[1], it[2] || {}); };
 }
@@ -3198,13 +3218,15 @@ function updateTitle() { document.title = (FILE.dirty ? '• ' : '') + FILE.name
 function showConsole(on) { $('#cmdwrap').classList.toggle('big', on === undefined ? !$('#cmdwrap').classList.contains('big') : on); cmdHist.scrollTop = cmdHist.scrollHeight; }
 
 // ── dialogs ──
+let dlgClose = null;                               // the dialog that is open right now (a new one closes it first)
 function dialog({ title, body, read, onOpen, ok = 'OK', wide = false, noCancel = false }) {
+  if (dlgClose) dlgClose(false);
   return new Promise(res => {
     const el = $('#dlg'), card = $('#dlgCard'); card.className = 'card' + (wide ? ' wide' : '');
     card.innerHTML = `<h3>${title}</h3><div class="dbody">${body}</div><div class="dfoot">${noCancel ? '' : '<button class="btn" data-x="cancel">Cancel</button>'}<button class="btn pri" data-x="ok">${ok}</button></div>`;
-    el.hidden = false; const close = v => { el.hidden = true; card.innerHTML = ''; document.removeEventListener('keydown', kd, true); cmdIn.focus(); res(v); };
-    const kd = e => { if (e.key === 'Escape') { e.stopPropagation(); close(false); } else if (e.key === 'Enter' && !(e.target.tagName === 'TEXTAREA') && e.target.tagName !== 'BUTTON') { e.preventDefault(); e.stopPropagation(); card.querySelector('[data-x=ok]').click(); } };
-    document.addEventListener('keydown', kd, true);
+    clearTimeout(el._t); el.hidden = false; el.classList.remove('out'); const close = v => { if (dlgClose === close) dlgClose = null; document.removeEventListener('keydown', kd, true); ddClose(true); el.classList.add('out'); el._t = setTimeout(() => { el.hidden = true; el.classList.remove('out'); card.innerHTML = ''; }, 140); cmdIn.focus(); res(v); };
+    const kd = e => { if (e.key === 'Escape') { e.stopPropagation(); close(false); } else if (e.key === 'Enter' && !(e.target.tagName === 'TEXTAREA') && e.target.tagName !== 'BUTTON') { e.preventDefault(); e.stopPropagation(); const okb = card.querySelector('[data-x=ok]'); if (okb) okb.click(); } };
+    document.addEventListener('keydown', kd, true); dlgClose = close;
     card.onclick = e => { const b = e.target.closest('[data-x]'); if (!b) return; if (b.dataset.x === 'cancel') close(false); else { try { close(read ? read(card) : true); } catch (er) { console.error(er); close(false); } } };
     el.onmousedown = e => { if (e.target === el) close(false); };
     if (onOpen) onOpen(card); const f = card.querySelector('input,select,textarea'); if (f) setTimeout(() => f.focus(), 30);
@@ -3386,7 +3408,8 @@ function setupKeys() {
     else if (e.key === 'ArrowUp' && !CM.req) { e.preventDefault(); const h = CM.hist; if (h.length) { CM.histAt = Math.min(h.length, CM.histAt + 1); cmdIn.value = h[h.length - CM.histAt]; } }
     else if (e.key === 'ArrowDown' && !CM.req) { e.preventDefault(); CM.histAt = Math.max(0, CM.histAt - 1); cmdIn.value = CM.histAt ? CM.hist[CM.hist.length - CM.histAt] : ''; }
     else if (e.key === 'Escape') { e.preventDefault(); cmdIn.value = ''; cancelAll(); }
-    e.stopPropagation();
+    // typing in the command line stays in the command line, except shortcuts that make sense with an empty line (Ctrl+Z, F-keys…)
+    if (!(e.key.length > 1 && /^F\d+$/.test(e.key)) && !((e.ctrlKey || e.metaKey) && !cmdIn.value)) e.stopPropagation();
   });
   document.addEventListener('keydown', e => {
     if (!$('#dlg').hidden) return;
@@ -3416,7 +3439,7 @@ function init() {
   cv = $('#cv'); cx = cv.getContext('2d'); ov = $('#ov'); ox = ov.getContext('2d'); cmdIn = $('#cmdIn'); cmdHist = $('#cmdHist'); cmdPrompt = $('#cmdPrompt'); cmdKws = $('#cmdKws');
   try { activeTab = localStorage.getItem('d2d.tab') || 'Home'; if (!RIBBON[activeTab]) activeTab = 'Home'; } catch (e) { }
   document.documentElement.setAttribute('data-theme', 'light');                 // the drafting workspace is always light
-  buildRibbon(); setupPointer(); setupKeys(); setupLayerPanel(); setupPropPanel(); initGuide();
+  buildRibbon(); setupPointer(); setupKeys(); setupLayerPanel(); setupPropPanel(); initGuide(); setupControls();
   new ResizeObserver(sizeCanvases).observe($('#vp'));
   $$('.stbtn').forEach(b => b.addEventListener('click', () => { toggle(b.dataset.t); cmdIn.focus(); }));
   $('#btnUndo').onclick = () => runCommand('undo'); $('#btnRedo').onclick = () => runCommand('redo'); $('#btnFile').onclick = e => { e.stopPropagation(); openFileMenu(); }; $('#btnHelp').onclick = () => showHelp();
@@ -3528,10 +3551,10 @@ const TI = {
   pedit: { t: 'Edit polyline', i: 'pedit', d: 'Close, join, widen or smooth a polyline.', steps: [['Select polyline', 'Click a polyline (or a line to turn into one).'], ['Choose an option', 'Close, Join, Width, Fit, Spline, Decurve, Reverse …']] },
   erase: { t: 'Erase', i: 'erase', d: 'Delete objects.', steps: [SEL1] },
   text: {
-    t: 'Text', i: 'text', d: 'Single-line text.', steps: [['Start point', 'Click where the text begins (or choose <b>Justify</b>).'], ['Height', 'Type a height, or press Enter to keep the current one.'], ['Rotation', 'Click to aim, or type an angle (0 = horizontal).'], ['Type the text', 'Type it in the box that opens, then press <b>OK</b>.']],
+    t: 'Text', i: 'text', d: 'Single-line text.', steps: [['Start point', 'Click where the text begins (or choose <b>Justify</b>).'], ['Height', 'Type a height, or press Enter to keep the current one.'], ['Rotation', 'Click to aim, or type an angle (0 = horizontal).'], ['Type the text', 'Type it in the command line and press <b>Enter</b>. Each further line goes below; an empty Enter finishes.']],
     opts: [{ k: 'h', l: 'Text height', type: 'num', min: 1e-6, get: () => doc.txt.h, set: v => { doc.txt.h = Math.max(1e-6, v); } }]
   },
-  mtext: { t: 'Multiline text', i: 'mtext', d: 'A block of wrapped text.', steps: [['First corner', CLK], ['Opposite corner', 'Click the other corner of the text box.'], ['Type the text', 'Type it in the editor, then press <b>OK</b>.']] },
+  mtext: { t: 'Multiline text', i: 'mtext', d: 'A block of wrapped text.', steps: [['First corner', CLK], ['Opposite corner', 'Click the other corner of the text box.'], ['Type the text', 'Type it in the editor that opens, then press <b>OK</b>.']] },
   dimlinear: { t: 'Linear dimension', i: 'lin', d: 'Measure a horizontal or vertical distance.', steps: [['First extension line', 'Click the first point to measure from (or press Enter to pick an object).'], ['Second extension line', 'Click the second point.'], ['Dimension line location', 'Click where the dimension line should sit.']] },
   dimaligned: { t: 'Aligned dimension', i: 'ali', d: 'Measure the true distance between two points.', steps: [['First extension line', 'Click the first point.'], ['Second extension line', 'Click the second point.'], ['Dimension line location', 'Click where the dimension line should sit.']] },
   dimradius: { t: 'Radius dimension', i: 'rad', d: 'Dimension the radius of an arc or circle.', steps: [['Select arc or circle', 'Click the arc or circle.'], ['Text location', 'Click where the dimension text goes.']] },
@@ -3547,6 +3570,22 @@ const TI = {
   id: { t: 'ID point', i: 'id', d: 'Show the coordinates of a point.', steps: [['Point', 'Click the point.']] },
   list: { t: 'List', i: 'list', d: 'Show an object\'s data.', steps: [SEL1] },
   matchprop: { t: 'Match properties', i: 'match', d: 'Copy layer, colour and linetype from one object to others.', steps: [['Source object', 'Click the object to copy from.'], ['Destination objects', 'Click each object to change; Enter finishes.', 'rep']] },
+  grid: { t: 'Grid', i: 'grid', d: 'Show or hide the dot grid.', steps: [['Toggle', 'Click to show or hide the grid (F7).']] },
+  lwt: { t: 'Show lineweights', i: 'lengthen', d: 'Show line thickness on screen the way it will print.', steps: [['Toggle', 'Click to switch thick lines on or off.']] },
+  _dsettings: { t: 'Drafting settings', i: 'settings', d: 'Snap, grid, polar tracking and which object-snap points are active.', steps: [['Open', 'Click, then tick the options you want.']] },
+  _units: { t: 'Drawing units', i: 'units', d: 'Inches or millimetres, and how numbers are written.', steps: [['Open', 'Click, then pick the unit, format and precision.']] },
+  dimstyle: { t: 'Dimension style', i: 'dimstyle', d: 'Arrowheads, text size and placement for every new dimension.', steps: [['Open', 'Click, change the settings and press OK.']] },
+  _textstyle: { t: 'Text style', i: 'text', d: 'Font, height and justification for new text.', steps: [['Open', 'Click, pick a font and height, press OK.']] },
+  _hatchset: { t: 'Hatch settings', i: 'settings', d: 'Pattern, scale and angle used by the next hatch.', steps: [['Open', 'Click, choose a pattern, scale and angle.']] },
+  plot: { t: 'Plot / PDF', i: 'plot', d: 'Print to a page or save a PDF at an exact scale.', steps: [['Open', 'Click to open the plot window.'], ['Set up', 'Choose paper, area, orientation and scale.'], ['Print', 'Press Plot (or Save PDF).']] },
+  dxfout: { t: 'Export DXF', i: 'dxf', d: 'A file AutoCAD and other CAD programs open.', steps: [['Save', 'Click to download the .dxf file.']] },
+  _svg: { t: 'Export SVG', i: 'img', d: 'A vector picture for Illustrator, Inkscape or the web.', steps: [['Save', 'Click to download the .svg file.']] },
+  _png: { t: 'Export PNG', i: 'img', d: 'A picture of the drawing.', steps: [['Save', 'Click to download the .png file.']] },
+  save: { t: 'Save drawing', i: 'save', d: 'Download your drawing to keep working later.', steps: [['Save', 'Click, or press Ctrl+S.']] },
+  open: { t: 'Open drawing', i: 'open', d: 'Open a DXF from AutoCAD or this program\'s own save.', steps: [['Choose file', 'Click, then pick a .dxf or .json drawing.']] },
+  layer: { t: 'Layers', i: 'layers', d: 'Organise a drawing into layers you can switch off, freeze or lock.', steps: [['Open', 'Click to show or hide the layer list.'], ['Edit', 'Use the dots to switch, freeze or lock a layer.']] },
+  properties: { t: 'Properties', i: 'props', d: 'Show and edit the details of the selected objects.', steps: [['Open', 'Click to show or hide the panel.'], ['Edit', 'Select objects, then change anything in the list.']] },
+  regen: { t: 'Regenerate', i: 'zoomx', d: 'Redraw the whole drawing from scratch.', steps: [['Click', 'Use it if something looks out of date after a big change.']] },
   zoom: { t: 'Zoom', i: 'zoomx', d: 'Change the view.', steps: [['Choose', 'Extents, Window, Previous, or type a scale.']] },
   pan: { t: 'Pan', i: 'pan', d: 'Drag the drawing around.', steps: [['Drag', 'Hold and drag. Esc to stop. (Middle mouse button also pans.)']] },
 };
@@ -3596,7 +3635,7 @@ function renderGuide() {
   const st = stepsOf(G.name), cur = st.length ? curStepIdx(st) : -1, last = st.length - 1;
   const done = st.length && G.step >= st.length && !st.some(s => s[2] === 'rep');
   const pct = st.length ? Math.round(100 * (done ? 1 : Math.min(G.step, last) / Math.max(1, st.length))) : 0;
-  const r = CM.req, live = r ? r.prompt.replace(/\s+or\s*$/, '').replace(/\s*\(.*$/, '') : '';
+  const r = CM.req, live = r ? r.prompt.replace(/\s*\[[^\]]*\]/g, '').replace(/\s*\(.*?\)/g, '').replace(/\s+or\s*$/, '').trim() : '';
   const cm = (modeOf(G.name) || {}).id;
   const modes = t.modes ? `<div class="g-sec"><h5>Method — how to define it</h5>${t.modes.length > 5 ? `<select class="g-select" data-modesel>${t.modes.map(m => `<option value="${m.id}" ${m.id === cm ? 'selected' : ''}>${m.t}</option>`).join('')}</select>` : `<div class="g-modes">${t.modes.map(m => `<button data-mode="${m.id}" class="${m.id === cm ? 'on' : ''}">${m.t}</button>`).join('')}</div>`}</div>` : '';
   const kws = r && r.o.kws && r.o.kws.length ? `<div class="g-sec"><h5>Options for this step</h5><div class="g-kws">${r.o.kws.map(k => `<button data-kw="${k[0]}" title="${k[1] ? 'Type ' + k[1] : ''}">${k[0]}</button>`).join('')}</div></div>` : '';
@@ -3640,26 +3679,346 @@ function setupAids() {
   $('#aids').addEventListener('click', e => { const b = e.target.closest('[data-aid]'); if (!b) return; const k = b.dataset.aid; if (k === '_dsettings') settingsDialog(); else toggle(k); renderAids(); cmdIn.focus(); });
 }
 
-// ── hover instructions on every ribbon tool ──
-function hideTip() { clearTimeout(G.tipT); const t = $('#tip'); if (t) { t.classList.remove('in'); t.hidden = true; } G.tipFor = null; }
-function showTip(btn) {
-  const name = btn.dataset.cmd, t = TI[name]; if (!t) return;
-  const tip = $('#tip'), st = (t.modes ? t.modes[0].steps : t.steps) || [], al = Object.keys(ALIASES).filter(a => ALIASES[a] === name && a !== name).slice(0, 3);
-  tip.innerHTML = `<div class="tip-head"><span class="g-ic">${ic(t.i || name, 18)}</span><b>${t.t}</b><span class="tip-cmd">${name.toUpperCase()}${al.length ? ' · ' + al.map(x => x.toUpperCase()).join(', ') : ''}</span></div>
-    <p class="tip-what">${t.d}</p>${t.modes ? `<div class="tip-modes">${t.modes.length} ways to start — choose in the side panel</div>` : ''}
-    <ol class="tip-steps">${st.slice(0, 4).map((s, i) => `<li><span>${i + 1}</span><div><b>${s[0]}</b></div></li>`).join('')}</ol><div class="tip-foot">Click to start · <kbd>Esc</kbd> cancels</div>`;
-  tip.hidden = false; const r = btn.getBoundingClientRect(), w = 280; let x = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), innerWidth - w - 8), y = r.bottom + 8;
-  tip.style.left = x + 'px'; tip.style.top = y + 'px'; tip.style.width = w + 'px';
-  if (y + tip.offsetHeight > innerHeight - 8) tip.style.top = Math.max(8, r.top - tip.offsetHeight - 8) + 'px';
-  requestAnimationFrame(() => tip.classList.add('in')); G.tipFor = btn;
-}
-function setupTips() {
-  const body = $('#rbody');
-  body.addEventListener('pointerover', e => { const b = e.target.closest('.rbtn[data-cmd]'); if (!b || b === G.tipFor || e.pointerType === 'touch') return; hideTip(); G.tipT = setTimeout(() => showTip(b), 380); G.tipFor = b; });
-  body.addEventListener('pointerout', e => { const b = e.target.closest('.rbtn[data-cmd]'); if (b && !b.contains(e.relatedTarget)) hideTip(); });
-  for (const ev of ['pointerdown', 'wheel', 'keydown']) window.addEventListener(ev, hideTip, true);
-}
 function initGuide() { setupGuide(); setupAids(); setupTips(); renderGuide(); renderAids(); }
+/* ═══ Hover cards: one custom card for every button, with a before → after picture and (after a moment) the steps ═══ */
+// The browser's own title tooltips are never shown: every title="…" is lifted into data-tip and rendered by this card instead.
+const ART = (() => {
+  const C = { ink: '#44505e', ac: '#2f7be8', wn: '#f29b1d', rd: '#d9443a', gh: '#b8c2ce', ok: '#2ea052', fill: 'rgba(47,123,232,.14)', paper: '#f6f8fb' };
+  const p = (d, c = C.ac, w = 1.6, x = '') => `<path d="${d}" fill="none" stroke="${c}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" ${x}/>`;
+  const f = (d, c = C.fill, s = 'none', w = 1.6) => `<path d="${d}" fill="${c}" stroke="${s}" stroke-width="${w}" stroke-linejoin="round"/>`;
+  const dot = (x, y, c = C.ac, r = 2.6) => `<circle cx="${x}" cy="${y}" r="${r}" fill="${c}"/>`;
+  const ring = (x, y, r, c = C.ac, w = 1.6, fl = 'none') => `<circle cx="${x}" cy="${y}" r="${r}" fill="${fl}" stroke="${c}" stroke-width="${w}"/>`;
+  const t = (x, y, s, c = C.rd, z = 8, a = 'middle') => `<text x="${x}" y="${y}" font-size="${z}" font-family="Inter, system-ui, sans-serif" font-weight="650" fill="${c}" text-anchor="${a}">${s}</text>`;
+  const rc = (x, y, w, h, c = C.ac, fl = 'none', sw = 1.6, x2 = '') => `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${fl}" stroke="${c}" stroke-width="${sw}" stroke-linejoin="round" ${x2}/>`;
+  const dash = 'stroke-dasharray="3 2.5"';
+  const gh = d => p(d, C.gh, 1.2, dash);
+  const arr = (x1, y1, x2, y2, c = C.rd, w = 1.3) => { const a = Math.atan2(y2 - y1, x2 - x1), h = 4.5; return p(`M${x1},${y1}L${x2},${y2}`, c, w) + f(`M${x2},${y2}L${x2 - h * Math.cos(a - .5)},${y2 - h * Math.sin(a - .5)}L${x2 - h * Math.cos(a + .5)},${y2 - h * Math.sin(a + .5)}Z`, c, c, .5); };
+  const grid = () => { let g = ''; for (let x = 10; x < 120; x += 12) g += `<line x1="${x}" y1="4" x2="${x}" y2="86" stroke="#e4e9ef" stroke-width=".8"/>`; for (let y = 9; y < 90; y += 12) g += `<line x1="4" y1="${y}" x2="116" y2="${y}" stroke="#e4e9ef" stroke-width=".8"/>`; return g; };
+  const wrap = (body, g = true) => `<svg viewBox="0 0 120 90" xmlns="http://www.w3.org/2000/svg"><rect width="120" height="90" rx="8" fill="${C.paper}"/>${g ? grid() : ''}${body}</svg>`;
+  // 45° hatch lines clipped to a rectangle
+  const hatch = (x, y, w, h, gap = 7, c = C.ac) => { let s = ''; for (let k = -h; k < w; k += gap) { const x1 = Math.max(x, x + k), y1 = y + h - (x1 - (x + k)), x2 = Math.min(x + w, x + k + h), y2 = y + h - (x2 - (x + k)); if (x2 > x1) s += p(`M${x1},${y1}L${x2},${y2}`, c, 1); } return s; };
+  const hex = (cx, cy, r) => 'M' + Array.from({ length: 6 }, (_, i) => `${(cx + r * Math.cos(i * Math.PI / 3)).toFixed(1)},${(cy + r * Math.sin(i * Math.PI / 3)).toFixed(1)}`).join('L') + 'Z';
+  const circ = (x, y, r) => `M${x - r},${y}a${r},${r} 0 1,0 ${2 * r},0a${r},${r} 0 1,0 ${-2 * r},0`;
+  const shp = 'M26,60L26,34L50,26L56,56Z';                                  // a small irregular shape used by the modify tools
+  const dim = (x1, x2, y, s = '50.00') => p(`M${x1},${y}H${x2}M${x1},${y - 4}v8M${x2},${y - 4}v8`, C.rd, 1) + t((x1 + x2) / 2, y - 4, s, C.rd, 7.5);
+  const lbl = (x, y, s) => t(x, y, s, C.ink, 8);
+  const rot = (ang, cx, cy, body) => `<g transform="rotate(${ang} ${cx} ${cy})">${body}</g>`;
+  const sheet = (x, y, w, h, body = '') => rc(x, y, w, h, '#9aa6b4', '#fff', 1.2, 'rx="2"') + body;
+  const lines = (x, y, n, w, c = '#9aa6b4') => Array.from({ length: n }, (_, i) => p(`M${x},${y + i * 7}h${i % 3 === 2 ? w * .6 : w}`, c, 1.4)).join('');
+  const A = {};
+  const two = (a, b) => [() => wrap(a()), () => wrap(b())];
+  // ── draw ──
+  A.line = two(() => dot(28, 64) + dot(90, 26), () => p('M28,64L90,26') + dot(28, 64) + dot(90, 26));
+  A.pline = two(() => [[22, 66], [42, 26], [66, 58], [96, 22]].map(q => dot(...q)).join(''), () => p('M22,66L42,26L66,58L96,22') + [[22, 66], [42, 26], [66, 58], [96, 22]].map(q => dot(...q)).join(''));
+  A.xline = two(() => dot(48, 52) + dot(72, 38), () => p('M4,64L116,24', C.ac, 1.6) + dot(48, 52) + dot(72, 38));
+  A.ray = two(() => dot(34, 58) + dot(70, 38), () => arr(34, 58, 114, 14, C.ac, 1.6) + dot(34, 58) + dot(70, 38, C.gh));
+  A.circle = two(() => dot(60, 45, C.rd) + dot(84, 45), () => f(circ(60, 45, 24), C.fill, C.ac) + dot(60, 45, C.rd) + dot(84, 45));
+  A.arc = two(() => dot(28, 62) + dot(60, 26) + dot(92, 62), () => p('M28,62A34,34 0 0,1 92,62') + dot(28, 62) + dot(60, 26) + dot(92, 62));
+  A.rectangle = two(() => dot(30, 24) + dot(90, 66), () => f('M30,24h60v42h-60Z', C.fill, C.ac) + dot(30, 24) + dot(90, 66));
+  A.polygon = two(() => dot(60, 45, C.rd) + dot(86, 45), () => f(hex(60, 45, 26), C.fill, C.ac) + dot(60, 45, C.rd));
+  A.ellipse = two(() => dot(22, 45) + dot(98, 45) + dot(60, 28, C.rd), () => f('M22,45a38,17 0 1,0 76,0a38,17 0 1,0 -76,0', C.fill, C.ac) + dot(22, 45) + dot(98, 45) + dot(60, 28, C.rd));
+  A.spline = two(() => [[18, 62], [44, 26], [70, 62], [100, 28]].map(q => dot(...q)).join(''), () => p('M18,62C30,30 38,24 44,26S60,62 70,62S92,34 100,28') + [[18, 62], [44, 26], [70, 62], [100, 28]].map(q => dot(...q)).join(''));
+  A.point = two(() => '', () => p('M52,37l16,16M68,37l-16,16', C.ac, 2) + ring(60, 45, 10, C.ac, 1));
+  A.donut = two(() => dot(60, 45), () => ring(60, 45, 21, C.ac, 10) + dot(60, 45, C.rd, 1.8));
+  A.hatch = two(() => rc(32, 22, 56, 46, C.ink, 'none', 1.4), () => rc(32, 22, 56, 46, C.ink, 'none', 1.4) + hatch(32, 22, 56, 46, 7));
+  A.text = two(() => dot(30, 56), () => t(30, 56, 'Abc 12', C.ink, 20, 'start') + dot(30, 56, C.rd, 1.8));
+  A.mtext = two(() => dot(24, 22) + dot(96, 68), () => rc(24, 22, 72, 46, C.ac, 'none', 1, dash) + lines(31, 34, 4, 56, C.ink));
+  // ── modify ──
+  A.move = two(() => f(shp, C.fill, C.ac), () => gh(shp) + `<g transform="translate(46,0)">${f(shp, C.fill, C.ac)}</g>` + arr(30, 20, 76, 20));
+  A.copy = two(() => f(shp, C.fill, C.ac), () => f(shp, C.fill, C.ac) + `<g transform="translate(46,8)">${f(shp, 'rgba(242,155,29,.15)', C.wn)}</g>`);
+  A.rotate = two(() => f('M40,32h40v28h-40Z', C.fill, C.ac), () => gh('M40,32h40v28h-40Z') + rot(30, 60, 46, f('M40,32h40v28h-40Z', C.fill, C.ac)) + p('M88,28A32,32 0 0,1 92,56', C.rd, 1.2) + dot(60, 46, C.rd, 2));
+  A.mirror = two(() => p('M60,10V80', C.rd, 1, dash) + f('M54,24L32,30L26,56L50,66Z', C.fill, C.ac), () => p('M60,10V80', C.rd, 1, dash) + f('M54,24L32,30L26,56L50,66Z', C.fill, C.ac) + f('M66,24L88,30L94,56L70,66Z', 'rgba(242,155,29,.15)', C.wn));
+  A.scale = two(() => f('M52,38h16v14h-16Z', C.fill, C.ac), () => gh('M52,38h16v14h-16Z') + f('M36,28h48v34h-48Z', C.fill, C.ac) + dot(36, 62, C.rd, 2));
+  A.stretch = two(() => f('M24,28h46v34h-46Z', C.fill, C.ac) + rc(58, 20, 24, 50, C.wn, 'none', 1, dash), () => gh('M24,28h46v34h-46Z') + f('M24,28h72v34h-72Z', C.fill, C.ac) + arr(72, 76, 98, 76));
+  A.trim = two(() => p('M20,45H100') + p('M60,15V75') + p('M60,45H100', C.wn, 3), () => p('M20,45H60') + p('M60,15V75'));
+  A.extend = two(() => p('M20,45H64') + p('M92,15V75'), () => p('M20,45H64') + p('M64,45H92', C.wn, 2.4) + p('M92,15V75'));
+  A.offset = two(() => rc(40, 32, 40, 26), () => rc(40, 32, 40, 26) + rc(33, 25, 54, 40, C.wn, 'none', 1.5, dash) + arr(60, 32, 60, 18, C.ac));
+  A.fillet = two(() => p('M28,70V24H92'), () => p('M28,70V42A18,18 0 0,1 46,24H92') + p('M28,42A18,18 0 0,1 46,24', C.wn, 2.6));
+  A.chamfer = two(() => p('M28,70V24H92'), () => p('M28,70V42L46,24H92') + p('M28,42L46,24', C.wn, 2.6));
+  A.array = two(() => ring(30, 45, 9), () => [30, 50, 70, 90].map((x, i) => ring(x, 45, 9, i ? C.wn : C.ac)).join(''));
+  A.break = two(() => p('M18,45H102') + dot(48, 45, C.rd) + dot(72, 45, C.rd), () => p('M18,45H48') + p('M72,45H102'));
+  A.breakatpoint = two(() => p('M18,45H102') + dot(60, 45, C.rd), () => p('M18,45H59', C.ac) + p('M61,45H102', C.wn) + dot(60, 45, C.rd, 2));
+  A.join = two(() => p('M20,62L58,28') + p('M58,28L98,40', C.wn), () => p('M20,62L58,28L98,40', C.ac, 3) + dot(58, 28, C.ok, 2.4));
+  A.explode = two(() => f('M36,28h48v34h-48Z', C.fill, C.ac), () => p('M30,22h48', C.ac) + p('M90,28v34', C.wn) + p('M84,70h-48', C.ok) + p('M30,62v-34', C.rd));
+  A.lengthen = two(() => p('M24,45H62'), () => p('M24,45H62') + p('M62,45H98', C.wn, 2.4) + arr(62, 56, 98, 56, C.rd));
+  A.pedit = two(() => p('M30,64L30,28L90,28L90,64'), () => f('M30,64L30,28L90,28L90,64Z', C.fill, C.ac) + p('M30,64H90', C.wn, 2));
+  A.erase = two(() => f(shp, C.fill, C.wn, 2) + ring(88, 46, 16), () => ring(88, 46, 16));
+  A.matchprop = two(() => p('M24,30H66', C.rd, 3) + p('M24,60H66', C.ac, 1.4), () => p('M24,30H66', C.rd, 3) + p('M24,60H66', C.rd, 3) + arr(46, 36, 46, 54, C.ink));
+  A.draworder = two(() => rc(30, 26, 40, 34, C.ac, C.fill) + rc(48, 36, 40, 34, C.wn, 'rgba(242,155,29,.25)'), () => rc(48, 36, 40, 34, C.wn, 'rgba(242,155,29,.25)') + rc(30, 26, 40, 34, C.ac, 'rgba(47,123,232,.35)'));
+  // ── annotate ──
+  A.dimlinear = two(() => p('M24,60H96'), () => p('M24,60H96') + p('M24,60V38M96,60V38', C.rd, .9) + dim(24, 96, 42));
+  A.dimaligned = two(() => p('M28,66L92,34'), () => p('M28,66L92,34') + p('M28,66L21,52M92,34L85,20', C.rd, .9) + p('M21,52L85,20', C.rd, 1) + t(50, 30, '71.55', C.rd, 7.5));
+  A.dimradius = two(() => ring(56, 46, 24), () => ring(56, 46, 24) + arr(56, 46, 76, 32, C.rd) + t(86, 30, 'R25', C.rd, 8, 'start') + dot(56, 46, C.rd, 1.6));
+  A.dimdiameter = two(() => ring(60, 46, 24), () => ring(60, 46, 24) + arr(60, 46, 77, 29, C.rd) + arr(60, 46, 43, 63, C.rd) + t(88, 24, 'Ø50', C.rd, 8, 'start'));
+  A.dimangular = two(() => p('M24,68H96') + p('M24,68L80,22'), () => p('M24,68H96') + p('M24,68L80,22') + p('M70,68A46,46 0 0,0 62,40', C.rd, 1.2) + t(80, 58, '40°', C.rd, 8, 'start'));
+  A.dimbaseline = two(() => p('M24,62H96') + dim(24, 62, 46, '38'), () => p('M24,62H96') + dim(24, 62, 46, '38') + dim(24, 96, 30, '72'));
+  A.dimcontinue = two(() => p('M24,62H96') + dim(24, 60, 42, '36'), () => p('M24,62H96') + dim(24, 60, 42, '36') + dim(60, 96, 42, '36'));
+  A.leader = two(() => rc(30, 44, 28, 22, C.ink, 'none', 1.4), () => rc(30, 44, 28, 22, C.ink, 'none', 1.4) + arr(60, 50, 78, 26, C.rd) + p('M78,26H100', C.rd, 1.2) + t(80, 22, 'Note', C.ink, 8, 'start'));
+  A.block = two(() => ring(42, 46, 12) + p('M60,34L84,58'), () => rc(26, 26, 68, 40, C.wn, 'none', 1, dash) + ring(42, 46, 12) + p('M60,34L84,58') + t(30, 22, 'B1', C.wn, 8, 'start'));
+  A.insert = two(() => rc(70, 36, 30, 20, C.gh, 'none', 1.2, dash) + t(36, 50, 'B1', C.wn, 12), () => rc(70, 36, 30, 20, C.wn, 'rgba(242,155,29,.15)') + t(85, 50, 'B1', C.wn, 9) + arr(46, 46, 66, 46, C.ink));
+  A.dist = two(() => dot(26, 62) + dot(92, 28), () => p('M26,62L92,28', C.rd, 1.2) + dot(26, 62) + dot(92, 28) + t(50, 36, '74.31', C.rd, 8));
+  A.area = two(() => [[28, 62], [34, 26], [80, 20], [96, 56]].map(q => dot(...q)).join(''), () => f('M28,62L34,26L80,20L96,56Z', 'rgba(46,160,82,.2)', C.ok) + t(62, 46, 'Area', C.ok, 9));
+  A.id = two(() => dot(66, 34), () => dot(66, 34, C.rd) + p('M66,22V46M54,34H78', C.rd, 1) + t(70, 58, 'X=6.0  Y=3.5', C.ink, 7.5, 'start'));
+  A.list = two(() => ring(36, 46, 16), () => ring(36, 46, 16, C.ac, 1.6) + sheet(60, 18, 48, 56, lines(66, 30, 6, 36)));
+  // ── view / output ──
+  A.zoom = two(() => rc(20, 24, 24, 18, C.ac, C.fill, 1.4), () => rc(14, 16, 92, 58, C.ac, C.fill, 1.4));
+  A.pan = two(() => f(shp, C.fill, C.ac), () => `<g transform="translate(36,6)">${f(shp, C.fill, C.ac)}</g>` + arr(26, 74, 66, 74, C.ink));
+  A.layer = two(() => p('M20,60L60,40L100,60L60,80Z', C.gh, 1.4) + p('M20,50L60,30L100,50L60,70Z', C.ac, 1.6), () => p('M20,66L60,46L100,66L60,86Z', C.gh, 1.2) + p('M20,52L60,32L100,52L60,72Z', C.ac, 1.4) + p('M20,38L60,18L100,38L60,58Z', C.wn, 1.6));
+  A.properties = two(() => rc(20, 24, 40, 40, C.ac, C.fill), () => rc(10, 24, 40, 40, C.ac, C.fill) + sheet(58, 16, 52, 56, lines(64, 28, 6, 40)));
+  A.plot = two(() => f(shp, C.fill, C.ac), () => sheet(30, 10, 60, 70, `<g transform="translate(16,24) scale(.6)">${f(shp, C.fill, C.ac)}</g>`));
+  A.file = two(() => f(shp, C.fill, C.ac), () => sheet(36, 12, 48, 62, t(60, 48, 'DXF', C.ac, 12)));
+  A.open = two(() => sheet(36, 12, 48, 62, t(60, 48, 'DXF', C.ac, 12)), () => f(shp, C.fill, C.ac));
+  A.save = two(() => f(shp, C.fill, C.ac) + t(100, 20, '•', C.wn, 20), () => f(shp, C.fill, C.ac) + t(100, 20, '✓', C.ok, 16));
+  // ── drawing aids and toolbar ──
+  const dots = () => { let g = ''; for (let x = 12; x < 120; x += 12) for (let y = 9; y < 90; y += 12) g += `<circle cx="${x}" cy="${y}" r="1.1" fill="#8fa0b6"/>`; return g; };
+  A.gridS = [() => wrap(p('M30,60L84,34', C.ac, 1.6), false), () => wrap(dots() + p('M30,57L84,33', C.ac, 1.6), false)];
+  A.snap = [() => wrap(dots() + p('M30,59L83,35') + dot(30, 59, C.rd) + dot(83, 35, C.rd), false), () => wrap(dots() + p('M33,57L81,33') + dot(33, 57, C.rd) + dot(81, 33, C.rd), false)];
+  A.ortho = two(() => p('M24,58L94,30') + dot(24, 58) + dot(94, 30), () => p('M24,58H94') + dot(24, 58) + dot(94, 58));
+  A.polar = two(() => p('M24,62L94,40') + dot(24, 62), () => p('M24,62L94,22', C.ac, 1.6) + p('M24,62H110', C.gh, 1, dash) + p('M24,62L100,36', C.gh, 1, dash) + t(76, 54, '30°', C.rd, 8) + dot(24, 62));
+  A.osnap = two(() => p('M24,62L94,30') + dot(100, 22, C.gh, 2), () => p('M24,62L94,30') + rc(88, 24, 12, 12, C.ok, 'none', 1.6) + t(96, 52, 'Endpoint', C.ok, 7.5));
+  A.lwt = [() => wrap(p('M22,30H98', C.ink, 1) + p('M22,48H98', C.ink, 1) + p('M22,66H98', C.ink, 1)), () => wrap(p('M22,30H98', C.ink, 1) + p('M22,48H98', C.ink, 2.6) + p('M22,66H98', C.ink, 4.4))];
+  A.dyn = two(() => p('M24,62L84,32') + dot(24, 62), () => p('M24,62L84,32') + dot(24, 62) + rc(70, 46, 40, 16, '#9aa6b4', '#fff', 1, 'rx="3"') + t(90, 57, '67.1 < 27°', C.ink, 7.5));
+  A.undo = two(() => p('M24,62L60,36') + ring(78, 54, 14), () => p('M24,62L60,36') + gh(circ(78, 54, 14)) + arr(94, 40, 102, 30, C.wn));
+  A.redo = two(() => p('M24,62L60,36') + gh(circ(78, 54, 14)), () => p('M24,62L60,36') + ring(78, 54, 14));
+  A.help = two(() => '', () => sheet(20, 14, 80, 62, lines(28, 26, 6, 60)));
+  A.menu = two(() => t(40, 50, 'File', C.ink, 12), () => sheet(26, 12, 68, 66, lines(34, 24, 7, 50)));
+  A.layerOn = two(() => p('M24,45H96', C.ac, 2), () => p('M24,45H96', C.gh, 1.2, dash));
+  A.layerFrz = two(() => p('M24,45H96', C.ac, 2), () => p('M24,45H96', C.gh, 1.2, dash) + t(60, 30, '❄', '#7aa7e0', 14));
+  A.layerLock = two(() => p('M24,45H96', C.ac, 2), () => p('M24,45H96', C.gh, 2) + rc(52, 52, 16, 12, C.ink, '#fff', 1.4) + p('M56,52v-4a4,4 0 0,1 8,0v4', C.ink, 1.4));
+  A.layerCur = two(() => p('M24,34H96', C.ac, 2) + p('M24,56H96', C.wn, 2), () => p('M24,34H96', C.ac, 2) + p('M24,56H96', C.wn, 2) + arr(60, 76, 60, 62, C.ink) + t(60, 86, 'new lines go here', C.ink, 7));
+  A.color = two(() => p('M24,45H96', C.ink, 2.4), () => p('M24,45H96', C.rd, 2.4));
+  A.linetype = two(() => p('M22,45H98', C.ink, 2), () => p('M22,45H98', C.ink, 2, 'stroke-dasharray="9 5"'));
+  A.lweight = A.lwt;
+  A.zin = two(() => rc(40, 30, 40, 28, C.ac, C.fill, 1.4), () => rc(24, 20, 72, 50, C.ac, C.fill, 1.4));
+  A.zout = two(() => rc(24, 20, 72, 50, C.ac, C.fill, 1.4), () => rc(40, 30, 40, 28, C.ac, C.fill, 1.4));
+  A.zext = two(() => rc(14, 54, 24, 18, C.ac, C.fill, 1.4) + rc(78, 14, 24, 18, C.ac, C.fill, 1.4), () => rc(20, 34, 36, 32, C.ac, C.fill, 1.4) + rc(66, 20, 32, 28, C.ac, C.fill, 1.4));
+  // arc and circle methods (for the drop-down menus)
+  const L = (x, y, s) => t(x, y, s, C.rd, 7.5);
+  const circM = {
+    CR: two(() => dot(60, 45, C.rd) + dot(84, 45), () => f(circ(60, 45, 24), C.fill, C.ac) + p('M60,45H84', C.rd, 1) + dot(60, 45, C.rd) + L(72, 41, 'r')),
+    CD: two(() => dot(60, 45, C.rd) + dot(84, 45), () => f(circ(60, 45, 24), C.fill, C.ac) + p('M36,45H84', C.rd, 1) + dot(60, 45, C.rd) + L(60, 38, 'd')),
+    '2P': two(() => dot(36, 45) + dot(84, 45), () => f(circ(60, 45, 24), C.fill, C.ac) + p('M36,45H84', C.rd, 1) + dot(36, 45) + dot(84, 45)),
+    '3P': two(() => dot(60, 21) + dot(36, 52) + dot(84, 52), () => f(circ(60, 45, 24), C.fill, C.ac) + dot(60, 21) + dot(36, 52) + dot(84, 52)),
+    TTR: two(() => p('M20,70L60,16') + p('M110,60L30,50') + L(90, 30, 'R'), () => p('M20,70L60,16') + p('M110,60L30,50') + f(circ(70, 40, 14), C.fill, C.ac))
+  };
+  const arcA = (pts, d, extra = '') => two(() => pts.map(q => dot(q[0], q[1], q[3] || C.ac) + (q[2] ? L(q[0] + 2, q[1] + 11, q[2]) : '')).join(''), () => p(d, C.ac, 2) + pts.map(q => dot(q[0], q[1], q[3] || C.ac) + (q[2] ? L(q[0] + 2, q[1] + 11, q[2]) : '')).join('') + extra);
+  const arcM = {
+    '3P': arcA([[28, 62, 'A'], [60, 26, 'B'], [92, 62, 'C']], 'M28,62A34,34 0 0,1 92,62'),
+    SCE: arcA([[28, 62, 'S'], [60, 62, 'C', C.rd], [92, 62, 'E']], 'M28,62A32,32 0 0,1 92,62'),
+    SCA: arcA([[28, 62, 'S'], [60, 62, 'C', C.rd]], 'M28,62A32,32 0 0,1 82,40', t(86, 58, '∠', C.rd, 12)),
+    SCL: arcA([[28, 62, 'S'], [60, 62, 'C', C.rd]], 'M28,62A32,32 0 0,1 82,40', p('M28,62L82,40', C.rd, 1, dash)),
+    CSE: arcA([[60, 62, 'C', C.rd], [28, 62, 'S'], [92, 62, 'E']], 'M28,62A32,32 0 0,1 92,62'),
+    CSA: arcA([[60, 62, 'C', C.rd], [28, 62, 'S']], 'M28,62A32,32 0 0,1 82,40', t(86, 58, '∠', C.rd, 12)),
+    CSL: arcA([[60, 62, 'C', C.rd], [28, 62, 'S']], 'M28,62A32,32 0 0,1 82,40', p('M28,62L82,40', C.rd, 1, dash)),
+    SEA: arcA([[28, 62, 'S'], [92, 62, 'E']], 'M28,62A34,34 0 0,1 92,62', t(60, 28, '∠', C.rd, 12)),
+    SED: arcA([[28, 62, 'S'], [92, 62, 'E']], 'M28,62A40,40 0 0,1 92,62', arr(28, 62, 46, 40, C.rd)),
+    SER: arcA([[28, 62, 'S'], [92, 62, 'E']], 'M28,62A34,34 0 0,1 92,62', t(60, 26, 'R', C.rd, 10)),
+    CONT: two(() => p('M18,64H52', C.ink, 1.6) + dot(52, 64), () => p('M18,64H52', C.ink, 1.6) + p('M52,64A30,30 0 0,0 92,34', C.ac, 2) + dot(52, 64) + dot(92, 34))
+  };
+  return { A, C, wrap, circM, arcM, p, t, dot };
+})();
+
+const ARTMAP = { grid: 'gridS', dxfout: 'file', _svg: 'file', _png: 'file', _units: 'dist', dimstyle: 'dimlinear', _textstyle: 'text', _hatchset: 'hatch', _dsettings: 'osnap', regen: 'zext' };
+// short text for the buttons that are not drawing tools: [what it does, [steps], art key]
+const BTN = {
+  btnFile: ['File', 'New, open, save, export and plot your drawing.', ['Click File.', 'Pick New, Open, Save, an export format, or Plot.'], 'menu', 'Ctrl+S saves'],
+  btnUndo: ['Undo', 'Take back the last change to the drawing.', ['Click it, or press Ctrl+Z.', 'Click again to go back further.'], 'undo', 'Ctrl+Z'],
+  btnRedo: ['Redo', 'Bring back the change you just undid.', ['Click it, or press Ctrl+Y.'], 'redo', 'Ctrl+Y'],
+  btnHelp: ['Help', 'Every command, its aliases and the keyboard shortcuts.', ['Click it, or press F1.', 'Type any command name in the command line to run it.'], 'help', 'F1'],
+  rLayer: ['Current layer', 'New objects go on this layer. With objects selected it moves them to the layer you pick.', ['Open the list.', 'Pick a layer.'], 'layerCur'],
+  rColor: ['Colour', 'The colour for new objects, or for the selection. ByLayer follows the layer.', ['Click it.', 'Pick a colour from the palette.'], 'color'],
+  rLt: ['Linetype', 'Continuous, dashed, hidden, centre and more.', ['Open the list.', 'Pick a linetype.'], 'linetype'],
+  rLw: ['Lineweight', 'How thick lines print and, with LWT on, how they show on screen.', ['Open the list.', 'Pick a thickness.'], 'lwt'],
+  layClose: ['Close', 'Close the layer list.', [], null], propClose: ['Close', 'Hide this panel. Reopen it from the View tab.', [], null],
+  zin: ['Zoom in', 'Look closer at the drawing.', ['Click, or scroll the wheel up over the drawing.'], 'zin'],
+  zout: ['Zoom out', 'See more of the drawing.', ['Click, or scroll the wheel down.'], 'zout'],
+  zext: ['Zoom extents', 'Fit everything on screen.', ['Click it, or double-click the middle mouse button.'], 'zext'],
+  layNew: ['New layer', 'Add a layer you can draw on and switch on or off.', ['Click it.', 'Double-click the name to rename it.'], 'layer'],
+  layDel: ['Delete layer', 'Remove the current layer. It must be empty.', ['Pick the layer in the list.', 'Click Delete.'], 'erase'],
+  curLayerBtn: ['Layers', 'Shows the current layer. Click to open the layer list.', ['Click to open or close the list.'], 'layer'],
+  unitsLbl: ['Drawing units', 'Inches or millimetres, and how numbers are shown.', ['Click it.', 'Pick the length unit, format and precision.'], 'dist'],
+  zoomLbl: ['Zoom level', 'How big the drawing looks on screen.', ['Scroll the wheel to zoom.'], 'zoom'],
+  btnHist: ['Command history', 'A longer list of what you typed and what the program said.', ['Click it, or press F2.'], 'list', 'F2'],
+  cancel: ['Cancel the tool', 'Stop the tool without changing anything.', ['Click it, or press Esc.'], 'erase', 'Esc']
+};
+const AIDINFO = {
+  snap: ['Snap to grid', 'Points jump to grid intersections so sizes come out round.', ['Turn it on.', 'Click anywhere: the point lands on the nearest grid dot.'], 'snap', 'F9'],
+  grid: ['Grid', 'Show a dot grid as a ruler for the drawing.', ['Toggle it to show or hide the dots.'], 'gridS', 'F7'],
+  ortho: ['Ortho', 'Force lines to run exactly horizontal or vertical.', ['Turn it on and draw a line: it locks to the nearest axis.'], 'ortho', 'F8'],
+  polar: ['Polar tracking', 'Show guides at set angles (15°, 30°, 45°…) and snap to them.', ['Turn it on.', 'Move near an angle: a dotted guide appears.'], 'polar', 'F10'],
+  osnap: ['Object snap', 'Click exactly on endpoints, midpoints, centres and other key points.', ['Turn it on.', 'Move over an object: a marker shows the snap point.'], 'osnap', 'F3'],
+  lwt: ['Show lineweights', 'Show line thickness on screen the way it will print.', ['Toggle it to compare thin and thick.'], 'lwt'],
+  dyn: ['Dynamic input', 'A small readout next to the cursor shows length and angle while you draw.', ['Turn it on.', 'Type a number to set the length.'], 'dyn', 'F12'],
+  _dsettings: ['Object snap settings', 'Choose which snap points are active (endpoint, midpoint, centre…).', ['Click it.', 'Tick the points you want.'], 'osnap']
+};
+const MISC = {
+  'Set current': ['Make current', 'New objects will be drawn on this layer.', ['Click the tick beside a layer.'], 'layerCur'],
+  'On': ['Layer on', 'Switch the layer\'s objects on or off.', ['Click the dot.'], 'layerOn'], 'Off': ['Layer off', 'Switch the layer\'s objects on or off.', ['Click the dot.'], 'layerOn'],
+  'Thawed': ['Freeze layer', 'A frozen layer is hidden and skipped, which speeds up big drawings.', ['Click the sun.'], 'layerFrz'], 'Frozen': ['Thaw layer', 'A frozen layer is hidden and skipped.', ['Click the snowflake.'], 'layerFrz'],
+  'Unlocked': ['Lock layer', 'Locked layers are visible but cannot be changed.', ['Click the padlock.'], 'layerLock'], 'Locked': ['Unlock layer', 'Locked layers are visible but cannot be changed.', ['Click the padlock.'], 'layerLock'],
+  'Double-click to rename': ['Rename', 'Give the layer a better name.', ['Double-click the name.', 'Type and press Enter.'], 'layer'],
+  'On/off': ['On / off', 'Hide a layer without deleting it.', [], null], 'Freeze': ['Freeze', 'Hide a layer and skip it when regenerating.', [], null], 'Lock': ['Lock', 'Keep a layer visible but protected.', [], null],
+  'New drawing…': ['New drawing', 'Start again with an empty sheet.', ['Click it.', 'Pick the units.'], 'erase'], 'Open DXF / drawing…': ['Open', 'Open a DXF file from AutoCAD or this program\'s own save.', ['Click it.', 'Choose the file.'], 'open'],
+  'Save drawing': ['Save', 'Download your drawing to keep working later.', ['Click it.'], 'save'], 'Export DXF (AutoCAD)': ['Export DXF', 'A file AutoCAD and other CAD programs open.', ['Click it.'], 'file'],
+  'Export SVG': ['Export SVG', 'A vector picture for Illustrator, Inkscape or the web.', ['Click it.'], 'file'], 'Export PNG': ['Export PNG', 'A picture of what you see.', ['Click it.'], 'file'],
+  'Plot / PDF…': ['Plot / PDF', 'Print to a page or save a PDF at an exact scale.', ['Click it.', 'Choose paper, area and scale.'], 'plot'],
+  'Drawing units…': ['Drawing units', 'Inches or millimetres and number format.', ['Click it.'], 'dist'], 'Drafting settings…': ['Drafting settings', 'Snap, grid, polar and object-snap options.', ['Click it.'], 'osnap'],
+  'Command list / help': ['Help', 'Every command and shortcut.', ['Click it.'], 'help']
+};
+const isKey = s => /^(Ctrl\+\w|F\d+|Esc|Shift\+\w+|Enter)$/i.test(s);
+
+// ── the card ──
+const TIP = { el: null, t1: 0, t2: 0 };
+function tipInfo(el) {
+  const cmd = el.dataset && el.dataset.cmd;
+  if (cmd && TI[cmd]) {
+    const t = TI[cmd], a = el.dataset.args ? JSON.parse(el.dataset.args) : {}, mode = a.mode, m = t.modes && (t.modes.find(x => x.id === mode) || t.modes[0]), steps = (m || t).steps || [];
+    const key = Object.keys(ALIASES).filter(k => ALIASES[k] === cmd && k !== cmd && k.length <= 3).slice(0, 2).map(x => x.toUpperCase());
+    const artKey = { zoome: 'zext', zoomw: 'zoom', zoomp: 'zoom', zin: 'zin', zout: 'zout' }[el.dataset.id] || ARTMAP[cmd] || cmd;
+    return { name: t.t, desc: t.d, steps: steps.map(s => s[0] + ' — ' + s[1].replace(/<[^>]+>/g, '')), art: ART.A[artKey] || null, key: cmd.toUpperCase() + (key.length ? ' · ' + key.join(', ') : ''), icon: t.i || cmd };
+  }
+  const id = el.id, aid = el.dataset && (el.dataset.aid || el.dataset.t), act = el.dataset && el.dataset.act;
+  const b = BTN[id] || (aid && AIDINFO[aid]) || (act === 'cancel' && BTN.cancel) || (act === 'matchprop' && ['Match properties', 'Copy colour, layer and linetype from one object to others.', ['Click it.', 'Pick the source, then each object to change.'], 'matchprop', 'MATCHPROP']) || null;
+  if (b) return { name: b[0], desc: b[1], steps: b[2], art: b[3] ? ART.A[b[3]] : null, key: b[4] || '' };
+  const raw = (el.dataset && el.dataset.tip) || el.textContent.trim(), m2 = MISC[raw] || MISC[el.dataset.tip];
+  if (m2) return { name: m2[0], desc: m2[1], steps: m2[2], art: m2[3] ? ART.A[m2[3]] : null, key: '' };
+  // menu items from the circle and arc drop-downs
+  if (el.closest && el.closest('#ctx') && el.dataset.i != null && TIP.items) { const it = TIP.items[+el.dataset.i]; if (it) { const mode = it[2] && it[2].mode, t = TI[it[1]], m = t && t.modes && t.modes.find(x => x.id === mode); const art = mode && ART[it[1] === 'arc' ? 'arcM' : 'circM'][mode]; return { name: it[0], desc: t ? t.d : '', steps: m ? m.steps.map(s => s[0] + ' — ' + s[1].replace(/<[^>]+>/g, '')) : [], art: art || null, key: '', icon: t && t.i }; } }
+  if (el.classList && el.classList.contains('rtab')) { const T = { Home: 'The everyday tools: draw, modify, annotate and layers.', Annotate: 'Text, dimensions, leaders, hatches, blocks and measuring.', View: 'Zoom, pan, panels, grid and drawing settings.', Output: 'Plot, export and import drawings.' }[el.dataset.tab]; return { name: el.dataset.tab, desc: T || '', steps: [], art: null, key: '' }; }
+  if (el.dataset && el.dataset.mode && G.name && TI[G.name] && TI[G.name].modes) { const m = TI[G.name].modes.find(x => x.id === el.dataset.mode); if (m) return { name: m.t, desc: 'How you define the ' + TI[G.name].t.toLowerCase() + '. Click to restart the tool this way.', steps: m.steps.map(s => s[0] + ' — ' + s[1].replace(/<[^>]+>/g, '')), art: ART[G.name === 'arc' ? 'arcM' : 'circM'][m.id] || null, key: '' }; }
+  if (el.dataset && el.dataset.kw) return { name: el.textContent.trim(), desc: 'An option for this step. Click it, or type ' + ((el.dataset.tip || '').replace(/^Type /, '') || 'its name') + ' in the command line.', steps: [], art: null, key: '' };
+  if (el.dataset && el.dataset.x) return { name: el.textContent.trim(), desc: el.dataset.x === 'cancel' ? 'Close this window without changing anything (Esc).' : 'Apply the settings and close this window (Enter).', steps: [], art: null, key: el.dataset.x === 'cancel' ? 'Esc' : 'Enter' };
+  if (el.dataset && el.dataset.c != null) { const n = el.dataset.c === 'bylayer' ? 'ByLayer' : null; return { name: n || (el.dataset.tip || 'Colour').replace(/ ·.*$/, ''), desc: n ? 'Use the colour of the layer.' : 'Use this colour' + (/·/.test(el.dataset.tip || '') ? ' (' + el.dataset.tip.split('· ')[1] + ').' : '.'), steps: [], art: ART.A.color, key: '' }; }
+  const tip = el.dataset && el.dataset.tip; if (!tip) { const tx = el.textContent.trim(); return tx && el.tagName === 'BUTTON' ? { name: tx, desc: '', steps: [], art: null, key: '' } : null; }
+  const km = /^(.*?)\s*\(([^)]+)\)\s*$/.exec(tip), nm = km ? km[1] : tip.replace(/:.*$/, ''), kk = km && isKey(km[2]) ? km[2] : '';
+  return { name: nm.charAt(0).toUpperCase() + nm.slice(1), desc: tip.includes(':') ? tip.replace(/^[^:]*:\s*/, '').replace(/^./, c => c.toUpperCase()) + '.' : (km && !kk ? km[2] : ''), steps: [], art: null, key: kk };
+}
+function tipHide() { clearTimeout(TIP.t1); clearTimeout(TIP.t2); const c = $('#tip'); if (c) { c.classList.remove('in', 'more'); c.hidden = true; } TIP.el = null; G.tipFor = null; }
+function tipPlace() {
+  const c = $('#tip'), el = TIP.el; if (!el || !c) return; const r = el.getBoundingClientRect(), w = c.offsetWidth, h = c.offsetHeight;
+  let x = r.left + r.width / 2 - w / 2, y = r.bottom + 10; if (y + h > innerHeight - 8) y = Math.max(8, r.top - h - 10);
+  c.style.left = Math.min(Math.max(8, x), Math.max(8, innerWidth - w - 8)) + 'px'; c.style.top = y + 'px';
+}
+function tipShow() {
+  const el = TIP.el; if (!el || !document.contains(el)) return; const info = tipInfo(el); if (!info) return; const c = $('#tip');
+  const pic = info.art ? `<div class="tip-pics"><figure>${info.art[0]()}<figcaption>Before</figcaption></figure><span class="tip-arr">→</span><figure>${info.art[1]()}<figcaption>After</figcaption></figure></div>` : info.icon ? `<div class="tip-plate">${ic(info.icon, 34)}</div>` : '';
+  const steps = (info.steps || []).filter(Boolean);
+  c.innerHTML = `<div class="tip-head"><b>${info.name}</b>${info.key ? `<span class="tip-cmd">${info.key}</span>` : ''}</div>${info.desc ? `<p class="tip-what">${info.desc}</p>` : ''}${pic}${steps.length ? `<div class="tip-more"><div class="tip-step">How to use it</div><ol>${steps.map(s => `<li>${s}</li>`).join('')}</ol></div><div class="tip-hold">Keep hovering for the steps</div>` : ''}`;
+  c.hidden = false; tipPlace(); requestAnimationFrame(() => c.classList.add('in'));
+  if (steps.length) TIP.t2 = setTimeout(() => { c.classList.add('more'); requestAnimationFrame(tipPlace); setTimeout(tipPlace, 260); }, 1300);
+}
+// lift every native title into data-tip so the browser never shows its own tooltip
+function lift(root) { const els = root.querySelectorAll ? root.querySelectorAll('[title]') : []; for (const e of [...els, ...(root.hasAttribute && root.hasAttribute('title') ? [root] : [])]) { const t = e.getAttribute('title'); if (t) e.dataset.tip = t; e.removeAttribute('title'); } }
+function setupTips() {
+  lift(document.body);
+  new MutationObserver(ms => { for (const m of ms) { if (m.type === 'attributes') lift(m.target); else m.addedNodes.forEach(n => n.nodeType === 1 && lift(n)); } }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['title'] });
+  const sel = 'button:not(.dd-btn):not(.dd-o):not(.num-b), [data-tip], .rtab, #layerTbl th, #layerTbl td.ln';
+  document.addEventListener('pointerover', e => {
+    if (e.pointerType === 'touch') return; const b = e.target.closest && e.target.closest(sel); if (b === TIP.el) return; tipHide(); if (!b) return;
+    TIP.el = b; G.tipFor = b; TIP.t1 = setTimeout(tipShow, ($('#tip').classList.contains('warm') ? 120 : 380));
+  });
+  document.addEventListener('pointerout', e => { if (TIP.el && !TIP.el.contains(e.relatedTarget)) tipHide(); });
+  for (const ev of ['pointerdown', 'wheel', 'keydown', 'blur']) window.addEventListener(ev, tipHide, true);
+}
+/* ═══ Clean controls: every <select> becomes an animated drop-down, every number box gets − / + steppers ═══ */
+// The real <select> / <input> stays in the page (hidden / wrapped) so the rest of the program keeps reading and setting .value as before.
+const DD = { open: null, pop: null, anchor: null, sel: null, type: '', typeT: 0 };
+const CHEV = '<svg viewBox="0 0 10 6" width="10" height="6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1l4 4 4-4"/></svg>';
+function ddItems(sel) {
+  const out = []; let gi = 0;
+  for (const n of sel.children) {
+    if (n.tagName === 'OPTGROUP') { out.push({ group: n.label }); for (const o of n.children) out.push({ o, i: gi++ }); } else if (n.tagName === 'OPTION') out.push({ o: n, i: gi++ });
+  }
+  return out;
+}
+function ddSync(sel) {
+  const w = sel._dd; if (!w) return; const o = sel.options[sel.selectedIndex];
+  w.querySelector('.dd-l').textContent = o ? o.textContent : ''; w.classList.toggle('empty', !o); w.querySelector('.dd-btn').disabled = sel.disabled; w.classList.toggle('off', sel.disabled);
+}
+function ddUpgrade(sel) {
+  if (sel._dd || sel.multiple || sel.size > 1) return;
+  const w = document.createElement('div'); w.className = 'dd ' + sel.className.replace(/\bdd-native\b/, '').trim(); if (sel.dataset.ddw) w.style.width = sel.dataset.ddw;
+  w.innerHTML = `<button type="button" class="dd-btn" aria-haspopup="listbox"><span class="dd-l"></span>${CHEV}</button>`;
+  sel.classList.add('dd-native'); sel.tabIndex = -1; sel.after(w); sel._dd = w; w._sel = sel;
+  new MutationObserver(() => ddSync(sel)).observe(sel, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'selected'] });
+  ddSync(sel);
+}
+// a programmatic sel.value = … should show up on the button too
+(() => {
+  const P = HTMLSelectElement.prototype;
+  for (const k of ['value', 'selectedIndex']) { const d = Object.getOwnPropertyDescriptor(P, k); Object.defineProperty(P, k, { get() { return d.get.call(this); }, set(v) { d.set.call(this, v); ddSync(this); }, configurable: true }); }
+})();
+function ddClose(now) {
+  const pop = DD.pop; if (!pop || pop.hidden) return; const a = DD.anchor; if (a) { a.classList.remove('open'); a.querySelector('.dd-btn').setAttribute('aria-expanded', 'false'); }
+  pop.classList.remove('in'); DD.open = null; DD.anchor = null; DD.sel = null;
+  if (now) pop.hidden = true; else setTimeout(() => { if (!DD.open) pop.hidden = true; }, 150);
+}
+function ddReveal(h) { const p = DD.pop; if (!h || !p) return; if (h.offsetTop < p.scrollTop + 4) p.scrollTop = h.offsetTop - 4; else if (h.offsetTop + h.offsetHeight > p.scrollTop + p.clientHeight - 4) p.scrollTop = h.offsetTop + h.offsetHeight - p.clientHeight + 4; }
+function ddPaint(hi) {
+  const pop = DD.pop, sel = DD.sel; if (!sel) return; const items = ddItems(sel);
+  pop.innerHTML = items.map(it => it.group != null ? `<div class="dd-grp">${it.group}</div>` : `<button type="button" role="option" class="dd-o ${it.i === sel.selectedIndex ? 'sel' : ''} ${it.i === hi ? 'hi' : ''}" data-i="${it.i}" ${it.o.disabled ? 'disabled' : ''}><span>${it.o.textContent}</span>${it.i === sel.selectedIndex ? '<svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.5l2.5 2.5 4.5-5.5"/></svg>' : ''}</button>`).join('');
+  ddReveal(pop.querySelector('.hi, .sel'));
+}
+function ddOpen(w) {
+  const sel = w._sel; if (!sel || sel.disabled) return; if (DD.anchor === w) { ddClose(); return; } ddClose(true);
+  if (!DD.pop) { DD.pop = document.createElement('div'); DD.pop.id = 'ddpop'; DD.pop.hidden = true; DD.pop.setAttribute('role', 'listbox'); document.body.appendChild(DD.pop); }
+  const pop = DD.pop; DD.anchor = w; DD.sel = sel; DD.open = true; w.classList.add('open'); w.querySelector('.dd-btn').setAttribute('aria-expanded', 'true');
+  ddPaint(sel.selectedIndex); pop.hidden = false;
+  const r = w.getBoundingClientRect(); pop.style.minWidth = r.width + 'px'; pop.style.maxHeight = '280px'; pop.style.left = '0px'; pop.style.top = '0px';
+  DD.top = r.top; const pw = pop.offsetWidth, ph = pop.offsetHeight; let y = r.bottom + 4, up = false; if (y + ph > innerHeight - 8 && r.top - ph - 4 > 8) { y = r.top - ph - 4; up = true; } else if (y + ph > innerHeight - 8) { pop.style.maxHeight = Math.max(100, innerHeight - y - 8) + 'px'; }
+  pop.style.left = Math.min(Math.max(8, r.left), Math.max(8, innerWidth - pw - 8)) + 'px'; pop.style.top = y + 'px'; pop.style.transformOrigin = up ? 'bottom center' : 'top center';
+  requestAnimationFrame(() => { pop.classList.add('in'); ddReveal(pop.querySelector('.sel')); });
+}
+function ddPlace() { }
+function ddPick(i) {
+  const sel = DD.sel; if (!sel) return; const o = sel.options[i]; if (!o || o.disabled) return; const ch = sel.selectedIndex !== i; sel.selectedIndex = i; ddClose(); if (ch) { sel.dispatchEvent(new Event('input', { bubbles: true })); sel.dispatchEvent(new Event('change', { bubbles: true })); }
+  const btn = sel._dd && sel._dd.querySelector('.dd-btn'); if (btn) btn.focus({ preventScroll: true });
+}
+function ddKey(e) {
+  if (!DD.open || !DD.sel) return false; const sel = DD.sel, n = sel.options.length; let cur = DD.pop.querySelector('.hi'), i = cur ? +cur.dataset.i : sel.selectedIndex;
+  const move = d => { let k = i; do { k = Math.min(n - 1, Math.max(0, k + d)); } while (sel.options[k] && sel.options[k].disabled && k > 0 && k < n - 1); ddPaint(k); };
+  if (e.key === 'ArrowDown') move(1); else if (e.key === 'ArrowUp') move(-1); else if (e.key === 'Home') ddPaint(0); else if (e.key === 'End') ddPaint(n - 1);
+  else if (e.key === 'Enter' || e.key === ' ') ddPick(i); else if (e.key === 'Escape') ddClose(); else if (e.key === 'Tab') ddClose(true);
+  else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) { clearTimeout(DD.typeT); DD.type += e.key.toLowerCase(); DD.typeT = setTimeout(() => DD.type = '', 600); const k = [...sel.options].findIndex(o => o.textContent.trim().toLowerCase().startsWith(DD.type)); if (k >= 0) ddPaint(k); } else return false;
+  e.preventDefault(); e.stopPropagation(); return true;
+}
+// ── number steppers ──
+function numUpgrade(inp) {
+  if (inp._num || inp.closest('.num')) return; const w = document.createElement('div'); w.className = 'num'; inp.before(w); inp._num = w; w.appendChild(inp);
+  w.insertAdjacentHTML('beforeend', '<button type="button" class="num-b" data-d="-1" tabindex="-1" aria-label="Decrease"><svg viewBox="0 0 10 10" width="9" height="9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2 5h6"/></svg></button><button type="button" class="num-b" data-d="1" tabindex="-1" aria-label="Increase"><svg viewBox="0 0 10 10" width="9" height="9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2 5h6M5 2v6"/></svg></button>');
+}
+function numStep(inp, d) {
+  const v = parseFloat(inp.value), cur = isFinite(v) ? v : 0, sa = inp.getAttribute('step'); let st = parseFloat(sa); if (!isFinite(st)) st = Math.abs(cur) >= 10 ? 1 : Math.abs(cur) >= 1 ? 0.5 : 0.1;
+  let nv = Math.round((cur + d * st) * 1e9) / 1e9; const mn = inp.getAttribute('min'), mx = inp.getAttribute('max'); if (mn !== null && nv < +mn) nv = +mn; if (mx !== null && nv > +mx) nv = +mx;
+  inp.value = String(nv); inp.dispatchEvent(new Event('input', { bubbles: true })); inp.dispatchEvent(new Event('change', { bubbles: true }));
+}
+function upgradeAll(root) {
+  if (!root || root.nodeType !== 1) return;
+  const ss = root.matches && root.matches('select') ? [root] : []; root.querySelectorAll && ss.push(...root.querySelectorAll('select'));
+  ss.forEach(ddUpgrade);
+  const ns = root.matches && root.matches('input[type=number]') ? [root] : []; root.querySelectorAll && ns.push(...root.querySelectorAll('input[type=number]'));
+  ns.forEach(numUpgrade);
+}
+function setupControls() {
+  upgradeAll(document.body);
+  new MutationObserver(ms => { for (const m of ms) m.addedNodes.forEach(upgradeAll); }).observe(document.body, { subtree: true, childList: true });
+  document.addEventListener('click', e => {
+    const b = e.target.closest && e.target.closest('.dd-btn'); if (b) { e.preventDefault(); e.stopPropagation(); ddOpen(b.parentNode); return; }
+    const o = e.target.closest && e.target.closest('#ddpop .dd-o'); if (o) { ddPick(+o.dataset.i); return; }
+    if (DD.open && !(e.target.closest && e.target.closest('#ddpop'))) ddClose();
+  }, true);
+  document.addEventListener('keydown', e => { if (DD.open) ddKey(e); else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && e.target.classList && e.target.classList.contains('dd-btn')) { e.preventDefault(); ddOpen(e.target.parentNode); } }, true);
+  document.addEventListener('pointermove', e => { const o = e.target.closest && e.target.closest('#ddpop .dd-o'); if (o && DD.pop) { DD.pop.querySelectorAll('.hi').forEach(x => x.classList.remove('hi')); o.classList.add('hi'); } });
+  window.addEventListener('resize', () => ddClose(true));
+  document.addEventListener('scroll', e => { if (!DD.open || (e.target.closest && e.target.closest('#ddpop'))) return; const a = DD.anchor; if (!a || !document.contains(a) || Math.abs(a.getBoundingClientRect().top - DD.top) > 1) ddClose(true); else ddPlace(); }, true);
+  // steppers: click, or hold to repeat
+  let rep = 0, rt = 0;
+  document.addEventListener('pointerdown', e => {
+    const b = e.target.closest && e.target.closest('.num-b'); if (!b) return; e.preventDefault(); const inp = b.parentNode.querySelector('input'), d = +b.dataset.d; if (inp.disabled) return;
+    numStep(inp, d); rt = setTimeout(() => { rep = setInterval(() => numStep(inp, d), 70); }, 420);
+  });
+  for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) document.addEventListener(ev, () => { clearTimeout(rt); clearInterval(rep); });
+}
 init();
 </script>
 </body>
