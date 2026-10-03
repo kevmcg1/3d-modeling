@@ -1184,18 +1184,21 @@
       markPreset();
     }
     function markPreset() { $$('.preset', ROOT).forEach(b => b.classList.toggle('on', b.dataset.preset === state.theme.preset)); }
-    function commit(path, value, source) {
+    // a slider can fire several times a frame: keep the state and the readouts current at once, redo the layout once per frame
+    let layoutRaf = 0;
+    const scheduleLayout = () => { if (!layoutRaf) layoutRaf = requestAnimationFrame(() => { layoutRaf = 0; applyLayout(); }); };
+    function commit(path, value, source, soft) {
       setPath(path, value);
       if (path.startsWith('theme.') && COLOR_KEYS.includes(path.slice(6))) { state.theme.preset = 'custom'; markPreset(); }
       syncBound(path, source);
-      if (path.startsWith('tables.')) scheduleColumns(); else applyLayout();
+      if (path.startsWith('tables.')) scheduleColumns(); else if (soft) scheduleLayout(); else applyLayout();
       save();
     }
     const toggleTick = el => commit(el.dataset.bind, !getPath(el.dataset.bind), null);
 
     ROOT.addEventListener('input', e => {
       const el = e.target.closest('[data-bind]');
-      if (el) commit(el.dataset.bind, B.readEl(el), el);
+      if (el) commit(el.dataset.bind, B.readEl(el), el, el.type === 'range');
     });
 
     /* ---------- Layout / theme ---------- */
@@ -2390,12 +2393,14 @@
       $$('[data-show]', ROOT).forEach(B.writeShow);
     }
 
+    let updRaf = 0;
     ROOT.addEventListener('input', e => {
       const el = e.target.closest('[data-bind]'); if (!el) return;
       const v = B.readEl(el);
       pathSet(state, el.dataset.bind, v);
       $$(`[data-show="${el.dataset.bind}"]`, ROOT).forEach(B.writeShow);
-      update(); save();
+      if (el.type === 'range') { if (!updRaf) updRaf = requestAnimationFrame(() => { updRaf = 0; update(); }); } else update();   // sliders: one redraw per frame
+      save();
     });
 
     document.addEventListener('click', e => {

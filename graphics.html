@@ -1866,13 +1866,24 @@ function rasterTarget() {
   if (L.type !== 'raster') { toast(L.type === 'vector' ? 'Rasterize the vector layer first (Layer ▸ Rasterize)' : 'Select a raster layer'); return null; }
   if (L.locked) { toast('Layer is locked'); return null; } return L;
 }
+/* Runs fn(latest value) at most once per animation frame, waiting about as long as the last run took when it was slow, so
+   dragging a slider on a heavy effect stays smooth without a backlog; the newest value is never dropped. */
+function liveRunner(fn) {
+  let pending, has = false, raf = 0, timer = 0, cost = 0;
+  const run = () => { raf = 0; timer = 0; if (!has) return; const v = pending; has = false; const t0 = performance.now(); fn(v); cost = performance.now() - t0; if (has) schedule(); };
+  const schedule = () => { if (raf || timer) return; const wait = cost > 24 ? cost : 0; if (wait) timer = setTimeout(() => { timer = 0; raf = requestAnimationFrame(run); }, wait); else raf = requestAnimationFrame(run); };
+  return { push(v) { pending = v; has = true; schedule(); }, cancel() { has = false; cancelAnimationFrame(raf); clearTimeout(timer); raf = timer = 0; } };
+}
 function previewDialog(title, fields, run, extra) {
   const L = rasterTarget(); if (!L) return; const r = regionOf(L), ctx = cx2(L.cv, { willReadFrequently: true });
-  const before = mk(D.w, D.h); cx2(before).drawImage(L.cv, 0, 0); const orig = ctx.getImageData(r.x, r.y, r.w, r.h); let T = 0; const delay = clamp(r.w * r.h / 4000, 16, 450);
+  const before = mk(D.w, D.h); cx2(before).drawImage(L.cv, 0, 0); const orig = ctx.getImageData(r.x, r.y, r.w, r.h);
   const apply = v => { const fresh = new ImageData(new Uint8ClampedArray(orig.data), r.w, r.h); run(fresh, v, r); putMasked(ctx, fresh, r.x, r.y, orig); requestRender(true); };
-  dialog(Object.assign({ title, fields, onChange: v => { clearTimeout(T); T = setTimeout(() => apply(v), delay); },
-    onOk: v => { clearTimeout(T); apply(v); pixHist(title, L.id, 'cv', r, before); },
-    onCancel: () => { clearTimeout(T); ctx.putImageData(orig, r.x, r.y); requestRender(true); } }, extra || {}));
+  // live preview: at most one pass per frame, spaced by how long the last pass took (so a heavy filter never queues work up
+  // and a light one follows the slider every frame); the final value is always applied
+  const live = liveRunner(apply);
+  dialog(Object.assign({ title, fields, onChange: v => live.push(v),
+    onOk: v => { live.cancel(); apply(v); pixHist(title, L.id, 'cv', r, before); },
+    onCancel: () => { live.cancel(); ctx.putImageData(orig, r.x, r.y); requestRender(true); } }, extra || {}));
 }
 function adjustDialog(type) {
   const a = ADJ[type]; if (!rasterTarget()) return;
@@ -1957,10 +1968,10 @@ function transformDialog() {
     const m = mMul(mT(cxm + v.dx, cym + v.dy), mMul(mR(v.rot * Math.PI / 180), mMul(mS(v.sx / 100 * (v.fh ? -1 : 1), v.sy / 100 * (v.fv ? -1 : 1)), mT(-cxm, -cym)))), x = cx2(L.cv);
     x.clearRect(0, 0, D.w, D.h); if (base) x.drawImage(base, 0, 0); x.save(); x.imageSmoothingQuality = 'high'; x.transform(m[0], m[1], m[2], m[3], m[4], m[5]); x.drawImage(flt, 0, 0); x.restore(); requestRender(true);
   };
-  let uniform = true;
+  let uniform = true; const liveT = liveRunner(run);
   dialog({ title: 'Transform', fields: [{ t: 'range', k: 'sx', l: 'Scale X %', min: 5, max: 400, v: 100 }, { t: 'range', k: 'sy', l: 'Scale Y %', min: 5, max: 400, v: 100 }, { t: 'range', k: 'rot', l: 'Rotate °', min: -180, max: 180, step: 0.5, v: 0 },
     { t: 'range', k: 'dx', l: 'Move X', min: -D.w, max: D.w, v: 0 }, { t: 'range', k: 'dy', l: 'Move Y', min: -D.h, max: D.h, v: 0 }, { t: 'check', k: 'fh', l: 'Flip horizontal', v: false }, { t: 'check', k: 'fv', l: 'Flip vertical', v: false }],
-    onChange: run, onOk: v => { run(v); pixHist('Transform', L.id, 'cv', { x: 0, y: 0, w: D.w, h: D.h }, before); }, onCancel: () => { const x = cx2(L.cv); x.clearRect(0, 0, D.w, D.h); x.drawImage(before, 0, 0); requestRender(true); } });
+    onChange: v => liveT.push(v), onOk: v => { liveT.cancel(); run(v); pixHist('Transform', L.id, 'cv', { x: 0, y: 0, w: D.w, h: D.h }, before); }, onCancel: () => { liveT.cancel(); const x = cx2(L.cv); x.clearRect(0, 0, D.w, D.h); x.drawImage(before, 0, 0); requestRender(true); } });
 }
 
 /* ═══ documents: new, size, project files ══════════════════════════════════ */
