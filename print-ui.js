@@ -37,23 +37,46 @@ const W3 = (x, y, z) => [x, z, -y];                                  // bed (Z u
 /* ── styles ───────────────────────────────────────────────────────── */
 const css = document.createElement('style');
 css.textContent = `
-.pr-sec { border: 1px solid var(--rule); border-radius: 8px; margin: 8px 0; background: var(--panel-2); }
-.pr-sec > summary { cursor: pointer; padding: 7px 10px; font: 600 11px var(--font, inherit); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); list-style: none; display: flex; align-items: center; justify-content: space-between; }
+.pr-sec { border: 1px solid var(--rule); border-radius: 10px; margin: 8px 0; background: var(--panel-2); transition: border-color .2s; }
+.pr-sec[open] { border-color: color-mix(in srgb, var(--accent) 22%, var(--rule)); }
+.pr-sec > summary { cursor: pointer; padding: 8px 12px; font: 650 10.5px var(--font, inherit); letter-spacing: .07em; text-transform: uppercase; color: var(--ink-2); list-style: none; display: flex; align-items: center; justify-content: space-between; border-radius: 10px; transition: color .15s, background .15s; }
+.pr-sec > summary:hover { color: var(--ink); background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .pr-sec > summary::-webkit-details-marker { display: none; }
-.pr-sec > summary::after { content: '▾'; opacity: .5; transition: transform .2s; }
-.pr-sec:not([open]) > summary::after { transform: rotate(-90deg); }
-.pr-sec .pr-body { padding: 2px 10px 10px; display: flex; flex-direction: column; gap: 8px; }
-.pr-row { display: grid; grid-template-columns: 1fr 86px; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); }
-.pr-row.wide { grid-template-columns: 1fr; }
-.pr-row .u { color: var(--muted); font-size: 10.5px; margin-left: 3px; }
-.pr-row input[type="number"], .pr-row select, .pr-row textarea { width: 100%; box-sizing: border-box; padding: 4px 6px; border: 1px solid var(--rule); border-radius: 5px; background: var(--panel); color: var(--ink); font-size: 12px; }
+.pr-sec > summary::after { content: ''; width: 6px; height: 6px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg) translate(-2px, -2px); transition: transform .22s cubic-bezier(.2,.7,.2,1); }
+.pr-sec:not([open]) > summary::after { transform: rotate(-45deg) translate(-1px, -1px); }
+.pr-sec .pr-body { padding: 4px 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+.pr-sec[open] .pr-body { animation: pr-open .26s cubic-bezier(.2,.7,.2,1) both; }
+@keyframes pr-open { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+html.calm .pr-sec[open] .pr-body { animation: none; }
+.pr-row { display: grid; grid-template-columns: minmax(0, 1fr) 96px; align-items: center; gap: 10px; font-size: 12px; color: var(--ink-2); line-height: 1.3; border-radius: 6px; transition: color .15s; }
+.pr-row:hover { color: var(--ink); }
+.pr-row.wide { grid-template-columns: 1fr; gap: 4px; }
+.pr-row .u { color: var(--muted); font-size: 10.5px; margin-left: 4px; }
+.pr-row input[type="number"], .pr-row select, .pr-row textarea, .pr-search, .pr-top select, .pr-layerbar select, .pr-cost .field input, .pr-sec .field input[type="number"], .pr-sec .field input[type="text"] {
+  width: 100%; box-sizing: border-box; padding: 6px 9px; border: 1px solid var(--rule); border-radius: 7px; background: var(--panel); color: var(--ink); font: 12.5px var(--mono);
+  transition: border-color .15s, box-shadow .18s, background .15s; }
+.pr-row input[type="number"]:hover, .pr-row select:hover, .pr-row textarea:hover, .pr-search:hover, .pr-top select:hover, .pr-layerbar select:hover, .pr-sec .field input:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--rule)); }
+.pr-row input:focus, .pr-row select:focus, .pr-row textarea:focus, .pr-search:focus, .pr-top select:focus, .pr-layerbar select:focus, .pr-sec .field input:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.pr-sec .field input:disabled { opacity: .6; cursor: default; background: var(--panel-2); }
+input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+.pr-row input[type="number"]::-webkit-inner-spin-button, .pr-row input[type="number"]::-webkit-outer-spin-button, .pr-sec .field input[type="number"]::-webkit-inner-spin-button, .pr-sec .field input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.pr-row select, .pr-top select, .pr-layerbar select { appearance: none; -webkit-appearance: none; cursor: pointer; padding-right: 26px; font-family: var(--font, inherit); font-size: 12.5px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: calc(100% - 15px) 52%, calc(100% - 10px) 52%; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; }
 .pr-row select { grid-column: 1 / -1; }
 .pr-row.sel { grid-template-columns: 1fr; gap: 4px; }
-.pr-row textarea { font: 11px/1.4 ui-monospace, Consolas, monospace; resize: vertical; }
-.pr-row.chk { grid-template-columns: 1fr auto; }
-.pr-row.chk input { width: 16px; height: 16px; }
-.pr-row .tip { cursor: help; color: var(--muted); }
-.pr-top select { width: 100%; padding: 5px 6px; border: 1px solid var(--rule); border-radius: 5px; background: var(--panel); color: var(--ink); font-size: 12.5px; }
+.pr-row textarea { font: 11px/1.45 var(--mono); resize: vertical; min-height: 64px; }
+.pr-row.chk { grid-template-columns: minmax(0, 1fr) auto; cursor: pointer; }
+.pr-sw { appearance: none; -webkit-appearance: none; flex: none; position: relative; width: 30px; height: 18px; margin: 0; border-radius: 99px; background: var(--rule); cursor: pointer; transition: background .2s, box-shadow .2s; }
+.pr-sw::after { content: ''; position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform .22s cubic-bezier(.2,.7,.2,1); }
+.pr-sw:checked { background: var(--accent); }
+.pr-sw:checked::after { transform: translateX(12px); }
+.pr-sw:hover { box-shadow: 0 0 0 3px var(--accent-soft); }
+.pr-sw:focus-visible { outline: 0; box-shadow: 0 0 0 3px var(--accent-soft), 0 0 0 1.5px var(--accent); }
+.pr-search { padding-left: 30px; background: var(--panel) no-repeat 10px 50% / 13px url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%23778291' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='9' cy='9' r='5.5'/%3E%3Cpath d='M13.5 13.5L17 17'/%3E%3C/svg%3E"); }
+.pr-search::-webkit-search-cancel-button { cursor: pointer; }
+.pr-seg-note { font-size: 11.5px; color: var(--muted); }
+#prProf button { transition: background .15s, color .15s, box-shadow .2s; }
+#prProf button:hover:not(.on) { background: var(--accent-soft); color: var(--ink); }
 .pr-stat { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 8px 0; }
 .pr-stat div { background: var(--panel-2); border: 1px solid var(--rule); border-radius: 8px; padding: 7px 9px; }
 .pr-stat .wide { grid-column: 1 / -1; }
@@ -65,10 +88,21 @@ css.textContent = `
 .pr-search { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--rule); border-radius: 6px; background: var(--panel-2); color: var(--ink); font-size: 12px; }
 .pr-layerbar { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px 10px; white-space: nowrap; padding: 8px 12px; background: color-mix(in srgb, var(--panel) 92%, transparent); border: 1px solid var(--rule); border-radius: 10px; backdrop-filter: blur(8px); font-size: 12px; z-index: 6; max-width: calc(100% - 24px); }
 .pr-layerbar[hidden] { display: none; }
-.pr-layerbar input[type=range] { width: min(46vw, 420px); }
+.pr-layerbar input[type=range] { -webkit-appearance: none; appearance: none; width: min(46vw, 420px); height: 18px; background: transparent; margin: 0; cursor: pointer; --p: 0%; }
+.pr-layerbar input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 3px; background: linear-gradient(90deg, var(--accent) var(--p), var(--rule) var(--p)); }
+.pr-layerbar input[type=range]::-moz-range-track { height: 4px; border-radius: 3px; background: var(--rule); }
+.pr-layerbar input[type=range]::-moz-range-progress { height: 4px; border-radius: 3px; background: var(--accent); }
+.pr-layerbar input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; margin-top: -5px; border-radius: 50%; background: var(--accent); border: 2px solid var(--panel); box-shadow: 0 1px 4px rgba(0,0,0,.35); transition: transform .15s; }
+.pr-layerbar input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); border: 2px solid var(--panel); box-shadow: 0 1px 4px rgba(0,0,0,.35); }
+.pr-layerbar input[type=range]:hover::-webkit-slider-thumb { transform: scale(1.18); }
+.pr-layerbar input[type=range]:focus-visible { outline: 0; }
+.pr-layerbar input[type=range]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px var(--accent-soft), 0 1px 4px rgba(0,0,0,.35); }
 .pr-layerbar b { min-width: 76px; text-align: right; font-variant-numeric: tabular-nums; }
-.pr-layerbar select, .pr-layerbar label { font-size: 12px; }
-.pr-layerbar button { border: 1px solid var(--rule); background: var(--panel-2); color: var(--ink); border-radius: 6px; padding: 3px 8px; cursor: pointer; }
+.pr-layerbar select { width: auto; padding-top: 4px; padding-bottom: 4px; }
+.pr-layerbar label { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; cursor: pointer; }
+.pr-layerbar button { width: 28px; height: 26px; padding: 0; border: 1px solid var(--rule); background: var(--panel-2); color: var(--ink); border-radius: 8px; cursor: pointer; font-size: 15px; line-height: 1; transition: background .15s, border-color .15s, transform .12s; }
+.pr-layerbar button:hover { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 50%, var(--rule)); }
+.pr-layerbar button:active { transform: scale(.94); }
 .pr-legend { position: absolute; left: 12px; top: 54px; display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; background: color-mix(in srgb, var(--panel) 90%, transparent); border: 1px solid var(--rule); border-radius: 8px; font-size: 11.5px; color: var(--ink-2); z-index: 5; pointer-events: none; }
 .pr-legend[hidden] { display: none; }
 .pr-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
@@ -164,7 +198,7 @@ async function doSlice() {
     const res = await Slicer.slice(mesh, cfg, { onProgress: (p, msg) => { PR.prog = { p, msg }; const b = document.querySelector('.pr-bar > i'), m = document.getElementById('prMsg'); if (b) b.style.width = (p * 100).toFixed(0) + '%'; if (m) m.textContent = msg; } });
     PR.prog = { p: 0.98, msg: 'Writing G-code…' }; await new Promise(r => setTimeout(r, 0));
     const g = Slicer.gcode(res, cfg);
-    PR.result = res; PR.gcode = g; PR.layer = res.layers.length - 1; PR.showModel = false;
+    PR.result = res; PR.gcode = g; PR.stale = false; PR.layer = res.layers.length - 1; PR.showModel = false;
     buildModel(); buildPreview(); updateHint(); toast(`Sliced · ${res.layers.length} layers · ${fmtTime(g.time)}`);
   } catch (e) { console.error(e); PR.error = e.message || String(e); }
   PR.busy = false; refreshPrintUI(); requestDraw();
@@ -265,6 +299,7 @@ function setLayer(n, quiet) {
   previewObj.geometry.setDrawRange(start, u.layerEnd[n] - start);
   const lb = document.getElementById('prLayers');
   if (lb) {
+    const rg = lb.querySelector('input[type=range]'); if (rg) rg.style.setProperty('--p', (nL > 1 ? n / (nL - 1) * 100 : 100) + '%');
     const L = PR.result.layers[n];
     lb.querySelector('b').textContent = `Layer ${n + 1} / ${nL}`;
     lb.querySelector('[data-z]').textContent = `z ${(+L.z.toFixed(2))} mm`;
@@ -289,10 +324,10 @@ function renderLegend() {
 (function mountOverlays() {
   const vp = document.getElementById('viewport'); if (!vp || document.getElementById('prLayers')) return;
   const bar = document.createElement('div'); bar.id = 'prLayers'; bar.className = 'pr-layerbar'; bar.hidden = true;
-  bar.innerHTML = `<button data-l="-1" title="Layer down (↓)">−</button><input type="range" min="0" max="0" value="0" aria-label="Layer"><button data-l="1" title="Layer up (↑)">+</button><b>Layer 1 / 1</b><span data-z style="color:var(--muted)"></span>
-    <label><input type="checkbox" id="prOnly"> this layer only</label>
+  bar.innerHTML = `<button data-l="-1" aria-label="Layer down">−</button><input type="range" min="0" max="0" value="0" aria-label="Layer"><button data-l="1" aria-label="Layer up">+</button><b>Layer 1 / 1</b><span data-z style="color:var(--muted)"></span>
+    <label><input type="checkbox" id="prOnly" class="pr-sw"> this layer only</label>
     <select id="prView" aria-label="Colour by"><option value="type">Feature type</option><option value="speed">Speed</option><option value="flow">Flow</option><option value="layer">Layer</option></select>`;
-  vp.appendChild(bar);
+  vp.appendChild(bar); tagTips(bar);
   const lg = document.createElement('div'); lg.id = 'prLegend'; lg.className = 'pr-legend'; lg.hidden = true; vp.appendChild(lg);
   const r = bar.querySelector('input[type=range]');
   r.addEventListener('input', () => setLayer(+r.value));
@@ -313,19 +348,20 @@ const IC = {
 };
 const svgI = k => `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${IC[k]}</svg>`;
 function printRibbonHTML() {
-  const b = (act, lab, ic, extra = '', title = lab) => `<button class="tb ${extra}" data-print="${act}" title="${esc(title)}" ${PR.busy ? 'disabled' : ''}>${svgI(ic)}<span>${lab}</span></button>`;
+  const b = (act, lab, ic, extra = '') => `<button class="tb ${extra}" data-print="${act}" data-tipkey="print:${act}" ${PR.busy ? 'disabled' : ''}>${svgI(ic)}<span>${lab}</span></button>`;
   return `<div class="rb-group" style="display:flex;gap:2px;align-items:stretch">
-    ${b('slice', PR.busy ? 'Slicing…' : 'Slice', 'slice', 'primary', 'Slice the model (Ctrl+Enter)')}
-    ${b('save', 'Save G-code', 'save', '', 'Download Marlin G-code for ' + Slicer.printerById(PR.cfg.printer).name)}
+    ${b('slice', PR.busy ? 'Slicing…' : 'Slice', 'slice', 'primary')}
+    ${b('save', 'Save G-code', 'save', '')}
     <span style="width:1px;background:var(--rule);margin:4px 6px"></span>
-    ${b('rotx', 'Rotate X', 'rx', '', 'Rotate the part 90° about X')}${b('roty', 'Rotate Y', 'rx', '', 'Rotate the part 90° about Y')}${b('rotz', 'Rotate Z', 'rx', '', 'Rotate the part 90° about Z')}
-    ${b('flat', 'Lay flat', 'flat', '', 'Rotate the part so its largest flat face sits on the bed')}
-    ${b('center', 'Center', 'center', '', 'Center the part on the bed')}
+    ${b('rotx', 'Rotate X', 'rx', '')}${b('roty', 'Rotate Y', 'rx', '')}${b('rotz', 'Rotate Z', 'rx', '')}
+    ${b('flat', 'Lay flat', 'flat', '')}
+    ${b('center', 'Center', 'center', '')}
     <span style="width:1px;background:var(--rule);margin:4px 6px"></span>
-    ${b('ghost', PR.showModel ? 'Hide model' : 'Show model', 'ghost', PR.showModel ? 'on' : '', 'Show or hide the solid model under the layer preview')}
+    ${b('ghost', PR.showModel ? 'Hide model' : 'Show model', 'ghost', PR.showModel ? 'on' : '')}
   </div>`;
 }
 function bindRibbon(tb) {
+  tagTips(tb);
   tb.querySelectorAll('[data-print]').forEach(btn => btn.addEventListener('click', () => printAction(btn.dataset.print)));
 }
 async function printAction(a) {
@@ -364,8 +400,8 @@ function layFlat() {
 
 /* ── side panel ───────────────────────────────────────────────────── */
 function settingRow(s) {
-  const v = PR.cfg[s.key], tip = s.tip ? ` title="${esc(s.tip)}"` : '';
-  if (s.type === 'b') return `<label class="pr-row chk"${tip}><span>${s.label}</span><input type="checkbox" data-k="${s.key}" ${v ? 'checked' : ''}></label>`;
+  const v = PR.cfg[s.key], tip = ` data-tipkey="set:${s.key}" data-tipname="${esc(s.label)}"`;
+  if (s.type === 'b') return `<label class="pr-row chk"${tip}><span>${s.label}</span><input type="checkbox" class="pr-sw" data-k="${s.key}" ${v ? 'checked' : ''}></label>`;
   if (s.type === 's') return `<label class="pr-row sel"${tip}><span>${s.label}</span><select data-k="${s.key}">${s.options.map(([k, l]) => `<option value="${k}" ${v === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
   if (s.type === 't') return `<label class="pr-row wide"${tip}><span>${s.label}</span><textarea data-k="${s.key}" rows="${s.rows || 4}" spellcheck="false">${esc(v || '')}</textarea></label>`;
   return `<label class="pr-row"${tip}><span>${s.label}${s.unit ? `<span class="u">${s.unit}</span>` : ''}</span><input type="number" data-k="${s.key}" value="${v}" step="${s.step || 'any'}" ${s.min != null ? `min="${s.min}"` : ''} ${s.max != null ? `max="${s.max}"` : ''}></label>`;
@@ -377,12 +413,12 @@ function printPanelHTML() {
   const matSel = `<select id="prMaterial">${Slicer.MATERIALS.map(m => `<option value="${m.id}" ${m.id === cfg.material ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select>`;
   const profiles = [['Draft', 0.3], ['Standard', 0.2], ['Fine', 0.12], ['Ultra', 0.08]];
   const lhBase = pr.nozzle;
-  const prof = `<div class="seg" id="prProf">${profiles.map(([n, h]) => { const lh = +(h * lhBase / 0.4).toFixed(2); return `<button data-lh="${lh}" class="${Math.abs(cfg.layerHeight - lh) < 0.005 ? 'on' : ''}" title="${lh} mm layers">${n}</button>`; }).join('')}</div>`;
+  const prof = `<div class="seg" id="prProf">${profiles.map(([n, h]) => { const lh = +(h * lhBase / 0.4).toFixed(2); return `<button data-lh="${lh}" class="${Math.abs(cfg.layerHeight - lh) < 0.005 ? 'on' : ''}" data-tipkey="print:prof-${n.toLowerCase()}" data-tipname="${n}: ${lh} mm layers">${n}</button>`; }).join('')}</div>`;
   const x = cfg.xform, b = PR.bounds;
   const place = `<details class="pr-sec" ${PR.open.Placement ? 'open' : ''} data-sec="Placement"><summary>Placement</summary><div class="pr-body">
-      <label class="pr-row"><span>Scale<span class="u">%</span></span><input type="number" data-x="scale" value="${x.scale}" min="1" max="1000" step="1"></label>
-      <div class="row3" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">${['rx', 'ry', 'rz'].map(k => `<label class="field"><span>${k.toUpperCase().replace('R', 'Rot ')}°</span><input type="number" data-x="${k}" value="${x[k]}" step="15"></label>`).join('')}</div>
-      <div class="row3" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px"><label class="field"><span>Bed X</span><input type="number" data-px="partX" value="${cfg.partX == null ? cfg.bed[0] / 2 : cfg.partX}" step="1"></label><label class="field"><span>Bed Y</span><input type="number" data-px="partY" value="${cfg.partY == null ? cfg.bed[1] / 2 : cfg.partY}" step="1"></label><label class="field"><span>Size Z</span><input type="text" disabled value="${b ? b.max[2].toFixed(1) : '—'}"></label></div>
+      <label class="pr-row" data-tipkey="place:scale" data-tipname="Scale"><span>Scale<span class="u">%</span></span><input type="number" data-x="scale" value="${x.scale}" min="1" max="1000" step="1"></label>
+      <div class="row3" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">${['rx', 'ry', 'rz'].map(k => `<label class="field" data-tipkey="place:${k}" data-tipname="Rotate about ${k[1].toUpperCase()}"><span>${k.toUpperCase().replace('R', 'Rot ')}°</span><input type="number" data-x="${k}" value="${x[k]}" step="15"></label>`).join('')}</div>
+      <div class="row3" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px"><label class="field" data-tipkey="place:partX" data-tipname="Position on the bed, X"><span>Bed X</span><input type="number" data-px="partX" value="${cfg.partX == null ? cfg.bed[0] / 2 : cfg.partX}" step="1"></label><label class="field" data-tipkey="place:partY" data-tipname="Position on the bed, Y"><span>Bed Y</span><input type="number" data-px="partY" value="${cfg.partY == null ? cfg.bed[1] / 2 : cfg.partY}" step="1"></label><label class="field" data-tipkey="place:sizeZ" data-tipname="Part height"><span>Size Z</span><input type="text" disabled value="${b ? b.max[2].toFixed(1) : '—'}"></label></div>
       ${b ? `<div style="font-size:11.5px;color:var(--muted)">Part size ${(b.max[0] - b.min[0]).toFixed(1)} × ${(b.max[1] - b.min[1]).toFixed(1)} × ${b.max[2].toFixed(1)} mm</div>` : ''}
       ${b && b.out ? `<div class="pr-warn">The part does not fit the ${cfg.bed.join(' × ')} mm build volume. It is shown red.</div>` : ''}</div></details>`;
   let groups = '';
@@ -400,9 +436,9 @@ function printPanelHTML() {
     ${r.warnings.map(w => `<div class="pr-warn">${esc(w)}</div>`).join('')}
     <div class="btns"><button class="btn primary" data-print="save">Save G-code</button></div>` : '';
   return `<div class="pn-head"><h2>3D Print</h2><span class="tag">${esc(pr.name)} · Marlin</span></div><div class="pn-body pr-top">
-    <label class="field"><span>Printer</span>${printerSel}</label>
+    <label class="field" data-tipkey="print:printer"><span>Printer</span>${printerSel}</label>
     <div style="font-size:11.5px;color:var(--muted);margin:2px 0 8px">${pr.bed.join(' × ')} mm bed · ${pr.nozzle} mm nozzle · ${pr.dd ? 'direct drive' : 'Bowden'} · up to ${pr.maxHotend} °C / ${pr.maxBed} °C${pr.level ? ' · auto leveling' : ''}</div>
-    <label class="field"><span>Filament</span>${matSel}</label>
+    <label class="field" data-tipkey="print:material"><span>Filament</span>${matSel}</label>
     <div class="field" style="margin-top:8px"><span>Quality</span>${prof}</div>
     <div class="btns" style="margin:10px 0 6px"><button class="btn primary" data-print="slice" ${PR.busy ? 'disabled' : ''}>${PR.busy ? 'Slicing…' : r ? 'Slice again' : 'Slice'}</button></div>
     ${PR.busy ? `<div class="pr-bar"><i style="width:${((PR.prog && PR.prog.p) * 100 || 0).toFixed(0)}%"></i></div><div id="prMsg" style="font-size:11.5px;color:var(--muted)">${esc(PR.prog ? PR.prog.msg : '')}</div>` : ''}
@@ -411,8 +447,8 @@ function printPanelHTML() {
     ${stats}
     ${costSection()}
     ${place}
-    <input class="pr-search" id="prSearch" type="search" placeholder="Search settings…" value="${esc(PR.q)}" style="margin-top:8px">
-    <label class="pr-row chk" style="margin-top:6px"><span>Show all settings</span><input type="checkbox" id="prAll" ${PR.all ? 'checked' : ''}></label>
+    <input class="pr-search" id="prSearch" data-tipkey="print:search" data-tipname="Search settings" type="search" placeholder="Search settings…" value="${esc(PR.q)}" style="margin-top:8px">
+    <label class="pr-row chk" style="margin-top:6px" data-tipkey="print:all"><span>Show all settings</span><input type="checkbox" class="pr-sw" id="prAll" ${PR.all ? 'checked' : ''}></label>
     ${groups || '<p class="note">No setting matches.</p>'}
     <div class="btns" style="margin-top:10px;flex-wrap:wrap"><button class="btn" data-print="saveprof">Export settings</button><button class="btn" data-print="loadprof">Import settings</button><button class="btn" data-print="reset">Reset</button></div>
     <p class="note" style="margin-top:8px">G-code is Marlin flavor with Creality-style start and end sequences. Edit them under <b>Machine</b> (show all settings). Copy the file to a USB stick or microSD card and print from the printer's screen.</p>
@@ -426,7 +462,7 @@ const COST_FIELDS = [
   ['handMin', 'Hands-on time', 'min/part', 1, 'Per part: removing it, support cleanup, finishing, packing.'],
   ['qty', 'Quantity', 'parts', 1, 'Parts in the batch.'],
   ['powerW', 'Printer power', 'W', 10, 'Average draw while printing.'],
-  ['kwh', 'Electricity', '$/kWh', 0.01, ''],
+  ['kwh', 'Electricity', '$/kWh', 0.01, 'What a kilowatt-hour costs you. It is multiplied by the printer power and the print time.'],
   ['overheadPct', 'Overhead', '%', 1, 'Admin, software, marketing, as a percent of direct costs.'],
   ['failurePct', 'Failed prints', '%', 1, 'Allowance for prints that fail and have to be redone.'],
   ['marginPct', 'Profit margin', '%', 1, 'Share of the sale price you keep as profit.'],
@@ -442,13 +478,14 @@ function costResultHTML() {
 }
 function costSection() {
   if (!PR.result || !PR.gcode) return '';
-  const c = PR.cfg.cost, inp = ([k, lab, unit, step, tip]) => `<label class="field" title="${esc(tip)}"><span>${lab} <span style="text-transform:none;letter-spacing:0">${unit}</span></span><input type="number" data-cost="${k}" value="${c[k]}" step="${step}" min="0"></label>`;
+  const c = PR.cfg.cost, inp = ([k, lab, unit, step]) => `<label class="pr-row" data-tipkey="cost:${k}" data-tipname="${esc(lab)}"><span>${lab}<span class="u">${unit}</span></span><input type="number" data-cost="${k}" value="${c[k]}" step="${step}" min="0"></label>`;
   return `<details class="pr-sec pr-cost" data-sec="Production cost" ${PR.open['Production cost'] !== false ? 'open' : ''}><summary>Production cost</summary><div class="pr-body">
-    <div class="grid2">${COST_FIELDS.map(inp).join('')}<label class="field" title="Filament price. Also under Material."><span>Filament <span style="text-transform:none;letter-spacing:0">$/kg</span></span><input type="number" data-k="filamentCost" value="${PR.cfg.filamentCost}" step="1" min="0"></label></div>
+    ${COST_FIELDS.map(inp).join('')}<label class="pr-row" data-tipkey="cost:filamentCost" data-tipname="Filament price"><span>Filament<span class="u">$/kg</span></span><input type="number" data-k="filamentCost" value="${PR.cfg.filamentCost}" step="1" min="0"></label>
     <div id="prCostOut">${costResultHTML()}</div></div></details>`;
 }
 function bindPrintPanel() {
   const root = panel;
+  tagTips(root);
   root.querySelectorAll('[data-cost]').forEach(el => el.addEventListener('input', () => { PR.cfg.cost[el.dataset.cost] = el.value === '' ? 0 : +el.value; saveCfg(); const o = document.getElementById('prCostOut'); if (o) o.innerHTML = costResultHTML(); }));
   root.querySelectorAll('[data-print]').forEach(b => b.addEventListener('click', () => printAction2(b.dataset.print)));
   const prn = root.querySelector('#prPrinter'); prn && prn.addEventListener('change', () => { const x = PR.cfg.xform, px = PR.cfg.partX, py = PR.cfg.partY; Slicer.applyPrinter(PR.cfg, prn.value); PR.cfg.xform = x; PR.cfg.partX = px; PR.cfg.partY = py; PR.cfg.bed = Slicer.printerById(prn.value).bed.slice(); afterPrinter(); });
@@ -597,6 +634,108 @@ document.addEventListener('keydown', e => {
   if (previewObj && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.ctrlKey && !e.metaKey) { e.preventDefault(); e.stopImmediatePropagation(); setLayer(PR.layer + (e.key === 'ArrowUp' ? (e.shiftKey ? 10 : 1) : (e.shiftKey ? -10 : -1))); return; }
   if (!e.ctrlKey && !e.metaKey && !e.altKey && /^[a-zA-Z]$/.test(e.key) && !'fFhHvV'.includes(e.key)) e.stopImmediatePropagation();
 }, true);
+
+/* ── hover cards: the same card Design uses, with before / after pictures and steps ── */
+(function registerTips() {
+  if (typeof TIP_ART === 'undefined' || typeof TIP_TXT === 'undefined' || typeof TipArt === 'undefined') return;
+  const A = TipArt, { C, at, P, poly, line, box, txt, grid, sk, fillP, arrow } = A;
+  const I = f => () => { at(60, 52, 1.5); return f(); };
+  const layers = (n, h = 14, w = 30, d = 22) => { let g = ''; for (let i = 1; i < n; i++) { const z = h * i / n; g += line([P(-w / 2, d / 2, z), P(w / 2, d / 2, z), P(w / 2, -d / 2, z)], C.accL, 0.7); } return g; };
+  const block = (n = 0) => box(-15, -11, 0, 30, 22, 14) + (n ? layers(n) : '');
+  const path = () => line([P(-10, -7, 14), P(10, -7, 14), P(10, -3, 14), P(-10, -3, 14), P(-10, 1, 14), P(10, 1, 14), P(10, 5, 14), P(-10, 5, 14)], C.ok, 1.3);
+  const loops = n => { let g = ''; for (let i = 1; i <= n; i++) { const z = 14 * i / n; g += line([P(-15, -11, z), P(15, -11, z), P(15, 11, z), P(-15, 11, z), P(-15, -11, z)], C.ok, 0.9); } return g; };
+  // an L-shaped part turned 90° about an axis
+  const L0 = [[-14, -8, 0, 28, 16, 5], [-14, -8, 5, 8, 16, 16]];
+  const turn = ax => {
+    const rot = ([x, y, z]) => ax === 'x' ? [x, -z, y] : ax === 'y' ? [z, y, -x] : [-y, x, z];
+    const bs = L0.map(([x, y, z, w, d, h]) => { const a = rot([x, y, z]), b = rot([x + w, y + d, z + h]); return [0, 1, 2].map(i => [Math.min(a[i], b[i]), Math.max(a[i], b[i])]); });
+    const z0 = Math.min(...bs.map(b => b[2][0])); return bs.map(b => [b[0][0], b[1][0], b[2][0] - z0, b[0][1] - b[0][0], b[1][1] - b[1][0], b[2][1] - b[2][0]]);
+  };
+  const draw = bs => bs.slice().sort((a, b) => (a[0] + a[1] + a[2]) - (b[0] + b[1] + b[2])).map(b => box(...b)).join('');
+  const rotArt = ax => [I(() => draw(L0) + txt([100, 16], ax.toUpperCase(), C.dim, 9)), I(() => draw(turn(ax)) + txt([100, 16], '90°', C.dim, 9))];
+  const sliders = (pos, col = C.acc) => [26, 42, 58].map((y, i) => sk(`M24,${y}H96`, '#c8d0da', 3) + `<circle cx="${24 + 72 * pos[i]}" cy="${y}" r="4.5" fill="${col}" stroke="#fff" stroke-width="1.2"/>`).join('');
+  const sheet = (lab, col = C.acc) => fillP('M40,12h28l12,12v52h-40z', '#fff') + sk('M40,12h28l12,12v52h-40zM68,12v12h12', C.line, 1.2) + [34, 44, 54].map(y => sk(`M46,${y}h${y === 44 ? 20 : 28}`, '#b9c2cd', 2)).join('') + txt([60, 70], lab, col, 8.5);
+  const stack = (n, tot = 7) => { let g = ''; for (let i = 0; i < tot; i++) { const on = i < n; g += box(-15, -11, i * 3.2, 30, 22, 3, on ? (i === n - 1 ? 'a' : 'n') : 'n').replace(/fill="[^"]+"/g, m => on ? m : 'fill="#eef1f5" fill-opacity=".7"'); } return g; };
+  const flat = tilt => { const w = 34, h = 22, a = tilt * Math.PI / 180, cx = 60, by = 70; const pts = [[-w / 2, 0], [w / 2, 0], [w / 2, -h], [-w / 2, -h]].map(([x, y]) => [x * Math.cos(a) - y * Math.sin(a), x * Math.sin(a) + y * Math.cos(a)]); const lo = Math.max(...pts.map(p => p[1])); const q = pts.map(p => [cx + p[0], by + p[1] - lo].map(v => v.toFixed(1)).join(',')).join(' ');
+    return sk('M10,70H110', C.line, 1.4) + `<polygon points="${q}" fill="#cfd8e3" stroke="${C.line}" stroke-width="1" stroke-linejoin="round"/>` + (tilt ? '' : sk(`M${cx - w / 2},70H${cx + w / 2}`, C.acc, 2.4)); };
+  const top = (px, py) => `<rect x="18" y="10" width="84" height="70" rx="3" fill="#eef1f5" stroke="${C.line}" stroke-width="1"/>` + [34, 50, 66, 82].map(x => `<line x1="${x}" y1="10" x2="${x}" y2="80" stroke="#dde3ea"/>`).join('') + `<rect x="${px - 13}" y="${py - 10}" width="26" height="20" rx="2" fill="${C.accT}" stroke="${C.acc}" stroke-width="1.2"/>`;
+  const walls = n => { let g = `<rect x="30" y="16" width="60" height="58" rx="3" fill="#eef1f5"/>`; for (let i = 0; i < n; i++) g += `<rect x="${30 + i * 4.5}" y="${16 + i * 4.5}" width="${60 - i * 9}" height="${58 - i * 9}" rx="2" fill="none" stroke="${i ? C.acc : C.line}" stroke-width="1.6"/>`; return g; };
+  const infill = gap => { let g = `<rect x="30" y="16" width="60" height="58" rx="3" fill="#fff" stroke="${C.line}" stroke-width="1.6"/>`; for (let x = 30 + gap; x < 90; x += gap) g += `<line x1="${x}" y1="17" x2="${x}" y2="73" stroke="${C.acc}" stroke-width="1.1"/>`; for (let y = 16 + gap; y < 74; y += gap) g += `<line x1="31" y1="${y}" x2="89" y2="${y}" stroke="${C.acc}" stroke-width="1.1"/>`; return g; };
+  const wave = () => { let g = `<rect x="30" y="16" width="60" height="58" rx="3" fill="#fff" stroke="${C.line}" stroke-width="1.6"/>`; for (let k = 0; k < 4; k++) { let d = ''; for (let x = 32; x <= 88; x += 4) d += `${x === 32 ? 'M' : 'L'}${x},${(26 + k * 14 + 5 * Math.sin((x + k * 14) / 6)).toFixed(1)}`; g += sk(d, C.acc, 1.2); } return g; };
+  const lines = () => { let g = `<rect x="30" y="16" width="60" height="58" rx="3" fill="#fff" stroke="${C.line}" stroke-width="1.6"/>`; for (let y = 24; y < 74; y += 8) g += `<line x1="31" y1="${y}" x2="89" y2="${y}" stroke="${C.acc}" stroke-width="1.2"/>`; return g; };
+  const overhang = sup => sk('M14,76H106', C.line, 1.4) + fillP('M50,76V30H86V44H62V76Z', '#cfd8e3') + sk('M50,76V30H86V44H62V76', C.line, 1.2) + (sup ? [66, 72, 78, 84].map(x => sk(`M${x},44V76`, C.warn, 1.4, 'stroke-dasharray="2 2"')).join('') : '') + (sup ? '' : txt([84, 62], '?', C.dim, 11));
+  const adh = kind => { const r = (m, c, w, dash = '') => `<rect x="${42 - m}" y="${30 - m}" width="${36 + 2 * m}" height="${28 + 2 * m}" rx="${2 + m / 2}" fill="none" stroke="${c}" stroke-width="${w}" ${dash}/>`; let g = '<rect x="14" y="8" width="92" height="74" rx="3" fill="#eef1f5" stroke="#9aa6b4"/>'; if (kind === 'skirt') g += r(8, C.ok, 1.3) + r(10, C.ok, 1.3); if (kind === 'brim') for (let i = 1; i <= 5; i++) g += r(i * 1.8, C.ok, 1.2); if (kind === 'raft') g += `<rect x="30" y="18" width="60" height="52" rx="3" fill="${C.accT}" stroke="${C.acc}"/>`; g += `<rect x="42" y="30" width="36" height="28" rx="2" fill="#cfd8e3" stroke="${C.line}"/>`; return g; };
+  const art = (k, a, b) => { TIP_ART[k] = [a, b]; };
+  art('print:slice', I(() => block()), I(() => block(7) + path()));
+  art('print:save', I(() => block(7) + path()), () => sheet('.gcode'));
+  for (const ax of ['x', 'y', 'z']) art('print:rot' + ax, ...rotArt(ax));
+  art('print:flat', () => flat(32), () => flat(0));
+  art('print:center', () => top(38, 26), () => top(60, 45) + sk('M60,38v14M53,45h14', C.dim, 1));
+  art('print:ghost', I(() => block(7) + path()), I(() => loops(8)));
+  art('print:saveprof', () => sliders([0.7, 0.3, 0.55]), () => sheet('.json'));
+  art('print:loadprof', () => sheet('.json'), () => sliders([0.7, 0.3, 0.55]));
+  art('print:reset', () => sliders([0.9, 0.15, 0.8], C.warn), () => sliders([0.5, 0.5, 0.5]));
+  art('print:layerdn', I(() => stack(5)), I(() => stack(4)));
+  art('print:layerup', I(() => stack(4)), I(() => stack(5)));
+  art('print:prof-draft', I(() => block(5)), I(() => block(3)));
+  art('print:prof-standard', I(() => block(3)), I(() => block(5)));
+  art('print:prof-fine', I(() => block(5)), I(() => block(8)));
+  art('print:prof-ultra', I(() => block(5)), I(() => block(12)));
+  art('set:layerHeight', I(() => block(4)), I(() => block(9)));
+  art('set:wallCount', () => walls(1), () => walls(4));
+  art('set:infillDensity', () => infill(26), () => infill(9));
+  art('set:infillPattern', lines, wave);
+  art('set:support', () => overhang(false), () => overhang(true));
+  art('set:adhesion', () => adh('skirt'), () => adh('raft'));
+  art('set:vase', I(() => block(7) + path()), I(() => cyl0()));
+  function cyl0() { return A.cyl(0, 0, 0, 12, 14) + line([P(-12, 0, 5), P(12, 0, 5)], C.ok, 0.8); }
+
+  const T = (k, d, steps) => { TIP_TXT[k] = [d, steps]; };
+  T('print:slice', 'Cut the model into layers and plan every move of the nozzle.', ['Pick your printer, filament and quality.', 'Press Slice (Ctrl+Enter).', 'Scrub the layer slider, then save the G-code.']);
+  T('print:save', 'Download the G-code file for your printer.', ['Slice first (it slices for you if you have not).', 'Press Save G-code.', 'Copy the file to a USB stick or microSD card and print it from the printer.']);
+  for (const [ax, w] of [['x', 'side to side'], ['y', 'front to back'], ['z', 'flat on the bed, like a turntable']]) T('print:rot' + ax, `Turn the part 90° about the ${ax.toUpperCase()} axis (${w}).`, ['Click it again for another 90°.', 'Type any angle under Placement.', 'The slice goes out of date: slice again.']);
+  T('print:flat', 'Put the largest flat face of the part on the bed.', ['Click it. The biggest flat face turns face down.', 'Check the overhangs; turn the part if another side is better.']);
+  T('print:center', 'Move the part to the middle of the bed.', ['Click it.', 'Or type a position under Placement.']);
+  T('print:ghost', 'Show or hide the solid model under the layer preview.', ['Hide it to see only the printed lines.', 'Show it to compare with the original shape.']);
+  T('print:saveprof', 'Save every setting to a .json file.', ['Click it.', 'Keep the file, or share it.', 'Bring it back with Import settings.']);
+  T('print:loadprof', 'Load settings you saved earlier.', ['Click it and choose a settings .json file.', 'The printer, filament and every option are restored.']);
+  T('print:reset', 'Put every setting back to the standard values for this printer and filament.', ['Click it.', 'Placement and cost rates are kept.']);
+  T('print:layerdn', 'Show one layer fewer in the preview.', ['Click, or press ↓ (Shift+↓ jumps 10).', 'Or drag the slider.']);
+  T('print:layerup', 'Show one more layer in the preview.', ['Click, or press ↑ (Shift+↑ jumps 10).', 'Or drag the slider.']);
+  T('print:prof-draft', 'Thick layers: fastest, rougher surface.', ['Click it.', 'Layer height, speeds and top / bottom layers change together.', 'Then slice.']);
+  T('print:prof-standard', 'The everyday balance of speed and surface.', ['Click it.', 'Layer height, speeds and top / bottom layers change together.', 'Then slice.']);
+  T('print:prof-fine', 'Thin layers: smoother curves, a longer print.', ['Click it.', 'Layer height, speeds and top / bottom layers change together.', 'Then slice.']);
+  T('print:prof-ultra', 'The thinnest layers: the smoothest part, the longest print.', ['Click it.', 'Layer height, speeds and top / bottom layers change together.', 'Then slice.']);
+  T('print:printer', 'The machine you will print on. It sets the bed size, nozzle, speed limits and start and end G-code.', ['Pick your Creality printer.', 'Temperatures and speeds are set to its limits.']);
+  T('print:material', 'The filament. It sets temperatures, fan, retraction and the flow.', ['Pick the filament on your spool.', 'You can still change each value below.']);
+  T('print:search', 'Find a setting by name or by what it does.', ['Type a word such as "seam" or "fan".', 'Matches from every group appear, including advanced ones.']);
+  T('print:all', 'Show the advanced settings too.', ['Turn it on to see every option.', 'Turn it off for the short list.']);
+  T('place:scale', 'Make the part bigger or smaller before printing.', ['Type a percent: 100 is the original size.', 'The part size shows under the boxes.']);
+  for (const a of ['x', 'y', 'z']) T('place:r' + a, `Turn the part about the ${a.toUpperCase()} axis, in degrees.`, ['Type an angle, or press ↑ ↓ for 15° steps.', 'The part on the bed turns to match.']);
+  T('place:partX', 'Where the middle of the part sits on the bed, left to right (mm).', ['Type a value, or use Center.']);
+  T('place:partY', 'Where the middle of the part sits on the bed, front to back (mm).', ['Type a value, or use Center.']);
+  T('place:sizeZ', 'The height of the part after turning and scaling (mm). It cannot be edited.', ['Change it with Scale or by turning the part.']);
+  for (const [k, lab, , , tip] of COST_FIELDS) T('cost:' + k, tip || lab + '.', ['Type a value; the price updates as you type.']);
+  T('cost:filamentCost', 'The price of a kilogram of filament. It is also under Material.', ['Type a value; the cost updates as you type.']);
+
+  // every slicer option: what it does, its range, its standard value
+  for (const g of Slicer.SETTINGS) for (const s of g.items) {
+    Object.defineProperty(TIP_TXT, 'set:' + s.key, { enumerable: false, configurable: true, get() {
+      const def = Slicer.defaults(PR.cfg.printer, PR.cfg.material)[s.key], u = s.unit ? ' ' + s.unit : '';
+      const fmt = v => s.type === 'b' ? (v ? 'on' : 'off') : s.type === 's' ? ((s.options.find(o => o[0] === v) || [0, v])[1]) : v + u;
+      const st = s.type === 'b' ? ['Click to turn it on or off.'] : s.type === 's' ? ['Pick one: ' + s.options.map(o => o[1]).join(', ') + '.'] : s.type === 't' ? ['Type G-code, one command per line.'] : ['Type a value or press ↑ ↓.' + (s.min != null ? ` Allowed: ${s.min} to ${s.max}${u}.` : '')];
+      if (def != null && s.type !== 't') st.push('Standard for this printer and filament: ' + fmt(def) + '.');
+      st.push('Slice again after changing it.');
+      return [s.tip || s.label + '.', st];
+    } });
+  }
+})();
+// attach hover keys to controls that are built without one
+function tagTips(root) {
+  const set = (el, key, name, kbd) => { if (!el || el.dataset.tipkey) return; el.dataset.tipkey = key; if (name) el.dataset.tipname = name; if (kbd) el.dataset.tipkbd = kbd; };
+  root.querySelectorAll('[data-print]').forEach(b => { const a = b.dataset.print; set(b, 'print:' + a, '', a === 'slice' ? 'Ctrl+Enter' : ''); });
+  root.querySelectorAll('[data-l]').forEach(b => set(b, +b.dataset.l < 0 ? 'print:layerdn' : 'print:layerup', +b.dataset.l < 0 ? 'Layer down' : 'Layer up', +b.dataset.l < 0 ? '↓' : '↑'));
+}
 
 // the workspace button (index.html carries it; add it here for older pages)
 (function ensureButton() {
