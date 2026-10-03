@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Datum Modeler</title>
+<script>try { document.documentElement.setAttribute("data-theme", localStorage.getItem("datum.theme") === "dark" ? "dark" : "light"); } catch (e) { document.documentElement.setAttribute("data-theme", "light"); }   // light unless the user chose dark</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
@@ -4247,6 +4248,7 @@ table.meas tr.bad td { color: var(--danger); }
     <button class="tb" id="btnUndo" title="Undo (Ctrl+Z)"><svg viewBox="0 0 20 20"><path d="M7 5L3 9l4 4"/><path d="M3 9h9a5 5 0 010 10H9"/></svg><span>Undo</span></button>
     <button class="tb" id="btnRedo" title="Redo (Ctrl+Y)"><svg viewBox="0 0 20 20"><path d="M13 5l4 4-4 4"/><path d="M17 9H8a5 5 0 000 10h3"/></svg><span>Redo</span></button>
     <button class="tb" id="btnFile" title="File"><svg viewBox="0 0 20 20"><path d="M5 2h7l4 4v12H5z"/><path d="M12 2v4h4"/></svg><span>File</span></button>
+    <button class="tb" id="btnTheme" title="Light / dark theme"><svg viewBox="0 0 20 20"><path d="M16 12.5A7 7 0 017.5 4a7 7 0 108.5 8.5z"/></svg><span>Theme</span></button>
     <button class="tb" id="btnHelp" title="Shortcuts (?)"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.5"/><path d="M8 8a2 2 0 113 1.7c-.7.4-1 .8-1 1.6M10 14h0"/></svg><span>Keys</span></button>
   </div>
   </div>
@@ -12995,6 +12997,7 @@ const GEN = {
     // a spot belongs where a hole starts on the part's face: one starting on the floor
     // of a counterbore is centered by it already, and a wide spot there cuts its wall
     if (tool.type === 'spot') holes = holes.filter(h => !outerHole(h));
+    if (op.at && op.at.length) holes = holes.filter(h => op.at.some(a => Math.hypot(a[0] - h.x, a[1] - h.y) < 0.06));      // only the holes at these places (threads picked by place)
     if (!holes.length) { P.warn.push(want ? 'No holes of the chosen diameters.' : `No Ø${tool.d} holes — choose diameters below.`); return; }
     // nearest-neighbor order starting from the front-left
     const ordered = [];
@@ -13354,10 +13357,12 @@ function simProgram() {
     if (!P || P.pending) continue;
     for (let i = 1; i < P.m.length; i++) {
       const a = P.m[i - 1], b = P.m[i], L = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z), dt = L / (b.r ? RAPID : b.f) + (b.dw || 0) / 60;
-      out.push({ a, b, r: b.r, tool: b.tool || P.tool, t0: t, t1: t + dt, op: op.id, mi: i, fin: op.type === 'parallel', ax: opAxis(op) });
+      out.push({ a, b, r: b.r, tool: b.tool || P.tool, t0: t, t1: t + dt, op: op.id, mi: i, fin: op.type === 'parallel', ax: opAxis(op), slug: b.slug, stop: b.stop });
       t += dt;
     }
   }
+  // an optional stop before each tool change, when the post writes one
+  if (cam().post.optStop) for (let i = 1; i < out.length; i++) if (out[i].op !== out[i - 1].op && out[i].tool !== out[i - 1].tool && !out[i - 1].stop) out[i - 1].stop = { code: 'M01', why: 'optional stop before the tool change' };
   return { segs: out, total: t };
 }
 // Radius of the cut a tool makes at height h above its tip (0 = no cut).
@@ -13525,6 +13530,15 @@ class StockModel {
     this.low = null;
   }
   pendAbove(i) { for (let k = i + 1; k < this.n; k++) if (this.pend[k].size) return true; return false; }
+  // A piece comes free of the stock (a wire's slug, the scrap round a part): mode 'drop' takes the region out of every slab, 'keep' leaves only that region
+  removeRegion(sl) {
+    this.flush();
+    for (let i = 0; i < this.n; i++) {
+      if (!this.P[i].length) continue;
+      this.P[i] = cBool(sl.mode === 'keep' ? ClipperLib.ClipType.ctIntersection : ClipperLib.ClipType.ctDifference, this.P[i], sl.paths).filter(p => p.length >= 3);
+      this.dirty.add(i); this.ver[i]++;
+    }
+  }
   // Material left in slab i: what the cuts from above left, minus the cuts from the side.
   eff(i) {
     if (!this.S[i].length) return this.P[i];
@@ -13643,8 +13657,8 @@ const StockLook = (() => {
     if (mats && matKey === key) return mats;
     const env = ToolLook.env();
     mats = {
-      raw: new THREE.MeshStandardMaterial({ color: M.raw, map: saw(), roughness: 0.78, metalness: 0.35, envMap: env, envMapIntensity: 0.5, side: THREE.DoubleSide }),
-      cut: new THREE.MeshStandardMaterial({ color: M.cut, map: machined(), roughness: 0.28, metalness: 0.8, envMap: env, envMapIntensity: 1, side: THREE.DoubleSide }),
+      raw: new THREE.MeshStandardMaterial({ color: M.raw, roughness: 0.78, metalness: 0.35, envMap: env, envMapIntensity: 0.5, side: THREE.DoubleSide }),
+      cut: new THREE.MeshStandardMaterial({ color: M.cut, roughness: 0.28, metalness: 0.8, envMap: env, envMapIntensity: 1, side: THREE.DoubleSide }),
     };
     matKey = key;
     return mats;
@@ -13800,6 +13814,7 @@ function simApplyTo(t, noFlush) {
       break;
     }
     if (!sg.r) S.model.cut(sg.a, sg.b, sg.tool, sg.fin, sg.ax);
+    if (sg.slug) S.model.removeRegion(sg.slug);
   }
   S.applied = i;
   if (!noFlush) { S.model.flush(); S.view.update(); }
@@ -14154,7 +14169,7 @@ function postGcode() {
     L.push(`(${op.name} — ${toolName(t)})`);
     if (grbl && P.tap) L.push('(WARNING: GRBL has no synchronized tapping cycle - use a floating tap holder)');
     if (lastTool !== t.n) {
-      if (lastTool !== null) { if (pf.coolant) L.push('M9'); L.push('M5'); }
+      if (lastTool !== null) { if (pf.coolant) L.push('M9'); L.push('M5'); if (pf.optStop && !grbl) L.push('M1 (OPTIONAL STOP)'); }
       L.push(grbl ? `M0 (Change to ${toolName(t)})` : `T${t.n} M6`);
       L.push(op.kind === 'bsf' ? `S${Math.round(t.rpm)} (SPINDLE STAYS OFF UNTIL THE BLADE IS BELOW THE PART)` : `S${Math.round(t.rpm)} M3`);
       if (pf.coolant && op.kind !== 'bsf') L.push('M8');
@@ -14187,6 +14202,30 @@ function postGcode() {
       L.push('G80');
       const last = P.m[P.m.length - 1];
       L.push(`G0 Z${N(last.z - o[2])}`); st.g = 'G0'; st.z = N(last.z - o[2]);
+      continue;
+    }
+    // thread milling: helical interpolation, one half turn per arc (every control takes that), with a tangent arc in and out
+    if (op.type === 'thread' && P.thr && !grbl && !fr) {
+      const X = v => N(v - o[0]), Y = v => N(v - o[1]), Zc = v => N(v - o[2]), safeZ = camStock().z1 + C.safe;
+      for (const T of P.thr) {
+        const g = T.internal ? 'G3' : 'G2', up = T.zE > T.zS, half = (T.zE - T.zS) / (T.revs * 2), ax = T.internal ? T.cx : T.cx + T.rp + T.e, ay = T.internal ? T.cy : T.cy + T.e;
+        L.push(`(THREAD ${T.name} - ${T.internal ? 'INTERNAL' : 'EXTERNAL'} ${T.hand === 'L' ? 'LEFT' : 'RIGHT'} HAND, ${T.revs} TURN${T.revs > 1 ? 'S' : ''} ${up ? 'UP' : 'DOWN'}, PATH R${N(T.rp)})`);
+        SRC = { op: op.id, mi: T.mi.start };
+        L.push(`G0 X${X(ax)} Y${Y(ay)}`, `G0 Z${Zc(T.zS + 1)}`, `G1 Z${Zc(T.zS)} F${F(T.plunge)}`);
+        SRC = { op: op.id, mi: T.mi.entry };
+        L.push(T.internal ? `G3 X${X(T.cx + T.rp)} Y${Y(T.cy)} I${N(T.rp / 2)} J0. F${F(T.feed)}` : `G3 X${X(T.cx + T.rp)} Y${Y(T.cy)} I0. J${N(-T.e)} F${F(T.feed)}`);
+        let z = T.zS;
+        for (let k = 0; k < T.revs * 2; k++) {
+          const first = k % 2 === 0; z += half;
+          SRC = { op: op.id, mi: T.mi.helix0 + Math.round((k + 1) / (T.revs * 2) * (T.mi.helix1 - T.mi.helix0)) };
+          L.push(first ? `${g} X${X(T.cx - T.rp)} Y${Y(T.cy)} Z${Zc(z)} I${N(-T.rp)} J0.` : `${g} X${X(T.cx + T.rp)} Y${Y(T.cy)} Z${Zc(z)} I${N(T.rp)} J0.`);
+        }
+        SRC = { op: op.id, mi: T.mi.exit };
+        L.push(T.internal ? `G3 X${X(T.cx)} Y${Y(T.cy)} I${N(-T.rp / 2)} J0.` : `G2 X${X(ax)} Y${Y(ay)} I${N(T.e)} J0.`);
+        L.push(`G0 Z${Zc(safeZ)}`);
+      }
+      st.g = null; st.x = st.y = st.z = null; st.f = null;
+      endFrame();
       continue;
     }
     // group consecutive feed moves at constant Z for arc fitting
@@ -14523,7 +14562,8 @@ function camTree() {
   return `<div class="sec-title">Setup</div><ul class="tree">
       <li data-camview="setup" class="${CAMUI.view === 'setup' ? 'sel' : ''}">${svg('camsetup', 'ic')}<span class="nm">Stock &amp; origin</span><span class="sub">${st ? [st.x1 - st.x0, st.y1 - st.y0, st.z1 - st.z0].map(x => fmt(toU(x), isIn() ? 2 : 0)).join('×') : '—'}</span></li>
       <li data-camview="tools" class="${CAMUI.view === 'tools' ? 'sel' : ''}">${svg('camtools', 'ic')}<span class="nm">Tool library</span><span class="sub">${C.tools.length}</span></li>
-      <li data-camview="auto" class="${CAMUI.view === 'auto' ? 'sel' : ''}">${svg('auto', 'ic')}<span class="nm">Auto Detect</span><span class="sub">${AUTO.res && CAMUI.view === 'auto' ? AUTO.res.axes + '-axis' : ''}</span></li></ul>
+      <li data-camview="auto" class="${CAMUI.view === 'auto' ? 'sel' : ''}">${svg('auto', 'ic')}<span class="nm">Auto Detect</span><span class="sub">${AUTO.res && CAMUI.view === 'auto' ? AUTO.res.axes + '-axis' : ''}</span></li>
+      <li data-camview="threads" class="${CAMUI.view === 'threads' ? 'sel' : ''}">${svg('camthread', 'ic')}<span class="nm">Threads</span><span class="sub"></span></li></ul>
     <div class="sec-title">Operations <span>${C.ops.length || ''}</span></div>${ops || '<ul class="tree"><li class="empty">Run Auto Detect, or add Face, Contour, Pocket, Drill or 3D Parallel from the toolbar</li></ul>'}`;
 }
 function bindCamTree(el) {
@@ -14691,7 +14731,7 @@ function camPanel() {
     return `<div class="pn-head"><h2>G-code</h2><span class="tag">${g.lines} lines · ${fmtTime(g.min)}</span></div><div class="pn-body">
       <div class="field"><span>Controller</span><div class="pick"><span>Haas mill (NGC)</span></div></div>
       <div class="field"><span>Indexed ops</span><div class="seg"><button data-post="multi:setup" class="${pf.multi !== 'g682' ? 'on' : ''}">Rotary / trunnion (A, B, A+C)</button><button data-post="multi:g682" class="${pf.multi === 'g682' ? 'on' : ''}">Tilted plane G68.2</button></div></div>
-      <div class="row2">${num('postProg', pf.program, 'Program number', 1)}<div class="field"><span>Options</span><label class="chk"><input type="checkbox" id="postArcs" ${pf.arcs ? 'checked' : ''}> Arcs (G2/G3)</label><label class="chk"><input type="checkbox" id="postCool" ${pf.coolant ? 'checked' : ''}> Coolant</label></div></div>
+      <div class="row2">${num('postProg', pf.program, 'Program number', 1)}<div class="field"><span>Options</span><label class="chk"><input type="checkbox" id="postArcs" ${pf.arcs ? 'checked' : ''}> Arcs (G2/G3)</label><label class="chk"><input type="checkbox" id="postCool" ${pf.coolant ? 'checked' : ''}> Coolant</label><label class="chk"><input type="checkbox" id="postOpt" ${pf.optStop ? 'checked' : ''}> Optional stop (M01) before each tool change</label></div></div>
       <p class="note">The program is open in the G-code editor beside this panel: colored, with line numbers, and you can edit it before you save.</p>
       <div class="btns"><button class="btn" data-camdo="showed">Show editor</button><button class="btn" data-camdo="copyg">Copy</button><button class="btn primary" data-camdo="saveg">Save .nc</button></div>
       <p class="note">Check the program in your controller or a simulator before running it — feeds, speeds and work holding are yours to confirm.</p></div>`;
@@ -14752,6 +14792,7 @@ function bindCamPanel() {
   const ck = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('change', () => fn(el.checked)); };
   ck('postArcs', setup(v => { C.post.arcs = v; }, 'Post arcs'));
   ck('postCool', setup(v => { C.post.coolant = v; }, 'Post coolant'));
+  ck('postOpt', setup(v => { C.post.optStop = v; }, 'Post optional stop'));
   panel.querySelectorAll('[data-post]').forEach(b => b.addEventListener('click', () => { const [k, v] = b.dataset.post.split(':'); setup(() => { C.post[k] = v; }, 'Post ' + v)(); }));
   // tools
   panel.querySelectorAll('.tool-card').forEach(card => {
@@ -19419,6 +19460,7 @@ function simWorkerMain() {
         break;
       }
       if (!sg.r) S.model.cut(sg.a, sg.b, sg.tool, sg.fin, sg.ax);
+      if (sg.slug) S.model.removeRegion(sg.slug);
     }
     S.applied = i;
     S.model.flush();
@@ -19451,6 +19493,7 @@ function simWorkerMain() {
           prog[i] = { a: { x: D[d], y: D[d + 1], z: D[d + 2] }, b: { x: D[d + 3], y: D[d + 4], z: D[d + 5] }, t0: D[d + 6], t1: D[d + 7], tool: m.tools[I[i * 4]], r: fl & 1, fin: !!(fl & 2), op: I[i * 4 + 2], ax: I[i * 4 + 3] >= 0 ? m.axes[I[i * 4 + 3]] : null };
           if (i && prog[i - 1].b.x === prog[i].a.x && prog[i - 1].b.y === prog[i].a.y && prog[i - 1].b.z === prog[i].a.z) prog[i].a = prog[i - 1].b;
         }
+        for (const [i, k] of m.slugAt) prog[i].slug = m.slugs[k];
         S = { st: m.st, levels: m.levels, prog, ck: new Map() };
         reset(null);
         const t0 = performance.now(), g = meshes();
@@ -19485,19 +19528,20 @@ const SimWorker = {
   // Hand the program to the worker; returns false when there is no worker to use.
   start(st, segs, levels) {
     if (!this.init()) return false;
-    const tools = [], ti = new Map(), opIx = new Map(), axes = [], axIx = new Map(), D = new Float64Array(segs.length * 8), I = new Int32Array(segs.length * 4);
+    const slugs = [], slugIx = new Map(), tools = [], ti = new Map(), opIx = new Map(), axes = [], axIx = new Map(), D = new Float64Array(segs.length * 8), I = new Int32Array(segs.length * 4);
     segs.forEach((s, i) => {
       let k = ti.get(s.tool); if (k === undefined) { k = tools.length; tools.push({ d: s.tool.d, type: s.tool.type, r: s.tool.r, cone: s.tool.cone, up: s.tool.up }); ti.set(s.tool, k); }
       let o = opIx.get(s.op); if (o === undefined) { o = opIx.size; opIx.set(s.op, o); }
       D.set([s.a.x, s.a.y, s.a.z, s.b.x, s.b.y, s.b.z, s.t0, s.t1], i * 8);
       let x = -1;
       if (s.ax) { const key = s.ax.join(','); x = axIx.get(key); if (x === undefined) { x = axes.length; axes.push(s.ax); axIx.set(key, x); } }
-      I[i * 4] = k; I[i * 4 + 1] = (s.r ? 1 : 0) | (s.fin ? 2 : 0); I[i * 4 + 2] = o; I[i * 4 + 3] = x;
+      I[i * 4] = k; I[i * 4 + 1] = (s.r ? 1 : 0) | (s.fin ? 2 : 0) | (s.slug ? 4 : 0); I[i * 4 + 2] = o; I[i * 4 + 3] = x;
+      if (s.slug) { slugIx.set(i, slugs.length); slugs.push({ mode: s.slug.mode, paths: s.slug.paths }); }
     });
     if (this.view) this.view.dispose();
     this.view = new SimChunks();
     this.busy = true; this.sentT = 0; this.wantT = 0;
-    this.w.postMessage({ k: 'init', seq: ++this.seq, st, levels, tools, axes, D, I }, [D.buffer, I.buffer]);
+    this.w.postMessage({ k: 'init', seq: ++this.seq, st, levels, tools, axes, slugs, slugAt: [...slugIx], D, I }, [D.buffer, I.buffer]);
     return true;
   },
   // Ask for the stock at time t; requests made while one is running collapse into the newest.
@@ -22023,9 +22067,9 @@ function bpRequirements(bodies, bb) {
     const r = findFace(bodies, f.face), s = r && Surf.list[r.fid];
     if (!s || s.t !== 'C') continue;
     const d = 2 * s.r, internal = f.internal === 'auto' || f.internal === undefined ? s.sg < 0 : !!f.internal;
-    const nom = internal ? d + 1.0825 * isoPitch(d) : d, P = f.pitch > 0 ? f.pitch : isoPitch(nom), iso = ISO_PITCH.find(x => Math.abs(x[0] - nom) < 0.6);
+    const nom = internal ? d + 1.0825 * (f.pitch > 0 ? f.pitch : isoPitch(d)) : d, P = f.pitch > 0 ? f.pitch : isoPitch(nom), iso = ISO_PITCH.find(x => Math.abs(x[0] - nom) < 0.6);
     const mm = Math.abs(nom - Math.round(nom)) < 0.3 ? Math.round(nom) : +nom.toFixed(1);             // metric threads are named in mm
-    const text = `M${iso ? iso[0] : mm}×${+P.toFixed(2)}${f.len > 0 ? ' − ' + bpNum(f.len) + ' LG' : ''}${internal ? ' (internal)' : ''}`;
+    const text = f.desig ? `${f.desig}${f.len > 0 ? ' − ' + bpNum(f.len) + ' LG' : ''}${internal ? ' (internal)' : ''}` : `M${iso ? iso[0] : mm}×${+P.toFixed(2)}${f.len > 0 ? ' − ' + bpNum(f.len) + ' LG' : ''}${internal ? ' (internal)' : ''}`;
     add('TH' + f.id, { kind: 'thread', label: `Thread ${text}`, text, needs: [{ t: 'thread', text }], at: faceInfo(r.mesh, r.fid).on, ax: bpAxisOf(s.dir) });
   }
   // bolt circles: 3+ equal holes on one axis, equally spaced round a center
@@ -23744,7 +23788,8 @@ bpSVG = function (d) {
   svg += `<rect x="${M}" y="${M}" width="${SW - 2 * M}" height="${SH - 2 * M}" fill="none" stroke="${INK}" stroke-width="0.7"/>`;
   svg += `<rect x="${M + 3}" y="${M + 3}" width="${SW - 2 * M - 6}" height="${SH - 2 * M - 6}" fill="none" stroke="${INK}" stroke-width="0.25"/>`;
   const boxes = [], TBX = { x0: SW - M - 3 - TB.w, y0: SH - M - 3 - TB.h, x1: SW - M, y1: SH - M };
-  const hit = b => boxes.some(o => b.x0 < o.x1 && b.x1 > o.x0 && b.y0 < o.y1 && b.y1 > o.y0) || (b.x0 < TBX.x1 && b.x1 > TBX.x0 && b.y0 < TBX.y1 && b.y1 > TBX.y0) || b.x0 < M + 4 || b.y0 < M + 4 || b.x1 > SW - M - 4 || b.y1 > SH - M - 4;
+  const extBoxes = [];                                                   // ordinate extension lines inside a view: no label may sit on them
+  const hit = b => boxes.some(o => b.x0 < o.x1 && b.x1 > o.x0 && b.y0 < o.y1 && b.y1 > o.y0) || extBoxes.some(o => b.x0 < o.x1 && b.x1 > o.x0 && b.y0 < o.y1 && b.y1 > o.y0) || (b.x0 < TBX.x1 && b.x1 > TBX.x0 && b.y0 < TBX.y1 && b.y1 > TBX.y0) || b.x0 < M + 4 || b.y0 < M + 4 || b.x1 > SW - M - 4 || b.y1 > SH - M - 4;
   const tw = (t, size) => String(t).length * size * 0.58;
   // places: third-angle, top over front, right beside front; each moved by the user's drag; each at its own scale if set
   const cw1 = W * s, rh1 = Dp * s, ox = area.x + mLeft, oy = area.y + mTop;
@@ -23800,25 +23845,53 @@ bpSVG = function (d) {
       const out = new Array(ps.length); o.forEach((x, i) => { out[x.i] = q[i]; }); return out;
     };
     const SZ = 2.5, G = 3.4, datum = d.feat.datum;
-    // ordinates run along a view's edge: X above the top view, Y (depth) above the right view, Z left of the front view
+    // what stands at an ordinate's coordinate: the extent of the part's lines, hidden lines, center marks and circles there,
+    // along the ordinate's own direction, so the extension line can start on the feature itself
+    const ordFeat = (k, horiz, pos) => {
+      const q = views[k], tol = 0.09; let lo = Infinity, hi = -Infinity;
+      const take = (...v) => { for (const x of v) { lo = Math.min(lo, x); hi = Math.max(hi, x); } };
+      const seg = g => {
+        const [x0, y0, x1, y1] = g, a = horiz ? x0 : y0, b = horiz ? x1 : y1, pa = horiz ? y0 : x0, pb = horiz ? y1 : x1;
+        if (Math.abs(a - pos) < tol) take(pa); if (Math.abs(b - pos) < tol) take(pb);
+      };
+      for (const g of q.v.vis) seg([q.X(g[0]), q.Y(g[1]), q.X(g[2]), q.Y(g[3])]);
+      if (BP.hidden) for (const g of (q.v.hid || [])) seg([q.X(g[0]), q.Y(g[1]), q.X(g[2]), q.Y(g[3])]);
+      for (const g of (marksOf[k] || [])) seg(g);
+      for (const c of q.v.circles) {
+        const cx = q.X(c.c[0]), cy = q.Y(c.c[1]), rr = c.r * q.s, a = horiz ? cx : cy, pa = horiz ? cy : cx;
+        if (Math.abs(a - pos) < tol) take(pa - rr, pa + rr); else if (Math.abs(a - rr - pos) < tol || Math.abs(a + rr - pos) < tol) take(pa);
+      }
+      return isFinite(lo) ? { lo, hi } : null;
+    };
+    // ordinates run along a view's edge: X above the top view, Y (depth) above the right view, Z left of the front view.
+    // Each is an extension line from the feature it measures, out past the view to its number; dragged to the far
+    // side of the view, it starts from the feature's other end and runs all the way over
     const ordRow = (k, a, vals, horiz) => {
-      const q = views[k], proj = v => (horiz ? q.X : q.Y)(datum[a] + v);
+      const q = views[k], proj = v => (horiz ? q.X : q.Y)(datum[a] + v), bx = q.box;
       const at = vals.map(proj);
       if (horiz) {
-        const yB = q.box.y0 - 1.5, tx = spread(at, G);
+        const yB = bx.y0 - 1.5, tx = spread(at, G), cy = (bx.y0 + bx.y1) / 2;
         vals.forEach((v, i) => {
-          const id = `o${a}:${bpNum(v)}`, [dx, dy] = off(id), t = v === 0 ? { X: 'X0', D: 'Y0', Z: 'Z0' }[a] : bpNum(v), L = tw(t, SZ), X = tx[i] + dx, Y = yB + dy;
-          const draw = (ox, oy) => { const X2 = X + ox, Y2 = Y + oy; return `<path d="M${f2(at[i])} ${f2(yB)}V${f2(yB - 3.5)}L${f2(X2)} ${f2(Y2 - 7)}V${f2(Y2 - 8.5)}" fill="none" stroke="${INK}" stroke-width="0.15"/>` + txt(X2 + 0.9, Y2 - 9.5, t, SZ, 'start', `transform="rotate(-90 ${f2(X2 + 0.9)} ${f2(Y2 - 9.5)})"`); };
+          const id = `o${a}:${bpNum(v)}`, [dx, dy] = off(id), t = v === 0 ? { X: 'X0', D: 'Y0', Z: 'Z0' }[a] : bpNum(v), L = tw(t, SZ), X = tx[i] + dx, Y = yB + dy, ft = ordFeat(k, true, at[i]);
+          const draw = (ox, oy) => {
+            const X2 = X + ox, Y2 = Y + oy, up = Y2 - 9 < cy, d = up ? -1 : 1, yE = up ? bx.y0 - 1.5 : bx.y1 + 1.5, yS = ft ? (up ? Math.min(ft.lo, bx.y1) : Math.max(ft.hi, bx.y0)) : yE;
+            return `<path d="M${f2(at[i])} ${f2(yS)}V${f2(yE + d * 3.5)}L${f2(X2)} ${f2(Y2 + d * 7)}V${f2(Y2 + d * 8.5)}" fill="none" stroke="${INK}" stroke-width="0.15"/>` + txt(X2 + 0.9, Y2 + d * 9.5, t, SZ, up ? 'start' : 'end', `transform="rotate(-90 ${f2(X2 + 0.9)} ${f2(Y2 + d * 9.5)})"`);
+          };
           const body = draw(0, 0);
-          parts[k] += lbl(id, k, body, draw, ` data-bpa="${f2(at[i])},${f2(yB)}"`); boxes.push({ x0: X - 1.1, y0: Y - 9.8 - L, x1: X + 1.4, y1: Y - 8.5 }, { x0: Math.min(at[i], X) - 0.5, y0: Y - 8.5, x1: Math.max(at[i], X) + 0.5, y1: yB }); placed.ords[a].add(v);
+          if (ft && ft.lo > bx.y0) extBoxes.push({ x0: at[i] - 0.5, y0: bx.y0, x1: at[i] + 0.5, y1: ft.lo });
+          parts[k] += lbl(id, k, body, draw, ` data-bpa="${f2(at[i])},${f2(ft ? ft.lo : yB)}"`); boxes.push({ x0: X - 1.1, y0: Y - 9.8 - L, x1: X + 1.4, y1: Y - 8.5 }, { x0: Math.min(at[i], X) - 0.5, y0: Y - 8.5, x1: Math.max(at[i], X) + 0.5, y1: yB }); placed.ords[a].add(v);
         });
       } else {
-        const xB = q.box.x0 - 1.5, ty = spread(at.map(y => -y), G).map(y => -y);
+        const xB = bx.x0 - 1.5, ty = spread(at.map(y => -y), G).map(y => -y), cx = (bx.x0 + bx.x1) / 2;
         vals.forEach((v, i) => {
-          const id = `o${a}:${bpNum(v)}`, [dx, dy] = off(id), t = v === 0 ? { X: 'X0', D: 'Y0', Z: 'Z0' }[a] : bpNum(v), L = tw(t, SZ), X = xB + dx, Y = ty[i] + dy;
-          const draw = (ox, oy) => { const X2 = X + ox, Y2 = Y + oy; return `<path d="M${f2(xB)} ${f2(at[i])}H${f2(xB - 3.5)}L${f2(X2 - 7)} ${f2(Y2)}H${f2(X2 - 8.5)}" fill="none" stroke="${INK}" stroke-width="0.15"/>` + txt(X2 - 9.3, Y2 + 0.9, t, SZ, 'end'); };
+          const id = `o${a}:${bpNum(v)}`, [dx, dy] = off(id), t = v === 0 ? { X: 'X0', D: 'Y0', Z: 'Z0' }[a] : bpNum(v), L = tw(t, SZ), X = xB + dx, Y = ty[i] + dy, ft = ordFeat(k, false, at[i]);
+          const draw = (ox, oy) => {
+            const X2 = X + ox, Y2 = Y + oy, left = X2 - 9 < cx, d = left ? -1 : 1, xE = left ? bx.x0 - 1.5 : bx.x1 + 1.5, xS = ft ? (left ? Math.min(ft.lo, bx.x1) : Math.max(ft.hi, bx.x0)) : xE;
+            return `<path d="M${f2(xS)} ${f2(at[i])}H${f2(xE + d * 3.5)}L${f2(X2 + d * 7)} ${f2(Y2)}H${f2(X2 + d * 8.5)}" fill="none" stroke="${INK}" stroke-width="0.15"/>` + txt(X2 + d * 9.3, Y2 + 0.9, t, SZ, left ? 'end' : 'start');
+          };
           const body = draw(0, 0);
-          parts[k] += lbl(id, k, body, draw, ` data-bpa="${f2(xB)},${f2(at[i])}"`); boxes.push({ x0: X - 9.6 - L, y0: Y - 1.4, x1: X - 8.5, y1: Y + 1.4 }, { x0: X - 8.5, y0: Math.min(at[i], Y) - 0.5, x1: xB, y1: Math.max(at[i], Y) + 0.5 }); placed.ords[a].add(v);
+          if (ft && ft.lo > bx.x0) extBoxes.push({ x0: bx.x0, y0: at[i] - 0.5, x1: ft.lo, y1: at[i] + 0.5 });
+          parts[k] += lbl(id, k, body, draw, ` data-bpa="${f2(ft ? ft.lo : xB)},${f2(at[i])}"`); boxes.push({ x0: X - 9.6 - L, y0: Y - 1.4, x1: X - 8.5, y1: Y + 1.4 }, { x0: X - 8.5, y0: Math.min(at[i], Y) - 0.5, x1: xB, y1: Math.max(at[i], Y) + 0.5 }); placed.ords[a].add(v);
         });
       }
     };
@@ -24677,15 +24750,31 @@ GEN.wire = (op, tool, st, part, P) => {
       pts = [...pts.slice(k), ...pts.slice(0, k)];
       passes.push({ off, dir: i % 2 ? -1 : 1, pts, cond: w.cond[i] || i + 1, D: i + 1 });
     });
+    const mi0 = P.m.length;
     P.rapid(S.x, S.y, zu); P.rapid(S.x, S.y, zc);                     // thread the wire at the start point
     for (const p of passes) {
+      p.mi0 = P.m.length;
       const fz = p.D === 1 ? tool.feed : tool.feed * (2 + p.D);         // skims take little and go faster
-      for (const q of p.pts) P.feed(q.x, q.y, zc, fz);
-      P.feed(p.pts[0].x, p.pts[0].y, zc, fz);
+      // the cut that frees a slug or the part stops (M00) w.hold short of closing, for the operator to secure it
+      const hold = p.D === 1 ? Math.max(0, w.hold == null ? 2.54 : w.hold) : 0, run = [...p.pts, p.pts[0]];
+      let stopAt = -1, stopPt = null;
+      if (hold > 0) {
+        let len = 0; const cum = [0]; for (let j = 1; j < run.length; j++) { len += Math.hypot(run[j].x - run[j - 1].x, run[j].y - run[j - 1].y); cum.push(len); }
+        if (len > hold * 2) { const at = len - hold; stopAt = cum.findIndex(c => c >= at); if (stopAt > 0) { const seg = cum[stopAt] - cum[stopAt - 1] || 1, t = (at - cum[stopAt - 1]) / seg; stopPt = P2(run[stopAt - 1].x + (run[stopAt].x - run[stopAt - 1].x) * t, run[stopAt - 1].y + (run[stopAt].y - run[stopAt - 1].y) * t); } }
+      }
+      if (stopPt) {
+        for (let j = 1; j < stopAt; j++) P.feed(run[j].x, run[j].y, zc, fz);
+        P.feed(stopPt.x, stopPt.y, zc, fz); P.m[P.m.length - 1].stop = { code: 'M00', why: `0.100" before the ${l.outer ? 'part' : 'slug'} is free: secure it` }; p.stopMi = P.m.length - 1;
+        for (let j = stopAt; j < run.length; j++) P.feed(run[j].x, run[j].y, zc, fz);
+      } else { for (const q of p.pts) P.feed(q.x, q.y, zc, fz); P.feed(p.pts[0].x, p.pts[0].y, zc, fz); }
+      // the rough cut has closed the loop: an opening's slug drops out, the scrap round the part is freed (the simulation takes it off the stock)
+      if (p.D === 1) P.m[P.m.length - 1].slug = { mode: l.outer ? 'keep' : 'drop', paths: cOffset([orient(cP(p.pts), true)], -w.d / 2) };
+      if (p.D === 1 && !l.outer && passes.length > 1) P.m[P.m.length - 1].stop = { code: 'M00', why: 'remove the slug, then the skims' };
       P.feed(S.x, S.y, zc, fz);
+      p.mi1 = P.m.length - 1;
     }
     P.rapid(S.x, S.y, zu);                                               // cut the wire, off to the next start
-    P.wire.push({ outer: l.outer, S, nom, passes });
+    P.wire.push({ outer: l.outer, S, nom, passes, mi0 });
   }
   P.info = `${ordered.filter(l => !l.outer).length} opening${ordered.filter(l => !l.outer).length === 1 ? '' : 's'}${ordered.some(l => l.outer) ? ' + outside' : ''} · ${n ? n + ' skim' + (n > 1 ? 's' : '') : 'rough only'} · wire Ø${fmtLs(w.d)}, gap ${fmtLs(w.gap)}`;
 };
@@ -24702,10 +24791,12 @@ function cum0(pts, cut, hold) {
 function postRobocut() {
   const C = cam(), w = wireOf(), o = camOrigin(), inch = isIn(), k = inch ? 1 / 25.4 : 1, dp = inch ? 4 : 3;
   const N = v => { v *= k; const s = (Math.abs(v) < 0.5 * Math.pow(10, -dp) ? 0 : v).toFixed(dp).replace(/0+$/, '').replace(/\.$/, '.'); return s === '-0.' ? '0.' : s; };
-  const ops = C.ops.filter(op => op.type === 'wire' && !op.sup), L = [];
+  const ops = C.ops.filter(op => op.type === 'wire' && !op.sup), L = [], MAP = [];
+  let SRC = null;
+  L.push = (...xs) => { for (const x of xs) { Array.prototype.push.call(L, x); MAP.push(SRC); } return L.length; };
   const title = (BP.title || (doc.features.find(f => f.type === 'import') || {}).file || 'PART').toUpperCase().replace(/[()]/g, '');
   L.push('%', `O${String(C.post.program || 1001).padStart(4, '0')} (DATUM - FANUC ROBOCUT WIRE EDM)`, `(${title})`, `(WIRE ${inch ? 'D' + (w.d / 25.4).toFixed(4) + ' IN' : 'D' + w.d + ' MM'} ${w.mat.toUpperCase()}, SPARK GAP ${N(w.gap)})`);
-  if (!ops.length) { L.push('(NO WIRE OPERATIONS)', 'M30', '%'); return L.join('\n'); }
+  if (!ops.length) { L.push('(NO WIRE OPERATIONS)', 'M30', '%'); return { text: L.join('\n'), map: MAP }; }
   // offset registers: every pass's D value, listed so the operator can set them
   const regs = new Map();
   const loops = [];
@@ -24718,6 +24809,7 @@ function postRobocut() {
   let cur = s0.slice();
   const arcs = C.post.arcs !== false;
   loops.forEach(({ op, lp }, li) => {
+    SRC = { op: op.id, mi: lp.mi0 };
     const s = rel(lp.S);
     if (li > 0) { L.push('M45 (CUT WIRE)'); L.push(`G00 X${N(s[0])} Y${N(s[1])} (${lp.outer ? 'OUTSIDE START' : 'START HOLE ' + (li + 1)})`); }
     L.push(`M60 (THREAD WIRE)`);
@@ -24727,6 +24819,8 @@ function postRobocut() {
       let kk = 0, best = Infinity; nom.forEach((q, j) => { const d = dst2(q, p.pts[0]); if (d < best) { best = d; kk = j; } });
       nom = [...nom.slice(kk), ...nom.slice(0, kk), nom[kk]];
       const G = p.dir > 0 ? 'G42' : 'G41';                                 // wire on the right going round the part (outer CCW / openings CW), then back
+      const at0 = L.length;
+      SRC = { op: op.id, mi: p.mi0 };
       L.push(`(${lp.outer ? 'OUTSIDE' : 'OPENING'} - ${pi === 0 ? 'ROUGH' : 'SKIM ' + pi})`, `S${p.cond} D${p.D}`);
       const e = rel(nom[0]);
       L.push(`${G} G01 X${N(e[0])} Y${N(e[1])}`);
@@ -24750,21 +24844,25 @@ function postRobocut() {
         emit([q, ...pts.slice(cut)].filter((u, j, A) => !j || dd(u, A[j - 1])));
       } else emit(pts);
       L.push(`G40 G01 X${N(s[0])} Y${N(s[1])}`);
+      // the pass's lines follow its moves in proportion; the M00 lines sit on the moves that stop the simulation
+      const n1 = L.length - at0;
+      for (let q = 0; q < n1; q++) { const f = (q + 1) / n1; MAP[at0 + q] = { op: op.id, mi: Math.min(p.mi1, p.mi0 + Math.round(f * (p.mi1 - p.mi0))) }; if (/^M00 \(STOP/.test(L[at0 + q]) && p.stopMi != null) MAP[at0 + q] = { op: op.id, mi: p.stopMi }; }
+      SRC = { op: op.id, mi: p.mi1 };
       if (pi === 0 && !lp.outer && lp.passes.length > 1) L.push('M00 (REMOVE SLUG, THEN CYCLE START FOR THE SKIMS)');
     });
     cur = s;
   });
-  L.push(`G00 X${N(s0[0])} Y${N(s0[1])} (RETURN TO START POINT)`, 'M45 (CUT WIRE)', 'M50', 'M30', '%');
+  L.push(`G00 X${N(s0[0])} Y${N(s0[1])} (RETURN TO START POINT)`, 'M45 (CUT WIRE)', 'M50 (DRAIN TANK)', 'M30', '%');
   void cur;
-  return L.join('\n');
+  return { text: L.join('\n'), map: MAP };
 }
 const postGcodeW = postGcode;
 postGcode = function (...a) {
   if (!isWire()) return postGcodeW(...a);
   // the same shape as the mill post: the program, its length, and the time — the wire's travel plus a minute to thread each start
-  const text = postRobocut(); let min = 0, threads = 0;
+  const pr = postRobocut(), text = pr.text; let min = 0, threads = 0;
   for (const op of cam().ops) if (op.type === 'wire' && !op.sup) { const P = toolpath(op); if (P && !P.pending) { min += pathStats(P).min || 0; threads += (P.wire || []).length; } }
-  return { text, lines: text.split('\n').length, min: min + threads, part: camPart() };
+  return { text, lines: text.split('\n').length, min: min + threads, part: camPart(), map: pr.map };
 };
 // mills post mill operations only
 const simProgramW = simProgram;
@@ -25550,13 +25648,14 @@ camToolbar = function () {
   const op = k => OP_INFO[k] ? ['add:' + k, OP_INFO[k].name, '', OP_INFO[k].icon] : null;
   const D2 = ['face', 'contour', 'pocket', 'chamfer'], D3 = ['parallel'], known = new Set([...D2, ...D3, 'drill', 'wire']);
   const drilling = Object.entries(DRILL_KINDS).map(([k, d]) => ['add:drill:' + k, d.name.replace(' Drill', ''), '', DRILL_ICON[k]]);
+  drilling.splice(4, 0, ['threads', 'Threads', '', 'camthread', v === 'threads']);
   const other = Object.keys(OP_INFO).filter(k => !known.has(k));
   const P = (title, items, big) => rbPanel(title, items, big, 'data-cam');
   const umc = typeof isUMC === 'function' && isUMC(), mach = [['mach:mill', 'Mill', '', 'cammill', !wire && !umc], ['mach:umc400', 'UMC-400', '', 'camumc', umc], ['mach:wire', 'Wire EDM', '', 'camwire', wire]];
   return P('Setup', [['setup', 'Setup', '', 'camsetup', v === 'setup'], ['tools', 'Tool Library', '', 'camtools', v === 'tools']], 1)
     + P('Machine', mach, 2)
     + (wire ? '' : P('Automate', [['autoprog', 'Auto Program', '', 'autoprog', v === 'report'], ['auto', 'Auto Detect', '', 'auto', v === 'auto'], ['verify', 'Verify', '', 'verify']], 1))
-    + (wire ? P('Wire EDM', [op('wire')], 1) : P('2D', D2.map(op), 2) + P('Drilling', drilling, 4) + P('3D', D3.map(op), 1) + P('Other', other.map(op), 1))
+    + (wire ? P('Wire EDM', [op('wire')], 1) : P('2D', D2.map(op), 2) + P('Drilling', drilling, 5) + P('3D', D3.map(op), 1) + P('Other', other.map(op), 1))
     + P('Actions', [['sim', 'Simulate', '', 'camsim', v === 'sim'], ['post', 'Post G-code', '', 'campost', v === 'post'], ['ws:sheet', 'Setup Sheet', '', 'blueprint']], 1)
     + P('Inspect', [['measure', 'Measure', 'M', 'measure', CMD && CMD.type === 'measure']], 1);
 };
@@ -25643,7 +25742,7 @@ SAMPLES.unshift({ axes: 'model', name: 'Sharp 1640L lathe', make: sSharp1640L, d
 //  highlighted and kept in view. Click a line to put the tool there, or
 //  step through it a line at a time (↑ ↓ with the code open).
 // ═══════════════════════════════════════════════════════════════════
-const SCODE = { open: false, want: false, follow: true, lines: [], map: [], byOp: new Map(), cur: -1, key: '', rowH: 19, drawn: '' };
+const SCODE = { open: false, want: true, follow: true, lines: [], map: [], byOp: new Map(), cur: -1, key: '', rowH: 19, drawn: '' };
 function simCodeBuild() {
   const g = postGcode();
   SCODE.lines = g.text.split('\n'); SCODE.map = g.map || [];
@@ -28333,7 +28432,9 @@ function chipFX(parent, o = {}) {
     out.copy(b.col); if (b.T > 420) out.lerp(tmpC.set(0xff6a2b), Math.min(1, (b.T - 420) / 300)); return out;
   };
   fx.update = dt => {
-    dt = Math.min(dt, 0.05); const n = 2, h = dt / n, damp = Math.exp(-fx.drag * h);
+    dt = Math.min(dt, 0.05);
+    let vmax = 0; for (const b of fx.bodies) if (!b.rest) vmax = Math.max(vmax, Math.abs(b.v.x) + Math.abs(b.v.y) + Math.abs(b.v.z));
+    const n = Math.max(2, Math.min(24, Math.ceil(vmax * dt / 4))), h = dt / n, damp = Math.exp(-fx.drag * h);   // a step moves a chip 4 mm at most: none passes through the work
     for (let s = 0; s < n; s++) for (const b of fx.bodies) {
       b.age += h;
       if (b.rest) continue;
@@ -30107,12 +30208,12 @@ function camchipCollide(b) {
     _cn.applyQuaternion(CAMCHIP.q).normalize();
     b.p.addScaledVector(_cn, Math.max(0, h + b.r - mz) * 0.9);
     const vn = b.v.dot(_cn);
-    if (vn < 0) { b.v.addScaledVector(_cn, -(1 + 0.22) * vn); const vt = b.v.clone().addScaledVector(_cn, -b.v.dot(_cn)); b.v.addScaledVector(vt, -0.35); }
+    if (vn < 0) { b.v.addScaledVector(_cn, -(1 + 0.4) * vn); const vt = b.v.clone().addScaledVector(_cn, -b.v.dot(_cn)); b.v.addScaledVector(vt, -0.12); }
     hit = true;
   }
   // the chip pan under the table and the enclosure walls
   if (b.p.y - b.r < CAMCHIP.panY) { b.p.y = CAMCHIP.panY + b.r; if (b.v.y < 0) b.v.y *= -0.15; b.v.x *= 0.55; b.v.z *= 0.55; hit = true; }
-  const lim = 520 + 0; if (Math.abs(b.p.x - g.cx) > lim) { b.p.x = g.cx + Math.sign(b.p.x - g.cx) * lim; b.v.x *= -0.3; } if (Math.abs(b.p.z + g.cy) > 420) { b.p.z = -g.cy + Math.sign(b.p.z + g.cy) * 420; b.v.z *= -0.3; }
+  const lim = 520 + 0; if (Math.abs(b.p.x - g.cx) > lim) { b.p.x = g.cx + Math.sign(b.p.x - g.cx) * lim; b.v.x *= -0.45; } if (Math.abs(b.p.z + g.cy) > 420) { b.p.z = -g.cy + Math.sign(b.p.z + g.cy) * 420; b.v.z *= -0.45; }
   return hit;
 }
 // spawn the chips for what the cutter removed this frame
@@ -30132,10 +30233,10 @@ function camchipEmit(rem, seg, tip, axis, feedW, op) {
     if (drillish) { const a = Math.random() * TAU; radial.set(Math.cos(a), 0, Math.sin(a)); radial.sub(tmp.copy(axis).multiplyScalar(radial.dot(axis))); if (radial.lengthSq() < 1e-6) radial.set(1, 0, 0).sub(tmp.copy(axis).multiplyScalar(axis.x)); radial.normalize(); }
     else { radial.copy(feedW).addScaledVector(axis, -feedW.dot(axis)); if (radial.lengthSq() < 1e-8) radial.set(1, 0, 0).sub(tmp.copy(axis).multiplyScalar(axis.x)); radial.normalize(); radial.applyAxisAngle(axis, (Math.random() - 0.5) * 2.2); }
     tang.copy(radial).cross(axis).normalize();                           // the way the cutting edge is moving (clockwise seen from above)
-    const sp = clamp(0.1 * vt, 70, 800) * (wet ? 0.45 : 1) * (0.5 + Math.random());
+    const sp = clamp(0.2 * vt, 900, 2600) * (wet ? 0.5 : 1) * (0.55 + Math.random() * 0.9);          // thrown off the cutting edge: meters per second, not millimeters
     pos.copy(tip).addScaledVector(radial, R * (0.55 + 0.45 * Math.random())).addScaledVector(axis, Math.min(ap, 4) * Math.random() + 0.3);
-    vel.copy(tang).multiplyScalar(drillish ? sp * 0.35 : sp).addScaledVector(radial, (drillish ? 120 : 0.25 * sp) * Math.random()).addScaledVector(axis, (drillish ? 260 : 70) * Math.random() + 20).addScaledVector(feedW, -(f / 60) * 0.35);
-    vel.x += (Math.random() - 0.5) * 60; vel.y += (Math.random() - 0.5) * 40; vel.z += (Math.random() - 0.5) * 60;
+    vel.copy(tang).multiplyScalar(drillish ? sp * 0.45 : sp).addScaledVector(radial, (drillish ? 320 : 0.45 * sp) * Math.random()).addScaledVector(axis, (drillish ? 700 : 150 + 0.25 * sp) * Math.random() + 60).addScaledVector(feedW, -(f / 60) * 0.5);
+    vel.x += (Math.random() - 0.5) * 240; vel.y += (Math.random() - 0.5) * 160; vel.z += (Math.random() - 0.5) * 240;
     const L = Lc * mult * big * 0.95, W = Wc * big * 0.7;
     if (kind === 'spiral') sz.set(Math.max(0.7, L / (5 * TAU)), W / 0.18, Math.max(0.7, L / (5 * TAU)));
     else if (kind === 'curl') sz.set(Math.max(0.6, L / (1.7 * TAU)), W / 0.18, Math.max(0.6, L / (1.7 * TAU)));
@@ -30186,7 +30287,7 @@ simTick = function (now) {
     } else CAMCHIP.last = null;
     camchipCoolant(dt, seg);
   }
-  if (SIM.playing || fx.count()) { if (SIM.playing) fx.update(Math.max(dt, 0.008)); }
+  if (SIM.playing || fx.count()) { if (SIM.playing) fx.update(Math.max(dt, 0.008) * Math.min(Math.max(1, SIM.speed), 12)); }   // the tool runs at SIM.speed, so the chips do too
   if (dt > 0 || SIM.playing) requestDraw();
 };
 // flood coolant: two nozzles squirting at the cutter
@@ -30867,7 +30968,7 @@ function bpAudit() {
       for (let j = 0; j < items.length; j++) {
         if (j === i) continue; const o = items[j];
         for (const tx of o.texts) if (segHitsBox(s, grow(tx, 0.1))) { bad('leader-label', a.id + ' / ' + o.id, `${kind} leader runs through another label`, [s[0], s[1]]); break; }
-        if (j > i) for (const s2 of o.segs) if (crossS(s, s2)) { bad('leader-cross', a.id + ' / ' + o.id, 'two leaders cross', [s[0], s[1]]); break; }
+        if (j > i && !(a.kind === 'o' || o.kind === 'o')) /* an ordinate's extension line may cross a callout's leader */ for (const s2 of o.segs) if (crossS(s, s2)) { bad('leader-cross', a.id + ' / ' + o.id, 'two leaders cross', [s[0], s[1]]); break; }
       }
       for (const fx of fixed) if (segHitsBox(s, grow(fx, 0.1))) { bad('leader-label', a.id, `${kind} leader runs through a view name or note`, [s[0], s[1]]); break; }
       for (const [vk, q] of Object.entries(r.views)) if (vk !== a.view && segHitsBox(s, grow(q.box, -0.5))) { bad('leader-view', a.id, `${kind} leader crosses the ${vk} view`, [s[0], s[1]]); break; }
@@ -31024,79 +31125,79 @@ const GS = { open: false, step: 1, machined: false };
 .gs-btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .gs-btn:hover, .gs-btn.on { background: var(--accent); color: #fff; }
 @media (max-width: 900px) { .gs-btn span { display: none; } .gs-btn { padding: 5px 8px; margin-left: 6px; } }
-#gsCard { position: fixed; left: 14px; z-index: 45; width: min(380px, calc(100vw - 28px)); background: var(--panel); border: 1px solid var(--rule); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; font-size: 13px; color: var(--ink); }
-#gsCard[hidden] { display: none; }
-.gs-top { display: flex; align-items: center; gap: 8px; padding: 10px 12px 6px; }
-.gs-top b { font-size: 14px; flex: 1; }
-.gs-x { border: 0; background: transparent; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; padding: 2px 6px; border-radius: 6px; }
-.gs-x:hover { color: var(--ink); background: var(--panel-2); }
-.gs-steps { display: flex; gap: 6px; padding: 2px 12px 10px; }
-.gs-st { flex: 1; display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 9px; border: 1px solid var(--rule); background: transparent; color: var(--muted); font: 600 11.5px var(--font); cursor: pointer; text-align: left; }
+.gs-steps { display: flex; gap: 6px; margin-bottom: 4px; }
+.gs-st { flex: 1; min-width: 0; display: flex; align-items: center; gap: 5px; padding: 7px 6px; overflow: hidden; border-radius: 9px; border: 1px solid var(--rule); background: transparent; color: var(--muted); font: 600 11.5px var(--font); cursor: pointer; text-align: left; }
 .gs-st i { flex: none; width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font: 700 10.5px var(--font); font-style: normal; background: var(--panel-2); color: var(--muted); }
 .gs-st.on { color: var(--ink); border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .gs-st.on i { background: var(--accent); color: #fff; }
 .gs-st.done i { background: var(--ok); color: #fff; }
-.gs-body { padding: 4px 14px 12px; display: flex; flex-direction: column; gap: 10px; }
-.gs-body h3 { margin: 0; font-size: 15px; }
-.gs-body p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.gs-h3 { margin: 6px 0 0; font-size: 16px; }
+.gs-lead { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
 .gs-row { display: flex; gap: 8px; flex-wrap: wrap; }
-.gs-row .btn { flex: 1; min-width: 100px; }
-.gs-opt { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 9px 11px; border-radius: 10px; border: 1px solid var(--rule); background: transparent; color: var(--ink); cursor: pointer; font: inherit; width: 100%; }
+.gs-row .btn { flex: 1; min-width: 96px; }
+.gs-opt { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--rule); background: transparent; color: var(--ink); cursor: pointer; font: inherit; width: 100%; }
 .gs-opt b { font-size: 13px; } .gs-opt span { font-size: 11.5px; color: var(--muted); line-height: 1.4; }
 .gs-opt:hover { border-color: var(--accent); }
 .gs-opt.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
-.gs-stat { padding: 7px 10px; border-radius: 9px; background: var(--panel-2); font-size: 12px; }
+.gs-stat { padding: 8px 10px; border-radius: 9px; background: var(--panel-2); font-size: 12px; }
 .gs-stat.ok { color: var(--ok); } .gs-stat.wait { color: var(--muted); }
-.gs-nav { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--rule); }
-.gs-nav .btn { flex: 1; } .gs-nav .btn:disabled { opacity: .45; cursor: default; }`;
+.gs-fields { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.gs-fields label { display: flex; flex-direction: column; gap: 3px; font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.gs-fields input { width: 100%; }
+.gs-nav { display: flex; gap: 8px; margin-top: auto; padding-top: 10px; border-top: 1px solid var(--rule); }
+.gs-nav .btn { flex: 1; } .gs-nav .btn:disabled { opacity: .45; cursor: default; }
+.gs-body2 { display: flex; flex-direction: column; gap: 12px; min-height: 100%; }`;
   document.head.appendChild(css);
   const b = document.createElement('button'); b.className = 'gs-btn'; b.id = 'btnGuided'; b.title = 'Guided Setup: make the part, decide the stock, choose the machine';
   b.innerHTML = '<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.5"/><path d="M13.2 6.8l-1.9 4.5-4.5 1.9 1.9-4.5z"/></svg><span>Guided Setup</span>';
   document.querySelector('.brand-name').after(b);
-  const card = document.createElement('div'); card.id = 'gsCard'; card.hidden = true; document.body.appendChild(card);
   b.addEventListener('click', () => gsToggle());
-  card.addEventListener('click', gsClick);
+  panel.addEventListener('click', e => { if (GS.open) gsClick(e); });
+  panel.addEventListener('change', e => { if (GS.open) gsChange(e); });
 })();
 const gsHasPart = () => typeof bodyMeshes !== 'undefined' && bodyMeshes.length > 0;
 const gsMachine = () => { const m = cam().machine; return m === 'wire' ? 'wire' : m === 'umc400' ? 'umc400' : 'mill'; };
-function gsPlace() { const c = document.getElementById('gsCard'), t = document.getElementById('topbar'); if (c && t) c.style.top = Math.round(t.getBoundingClientRect().bottom + 8) + 'px'; }
 function gsToggle(on = !GS.open) {
   GS.open = on; document.getElementById('btnGuided').classList.toggle('on', on);
-  if (on) { GS.step = gsHasPart() ? 2 : 1; gsGo(GS.step, true); } else document.getElementById('gsCard').hidden = true;
+  if (on) { gsGo(gsHasPart() ? 2 : 1); } else { panel.dataset.mode = ''; refreshPanel(); }
 }
-function gsGo(n, first) {
+function gsGo(n) {
   if (n > 1 && !gsHasPart()) { toast('Make the part first — a sketch and an extrude, an import, or a sample.'); n = 1; }
   GS.step = n;
   if (n === 1) { if (UIX.ws !== 'design') setWorkspace('design'); }
   else { if (UIX.ws !== 'cam') setWorkspace('cam'); if (CAMUI.view !== 'setup') { CAMUI.view = 'setup'; camRefresh(); } }
-  gsRender();
+  refreshPanel();
 }
-function gsRender() {
-  const card = document.getElementById('gsCard'); if (!card || !GS.open) return;
-  card.hidden = false; gsPlace();
-  const part = gsHasPart(), n = GS.step, st = part && n > 1 ? camStock() : null, C = part ? cam() : null;
-  const steps = [['1', 'Part'], ['2', 'Stock'], ['3', 'Machine']].map(([i, t], k) => `<button class="gs-st ${n === k + 1 ? 'on' : ''} ${(k === 0 && part) || (k === 1 && part && n > 2) || (k === 2 && GS.machined && n > 2) ? 'done' : ''}" data-gs="go:${k + 1}"><i>${(k === 0 && part && n > 1) || (k === 1 && n > 2) ? '✓' : i}</i>${t}</button>`).join('');
+// the whole right sidebar while Guided Setup is open
+function gsPanel() {
+  const n = GS.step, part = gsHasPart(), st = part && n > 1 ? camStock() : null, C = part ? cam() : null;
+  const steps = [['1', 'Part'], ['2', 'Stock'], ['3', 'Machine']].map(([i, t], k) => `<button class="gs-st ${n === k + 1 ? 'on' : ''} ${(k === 0 && part && n > 1) || (k === 1 && n > 2) || (k === 2 && GS.machined && n > 2) ? 'done' : ''}" data-gs="go:${k + 1}"><i>${(k === 0 && part && n > 1) || (k === 1 && n > 2) ? '✓' : i}</i>${t}</button>`).join('');
   let body = '';
   if (n === 1) {
-    body = `<h3>Make the part</h3><p>Start with what you are going to cut. Sketch a profile and extrude it, import a model, or open a sample part.</p>
+    body = `<h3 class="gs-h3">1 · Make the part</h3><p class="gs-lead">Start with what you are going to cut. Sketch a profile and extrude it, import a model, or open a sample part. The drawing tools are in the ribbon above.</p>
       <div class="gs-row"><button class="btn" data-gs="sketch">Sketch it</button><button class="btn" data-gs="import">Import a file…</button><button class="btn" data-gs="samples">Sample parts…</button></div>
       <div class="gs-stat ${part ? 'ok' : 'wait'}">${part ? `✓ ${bodyMeshes.length} ${bodyMeshes.length === 1 ? 'body' : 'bodies'} in the model — ready for the stock.` : 'No part yet. Next unlocks when there is a body.'}</div>`;
   } else if (n === 2) {
     const sz = st ? [st.x1 - st.x0, st.y1 - st.y0, st.z1 - st.z0].map(x => fmtLs(x)).join(' × ') : '';
-    body = `<h3>Decide the stock</h3><p>Pick the material, then how much extra the stock has around the part. You can also type the margins in the Setup panel, or drag the arrows on the stock in the view.</p>
-      <div class="gs-row">${Object.entries(MATERIALS).map(([k, m]) => `<button class="btn ${(C.material || 'aluminum') === k ? 'primary' : ''}" data-gs="mat:${k}">${m.short}</button>`).join('')}</div>
+    const f = (id, lab, v) => `<label>${lab}<input type="number" id="${id}" step="${isIn() ? 0.01 : 0.5}" min="0" value="${+toU(v).toFixed(4)}"></label>`;
+    body = `<h3 class="gs-h3">2 · Decide the stock</h3><p class="gs-lead">The material the part is cut from: its type, and how much extra there is around the part. You can also drag the arrows on the stock in the view.</p>
+      <div class="field"><span>Material</span><div class="seg">${Object.entries(MATERIALS).map(([k, m]) => `<button data-gs="mat:${k}" class="${(C.material || 'aluminum') === k ? 'on' : ''}">${m.short}</button>`).join('')}</div></div>
+      <div class="field"><span>Extra stock (${uName()})</span><div class="gs-fields">${f('gsSide', 'Sides', C.stock.side)}${f('gsTop', 'Top', C.stock.top)}${f('gsBot', 'Bottom', C.stock.bottom)}</div></div>
       <div class="gs-row"><button class="btn" data-gs="fit">Fit the part exactly</button><button class="btn" data-gs="round">Round up to bar size</button></div>
       <div class="gs-stat ok">Stock ${sz} · ${matOf().name}</div>`;
   } else {
     const opt = (k, t, d) => `<button class="gs-opt ${gsMachine() === k ? 'on' : ''}" data-gs="mach:${k}"><b>${t}</b><span>${d}</span></button>`;
-    body = `<h3>Choose the machine</h3><p>The machine decides which operations and which G-code you get.</p>
-      ${opt('mill', 'Mill · Haas VF', '3-axis vertical mill: faces, pockets, contours, holes, 3D finishing.')}
+    const w = wireOf();
+    body = `<h3 class="gs-h3">3 · Choose the machine</h3><p class="gs-lead">The machine decides which operations you can add and which G-code you get.</p>
+      ${opt('mill', 'Mill · Haas VF', '3-axis vertical mill: faces, pockets, contours, holes, threads, 3D finishing.')}
       ${opt('umc400', '5-axis · Haas UMC-400', 'Trunnion table: tilted and indexed setups in one clamping.')}
-      ${opt('wire', 'Wire EDM · Fanuc Robocut', 'A wire cuts through-shapes: sharp corners, hardened steel, hair-thin slots.')}`;
+      ${opt('wire', 'Wire EDM · Fanuc Robocut', 'A wire cuts through-shapes: sharp corners, hardened steel, hair-thin slots.')}
+      ${gsMachine() === 'wire' ? `<div class="field"><span>Wire</span><div class="seg">${[0.1, 0.15, 0.2, 0.25, 0.3].map(d => `<button data-gs="wd:${d}" class="${Math.abs(w.d - d) < 1e-6 ? 'on' : ''}">${isIn() ? '.' + String(Math.round(d / 25.4 * 1000)).padStart(3, '0') : d}</button>`).join('')}</div></div>` : ''}`;
   }
   const last = n === 3;
-  card.innerHTML = `<div class="gs-top"><b>Guided Setup</b><button class="gs-x" data-gs="close" title="Close">×</button></div><div class="gs-steps">${steps}</div><div class="gs-body">${body}</div>
-    <div class="gs-nav"><button class="btn" data-gs="back" ${n === 1 ? 'disabled' : ''}>Back</button><button class="btn primary" data-gs="${last ? 'finish' : 'next'}" ${n === 1 && !part ? 'disabled' : ''}>${last ? 'Finish' : 'Next'}</button></div>`;
+  return `<div class="pn-head"><h2>Guided Setup</h2><span class="tag">step ${n} of 3</span></div><div class="pn-body"><div class="gs-body2"><div class="gs-steps">${steps}</div>${body}
+    <div class="gs-nav"><button class="btn" data-gs="back" ${n === 1 ? 'disabled' : ''}>Back</button><button class="btn primary" data-gs="${last ? 'finish' : 'next'}" ${n === 1 && !part ? 'disabled' : ''}>${last ? 'Finish' : 'Next'}</button></div>
+    <button class="btn" data-gs="close" style="margin-top:-4px">Leave Guided Setup</button></div></div>`;
 }
 function gsClick(e) {
   const b = e.target.closest('[data-gs]'); if (!b || b.disabled) return;
@@ -31105,23 +31206,516 @@ function gsClick(e) {
   else if (a === 'go') gsGo(+v);
   else if (a === 'next') gsGo(Math.min(3, GS.step + 1));
   else if (a === 'back') gsGo(Math.max(1, GS.step - 1));
-  else if (a === 'sketch') { if (UIX.ws !== 'design') setWorkspace('design'); action('sketch'); }
+  else if (a === 'sketch') { if (UIX.ws !== 'design') setWorkspace('design'); gsToggle(false); action('sketch'); }
   else if (a === 'import') document.getElementById('fileIn').click();
   else if (a === 'samples') openSamples();
-  else if (a === 'mat') { const C = cam(), before = snap(); C.material = v; retuneTools(); record('Material: ' + MATERIALS[v].short, before); camRefresh(); gsRender(); }
-  else if (a === 'fit' || a === 'round') { stockFit(a === 'round'); gsRender(); }
-  else if (a === 'mach') { if (gsMachine() !== v) setMachine(v); GS.machined = true; gsRender(); }
+  else if (a === 'mat') { const C = cam(), before = snap(); C.material = v; retuneTools(); record('Material: ' + MATERIALS[v].short, before); camRefresh(); refreshPanel(); }
+  else if (a === 'fit' || a === 'round') { stockFit(a === 'round'); setTimeout(refreshPanel, 320); }
+  else if (a === 'wd') { const C = cam(), before = snap(); C.wire = Object.assign({}, WIRE_DEF, C.wire || {}); C.wire.d = +v; record('Wire Ø', before); camRefresh(); refreshPanel(); }
+  else if (a === 'mach') { if (gsMachine() !== v) setMachine(v); GS.machined = true; refreshPanel(); }
   else if (a === 'finish') {
     GS.machined = true; gsToggle(false); CAMUI.view = 'overview'; camRefresh();
     toast(isWire() ? 'Setup done — add a Wire contour, then post the program.' : 'Setup done — try Auto Program, or add operations yourself.');
   }
 }
-// the card follows the model: the part appearing unlocks Next
-const refreshUIG = refreshUI;
-refreshUI = function () { refreshUIG.apply(this, arguments); if (GS.open) gsRender(); };
-addEventListener('resize', () => { if (GS.open) gsPlace(); });
+function gsChange(e) {
+  const id = e.target.id, v = parseFloat(e.target.value); if (!isFinite(v) || !['gsSide', 'gsTop', 'gsBot'].includes(id)) return;
+  const k = { gsSide: 'side', gsTop: 'top', gsBot: 'bottom' }[id];
+  stockEdit(s => { s[k] = Math.max(0, fromU(v)); if (k === 'side') for (const q of SIDE_KEYS) delete s[q]; }, 'Stock ' + k);
+  setTimeout(refreshPanel, 320);
+}
+// while it is open it is the sidebar: the part appearing or the stock changing redraws it
+const refreshPanelGS = refreshPanel;
+refreshPanel = function () {
+  if (!GS.open) return refreshPanelGS.apply(this, arguments);
+  const ae = document.activeElement; if (ae && panel.contains(ae) && ae.tagName === 'INPUT') return;
+  panel.dataset.mode = 'guided'; panel.innerHTML = gsPanel(); panel.hidden = false;
+};
+addEventListener('resize', () => { if (GS.open) refreshPanel(); });
+// theme: light by default, dark when the user picks it
+document.getElementById('btnTheme').addEventListener('click', () => {
+  const dark = document.documentElement.getAttribute('data-theme') !== 'dark';
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  try { localStorage.setItem('datum.theme', dark ? 'dark' : 'light'); } catch (e) { /* storage unavailable */ }
+});
 </script>
 <!-- GUIDED-END -->
+<!-- THREADS-BEGIN -->
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  THREADS: thread designations. A table of the common standards (ISO
+//  metric coarse and fine, UNC, UNF, UNEF) and a parser for what people
+//  type, "1/4-20 UNC 2B", "M8x1.25", "#10-32", ".25-20". The Thread
+//  panel has a search bar that takes any of them and sets the pitch and
+//  the kind of thread (B and capital-letter classes are internal, A and
+//  lower-case are external), and Manufacture and the blueprint name
+//  threads the same way.
+// ═══════════════════════════════════════════════════════════════════
+const THREAD_STD = (() => {
+  const IN = 25.4, out = [];
+  const numbered = n => 0.060 + 0.013 * n;
+  const U = (size, dIn, tpi, series) => out.push({ std: 'UN', size, series, d: dIn * IN, tpi, pitch: IN / tpi, name: `${size}-${tpi} ${series}` });
+  const sz = s => { if (s[0] === '#') return numbered(+s.slice(1)); const m = /^(?:(\d+)-)?(\d+)\/(\d+)$/.exec(s); if (m) return (m[1] ? +m[1] : 0) + +m[2] / +m[3]; return +s; };
+  for (const [s, t] of [['#1', 64], ['#2', 56], ['#3', 48], ['#4', 40], ['#5', 40], ['#6', 32], ['#8', 32], ['#10', 24], ['#12', 24], ['1/4', 20], ['5/16', 18], ['3/8', 16], ['7/16', 14], ['1/2', 13], ['9/16', 12], ['5/8', 11], ['3/4', 10], ['7/8', 9], ['1', 8], ['1-1/8', 7], ['1-1/4', 7], ['1-3/8', 6], ['1-1/2', 6], ['1-3/4', 5], ['2', 4.5]]) U(s, sz(s), t, 'UNC');
+  for (const [s, t] of [['#0', 80], ['#1', 72], ['#2', 64], ['#3', 56], ['#4', 48], ['#5', 44], ['#6', 40], ['#8', 36], ['#10', 32], ['#12', 28], ['1/4', 28], ['5/16', 24], ['3/8', 24], ['7/16', 20], ['1/2', 20], ['9/16', 18], ['5/8', 18], ['3/4', 16], ['7/8', 14], ['1', 12], ['1-1/8', 12], ['1-1/4', 12], ['1-3/8', 12], ['1-1/2', 12]]) U(s, sz(s), t, 'UNF');
+  for (const [s, t] of [['1/4', 32], ['5/16', 32], ['3/8', 32], ['7/16', 28], ['1/2', 28], ['9/16', 24], ['5/8', 24], ['3/4', 20], ['7/8', 20], ['1', 20]]) U(s, sz(s), t, 'UNEF');
+  const M = (d, p, fine) => out.push({ std: 'ISO', size: 'M' + d, series: fine ? 'fine' : 'coarse', d, tpi: 25.4 / p, pitch: p, name: `M${d}x${p}` });
+  for (const [d, p] of ISO_PITCH) M(d, p, false);
+  for (const [d, p] of [[3, 0.35], [4, 0.5], [5, 0.5], [6, 0.75], [8, 1], [10, 1], [10, 1.25], [12, 1], [12, 1.25], [12, 1.5], [14, 1.5], [16, 1.5], [18, 1.5], [20, 1], [20, 1.5], [22, 1.5], [24, 1.5], [24, 2], [27, 2], [30, 1.5], [30, 2], [36, 2], [36, 3]]) M(d, p, true);
+  for (const e of out) e.search = (e.name + ' ' + e.size + ' ' + e.series + ' ' + (e.std === 'ISO' ? 'metric iso' : 'unified inch ' + e.tpi) + ' ' + (+e.d.toFixed(2))).toLowerCase();
+  return out;
+})();
+// what the entry reads as: inch sizes as typed, metric as M8×1.25
+const threadName = (e, cls) => (e.std === 'ISO' ? `M${e.d}×${e.pitch}` : `${e.size}-${e.tpi} ${e.series}`) + (cls ? ' ' + cls : '');
+// the thread a pitch and a nominal diameter name, for labels: a standard one when it matches, else nothing
+function threadStdOf(nominal, pitch) {
+  const tpi = 25.4 / pitch;
+  const un = THREAD_STD.find(e => e.std === 'UN' && Math.abs(e.d - nominal) < 0.18 && Math.abs(e.tpi - tpi) < 0.06);
+  const iso = THREAD_STD.find(e => e.std === 'ISO' && Math.abs(e.d - nominal) < 0.18 && Math.abs(e.pitch - pitch) < 0.011);
+  return un && (!iso || Math.abs(un.d - nominal) < Math.abs(iso.d - nominal)) ? un : iso || null;
+}
+function parseThread(raw) {
+  const text = String(raw || '').trim().replace(/[×*]/g, 'x').replace(/\s+/g, ' ');
+  if (!text) return null;
+  // metric: M8, M8x1.25, M8 x 1.25 - 6H
+  let m = /^M\s*(\d+(?:\.\d+)?)\s*(?:x\s*(\d+(?:\.\d+)?))?\s*(?:[- ]\s*(\d[A-Za-z](?:\d?[A-Za-z])?))?$/i.exec(text);
+  if (m) {
+    const d = +m[1], p = m[2] ? +m[2] : (ISO_PITCH.find(r => Math.abs(r[0] - d) < 1e-6) || [0, isoPitch(d)])[1], cls = m[3] || null;
+    const e = THREAD_STD.find(x => x.std === 'ISO' && Math.abs(x.d - d) < 1e-6 && Math.abs(x.pitch - p) < 1e-6) || { std: 'ISO', size: 'M' + d, series: 'fine', d, pitch: p, tpi: 25.4 / p, name: `M${d}x${p}` };
+    return { entry: e, cls, internal: cls ? /^[0-9][A-Z]/.test(cls) && !/[a-z]/.test(cls) : null, nominal: e.d, pitch: e.pitch, label: threadName(e, cls) };
+  }
+  // unified: 1/4-20 UNC 2B, #10-32 UNF, .250-20, 1-1/8-7
+  let s = text.toUpperCase();
+  const cm = /\b([123][AB])\b/.exec(s); const cls = cm ? cm[1] : null; if (cm) s = s.replace(cm[0], ' ');
+  const sm = /\b(UNEF|UNF|UNC|UN)\b/.exec(s); const series = sm ? sm[1] : null; if (sm) s = s.replace(sm[0], ' ');
+  s = s.replace(/\s+/g, ' ').trim();
+  m = /^(#\s*\d+|\d+\s*-\s*\d+\s*\/\s*\d+|\d+\s+\d+\s*\/\s*\d+|\d+\s*\/\s*\d+|\d*\.\d+|\d+)(?:\s*[- ]\s*(\d+(?:\.\d+)?))?$/.exec(s);
+  if (!m) return null;
+  const tok = m[1].replace(/\s*-\s*/g, '-').replace(/^#\s*/, '#').replace(/^(\d+)\s+(\d+\/\d+)$/, '$1-$2').replace(/\s+/g, ''), tpiIn = m[2] ? +m[2] : null;
+  const val = t => { if (t[0] === '#') return 0.060 + 0.013 * +t.slice(1); const f = /^(?:(\d+)-)?(\d+)\/(\d+)$/.exec(t); return f ? (f[1] ? +f[1] : 0) + +f[2] / +f[3] : +t; };
+  const cands = THREAD_STD.filter(e => e.std === 'UN' && (e.size === tok || (tok.indexOf('.') >= 0 && Math.abs(e.d / 25.4 - +tok) < 0.0021) || (/^\d+$/.test(tok) && +tok <= 12 && tok !== '1' && tok !== '2' && e.size === '#' + tok)));
+  const pick = cands.filter(e => (!series || e.series === (series === 'UN' ? e.series : series)) && (tpiIn == null || Math.abs(e.tpi - tpiIn) < 0.06));
+  let e = pick[0];
+  if (!e && tpiIn) {   // a size and a TPI the table does not list: still a valid unified thread
+    const dIn = val(tok); if (!(dIn > 0)) return null;
+    e = { std: 'UN', size: tok, series: series || 'UN', d: dIn * 25.4, tpi: tpiIn, pitch: 25.4 / tpiIn, name: `${tok}-${tpiIn} ${series || 'UN'}` };
+  }
+  if (!e) return null;
+  return { entry: e, cls, internal: cls ? cls[1] === 'B' : null, nominal: e.d, pitch: e.pitch, label: threadName(e, cls) };
+}
+function threadSuggest(q, n = 8) {
+  const t = String(q || '').trim().toLowerCase().replace(/[×*]/g, 'x');
+  if (!t) return THREAD_STD.filter(e => ['1/4-20 UNC', '3/8-16 UNC', '1/2-13 UNC', '#10-24 UNC', '#10-32 UNF', '5/16-18 UNC'].includes(e.name) || ['M6x1', 'M8x1.25', 'M10x1.5', 'M5x0.8', 'M12x1.75'].includes(e.name)).slice(0, n);
+  const parts = t.replace(/[-\/x#]/g, ' ').split(/\s+/).filter(Boolean), flat = t.replace(/\s+/g, '');
+  const direct = THREAD_STD.filter(e => e.name.toLowerCase().replace(/\s+/g, '').startsWith(flat) || e.search.includes(t));
+  const loose = THREAD_STD.filter(e => !direct.includes(e) && parts.every(w => e.search.includes(w)));
+  return [...direct, ...loose].slice(0, n);
+}
+// apply a designation to the thread being made
+function threadApply(parsed) {
+  const f = CMD && CMD.type === 'thread' && CMD.f; if (!f || !parsed) return;
+  f.pitch = +parsed.pitch.toFixed(4); f.desig = parsed.label; f.nom = +parsed.nominal.toFixed(3); f.cls = parsed.cls || null;
+  if (parsed.internal != null) f.internal = parsed.internal;
+  threadDescribe(); modelChanged(true); refreshPanel();
+}
+// the Thread panel: a search bar on top, what it set, and whether the picked face matches
+const threadPanelT = threadPanel;
+threadPanel = function () {
+  let h = threadPanelT();
+  const f = CMD.f, i = CMD.info;
+  // a pitch the list does not have (inch threads) still shows as chosen
+  if (f.pitch > 0 && !PITCHES.includes(f.pitch)) h = h.replace(/<select id="thPitch">/, `<select id="thPitch"><option value="${f.pitch}" selected>${+f.pitch.toFixed(3)} mm · ${(25.4 / f.pitch).toFixed(1)} TPI</option>`).replace(/(<select id="thPitch">[\s\S]*?)<option value="0" selected>/, '$1<option value="0">');
+  let note = '';
+  if (f.desig && f.nom && i) {
+    const want = (i.internal ? f.nom - 1.0825 * f.pitch : f.nom), got = i.d, bad = Math.abs(got - want) > Math.max(0.15, 0.04 * want);
+    const dia = v => (isIn() ? `Ø${fmt(v / 25.4, 3)}"` : `Ø${+v.toFixed(2)}`);
+    note = bad ? `<p class="note err-note">${f.desig} ${i.internal ? 'needs a hole (the minor diameter) of about ' + dia(want) : 'needs a shaft of about ' + dia(want)}, but this face is ${dia(got)}. Resize it in the sketch or pick another face.</p>`
+      : `<p class="note">✓ ${f.desig}: the face is ${dia(got)}, ${i.internal ? 'the tap drill' : 'the major diameter'} for it.</p>`;
+  } else if (f.desig && !i) note = `<p class="note">${f.desig}: pick ${f.internal === true ? 'a hole of about ' + (isIn() ? 'Ø' + fmt((f.nom - 1.0825 * f.pitch) / 25.4, 3) + '"' : 'Ø' + +(f.nom - 1.0825 * f.pitch).toFixed(2)) : f.internal === false ? 'a shaft of about ' + (isIn() ? 'Ø' + fmt(f.nom / 25.4, 3) + '"' : 'Ø' + +f.nom.toFixed(2)) : 'the cylindrical face'}.</p>`;
+  const bar = `<div class="field th-search"><span>Thread — type a size</span><input type="text" id="thSearch" autocomplete="off" spellcheck="false" placeholder="1/4-20 UNC 2B · M8x1.25 · #10-32 UNF" value="${(f.desig || '').replace(/"/g, '&quot;')}"><ul class="th-sug" id="thSug" hidden></ul></div>${note}`;
+  if (f.desig) h = h.replace(/(<div class="pick [^"]*"><span>[^<]*<\/span><span class="n">)[^<]*(<\/span>)/, `$1${f.desig.replace(/\$/g, '')}$2`);
+  return h.replace('<div class="pn-body">', '<div class="pn-body">' + bar);
+};
+(() => {
+  const css = document.createElement('style');
+  css.textContent = `.th-search { position: relative; } .th-search input { width: 100%; }
+.th-sug { position: absolute; left: 0; right: 0; top: 100%; z-index: 20; margin: 2px 0 0; padding: 3px; list-style: none; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; box-shadow: var(--shadow); max-height: 260px; overflow: auto; }
+.th-sug li { display: flex; justify-content: space-between; gap: 10px; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 12.5px; }
+.th-sug li small { color: var(--muted); } .th-sug li:hover, .th-sug li.on { background: var(--accent-soft); }`;
+  document.head.appendChild(css);
+})();
+const bindPanelT = bindPanel;
+bindPanel = function () {
+  bindPanelT.apply(this, arguments);
+  const inp = document.getElementById('thSearch'); if (!inp || !(CMD && CMD.type === 'thread')) return;
+  const ul = document.getElementById('thSug'); let sel = -1, list = [];
+  const show = () => {
+    list = threadSuggest(inp.value); sel = -1;
+    ul.innerHTML = list.map((e, k) => `<li data-k="${k}"><b>${threadName(e)}</b><small>${e.std === 'ISO' ? 'metric ' + e.series : 'Ø' + fmt(e.d, 2) + ' mm · ' + (+e.pitch.toFixed(3)) + ' pitch'}</small></li>`).join('');
+    ul.hidden = !list.length;
+  };
+  const take = e => { const p = parseThread(e.name) || { entry: e, cls: null, internal: null, nominal: e.d, pitch: e.pitch, label: threadName(e) }; const typed = parseThread(inp.value); const cls = typed && typed.entry === e ? typed.cls : null; ul.hidden = true; threadApply({ ...p, cls, internal: typed && typed.entry === e && typed.internal != null ? typed.internal : p.internal, label: threadName(e, cls) }); };
+  inp.addEventListener('input', show); inp.addEventListener('focus', show);
+  inp.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); if (!list.length) show(); sel = (sel + (e.key === 'ArrowDown' ? 1 : -1) + list.length) % list.length; ul.querySelectorAll('li').forEach((li, k) => li.classList.toggle('on', k === sel)); }
+    else if (e.key === 'Enter') { e.preventDefault(); const p = parseThread(inp.value); if (p) { ul.hidden = true; threadApply(p); } else if (list[Math.max(0, sel)]) take(list[Math.max(0, sel)]); else toast('Not a thread size I know — try 1/4-20 UNC 2B or M8x1.25.'); }
+    else if (e.key === 'Escape') { ul.hidden = true; }
+  });
+  ul.addEventListener('mousedown', e => { const li = e.target.closest('li'); if (li) { e.preventDefault(); take(list[+li.dataset.k]); } });
+  inp.addEventListener('blur', () => setTimeout(() => { ul.hidden = true; }, 120));
+};
+</script>
+<!-- THREADS-END -->
+<!-- DOCK-BEGIN -->
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  DOCK + STOPS. The program shown while it runs (and the G-code
+//  editor in Post) sits in a column right beside the left sidebar, not
+//  over the part, and follows the line the machine is on. M00 stops the
+//  simulation the way it stops a machine: it pauses at the line, says why,
+//  and waits for Cycle Start. M01 (optional stop, written before tool
+//  changes when the post option is on) stops it only while Opt stop is on.
+// ═══════════════════════════════════════════════════════════════════
+(() => {
+  const css = document.createElement('style');
+  css.textContent = `
+#codeDock { display: flex; flex-direction: column; width: clamp(300px, 28vw, 470px); min-height: 0; min-width: 0; background: var(--code-bg); border-right: 1px solid var(--rule); }
+#codeDock[hidden] { display: none; }
+body.code-docked #main { grid-template-columns: var(--browser-w, 230px) auto 1fr auto; }
+#codeDock > #simcode, #codeDock > #gced { position: static; left: auto; top: auto; bottom: auto; width: auto; flex: 1; min-height: 0; border: 0; border-radius: 0; box-shadow: none; }
+#codeDock > #simcode[hidden], #codeDock > #gced[hidden] { display: none; }
+@media (max-width: 820px) { #codeDock { position: absolute; left: 0; top: 0; bottom: 0; z-index: 8; width: min(92vw, 430px); } body.code-docked #main { grid-template-columns: 1fr; } }
+#codeDock .ge-sub, #codeDock [data-ge="wide"] { display: none; }
+#codeDock .ge-head { flex-wrap: nowrap; }
+#codeDock .ge-head b { flex: 1; }
+#simStop { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); z-index: 9; display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 12px; background: var(--panel); border: 1.5px solid var(--warn, #d9792a); box-shadow: var(--shadow); font-size: 13px; max-width: calc(100% - 28px); }
+#simStop[hidden] { display: none; }
+#simStop b { font: 700 13px var(--mono); color: var(--warn, #d9792a); }
+#simStop small { color: var(--muted); display: block; font-size: 11.5px; }
+#simStop .btn { white-space: nowrap; }`;
+  document.head.appendChild(css);
+  const dock = document.createElement('aside'); dock.id = 'codeDock'; dock.hidden = true;
+  document.getElementById('browser').after(dock);
+  const sim = document.getElementById('simcode'); dock.append(sim, GCED.el);
+  const sync = () => { const open = !sim.hidden || !GCED.el.hidden; dock.hidden = !open; document.body.classList.toggle('code-docked', open); requestDraw(); };
+  const mo = new MutationObserver(sync); mo.observe(sim, { attributes: true, attributeFilter: ['hidden'] }); mo.observe(GCED.el, { attributes: true, attributeFilter: ['hidden'] });
+  sync();
+  new ResizeObserver(() => gcedDraw()).observe(document.getElementById('geIn'));
+  const ban = document.createElement('div'); ban.id = 'simStop'; ban.hidden = true;
+  ban.innerHTML = '<div><b id="ssCode">M00</b> <span id="ssTitle">Program stop</span><small id="ssWhy"></small></div><button class="btn primary" id="ssGo">Cycle Start</button>';
+  document.getElementById('viewport').appendChild(ban);
+  ban.querySelector('#ssGo').addEventListener('click', () => simStopGo());
+})();
+const SIMSTOP = { opt: (() => { try { return localStorage.getItem('datum.optstop') === '1'; } catch (e) { return false; } })(), at: null };
+function simStopGo() { SIMSTOP.at = null; document.getElementById('simStop').hidden = true; if (SIM.on) { SIM.playing = true; try { simPanelUpdate(); } catch (e) { /* ok */ } requestDraw(); } }
+// pause at the first stop the clock passes this frame
+const simTickStop = simTick;
+simTick = function (now) {
+  const was = SIM.t, wasOn = SIM.on && SIM.playing;
+  simTickStop(now);
+  const ban = document.getElementById('simStop');
+  if (!SIM.on) { if (ban) ban.hidden = true; SIMSTOP.at = null; return; }
+  if (SIMSTOP.at != null && (SIM.playing || Math.abs(SIM.t - SIMSTOP.at) > 1e-9)) { SIMSTOP.at = null; ban.hidden = true; }
+  if (!wasOn || !SIM.playing || !(SIM.t > was)) return;
+  let hit = null;
+  if (SIMSTOP.skip && SIM.t > SIMSTOP.skip.t1 + 1e-6) SIMSTOP.skip = null;
+  for (const sg of SIM.prog) { if (!sg.stop || sg === SIMSTOP.skip) continue; if (sg.t1 <= was) continue; if (sg.t1 > SIM.t) break; if (sg.stop.code === 'M01' && !SIMSTOP.opt) continue; hit = sg; break; }
+  if (!hit) return;
+  SIM.t = hit.t1 - 1e-7; SIM.playing = false; SIMSTOP.at = SIM.t; SIMSTOP.skip = hit;      // just inside the move, so the code view stays on its line
+  simApplyTo(SIM.t); try { simPanelUpdate(); } catch (e) { /* ok */ }
+  const op = cam().ops.find(o => o.id === hit.op);
+  document.getElementById('ssCode').textContent = hit.stop.code; document.getElementById('ssTitle').textContent = hit.stop.code === 'M00' ? 'Program stop' : 'Optional stop';
+  document.getElementById('ssWhy').textContent = (op ? op.name + ' — ' : '') + hit.stop.why + ' · press Cycle Start to go on';
+  ban.hidden = false; requestDraw();
+};
+// Opt stop beside Chips / Flood in the simulation bar
+(() => {
+  const add = () => {
+    if (document.getElementById('sbOpt')) return;
+    const host = document.querySelector('.sb-chipctl'); if (!host) return;
+    const b = document.createElement('button'); b.id = 'sbOpt'; b.textContent = 'Opt stop'; b.dataset.tip = 'Optional stop: M01 stops the simulation like the machine\'s Opt Stop switch (M00 always stops)';
+    b.classList.toggle('on', SIMSTOP.opt);
+    b.addEventListener('click', () => { SIMSTOP.opt = !SIMSTOP.opt; b.classList.toggle('on', SIMSTOP.opt); try { localStorage.setItem('datum.optstop', SIMSTOP.opt ? '1' : '0'); } catch (e) { /* ok */ } });
+    host.appendChild(b);
+  };
+  const t = simStart; simStart = function () { t.apply(this, arguments); setTimeout(add, 0); };
+})();
+// while stopped, the code view sits on the stop line itself (the M00), not the move before it
+const simCodeLineOfS = simCodeLineOf;
+simCodeLineOf = function (sg) {
+  if (sg && SIMSTOP.at != null && SIMSTOP.skip === sg) {
+    const k = SCODE.lines.findIndex((t, i) => /^M0?[01]\b/.test(t) && SCODE.map[i] && SCODE.map[i].op === sg.op && SCODE.map[i].mi === sg.mi);
+    if (k >= 0) return k;
+  }
+  return simCodeLineOfS(sg);
+};
+</script>
+<!-- DOCK-END -->
+<!-- THREADCAM-BEGIN -->
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  THREADCAM: threads in Manufacture. A Threads panel lists every thread
+//  in the part (and the plain holes that could be threaded). Tick the
+//  ones to cut, or click them in the view; or press Auto-detect, which
+//  ticks them all, picks the tool for each (a tap and its tap drill, or a
+//  thread mill for external, large and hardened-steel threads) and writes
+//  the operations: the G-code carries the places and the depths. Threads
+//  are named the same way as in the Thread panel (1/4-20 UNC, M8×1.25).
+// ═══════════════════════════════════════════════════════════════════
+OP_INFO.thread = { name: 'Thread mill', icon: 'camthread', tip: 'Cuts a thread by helical interpolation with a thread mill: one pitch of climb per turn, with a tangent arc in and out. Inside a hole drilled to the minor diameter, or round a turned boss.' };
+// the path of a thread mill: tangent arc in, a helix of half-turn arcs, tangent arc out
+GEN.thread = function (op, tool, st, part, P) {
+  const list = op.threads || [];
+  if (!list.length) { P.warn.push('No threads chosen. Pick them in the Threads panel.'); return; }
+  const safe = st.z1 + cam().safe, rt = tool.d / 2, a2 = Math.PI / 18;
+  P.thr = [];
+  for (const t of list) {
+    const pitch = t.P, internal = t.int !== false, rh = t.hand !== 'L', rMaj = t.D / 2, rRoot = (t.D - 1.2269 * pitch) / 2;
+    const rp = internal ? rMaj - rt : rRoot + rt;                         // the path of the tool's center: its edge at the major diameter inside, at the root outside
+    const name = t.name || (t.D.toFixed(2) + '×' + pitch.toFixed(2));
+    if (internal && (rp < 0.15 || tool.d > (t.D - 1.0825 * pitch) * 0.85)) { P.warn.push(`The Ø${fmtD(tool.d)} thread mill is too big for ${name}: it must fit the Ø${fmtD(t.D - 1.0825 * pitch)} hole.`); continue; }
+    const up = internal === rh;                                            // right-hand: climbs up inside, down outside (left-hand the other way)
+    const len = Math.max(pitch, t.z1 - t.z0), revs = Math.max(1, Math.round((len - pitch) / pitch));
+    const zS = up ? t.z0 : t.z1 - pitch, zE = zS + (up ? 1 : -1) * revs * pitch, e = Math.max(2, 0.7 * pitch + 1);
+    const feed = tool.feed * (internal ? rp / rMaj : 1), cx = t.x, cy = t.y;
+    const ax = internal ? cx : cx + rp + e, ay = internal ? cy : cy + e, T = { name, cx, cy, rp, internal, hand: rh ? 'R' : 'L', zS, zE, revs, e, feed, plunge: tool.plunge, mi: {} };
+    P.rapid(ax, ay, safe); P.rapid(ax, ay, zS + 1); T.mi.start = P.m.length - 1;
+    P.feed(ax, ay, zS, tool.plunge);
+    // tangent arc onto the circle
+    if (internal) for (let a = Math.PI + a2; a <= 2 * Math.PI + 1e-9; a += a2) P.feed(cx + rp / 2 + rp / 2 * Math.cos(a), cy + rp / 2 * Math.sin(a), zS, feed);
+    else for (let a = Math.PI / 2 + a2; a <= Math.PI + 1e-9; a += a2) P.feed(cx + rp + e + e * Math.cos(a), cy + e * Math.sin(a), zS, feed);
+    T.mi.entry = P.m.length - 1; T.mi.helix0 = P.m.length - 1;
+    const n = revs * 36;
+    for (let k = 1; k <= n; k++) { const th = k * a2 * (internal ? 1 : -1); P.feed(cx + rp * Math.cos(th), cy + rp * Math.sin(th), zS + (zE - zS) * k / n, feed); }
+    T.mi.helix1 = P.m.length - 1;
+    // tangent arc off it
+    if (internal) for (let a = a2; a <= Math.PI + 1e-9; a += a2) P.feed(cx + rp / 2 + rp / 2 * Math.cos(a), cy + rp / 2 * Math.sin(a), zE, feed);
+    else for (let a = Math.PI - a2; a >= Math.PI / 2 - 1e-9; a -= a2) P.feed(cx + rp + e + e * Math.cos(a), cy + e * Math.sin(a), zE, feed);
+    T.mi.exit = P.m.length - 1;
+    P.rapid(P.cur[0], P.cur[1], safe);
+    P.thr.push(T);
+  }
+  P.info = `${P.thr.length} thread${P.thr.length === 1 ? '' : 's'} · Ø${fmtD(tool.d)} thread mill · helical, ${P.thr.reduce((s, q) => s + q.revs, 0)} turns in all`;
+};
+const THR = { sel: new Set(), method: {}, manual: {}, hover: null, seenKey: null, msg: [] };
+const thrCam = h => [h.s.p[0], -h.s.p[2]];
+// every thread the part has, grouped by size, and the plain holes that could be tapped
+function thrRows() {
+  const R = autoResult(); if (!R) return [];
+  const mat = cam().material || 'aluminum', bodies = visibleBodies(), rows = new Map(), used = new Set();
+  const inch = isIn();
+  R.threads.forEach(t => {
+    let lo = Infinity, hi = -Infinity;
+    for (const f of t.faces) for (const v of faceVerts(f.mesh, f.fid)) { const h = dot3(sub3(v, t.p), t.dir); if (h < lo) lo = h; if (h > hi) hi = h; }
+    if (!isFinite(lo)) return;
+    const ya = t.p[1] + t.dir[1] * lo, yb = t.p[1] + t.dir[1] * hi, std = threadStdOf(t.nominal, t.pitch);
+    const name = std ? threadName(std) : `M${t.nominal}×${+t.pitch.toFixed(2)}`;
+    const hole = !t.external && R.holes.find(h => { const w = sub3(h.s.p, t.p); return len3(sub3(w, mul3(t.dir, dot3(w, t.dir)))) < 0.05 && Math.abs(dot3(h.s.dir, t.dir)) > 0.999; });
+    if (hole) used.add(hole);
+    const key = name + '|' + (t.external ? 'ext' : 'int') + '|' + (t.vertical ? 'v' : 'a');
+    let r = rows.get(key);
+    if (!r) rows.set(key, r = { key, name, std, nominal: t.nominal, pitch: t.pitch, internal: !t.external, vertical: t.vertical, hand: t.feat && t.feat.hand === 'L' ? 'L' : 'R', items: [], faces: [], modeled: true });
+    r.items.push({ x: t.p[0], y: -t.p[2], z0: Math.min(ya, yb), z1: Math.max(ya, yb), hole, d: hole ? hole.d : null, depth: hole ? hole.depth : null, through: hole ? hole.through : false });
+    r.faces.push(...t.faces);
+  });
+  // plain holes: drilled, not (yet) threaded
+  const plain = new Map();
+  for (const h of R.holes) {
+    if (!h.fromTop || !h.vertical || used.has(h) || h.d > 20.001 || h.d < 1) continue;
+    const key = 'hole|' + h.d.toFixed(2);
+    let r = plain.get(key); if (!r) plain.set(key, r = { key, name: `Hole ${fmtDia(h.d)}`, d: h.d, internal: true, vertical: true, hand: 'R', items: [], faces: [], modeled: false });
+    const [x, y] = thrCam(h); r.items.push({ x, y, z0: h.s.p[1] + h.s.dir[1] * h.h0, z1: h.s.p[1] + h.s.dir[1] * h.h1, hole: h, d: h.d, depth: h.depth, through: h.through });
+    r.faces.push(...h.faces);
+  }
+  for (const r of plain.values()) {
+    for (const it of r.items) { const a = it.z0, b = it.z1; it.z0 = Math.min(a, b); it.z1 = Math.max(a, b); }
+    const man = THR.manual[r.key];
+    if (man) { r.std = man.entry; r.nominal = man.nominal; r.pitch = man.pitch; r.name = man.label; r.hand = 'R'; r.manual = true; r.items.forEach(it => { it.z1 = it.z1; }); }
+    else r.suggest = THREAD_STD.filter(e => Math.abs((e.d - e.pitch) - r.d) < 0.1 && (e.series === 'UNC' || e.series === 'UNF' || e.series === 'coarse')).sort((a, b) => Math.abs((a.d - a.pitch) - r.d) - Math.abs((b.d - b.pitch) - r.d)).slice(0, 3);
+    rows.set(r.key, r);
+  }
+  for (const r of rows.values()) {
+    r.n = r.items.length; r.len = Math.max(...r.items.map(i => i.z1 - i.z0));
+    // the thread's own length: a modeled thread says it; a named hole is threaded to its depth (less two pitches of lead in a blind one)
+    if (!r.modeled && r.manual) r.items.forEach(it => { it.z1 = it.z1; });
+    const rec = thrRecommend(r, mat); r.rec = rec; r.m = THR.method[r.key] || rec.m;
+  }
+  return [...rows.values()];
+}
+function thrRecommend(r, mat) {
+  if (!r.vertical) return { m: 'manual', why: 'It is at an angle: index the part on the rotary, then tap or thread mill it.' };
+  if (!r.internal) return { m: 'mill', why: 'External: a thread mill circles the boss with a helix.' };
+  if (r.nominal > 20) return { m: 'mill', why: 'Large: a thread mill needs far less torque than a tap.' };
+  if (mat === 'toolsteel') return { m: 'mill', why: 'Hardened steel: a thread mill is gentler on the tool than a tap.' };
+  return { m: 'tap', why: 'Rigid tap (G84) after a tap drill, to the depth of the thread.' };
+}
+const thrSelectable = r => r.modeled || r.manual;
+function thrInit(rows) {
+  const R = AUTO.res; if (!R || THR.seenKey === R) return; THR.seenKey = R;
+  THR.sel = new Set(rows.filter(r => r.modeled && r.vertical).map(r => r.key));
+}
+// the tools and operations for the chosen rows
+function thrBuild(rows) {
+  const C = cam(), newTools = [], ops = [], notes = [];
+  let nextN = nextToolN();
+  const lib = (type, test) => C.tools.find(t => t.type === type && test(t));
+  const mk = (type, d, p) => { const t = { n: nextN++, ...toolDefaults(type, d), ...(p ? { p } : {}) }; newTools.push(t); return t.n; };
+  const tapTool = r => { const t = lib('tap', t => Math.abs(t.d - r.nominal) < 0.011 && Math.abs((toolParams(t).pitch || 0) - r.pitch) < 0.011); return t ? t.n : mk('tap', +r.nominal.toFixed(3), { category: 'tap', dia: +r.nominal.toFixed(3), pitch: +r.pitch.toFixed(4), threadSize: threadName(r.std || { std: 'ISO', d: r.nominal, pitch: r.pitch }), tapType: 'spiralpoint' }); };
+  const drillTool = d => { const t = lib('drill', t => Math.abs(t.d - d) < 0.011) || newTools.find(t => t.type === 'drill' && Math.abs(t.d - d) < 0.011); return t ? t.n : mk('drill', +d.toFixed(3)); };
+  const millTool = r => {
+    const minor = r.nominal - 1.0825 * r.pitch, want = r.internal ? Math.min(0.7 * minor, 16) : clamp(r.nominal * 0.6, 6, 16);
+    const d = [20, 16, 12, 10, 8, 6, 5, 4, 3, 2].find(x => x <= want + 1e-9) || 2;
+    const t = lib('threadmill', t => Math.abs(t.d - d) < 0.011 && Math.abs((toolParams(t).pitch || 0) - r.pitch) < 0.011) || newTools.find(t => t.type === 'threadmill' && Math.abs(t.d - d) < 0.011 && Math.abs(((t.p && t.p.pitch) || 0) - r.pitch) < 0.011);
+    return t ? t.n : mk('threadmill', d, { category: 'threadmill', dia: d, pitch: +r.pitch.toFixed(4), threadRows: 1, threadSize: threadName(r.std || { std: 'ISO', d: r.nominal, pitch: r.pitch }) });
+  };
+  const tapRows = rows.filter(r => r.m === 'tap'), millRows = rows.filter(r => r.m === 'mill');
+  const at = r => r.items.map(i => [+i.x.toFixed(4), +i.y.toFixed(4)]);
+  const diams = rs => [...new Set(rs.flatMap(r => r.items.map(i => +i.d.toFixed(2))))];
+  // spot and drill every hole a tap or an internal thread mill goes into
+  const holeRows = [...tapRows, ...millRows.filter(r => r.internal)].filter(r => r.items.every(i => i.d));
+  if (holeRows.length) {
+    const ds = diams(holeRows), spotRaw = Math.min(12, Math.max(6, Math.max(...ds) + 2)), spotD = isIn() ? [6.35, 9.525, 12.7].find(x => x >= spotRaw - 0.01) || 12.7 : spotRaw;
+    const sp = C.tools.filter(t => t.type === 'spot').sort((a, b) => b.d - a.d)[0], spN = sp ? sp.n : mk('spot', spotD);
+    ops.push({ type: 'drill', kind: 'spot', name: `Spot drill ${holeRows.reduce((s, r) => s + r.n, 0)} thread hole${holeRows.reduce((s, r) => s + r.n, 0) > 1 ? 's' : ''}`, tool: spN, mode: 'spot', diams: ds, at: holeRows.flatMap(at), depth: +Math.max(0.3, Math.min(...ds) / 2 - 0.2).toFixed(2), through: 0, dwell: 0.3, peck: 1, why: 'A short spot keeps the drills and taps on their centers.' });
+    for (const d of ds) {
+      const rs = holeRows.filter(r => r.items.some(i => Math.abs(i.d - d) < 0.02)), items = rs.flatMap(r => r.items.filter(i => Math.abs(i.d - d) < 0.02)), deep = Math.max(...items.map(i => i.depth || 0));
+      ops.push({ type: 'drill', kind: 'drill', name: `Drill ${fmtDia(d)} × ${items.length} for ${[...new Set(rs.map(r => r.name))].join(', ')}`, tool: drillTool(d), mode: deep > 3 * d ? 'peck' : 'drill', peck: +Math.max(1, d).toFixed(1), diams: [+d.toFixed(2)], at: items.map(i => [+i.x.toFixed(4), +i.y.toFixed(4)]), through: 1, why: `The tap drill (${items.some(i => i.through) ? 'through' : 'blind'}, up to ${fmtLs(deep)} deep).` });
+    }
+  }
+  for (const r of tapRows) {
+    if (!r.items.every(i => i.d)) { notes.push(`${r.name}: no drilled hole found to tap.`); continue; }
+    const blind = r.items.filter(i => !i.through), tl = Math.max(...r.items.map(i => i.z1 - i.z0));
+    ops.push({ type: 'drill', kind: 'tap', name: `Tap ${r.name} × ${r.n}`, tool: tapTool(r), mode: 'drill', diams: diams([r]), at: at(r), through: 0.5, depth: blind.length && r.modeled && tl < Math.max(...blind.map(i => i.depth || 0)) - 0.01 ? +tl.toFixed(3) : 0, why: `Rigid tap (G84), feed = RPM × ${+r.pitch.toFixed(3)} mm pitch, to the depth of the thread.` });
+  }
+  for (const r of millRows) {
+    if (!r.vertical) { notes.push(`${r.name}: at an angle — needs the rotary.`); continue; }
+    const tn = millTool(r);
+    ops.push({ type: 'thread', name: `Thread mill ${r.name} × ${r.n}`, tool: tn, threads: r.items.map(i => ({ x: +i.x.toFixed(4), y: +i.y.toFixed(4), z0: +i.z0.toFixed(4), z1: +i.z1.toFixed(4), D: +r.nominal.toFixed(3), P: +r.pitch.toFixed(4), int: r.internal, hand: r.hand, name: r.name })), why: r.rec.why });
+    if (r.internal && r.items.some(i => i.d > 25)) notes.push(`${r.name}: bore the hole to Ø${fmtD(r.nominal - 1.0825 * r.pitch)} first.`);
+  }
+  for (const r of rows) if (r.m === 'manual') notes.push(`${r.name}: ${r.rec.why}`);
+  return { ops, newTools, notes };
+}
+function thrApply(rows) {
+  const C = cam(), plan = thrBuild(rows);
+  if (!plan.ops.length) { THR.msg = plan.notes.length ? plan.notes : ['Nothing to add: tick a thread first.']; refreshPanel(); return 0; }
+  const before = snap();
+  for (const t of plan.newTools) C.tools.push(t);
+  C.tools.sort((a, b) => a.n - b.n);
+  const first = C.next;
+  for (const o of plan.ops) C.ops.push({ id: C.next++, ...o });
+  record(`Threads: ${plan.ops.length} operation${plan.ops.length > 1 ? 's' : ''}${plan.newTools.length ? ' + ' + plan.newTools.length + ' tool' + (plan.newTools.length > 1 ? 's' : '') : ''}`, before);
+  THR.msg = [...plan.ops.map(o => `${o.name}${o.type === 'drill' && o.kind === 'tap' ? ' — ' + (o.depth > 0 ? 'to ' + fmtLs(o.depth) + ' deep' : 'full depth') : ''}`), ...plan.notes];
+  THR.added = plan.ops.length;
+  camRefresh();
+  return plan.ops.length;
+}
+function thrAuto() {
+  const rows = thrRows();
+  if (!rows.length) { toast('No holes or threads to work on.'); return; }
+  const modeled = rows.filter(r => r.modeled);
+  if (!modeled.length) { THR.msg = ['This part has no threads modeled. Name the thread of a hole below (type 1/4-20 UNC, M8x1.25 …) and add it.']; refreshPanel(); return; }
+  THR.sel = new Set(rows.filter(r => thrSelectable(r) && r.vertical).map(r => r.key)); THR.method = {};
+  const pick = rows.filter(r => THR.sel.has(r.key)).map(r => ({ ...r, m: r.rec.m }));
+  thrApply(pick);
+  waitToolpaths().then(() => { if (UIX.ws === 'cam') camRefresh(); });
+}
+// ── the panel ──
+function thrPanel() {
+  const rows = thrRows(); thrInit(rows);
+  const pick = rows.filter(r => THR.sel.has(r.key) && thrSelectable(r)), n = pick.length;
+  const dia = d => fmtDia(d);
+  const list = rows.map(r => {
+    const on = THR.sel.has(r.key) && thrSelectable(r), can = thrSelectable(r);
+    const kind = r.modeled ? `${r.internal ? 'internal' : 'external'}${r.vertical ? '' : ' · at an angle'}` : 'plain drilled hole';
+    const meth = r.vertical && r.internal && can ? `<div class="seg thr-m"><button data-thr-m="${r.key}:tap" class="${r.m === 'tap' ? 'on' : ''}">Tap</button><button data-thr-m="${r.key}:mill" class="${r.m === 'mill' ? 'on' : ''}">Thread mill</button></div>` : '';
+    const tools = !can ? '' : r.m === 'tap' ? `Tap ${r.name} · drill ${r.items[0].d ? dia(r.items[0].d) : '—'}` : r.m === 'mill' ? `Thread mill · ${r.internal ? 'in a ' + (r.items[0].d ? dia(r.items[0].d) : '') + ' hole' : 'round the boss'}` : '';
+    const name = !r.modeled && !r.manual ? `<div class="thr-name"><input type="text" list="thrList" data-thr-name="${r.key}" placeholder="Thread it as… 1/4-20 UNC 2B" autocomplete="off" spellcheck="false">${(r.suggest || []).map(e => `<button class="chip" data-thr-set="${r.key}:${e.name}">${threadName(e)}</button>`).join('')}</div>` : '';
+    return `<li class="thr-row ${on ? 'on' : ''} ${can ? '' : 'plain'}" data-thr="${r.key}"><label class="thr-top"><input type="checkbox" data-thr-sel="${r.key}" ${on ? 'checked' : ''} ${can ? '' : 'disabled'}><span class="thr-n"><b>${r.name}</b><small>${kind} · ×${r.n}${r.len > 0 && r.modeled ? ' · ' + fmtLs(r.len) + ' long' : ''}</small></span></label>${meth}${tools ? `<small class="thr-tool">${tools}</small>` : ''}${r.modeled ? `<small class="thr-why">${r.rec.why}</small>` : ''}${name}</li>`;
+  }).join('');
+  const msg = THR.msg.length ? `<div class="thr-msg"><b>${THR.added ? 'Added to the program' : 'Note'}</b><ul>${THR.msg.map(m => `<li>${m}</li>`).join('')}</ul>${THR.added ? '<div class="btns"><button class="btn" data-camdo="sim">Simulate</button><button class="btn primary" data-camdo="post">G-code</button></div>' : ''}</div>` : '';
+  return `<div class="pn-head"><h2>Threads</h2><span class="tag">${rows.filter(r => r.modeled).length} found</span></div><div class="pn-body">
+    <p class="note">Every thread in the part is listed. Tick the ones to cut — or click a thread in the view. Auto-detect ticks them all, picks each tool and writes the operations with the right places and depths.</p>
+    <div class="btns"><button class="btn primary" data-thr-do="auto">Auto-detect threads</button></div>
+    ${msg}
+    <ul class="thr-list">${list || '<li class="empty">No holes or threads in this part.</li>'}</ul>
+    <datalist id="thrList">${THREAD_STD.map(e => `<option value="${threadName(e)}"></option>`).join('')}</datalist>
+    <div class="btns"><button class="btn" data-thr-do="none" ${n ? '' : 'disabled'}>Clear</button><button class="btn primary" data-thr-do="add" ${n ? '' : 'disabled'}>Add ${n || ''} selected</button></div></div>`;
+}
+(() => {
+  const css = document.createElement('style');
+  css.textContent = `.thr-list { list-style: none; margin: 4px 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.thr-row { border: 1px solid var(--rule); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 5px; cursor: pointer; }
+.thr-row.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.thr-row.plain { cursor: default; } .thr-row:hover { border-color: var(--accent); }
+.thr-top { display: flex; gap: 9px; align-items: flex-start; cursor: pointer; } .thr-top input { margin-top: 3px; }
+.thr-n { display: flex; flex-direction: column; } .thr-n b { font-size: 13px; } .thr-n small, .thr-tool, .thr-why { color: var(--muted); font-size: 11.5px; line-height: 1.4; }
+.thr-tool { color: var(--ink-2); }
+.thr-m { margin: 2px 0; } .thr-m button { padding: 4px 8px; font-size: 11.5px; }
+.thr-name { display: flex; flex-direction: column; gap: 5px; } .thr-name input { width: 100%; } .thr-name .chip { align-self: flex-start; }
+.thr-msg { border: 1px solid var(--rule); border-radius: 10px; padding: 8px 10px; background: var(--panel-2); font-size: 12px; } .thr-msg ul { margin: 4px 0 6px; padding-left: 16px; } .thr-msg li { margin: 2px 0; }`;
+  document.head.appendChild(css);
+})();
+const camPanelTH = camPanel;
+camPanel = function () { if (CAMUI.view === 'threads' && camStock()) return thrPanel(); return camPanelTH.apply(this, arguments); };
+const bindCamPanelTH = bindCamPanel;
+bindCamPanel = function () {
+  bindCamPanelTH.apply(this, arguments);
+  if (CAMUI.view !== 'threads') return;
+  const rerender = () => { THR.msg = THR.msg; refreshPanel(); rebuildHighlights(); requestDraw(); };
+  panel.querySelectorAll('[data-thr-sel]').forEach(c => c.addEventListener('change', () => { if (c.checked) THR.sel.add(c.dataset.thrSel); else THR.sel.delete(c.dataset.thrSel); THR.msg = []; THR.added = 0; rerender(); }));
+  panel.querySelectorAll('[data-thr-m]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); const [k, m] = b.dataset.thrM.split(':'); THR.method[k] = m; rerender(); }));
+  panel.querySelectorAll('[data-thr-do]').forEach(b => b.addEventListener('click', () => {
+    const d = b.dataset.thrDo, rows = thrRows();
+    if (d === 'auto') thrAuto();
+    if (d === 'none') { THR.sel.clear(); rerender(); }
+    if (d === 'add') { const pick = rows.filter(r => THR.sel.has(r.key) && thrSelectable(r)); if (thrApply(pick)) { THR.sel.clear(); waitToolpaths().then(() => { if (UIX.ws === 'cam') camRefresh(); }); } }
+  }));
+  const setName = (key, text) => { const p = parseThread(text); if (!p) { toast('Not a thread size I know — try 1/4-20 UNC 2B or M8x1.25.'); return; } THR.manual[key] = p; THR.sel.add(key); THR.msg = []; THR.added = 0; rerender(); };
+  panel.querySelectorAll('[data-thr-name]').forEach(i => { i.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); setName(i.dataset.thrName, i.value); } }); i.addEventListener('change', () => { if (i.value.trim()) setName(i.dataset.thrName, i.value); }); });
+  panel.querySelectorAll('[data-thr-set]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); const k = b.dataset.thrSet.indexOf(':'); setName(b.dataset.thrSet.slice(0, k), b.dataset.thrSet.slice(k + 1)); }));
+  panel.querySelectorAll('.thr-row').forEach(li => {
+    li.addEventListener('mouseenter', () => { THR.hover = li.dataset.thr; rebuildHighlights(); requestDraw(); });
+    li.addEventListener('mouseleave', () => { THR.hover = null; rebuildHighlights(); requestDraw(); });
+  });
+};
+// faces to light: the ticked threads and the one under the pointer
+const camFacesHLTH = camFacesHL;
+camFacesHL = function () {
+  if (UIX.ws === 'cam' && CAMUI.view === 'threads') {
+    let rows = []; try { rows = thrRows(); } catch (e) { rows = []; }
+    const out = [], bodies = visibleBodies();
+    for (const r of rows) if ((THR.sel.has(r.key) && thrSelectable(r)) || THR.hover === r.key) for (const ref of r.faces) { const f = ref.mesh ? ref : findFace(bodies, ref); if (f) out.push({ mesh: f.mesh, fid: f.fid }); }
+    return out;
+  }
+  return camFacesHLTH.apply(this, arguments);
+};
+// click a thread (or a hole) in the view to tick it
+const thrRowAt = (x, y) => {
+  const h = pick3D(x, y, { faces: true }); if (!h || h.kind !== 'face') return null;
+  const bodies = visibleBodies();
+  for (const r of thrRows()) for (const ref of r.faces) { const f = ref.mesh ? ref : findFace(bodies, ref); if (f && f.fid === h.fid && f.mesh === h.mesh) return { r, h }; }
+  return null;
+};
+const camMoveTH = camMove;
+camMove = function (x, y) {
+  if (CAMUI.view === 'threads') { const hit = thrRowAt(x, y); setHover3D(hit ? hit.h : null); ov.className = hit ? 'pointer' : 'default'; return; }
+  return camMoveTH.apply(this, arguments);
+};
+const camClickTH = camClick;
+camClick = function (x, y) {
+  if (CAMUI.view === 'threads') {
+    const hit = thrRowAt(x, y); if (!hit) return;
+    const r = hit.r;
+    if (!thrSelectable(r)) { toast(`Name the thread of ${r.name} in the panel (type 1/4-20 UNC …) to cut it.`); const i = panel.querySelector(`[data-thr-name="${r.key}"]`); if (i) i.focus(); return; }
+    if (THR.sel.has(r.key)) THR.sel.delete(r.key); else THR.sel.add(r.key);
+    THR.msg = []; THR.added = 0; refreshPanel(); rebuildHighlights(); requestDraw(); return;
+  }
+  return camClickTH.apply(this, arguments);
+};
+</script>
+<!-- THREADCAM-END -->
 <!-- RIB2-BEGIN -->
 <style>
 /* ═════ RIB2: ribbon layout, hover cards for everything, step-by-step side panels ═════ */
@@ -31565,7 +32159,7 @@ function guideHTML(g, plain) {
     if (deco) return; deco = true; obs.disconnect();
     try {
       for (const g of panel.querySelectorAll(':scope > .guide')) g.remove();
-      if (!panel.hidden && panel.firstElementChild) {
+      if (!panel.hidden && panel.firstElementChild && !(typeof GS !== 'undefined' && GS.open)) {
         const g = guideFor(guideKey());
         if (g) {
           const t = document.createElement('div'); t.innerHTML = guideHTML(g);
@@ -31622,5 +32216,36 @@ for (const k in PHY_TAB_TXT) if (!BTN_TXT['phy:' + k]) BTN_TXT['phy:' + k] = [PH
 })();
 </script>
 <!-- RIB2-END -->
+<!-- RIB3-BEGIN -->
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  RIB3: one grid for every ribbon button. In each density, big buttons
+//  are all the same size, the small ones in a column stretch to the
+//  widest and line up row for row across columns, and hovering changes
+//  color only: nothing moves, grows or shifts.
+// ═══════════════════════════════════════════════════════════════════
+(() => {
+  const css = document.createElement('style');
+  const D = '.ribbon:is([data-dens="1"], [data-dens="2"], [data-dens="3"])', D2 = '.ribbon:is([data-dens="2"], [data-dens="3"])';
+  css.textContent = `
+.ribbon .rb-panel .rb-body { gap: 2px; align-items: flex-start; }
+.ribbon .rb-panel .rb-big { box-sizing: border-box; width: 70px; min-width: 70px; max-width: 70px; height: 66px; padding: 5px 3px 3px; gap: 3px; justify-content: flex-start; }
+.ribbon .rb-panel .rb-big svg { width: 24px; height: 24px; flex: none; }
+.ribbon .rb-panel .rb-big > span { display: block; width: 100%; text-align: center; font-size: 11px; line-height: 1.15; }
+.ribbon .rb-panel .rb-col { display: flex; flex-direction: column; justify-content: flex-start; align-items: stretch; gap: 1.5px; height: 66px; min-width: 0; }
+.ribbon .rb-panel .rb-col > .rb-sm { height: 21px; margin: 0; justify-content: flex-start; padding: 0 8px 0 6px; gap: 7px; }
+.ribbon .rb-panel .rb-sm svg { width: 15px; height: 15px; flex: none; }
+.ribbon .rb-panel .rb-btn, .ribbon .rb-panel .rb-btn:hover, .ribbon .rb-panel .rb-btn:active, .ribbon .rb-panel .rb-btn.on { border-width: 1px; transform: none; }
+.ribbon .rb-panel .rb-btn svg, .ribbon .rb-panel .rb-btn:hover svg, .ribbon .rb-panel .rb-btn:active svg { transform: none; transition: none; }
+${D} .rb-panel .rb-big { width: 64px; min-width: 64px; max-width: 64px; padding-left: 2px; padding-right: 2px; }
+${D} .rb-panel .rb-big > span { font-size: 10.5px; }
+${D} .rb-panel .rb-col > .rb-sm { padding: 0 6px 0 4px; gap: 5px; font-size: 11px; }
+${D2} .rb-panel .rb-big { width: 62px; min-width: 62px; max-width: 62px; }
+${D2} .rb-panel .rb-big > span { font-size: 10px; }
+${D2} .rb-panel .rb-col > .rb-sm { padding: 0 4px 0 3px; gap: 4px; font-size: 10.5px; }`;
+  document.head.appendChild(css);
+})();
+</script>
+<!-- RIB3-END -->
 </body>
 </html>
