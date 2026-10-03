@@ -22025,9 +22025,9 @@ function bpRequirements(bodies, bb) {
     const r = findFace(bodies, f.face), s = r && Surf.list[r.fid];
     if (!s || s.t !== 'C') continue;
     const d = 2 * s.r, internal = f.internal === 'auto' || f.internal === undefined ? s.sg < 0 : !!f.internal;
-    const nom = internal ? d + 1.0825 * isoPitch(d) : d, P = f.pitch > 0 ? f.pitch : isoPitch(nom), iso = ISO_PITCH.find(x => Math.abs(x[0] - nom) < 0.6);
+    const nom = internal ? d + 1.0825 * (f.pitch > 0 ? f.pitch : isoPitch(d)) : d, P = f.pitch > 0 ? f.pitch : isoPitch(nom), iso = ISO_PITCH.find(x => Math.abs(x[0] - nom) < 0.6);
     const mm = Math.abs(nom - Math.round(nom)) < 0.3 ? Math.round(nom) : +nom.toFixed(1);             // metric threads are named in mm
-    const text = `M${iso ? iso[0] : mm}×${+P.toFixed(2)}${f.len > 0 ? ' − ' + bpNum(f.len) + ' LG' : ''}${internal ? ' (internal)' : ''}`;
+    const text = f.desig ? `${f.desig}${f.len > 0 ? ' − ' + bpNum(f.len) + ' LG' : ''}${internal ? ' (internal)' : ''}` : `M${iso ? iso[0] : mm}×${+P.toFixed(2)}${f.len > 0 ? ' − ' + bpNum(f.len) + ' LG' : ''}${internal ? ' (internal)' : ''}`;
     add('TH' + f.id, { kind: 'thread', label: `Thread ${text}`, text, needs: [{ t: 'thread', text }], at: faceInfo(r.mesh, r.fid).on, ax: bpAxisOf(s.dir) });
   }
   // bolt circles: 3+ equal holes on one axis, equally spaced round a center
@@ -31172,6 +31172,133 @@ document.getElementById('btnTheme').addEventListener('click', () => {
 });
 </script>
 <!-- GUIDED-END -->
+<!-- THREADS-BEGIN -->
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  THREADS: thread designations. A table of the common standards (ISO
+//  metric coarse and fine, UNC, UNF, UNEF) and a parser for what people
+//  type, "1/4-20 UNC 2B", "M8x1.25", "#10-32", ".25-20". The Thread
+//  panel has a search bar that takes any of them and sets the pitch and
+//  the kind of thread (B and capital-letter classes are internal, A and
+//  lower-case are external), and Manufacture and the blueprint name
+//  threads the same way.
+// ═══════════════════════════════════════════════════════════════════
+const THREAD_STD = (() => {
+  const IN = 25.4, out = [];
+  const numbered = n => 0.060 + 0.013 * n;
+  const U = (size, dIn, tpi, series) => out.push({ std: 'UN', size, series, d: dIn * IN, tpi, pitch: IN / tpi, name: `${size}-${tpi} ${series}` });
+  const sz = s => { if (s[0] === '#') return numbered(+s.slice(1)); const m = /^(?:(\d+)-)?(\d+)\/(\d+)$/.exec(s); if (m) return (m[1] ? +m[1] : 0) + +m[2] / +m[3]; return +s; };
+  for (const [s, t] of [['#1', 64], ['#2', 56], ['#3', 48], ['#4', 40], ['#5', 40], ['#6', 32], ['#8', 32], ['#10', 24], ['#12', 24], ['1/4', 20], ['5/16', 18], ['3/8', 16], ['7/16', 14], ['1/2', 13], ['9/16', 12], ['5/8', 11], ['3/4', 10], ['7/8', 9], ['1', 8], ['1-1/8', 7], ['1-1/4', 7], ['1-3/8', 6], ['1-1/2', 6], ['1-3/4', 5], ['2', 4.5]]) U(s, sz(s), t, 'UNC');
+  for (const [s, t] of [['#0', 80], ['#1', 72], ['#2', 64], ['#3', 56], ['#4', 48], ['#5', 44], ['#6', 40], ['#8', 36], ['#10', 32], ['#12', 28], ['1/4', 28], ['5/16', 24], ['3/8', 24], ['7/16', 20], ['1/2', 20], ['9/16', 18], ['5/8', 18], ['3/4', 16], ['7/8', 14], ['1', 12], ['1-1/8', 12], ['1-1/4', 12], ['1-3/8', 12], ['1-1/2', 12]]) U(s, sz(s), t, 'UNF');
+  for (const [s, t] of [['1/4', 32], ['5/16', 32], ['3/8', 32], ['7/16', 28], ['1/2', 28], ['9/16', 24], ['5/8', 24], ['3/4', 20], ['7/8', 20], ['1', 20]]) U(s, sz(s), t, 'UNEF');
+  const M = (d, p, fine) => out.push({ std: 'ISO', size: 'M' + d, series: fine ? 'fine' : 'coarse', d, tpi: 25.4 / p, pitch: p, name: `M${d}x${p}` });
+  for (const [d, p] of ISO_PITCH) M(d, p, false);
+  for (const [d, p] of [[3, 0.35], [4, 0.5], [5, 0.5], [6, 0.75], [8, 1], [10, 1], [10, 1.25], [12, 1], [12, 1.25], [12, 1.5], [14, 1.5], [16, 1.5], [18, 1.5], [20, 1], [20, 1.5], [22, 1.5], [24, 1.5], [24, 2], [27, 2], [30, 1.5], [30, 2], [36, 2], [36, 3]]) M(d, p, true);
+  for (const e of out) e.search = (e.name + ' ' + e.size + ' ' + e.series + ' ' + (e.std === 'ISO' ? 'metric iso' : 'unified inch ' + e.tpi) + ' ' + (+e.d.toFixed(2))).toLowerCase();
+  return out;
+})();
+// what the entry reads as: inch sizes as typed, metric as M8×1.25
+const threadName = (e, cls) => (e.std === 'ISO' ? `M${e.d}×${e.pitch}` : `${e.size}-${e.tpi} ${e.series}`) + (cls ? ' ' + cls : '');
+// the thread a pitch and a nominal diameter name, for labels: a standard one when it matches, else nothing
+function threadStdOf(nominal, pitch) {
+  const tpi = 25.4 / pitch;
+  const un = THREAD_STD.find(e => e.std === 'UN' && Math.abs(e.d - nominal) < 0.18 && Math.abs(e.tpi - tpi) < 0.06);
+  const iso = THREAD_STD.find(e => e.std === 'ISO' && Math.abs(e.d - nominal) < 0.18 && Math.abs(e.pitch - pitch) < 0.011);
+  return un && (!iso || Math.abs(un.d - nominal) < Math.abs(iso.d - nominal)) ? un : iso || null;
+}
+function parseThread(raw) {
+  const text = String(raw || '').trim().replace(/[×*]/g, 'x').replace(/\s+/g, ' ');
+  if (!text) return null;
+  // metric: M8, M8x1.25, M8 x 1.25 - 6H
+  let m = /^M\s*(\d+(?:\.\d+)?)\s*(?:x\s*(\d+(?:\.\d+)?))?\s*(?:[- ]\s*(\d[A-Za-z](?:\d?[A-Za-z])?))?$/i.exec(text);
+  if (m) {
+    const d = +m[1], p = m[2] ? +m[2] : (ISO_PITCH.find(r => Math.abs(r[0] - d) < 1e-6) || [0, isoPitch(d)])[1], cls = m[3] || null;
+    const e = THREAD_STD.find(x => x.std === 'ISO' && Math.abs(x.d - d) < 1e-6 && Math.abs(x.pitch - p) < 1e-6) || { std: 'ISO', size: 'M' + d, series: 'fine', d, pitch: p, tpi: 25.4 / p, name: `M${d}x${p}` };
+    return { entry: e, cls, internal: cls ? /^[0-9][A-Z]/.test(cls) && !/[a-z]/.test(cls) : null, nominal: e.d, pitch: e.pitch, label: threadName(e, cls) };
+  }
+  // unified: 1/4-20 UNC 2B, #10-32 UNF, .250-20, 1-1/8-7
+  let s = text.toUpperCase();
+  const cm = /\b([123][AB])\b/.exec(s); const cls = cm ? cm[1] : null; if (cm) s = s.replace(cm[0], ' ');
+  const sm = /\b(UNEF|UNF|UNC|UN)\b/.exec(s); const series = sm ? sm[1] : null; if (sm) s = s.replace(sm[0], ' ');
+  s = s.replace(/\s+/g, ' ').trim();
+  m = /^(#\s*\d+|\d+\s*-\s*\d+\s*\/\s*\d+|\d+\s+\d+\s*\/\s*\d+|\d+\s*\/\s*\d+|\d*\.\d+|\d+)(?:\s*[- ]\s*(\d+(?:\.\d+)?))?$/.exec(s);
+  if (!m) return null;
+  const tok = m[1].replace(/\s*-\s*/g, '-').replace(/^#\s*/, '#').replace(/^(\d+)\s+(\d+\/\d+)$/, '$1-$2').replace(/\s+/g, ''), tpiIn = m[2] ? +m[2] : null;
+  const val = t => { if (t[0] === '#') return 0.060 + 0.013 * +t.slice(1); const f = /^(?:(\d+)-)?(\d+)\/(\d+)$/.exec(t); return f ? (f[1] ? +f[1] : 0) + +f[2] / +f[3] : +t; };
+  const cands = THREAD_STD.filter(e => e.std === 'UN' && (e.size === tok || (tok.indexOf('.') >= 0 && Math.abs(e.d / 25.4 - +tok) < 0.0021) || (/^\d+$/.test(tok) && +tok <= 12 && tok !== '1' && tok !== '2' && e.size === '#' + tok)));
+  const pick = cands.filter(e => (!series || e.series === (series === 'UN' ? e.series : series)) && (tpiIn == null || Math.abs(e.tpi - tpiIn) < 0.06));
+  let e = pick[0];
+  if (!e && tpiIn) {   // a size and a TPI the table does not list: still a valid unified thread
+    const dIn = val(tok); if (!(dIn > 0)) return null;
+    e = { std: 'UN', size: tok, series: series || 'UN', d: dIn * 25.4, tpi: tpiIn, pitch: 25.4 / tpiIn, name: `${tok}-${tpiIn} ${series || 'UN'}` };
+  }
+  if (!e) return null;
+  return { entry: e, cls, internal: cls ? cls[1] === 'B' : null, nominal: e.d, pitch: e.pitch, label: threadName(e, cls) };
+}
+function threadSuggest(q, n = 8) {
+  const t = String(q || '').trim().toLowerCase().replace(/[×*]/g, 'x');
+  if (!t) return THREAD_STD.filter(e => ['1/4-20 UNC', '3/8-16 UNC', '1/2-13 UNC', '#10-24 UNC', '#10-32 UNF', '5/16-18 UNC'].includes(e.name) || ['M6x1', 'M8x1.25', 'M10x1.5', 'M5x0.8', 'M12x1.75'].includes(e.name)).slice(0, n);
+  const parts = t.replace(/[-\/x#]/g, ' ').split(/\s+/).filter(Boolean), flat = t.replace(/\s+/g, '');
+  const direct = THREAD_STD.filter(e => e.name.toLowerCase().replace(/\s+/g, '').startsWith(flat) || e.search.includes(t));
+  const loose = THREAD_STD.filter(e => !direct.includes(e) && parts.every(w => e.search.includes(w)));
+  return [...direct, ...loose].slice(0, n);
+}
+// apply a designation to the thread being made
+function threadApply(parsed) {
+  const f = CMD && CMD.type === 'thread' && CMD.f; if (!f || !parsed) return;
+  f.pitch = +parsed.pitch.toFixed(4); f.desig = parsed.label; f.nom = +parsed.nominal.toFixed(3); f.cls = parsed.cls || null;
+  if (parsed.internal != null) f.internal = parsed.internal;
+  threadDescribe(); modelChanged(true); refreshPanel();
+}
+// the Thread panel: a search bar on top, what it set, and whether the picked face matches
+const threadPanelT = threadPanel;
+threadPanel = function () {
+  let h = threadPanelT();
+  const f = CMD.f, i = CMD.info;
+  // a pitch the list does not have (inch threads) still shows as chosen
+  if (f.pitch > 0 && !PITCHES.includes(f.pitch)) h = h.replace(/<select id="thPitch">/, `<select id="thPitch"><option value="${f.pitch}" selected>${+f.pitch.toFixed(3)} mm · ${(25.4 / f.pitch).toFixed(1)} TPI</option>`).replace(/(<select id="thPitch">[\s\S]*?)<option value="0" selected>/, '$1<option value="0">');
+  let note = '';
+  if (f.desig && f.nom && i) {
+    const want = (i.internal ? f.nom - 1.0825 * f.pitch : f.nom), got = i.d, bad = Math.abs(got - want) > Math.max(0.15, 0.04 * want);
+    const dia = v => (isIn() ? `Ø${fmt(v / 25.4, 3)}"` : `Ø${+v.toFixed(2)}`);
+    note = bad ? `<p class="note err-note">${f.desig} ${i.internal ? 'needs a hole (the minor diameter) of about ' + dia(want) : 'needs a shaft of about ' + dia(want)}, but this face is ${dia(got)}. Resize it in the sketch or pick another face.</p>`
+      : `<p class="note">✓ ${f.desig}: the face is ${dia(got)}, ${i.internal ? 'the tap drill' : 'the major diameter'} for it.</p>`;
+  } else if (f.desig && !i) note = `<p class="note">${f.desig}: pick ${f.internal === true ? 'a hole of about ' + (isIn() ? 'Ø' + fmt((f.nom - 1.0825 * f.pitch) / 25.4, 3) + '"' : 'Ø' + +(f.nom - 1.0825 * f.pitch).toFixed(2)) : f.internal === false ? 'a shaft of about ' + (isIn() ? 'Ø' + fmt(f.nom / 25.4, 3) + '"' : 'Ø' + +f.nom.toFixed(2)) : 'the cylindrical face'}.</p>`;
+  const bar = `<div class="field th-search"><span>Thread — type a size</span><input type="text" id="thSearch" autocomplete="off" spellcheck="false" placeholder="1/4-20 UNC 2B · M8x1.25 · #10-32 UNF" value="${(f.desig || '').replace(/"/g, '&quot;')}"><ul class="th-sug" id="thSug" hidden></ul></div>${note}`;
+  if (f.desig) h = h.replace(/(<div class="pick [^"]*"><span>[^<]*<\/span><span class="n">)[^<]*(<\/span>)/, `$1${f.desig.replace(/\$/g, '')}$2`);
+  return h.replace('<div class="pn-body">', '<div class="pn-body">' + bar);
+};
+(() => {
+  const css = document.createElement('style');
+  css.textContent = `.th-search { position: relative; } .th-search input { width: 100%; }
+.th-sug { position: absolute; left: 0; right: 0; top: 100%; z-index: 20; margin: 2px 0 0; padding: 3px; list-style: none; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; box-shadow: var(--shadow); max-height: 260px; overflow: auto; }
+.th-sug li { display: flex; justify-content: space-between; gap: 10px; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 12.5px; }
+.th-sug li small { color: var(--muted); } .th-sug li:hover, .th-sug li.on { background: var(--accent-soft); }`;
+  document.head.appendChild(css);
+})();
+const bindPanelT = bindPanel;
+bindPanel = function () {
+  bindPanelT.apply(this, arguments);
+  const inp = document.getElementById('thSearch'); if (!inp || !(CMD && CMD.type === 'thread')) return;
+  const ul = document.getElementById('thSug'); let sel = -1, list = [];
+  const show = () => {
+    list = threadSuggest(inp.value); sel = -1;
+    ul.innerHTML = list.map((e, k) => `<li data-k="${k}"><b>${threadName(e)}</b><small>${e.std === 'ISO' ? 'metric ' + e.series : 'Ø' + fmt(e.d, 2) + ' mm · ' + (+e.pitch.toFixed(3)) + ' pitch'}</small></li>`).join('');
+    ul.hidden = !list.length;
+  };
+  const take = e => { const p = parseThread(e.name) || { entry: e, cls: null, internal: null, nominal: e.d, pitch: e.pitch, label: threadName(e) }; const typed = parseThread(inp.value); const cls = typed && typed.entry === e ? typed.cls : null; ul.hidden = true; threadApply({ ...p, cls, internal: typed && typed.entry === e && typed.internal != null ? typed.internal : p.internal, label: threadName(e, cls) }); };
+  inp.addEventListener('input', show); inp.addEventListener('focus', show);
+  inp.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); if (!list.length) show(); sel = (sel + (e.key === 'ArrowDown' ? 1 : -1) + list.length) % list.length; ul.querySelectorAll('li').forEach((li, k) => li.classList.toggle('on', k === sel)); }
+    else if (e.key === 'Enter') { e.preventDefault(); const p = parseThread(inp.value); if (p) { ul.hidden = true; threadApply(p); } else if (list[Math.max(0, sel)]) take(list[Math.max(0, sel)]); else toast('Not a thread size I know — try 1/4-20 UNC 2B or M8x1.25.'); }
+    else if (e.key === 'Escape') { ul.hidden = true; }
+  });
+  ul.addEventListener('mousedown', e => { const li = e.target.closest('li'); if (li) { e.preventDefault(); take(list[+li.dataset.k]); } });
+  inp.addEventListener('blur', () => setTimeout(() => { ul.hidden = true; }, 120));
+};
+</script>
+<!-- THREADS-END -->
 <!-- RIB2-BEGIN -->
 <style>
 /* ═════ RIB2: ribbon layout, hover cards for everything, step-by-step side panels ═════ */
