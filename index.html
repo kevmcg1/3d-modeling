@@ -29505,7 +29505,7 @@ const TIP_TXT = {
   card.id = 'tipcard'; card.hidden = true;
   document.body.appendChild(card);
   let el = null, t1 = 0, t2 = 0;
-  const keyOf = b => b.dataset.act || b.dataset.cam || b.dataset.sheet || b.dataset.tool || '';
+  const keyOf = b => b.dataset.tipkey || b.dataset.act || b.dataset.cam || b.dataset.sheet || b.dataset.tool || '';
   const hide = () => { clearTimeout(t1); clearTimeout(t2); card.classList.remove('in', 'more'); card.hidden = true; if (el && el.dataset.tipTitle) { el.title = el.dataset.tipTitle; delete el.dataset.tipTitle; } el = null; };
   const place = () => {
     if (!el) return;
@@ -29530,7 +29530,7 @@ const TIP_TXT = {
     if (tx[1]) t2 = setTimeout(() => { card.classList.add('more'); requestAnimationFrame(place); setTimeout(place, 260); }, 1400);
   };
   document.addEventListener('pointerover', e => {
-    const b = e.target.closest && e.target.closest('#toolbar button:not(.rb-arrow), #toolbar [data-act], #toolbar [data-cam], #topbar button:not(.rb-arrow), #viewtools button, #visGroup button, [data-selmode], #simbar button, #simbar .play, #phy .phy-bar button');
+    const b = e.target.closest && e.target.closest('[data-tipkey], #toolbar button:not(.rb-arrow), #toolbar [data-act], #toolbar [data-cam], #topbar button:not(.rb-arrow), #viewtools button, #visGroup button, [data-selmode], #simbar button, #simbar .play, #phy .phy-bar button');
     if (b === el) return;
     hide();
     if (!b || e.pointerType === 'touch') return;
@@ -33928,8 +33928,8 @@ function tipInfoFor(b, k) {
   const d = b.dataset, k2 = d.ws ? 'ws:' + d.ws : d.vis ? 'vis:' + d.vis : d.selmode ? 'sel:' + d.selmode : d.phy ? 'phy:' + d.phy : b.id;
   let tx = TIP_TXT[k] || BTN_TXT[k2] || BTN_TXT[b.id];
   const sp = b.querySelector(':scope > span:not(.rip-wrap)'), raw = b.dataset.tipTitle || b.getAttribute('title') || b.dataset.tip || '';
-  const name = (sp && sp.textContent.trim()) || raw.replace(/\s*\(.*\)$/, '').trim() || b.textContent.trim() || b.getAttribute('aria-label') || '';
-  const key = (/\(([^)]+)\)$/.exec(raw) || [])[1];
+  const name = d.tipname || (sp && sp.textContent.trim()) || raw.replace(/\s*\(.*\)$/, '').trim() || b.textContent.trim() || b.getAttribute('aria-label') || '';
+  const key = d.tipkbd || (/\(([^)]+)\)$/.exec(raw) || [])[1];
   if (!tx && /^add:/.test(k) && typeof OP_INFO !== 'undefined') {
     const o = OP_INFO[k.split(':')[1]];
     if (o) tx = [o.tip, ['Pick the tool and what to cut (or leave it on Auto).', 'Set the depths and the stepover.', 'Check the path in the view, then Simulate.']];

@@ -38,6 +38,10 @@ Datum has a **3D Print** workspace (next to Design and Manufacture) that slices 
 
 **Stress test**: `NODE_PATH=<dir with clipper-lib> node test/slicer.stress.js` (add `--quick` to sample) slices 20 awkward parts (thin walls, overhangs, open or degenerate meshes, floating bodies), about 100 extreme setting combinations, every printer with every material and a 2000-layer job, and checks each G-code file for bad numbers, moves outside the bed, absurd extrusion, temperatures above printer limits and speeds above machine limits.
 
+**Hover help and controls**: every button, setting and field shows the same hover card as Design (what it does, a before and after picture where one helps, and the steps to use it). There are no browser tooltips. Dropdowns use the animated popup, and number fields, switches and the layer slider share one look.
+
+**Browser test**: `NODE_PATH=<dir with playwright-core, three, clipper-lib> node test/print-ui.e2e.js` (add `--quick` to sample) opens the app in Chromium, checks the hover cards, clicks every ribbon, panel and layer-bar control, tries every printer and filament, and changes every slicer option through its own input and slices.
+
 ## Not included
 
 Tree support, adaptive layer height, per-model settings and modifier meshes, multi-part arrangement, multi-color printing, and sending the file to the printer over the network (copy the `.gcode` to a USB stick or microSD card instead). Print-time estimates are approximate. The K1 family runs Klipper but accepts the same G-code.
