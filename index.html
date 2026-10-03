@@ -5919,26 +5919,82 @@ function threadInfo(s, fi) {
   const internal = s.sg < 0;
   return { internal, dMajor: internal ? null : 2 * s.r, dMinor: internal ? 2 * s.r : null, len: fi.h1 - fi.h0 };
 }
+// Volume of a closed polygon solid (signed tetrahedra against the origin).
+function polyVolume(ps) {
+  let v = 0;
+  for (const p of ps) for (let q = 1; q + 1 < p.v.length; q++) { const a = p.v[0], b = p.v[q], c = p.v[q + 1]; v += (a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0])) / 6; }
+  return v;
+}
+// Cut a thread cutter out of a body and prove the result is sane: a cut can only take away material, and no more than the cutter holds.
+// The boolean's splitting can occasionally go wrong on a part with many faces (it once took half a plate with it), and a different
+// facet count shakes it loose, so a bad result is retried that way, then cut a few turns at a time. If it still will not hold, the
+// thread is refused rather than leaving a broken body.
+function threadCut(polys, mk, zA, zB, N, P) {
+  const v0 = polyVolume(polys), holds = (r, G, from) => { const v = polyVolume(r); return v <= from + 1e-3 && v >= from - polyVolume(G) - 1e-3; };
+  for (const n of [N, N + 12, Math.max(12, N - 12), N + 24]) {
+    const G = mk(zA, zB, n), r = CSG.subtract(polys, G);
+    if (holds(r, G, v0)) return r;
+  }
+  let cur = polys, vc = v0;
+  const segs = Math.max(2, Math.ceil((zB - zA) / (2 * P)));
+  for (let j = 0; j < segs; j++) {
+    const a = zA + (zB - zA) * j / segs - (j ? 0.02 : 0), b = zA + (zB - zA) * (j + 1) / segs + (j < segs - 1 ? 0.02 : 0), G = mk(a, b, N), r = CSG.subtract(cur, G);
+    if (!holds(r, G, vc)) throw new Error('This thread could not be cut cleanly in this part. Try a different pitch or a shorter length.');
+    cur = r; vc = polyVolume(r);
+  }
+  return cur;
+}
+// Every hole (or shaft) the same exact size as this one, all the way round: not a corner radius or a slot end.
+function sameSizeFaces(s0, bodies) {
+  const out = [];
+  for (const b of bodies) {
+    const mesh = bodyMesh(b), seen = new Set();
+    for (const p of mesh.PL) {
+      const fid = p.f; if (seen.has(fid)) continue; seen.add(fid);
+      const s = Surf.list[fid];
+      if (!s || s.t !== 'C' || s.sg !== s0.sg || Math.abs(s.r - s0.r) > 1e-4) continue;
+      const ax = axisFrame(s.p, s.dir), as = [];
+      for (const q of mesh.PL) if (q.f === fid) for (const i of q.ids) { const w = sub3(mesh.VP[i], ax.p); as.push(mod(Math.atan2(dot3(w, ax.e2), dot3(w, ax.e1)), TAU)); }
+      if (!as.length) continue;
+      as.sort((x, y) => x - y);
+      let gap = as[0] + TAU - as[as.length - 1];
+      for (let i = 0; i + 1 < as.length; i++) gap = Math.max(gap, as[i + 1] - as[i]);
+      if (TAU - gap >= TAU * 5 / 6) out.push({ body: b, mesh, fid });
+    }
+  }
+  return out;
+}
 function evalThread(f, ctx) {
-  const r = findFace(ctx.bodies, f.face);
-  if (!r) throw new Error('Face no longer exists');
-  const s = Surf.list[r.fid];
-  if (s.t !== 'C') throw new Error('Threads need a cylindrical face');
-  const fi = faceInfo(r.mesh, r.fid), ax = axisFrame(s.p, s.dir);
-  const inset = 1e-3, len = f.len > 0 ? Math.min(f.len, fi.h1 - fi.h0) : fi.h1 - fi.h0;
-  let zA = fi.h0 + inset, zB = fi.h0 + len - inset;
-  if (f.fromEnd) { zB = fi.h1 - inset; zA = fi.h1 - len + inset; }
-  const internal = f.internal === 'auto' || f.internal === undefined ? s.sg < 0 : !!f.internal;
-  const d = 2 * s.r, P = f.pitch > 0 ? f.pitch : isoPitch(internal ? d + 1.0825 * isoPitch(d) : d);
-  if (zB - zA < P * 0.5) throw new Error('Face is shorter than half a pitch');
-  // run out: a thread cut from the end carries on past it, through any chamfer or round there,
-  // the way a die or thread mill leaves it — so a nut starts on it
-  if (f.fromEnd && f.runout !== false) zB = fi.h1 + 1.5 * P;
+  const r0 = findFace(ctx.bodies, f.face);
+  if (!r0) throw new Error('Face no longer exists');
+  const s0 = Surf.list[r0.fid];
+  if (s0.t !== 'C') throw new Error('Threads need a cylindrical face');
+  // the picked face first; with "same size" ticked, every other hole of that exact size too (each keeps its own length)
+  const targets = [{ id: r0.body.id, fid: r0.fid }];
+  if (f.same) for (const o of sameSizeFaces(s0, ctx.bodies)) if (!(o.body.id === r0.body.id && o.fid === r0.fid)) targets.push({ id: o.body.id, fid: o.fid });
   const tagSet = new Set();
-  const G = threadShell({ ...ax, R: s.r, internal, P, hand: f.hand === 'L' ? -1 : 1, zA, zB, N: f.res || 48, tag: f.id });
-  for (const p of G) if (!tagSet.has(p.f)) { tagSet.add(p.f); Surf.addMeta(p.f, { feat: f.id }); }
-  const mk = (id, polys) => ({ id, polys, bb: bboxPolys(polys) });
-  ctx.bodies = ctx.bodies.map(b => b === r.body ? mk(b.id, CSG.subtract(b.polys, G)) : b);
+  targets.forEach((t, ti) => {
+    const body = ctx.bodies.find(b => b.id === t.id); if (!body) return;
+    try {
+      const mesh = bodyMesh(body), s = Surf.list[t.fid], fi = faceInfo(mesh, t.fid), ax = axisFrame(s.p, s.dir);
+      const inset = 1e-3, len = f.len > 0 ? Math.min(f.len, fi.h1 - fi.h0) : fi.h1 - fi.h0;
+      let zA = fi.h0 + inset, zB = fi.h0 + len - inset;
+      if (f.fromEnd) { zB = fi.h1 - inset; zA = fi.h1 - len + inset; }
+      const internal = f.internal === 'auto' || f.internal === undefined ? s.sg < 0 : !!f.internal;
+      const d = 2 * s.r, P = f.pitch > 0 ? f.pitch : isoPitch(internal ? d + 1.0825 * isoPitch(d) : d);
+      if (zB - zA < P * 0.5) throw new Error('Face is shorter than half a pitch');
+      // run out: a thread cut from the end carries on past it, through any chamfer or round there,
+      // the way a die or thread mill leaves it — so a nut starts on it
+      if (f.fromEnd && f.runout !== false) zB = fi.h1 + 1.5 * P;
+      const mk = (a, b, n) => {
+        const G = threadShell({ ...ax, R: s.r, internal, P, hand: f.hand === 'L' ? -1 : 1, zA: a, zB: b, N: n, tag: f.id });
+        for (const p of G) if (!tagSet.has(p.f)) { tagSet.add(p.f); Surf.addMeta(p.f, { feat: f.id }); }
+        return G;
+      };
+      const polys = threadCut(body.polys, mk, zA, zB, f.res || 48, P);
+      ctx.bodies = ctx.bodies.map(b => b === body ? { id: b.id, polys, bb: bboxPolys(polys) } : b);
+    } catch (e) { if (ti === 0) throw e; }                        // a neighbour that cannot take it is skipped; the picked one must
+  });
 }
 </script>
 <script data-kernel>
@@ -6983,11 +7039,21 @@ function evalShell(f, ctx) {
 }
 
 // ── Pattern (rectangular, circular) and mirror ─────────────────────
+// An array's direction: the axis or edge picked, flipped if asked, then turned about the vertical by yaw degrees and tilted up or down
+// from the ground plane by tilt degrees. 0 and 0 leaves it exactly as picked.
+function patDir(dir, flip, yaw, tilt) {
+  let d = nrm3(mul3(dir, flip ? -1 : 1));
+  const rod = (v, k, a) => { const c = Math.cos(a), s = Math.sin(a); return add3(add3(mul3(v, c), mul3(crs3(k, v), s)), mul3(k, dot3(k, v) * (1 - c))); };
+  const up = [0, 1, 0];
+  if (yaw) d = nrm3(rod(d, up, yaw * Math.PI / 180));
+  if (tilt) { let h = crs3(up, d); h = len3(h) < 1e-6 ? [1, 0, 0] : nrm3(h); d = nrm3(rod(d, h, tilt * Math.PI / 180)); }
+  return d;
+}
 function patternXforms(f, ctx) {
   const out = [];
   if (f.kind === 'rect') {
-    const d1 = mul3(resolveAxis(f.dir1, ctx).dir, f.flip1 ? -1 : 1), n1 = Math.max(1, Math.round(f.n1 || 1));
-    const two = f.dir2 && Math.round(f.n2 || 1) > 1, d2 = two ? mul3(resolveAxis(f.dir2, ctx).dir, f.flip2 ? -1 : 1) : [0, 0, 0], n2 = two ? Math.round(f.n2) : 1;
+    const d1 = patDir(resolveAxis(f.dir1, ctx).dir, f.flip1, f.yaw1, f.tilt1), n1 = Math.max(1, Math.round(f.n1 || 1));
+    const two = f.dir2 && Math.round(f.n2 || 1) > 1, d2 = two ? patDir(resolveAxis(f.dir2, ctx).dir, f.flip2, f.yaw2, f.tilt2) : [0, 0, 0], n2 = two ? Math.round(f.n2) : 1;
     for (let i = 0; i < n1; i++) for (let j = 0; j < n2; j++) if (i || j) out.push(XF.trans(add3(mul3(d1, f.s1 * i), mul3(d2, (f.s2 || 0) * j))));
   } else if (f.kind === 'circ') {
     const ax = resolveAxis(f.axis, ctx), n = Math.max(1, Math.round(f.n || 1)), tot = (f.angle === undefined ? 360 : f.angle) * Math.PI / 180;
@@ -10487,7 +10553,7 @@ function cmdThread(editF) {
   if (CMD) cancelCmd();
   const snapshot = snap();
   let f = editF;
-  if (!f) { f = { id: newId(), type: 'thread', name: featName('thread'), face: null, pitch: 0, hand: 'R', internal: 'auto', len: 0, fromEnd: false }; }
+  if (!f) { f = { id: newId(), type: 'thread', name: featName('thread'), face: null, pitch: 0, hand: 'R', internal: 'auto', len: 0, fromEnd: false, same: false }; }
   CMD = { type: 'thread', f, isNew: !editF, snapshot, pick: null };
   if (editF) threadDescribe();
   else if (sel3D && sel3D.kind === 'face' && Surf.list[sel3D.fid].t === 'C') { setThreadFace(sel3D); }
@@ -10518,7 +10584,8 @@ function threadDescribeFrom(c, before) {
   const s = Surf.list[r.fid], fi = faceInfo(r.mesh, r.fid);
   const internal = f.internal === 'auto' ? s.sg < 0 : f.internal;
   const d = 2 * s.r, P = f.pitch > 0 ? f.pitch : isoPitch(internal ? d + 1.0825 * isoPitch(d) : d);
-  CMD.info = { internal, d, P, len: fi.h1 - fi.h0, nominal: internal ? d + 1.0825 * P : d };
+  let same = 0; try { same = sameSizeFaces(s, before).length - 1; } catch (e) { /* none */ }
+  CMD.info = { internal, d, P, len: fi.h1 - fi.h0, nominal: internal ? d + 1.0825 * P : d, same: Math.max(0, same) };
 }
 function threadOK() {
   const f = CMD.f;
@@ -11263,6 +11330,7 @@ function threadPanel() {
     <div class="field"><span>Pitch</span><select id="thPitch"><option value="0" ${!(f.pitch > 0) ? 'selected' : ''}>ISO coarse${i ? ' (' + i.P + ' mm · ' + (25.4 / i.P).toFixed(1) + ' TPI)' : ''}</option>${PITCHES.map(p => `<option value="${p}" ${f.pitch === p ? 'selected' : ''}>${p} mm · ${(25.4 / p).toFixed(1)} TPI</option>`).join('')}</select></div>
     <div class="field"><span>Hand</span>${seg('hand', [['R', 'Right'], ['L', 'Left']])}</div>
     <div class="row2"><label class="field"><span>Length, ${uName()} (0 = full)</span><input type="number" id="thLen" data-live="1" min="0" step="${isIn() ? 0.05 : 1}" value="${uval(f.len || 0)}"></label><div class="field"><span>Start from</span>${seg('fromEnd', [['false', 'Base'], ['true', 'End']])}</div></div>
+    ${i && i.same > 0 ? `<label class="chk"><input type="checkbox" id="thSame" ${f.same ? 'checked' : ''}> Apply same thread properties to ${i.internal ? 'holes' : 'shafts'} of same size <small>(${i.same} other${i.same > 1 ? 's' : ''})</small></label>` : ''}
     ${f.fromEnd ? `<div class="field"><span>At the end</span><div class="seg"><button data-th="runout:true" class="${f.runout !== false ? 'on' : ''}">Run out through it</button><button data-th="runout:false" class="${f.runout === false ? 'on' : ''}">Stop at the face</button></div></div>` : ''}
     ${err ? `<p class="note err-note">${err}</p>` : ''}
     <p class="note">Modeled 60° ISO metric profile, cut as a true helix. External threads go on shafts, internal threads in holes (the hole is the minor diameter).</p>
@@ -11418,6 +11486,8 @@ function bindPanel() {
   panel.querySelectorAll('[data-th]').forEach(b => b.addEventListener('click', () => { const [k, v] = b.dataset.th.split(':'); CMD.f[k] = v === 'true' ? true : v === 'false' ? false : v; threadDescribe(); modelChanged(); }));
   const tp = document.getElementById('thPitch');
   if (tp) tp.addEventListener('change', () => { CMD.f.pitch = parseFloat(tp.value) || 0; threadDescribe(); modelChanged(); });
+  const ts = document.getElementById('thSame');
+  if (ts) ts.addEventListener('change', () => { CMD.f.same = ts.checked; modelChanged(); });
   const tl = document.getElementById('thLen');
   if (tl) tl.addEventListener('input', () => { const v = fromU(parseFloat(tl.value)); CMD.f.len = v > 0 ? v : 0; modelChanged(); });
   const cd = document.getElementById('chD');
@@ -12688,6 +12758,23 @@ function allowedOutside(keepOut, st, r) {
   const big = [cP([P2(st.x0 - 4 * r - 50, st.y0 - 4 * r - 50), P2(st.x1 + 4 * r + 50, st.y0 - 4 * r - 50), P2(st.x1 + 4 * r + 50, st.y1 + 4 * r + 50), P2(st.x0 - 4 * r - 50, st.y1 + 4 * r + 50)])];
   return keepOut.length ? cDiff(big, keepOut) : big;
 }
+// A picked face on its own: is its boundary a recess (walls rising around it) or a raised surface (open space around it)?
+// Probes just beyond the face's edge at sample points: material standing higher than the face there is a wall; nothing higher
+// (a step down, or no part at all) is open space, and the lowest level seen out there is how deep the walls go.
+function contourFaceSide(sel, part) {
+  let open = 0, wall = 0, lowest = Infinity;
+  for (const f of sel) {
+    const rg = faceRegion(f.mesh, f.fid); if (!rg) continue;
+    const pts = rg.outer, ccw = cArea(cP(pts)) > 0, step = Math.max(1, Math.floor(pts.length / 32));
+    for (let k = 0; k < pts.length; k += step) {
+      const q = probeRight(pts, k, (ccw ? 1 : -1) * 0.3), top = partTopAt(q.x, q.y);
+      if (top > f.z + 0.05) wall++;
+      else if (Math.abs(top - f.z) <= 0.05) continue;                    // flush with the face: neither a wall nor a drop
+      else { open++; lowest = Math.min(lowest, isFinite(top) ? top : part.z0); }
+    }
+  }
+  return { side: open > wall ? 'outside' : 'inside', open, wall, lowest: isFinite(lowest) ? lowest : part.z0 };
+}
 // Rest machining: the part of `area` (where material is to go) that a tool of
 // diameter D could not reach — inside corners tighter than it, gaps narrower
 // than it. Slivers thinner than a few hundredths are ignored.
@@ -13036,7 +13123,8 @@ const GEN = {
   },
   contour(op, tool, st, part, P) {
     const r = tool.d / 2, leave = op.leave || 0;
-    let region = [], bottom;
+    let region = [], bottom, faceNote = null, faceInfo2 = null;
+    const wallPct = (d, openSide) => { const t = d.open + d.wall || 1; return Math.round(d.wall / t * 100); };
     if (op.holes) {
       // cut-outs: the through openings inside the chosen faces, cut from the inside
       // cut down only as far as the wall round the opening goes (a shell's top is thin)
@@ -13056,7 +13144,13 @@ const GEN = {
       const sel = resolveCamFaces(op.faces);
       if (!sel.length) { P.warn.push('The chosen faces no longer exist.'); return; }
       for (const f of sel) { const rg = faceRegion(f.mesh, f.fid); if (rg) region.push(orient(cP(rg.outer), true)); }
-      bottom = Math.min(...sel.map(f => f.z)) - (op.through || 0);
+      const fz = Math.min(...sel.map(f => f.z)), det = contourFaceSide(sel, part);
+      if (op.side === 'auto' || op.side === undefined) op = { ...op, side: det.side };            // Auto: follow the open space
+      // outside a raised face the walls go all the way down to the lowest open level around it, so the whole wall is cut
+      bottom = (op.side === 'inside' ? fz : Math.min(fz, det.lowest)) - (op.through || 0);
+      faceNote = op.side === 'inside' ? `Recess: walls rise around this face (${wallPct(det)}% of its edge), so the tool runs inside its edge, down to the floor`
+        : `Raised face: open space around it (${100 - wallPct(det)}% of its edge), so the tool runs outside its edge, down to ${fmtLs(st.z1 - bottom)} below the top of the stock, the lowest open level around it`;
+      faceInfo2 = det;
     } else if (op.side !== 'inside') {
       // the outside profile: the part's whole outline seen from above, whatever its shape
       region = silhouetteAbove(part.z0 - 1).map(p => p.slice());
@@ -13070,6 +13164,12 @@ const GEN = {
     const inside = op.side === 'inside';
     let loops = cOffset(region, inside ? -(r + leave) : r + leave).filter(p => cArea(p) > 0);
     if (!loops.length) { P.warn.push('The tool is too large for this boundary.'); return; }
+    if (faceNote) {                                                    // a picked face: make sure the path really mills all of its edge
+      P.info = faceNote;
+      const band = inside ? cDiff(region, cOffset(region, -0.3)) : cDiff(cOffset(region, 0.3), region), reach = cOffset(loops, r + 0.03), area = ps => ps.reduce((a, q) => a + Math.abs(cArea(q)), 0);   // the strip of wall on the tool's side that the path has to sweep
+      const miss = area(cDiff(band, reach)), total = area(band);
+      if (total > 0 && miss / total > 0.02) P.warn.push(`The Ø${fmtD(tool.d)} tool cannot reach ${Math.round(miss / total * 100)}% of this face's edge (too narrow there): use a smaller tool.`);
+    }
     if (!inside && !op.holes && op.restD > tool.d + 1e-6) { contourRest(op, tool, st, P, region, loops, bottom); return; }
     if (!inside && !op.holes) {
       // Stock left beyond the tool's reach (where the outline steps in) would come
@@ -13099,7 +13199,8 @@ const GEN = {
     }
     const zs = levels(st.z1, bottom, op.stepdown), safe = st.z1 + cam().safe, ret = st.z1 + cam().retract;
     // where the tool center may go at depth without touching the part
-    const allowed = inside ? cOffset(region, -(r + leave) + 0.01) : allowedOutside(cOffset(region, r + leave - 0.01), st, r);
+    const allowed = inside ? cOffset(region, -(r + leave) + 0.01)
+      : allowedOutside(cOffset(faceNote ? cUnion([...region, ...silhouetteAbove(bottom + 0.05)]) : region, r + leave - 0.01), st, r);   // (a picked face also keeps clear of anything else standing higher than the cut)
     // loops that nest into one another are one group: all its loops at a depth, then the next depth
     const par = loops.map((_, i) => i), find = i => { while (par[i] !== i) i = par[i] = par[par[i]]; return i; };
     loops.forEach((a, i) => loops.forEach((b, j) => { if (j > i && (inPaths(uP([b[0]])[0], [a]) || inPaths(uP([a[0]])[0], [b]))) par[find(j)] = find(i); }));
@@ -14763,7 +14864,7 @@ function camAddOp(type, kind) {
   const base = { id: C.next++, type, name: label + (n > 1 ? ' ' + n : '') };
   const defs = {
     face: { tool: pick('face'), stepover: 0.7, stepdown: 1, leave: 0, pattern: 'zigzag', dir: 'auto' },
-    contour: { tool: pick('flat'), side: 'outside', stepdown: 2, leave: 0, through: 0.5, faces: [] },
+    contour: { tool: pick('flat'), side: 'auto', stepdown: 2, leave: 0, through: 0.5, faces: [] },
     pocket: { tool: pick('flat'), stepover: 0.45, stepdown: 1.5, leaveWall: 0, leaveFloor: 0, finishStock: isIn() ? 0.254 : 0.25, finish: true, faces: [] },
     drill: { tool: pick('drill'), mode: 'peck', peck: 3, through: 1, diams: [] },
     parallel: { tool: pick('ball'), stepover: 0.5, leave: 0, angle: 0, overrun: true },
@@ -15063,7 +15164,7 @@ function camPanel() {
       <div class="field"><span>Passes</span><div class="seg"><button data-opset="pattern:zigzag" class="${op.pattern !== 'oneway' ? 'on' : ''}" title="Across, step over off the end of the stock, and straight back: the tool never lifts">Zig-zag</button><button data-opset="pattern:oneway" class="${op.pattern === 'oneway' ? 'on' : ''}" title="Every stroke cuts the same direction; the tool lifts and comes back between strokes (a more even finish)">One way</button></div></div>
       <div class="field"><span>Strokes run along</span><div class="seg">${[['auto', 'Long side'], ['x', 'X'], ['y', 'Y']].map(([k, l]) => `<button data-opset="dir:${k}" class="${(op.dir || 'auto') === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>`;
     if (op.type === 'contour') f += `<div class="field"><span>Cut</span><div class="seg"><button data-opbool="holes:0" class="${!op.holes ? 'on' : ''}">Outline / faces</button><button data-opbool="holes:1" class="${op.holes ? 'on' : ''}">Through cut-outs</button></div></div>`;
-    if (op.type === 'contour' && !op.holes) f += `<div class="field"><span>Side</span><div class="seg"><button data-opset="side:outside" class="${op.side !== 'inside' ? 'on' : ''}">Outside</button><button data-opset="side:inside" class="${op.side === 'inside' ? 'on' : ''}">Inside</button></div></div>
+    if (op.type === 'contour' && !op.holes) f += `<div class="field"><span>Side</span><div class="seg"><button data-opset="side:auto" class="${!op.side || op.side === 'auto' ? 'on' : ''}" title="With a face picked: finds the open space around it and cuts on the right side, all the way down">Auto</button><button data-opset="side:outside" class="${op.side === 'outside' ? 'on' : ''}">Outside</button><button data-opset="side:inside" class="${op.side === 'inside' ? 'on' : ''}">Inside</button></div></div>
       <div class="field"><span>Boundary</span><div class="pick ${faces ? '' : 'empty'}"><span>${faces ? 'Chosen faces · click to add/remove' : 'Part outline · or click flat faces'}</span><span class="n">${faces || 'auto'}</span></div></div>
       <div class="row3">${num('opSd', op.stepdown, 'Stepdown', 0.1)}${num('opLeave', op.leave, 'Leave', 0.05)}${num('opThrough', op.through, 'Below bottom', 0.1)}</div>${op.side !== 'inside' ? `<div class="row2">${num('opRest', op.restD || 0, 'Rest after tool Ø (0 = off)', 1)}</div>` : ''}`;
     if (op.type === 'contour') f += `<div class="field"><span>Lead in / out</span><div class="seg">${[['corner', 'Off a corner'], ['arc', 'Arc'], ['line', 'Line']].map(([k, l]) => `<button data-opset="lead:${k}" class="${(op.lead || 'line') === k ? 'on' : ''}" title="${k === 'corner' ? 'Straight in and out along the walls at a sharp outside corner, well clear of the part: no witness mark' : k === 'arc' ? 'A tangent quarter arc on the air side' : 'A short straight line square to the wall'}">${l}</button>`).join('')}</div></div>`;
@@ -19498,7 +19599,7 @@ FEATS.pattern = {
   home: 'objects', before: true, need: 'Pick what to copy.',
   base: f => f.kind === 'mirror' ? 'mirror' : 'pattern',
   title: f => PAT_NAME[f.kind],
-  init: () => ({ kind: 'rect', of: 'feats', feats: [], bodies: [], join: false, dir1: { k: 'world', w: 'X' }, n1: 3, s1: 20, flip1: false, dir2: null, n2: 1, s2: 20, flip2: false, axis: { k: 'world', w: 'Z' }, n: 6, angle: 360, plane: { k: 'origin', w: 'YZ' } }),
+  init: () => ({ kind: 'rect', of: 'feats', feats: [], bodies: [], join: false, dir1: { k: 'world', w: 'X' }, n1: 3, s1: 20, flip1: false, yaw1: 0, tilt1: 0, dir2: null, n2: 1, s2: 20, flip2: false, yaw2: 0, tilt2: 0, axis: { k: 'world', w: 'Z' }, n: 6, angle: 360, plane: { k: 'origin', w: 'YZ' } }),
   ready: f => (f.of === 'bodies' ? f.bodies.length : f.feats.length) > 0,
   start(c) {
     const s = sel3D;
@@ -19528,7 +19629,7 @@ FEATS.pattern = {
   hl(add) { const f = CMD.f; if (f.of === 'bodies') for (const id of f.bodies) add.body(id, selMat); else for (const id of f.feats) add.feat(id, selMat); },
   draw() {
     const f = CMD.f;
-    if (f.kind === 'rect') { drawDirRef(f.dir1, f.flip1, '1'); if (f.dir2 && f.n2 > 1) drawDirRef(f.dir2, f.flip2, '2'); }
+    if (f.kind === 'rect') { drawDirRef(f.dir1, f.flip1, '1', f.yaw1, f.tilt1); if (f.dir2 && f.n2 > 1) drawDirRef(f.dir2, f.flip2, '2', f.yaw2, f.tilt2); }
     if (f.kind === 'circ') drawAxisRef(f.axis);
   },
   panel(f) {
@@ -19536,8 +19637,10 @@ FEATS.pattern = {
       + pf.seg('Objects', 'of', [['feats', 'Features'], ['bodies', 'Bodies']])
       + pf.pick(f.of === 'bodies' ? 'Bodies' : 'Features', f.of === 'bodies' ? (f.bodies.length ? 'Click a body again to drop it' : 'Click bodies') : (f.feats.length ? f.feats.map(id => (byId(id) || {}).name).join(', ') : 'Click faces of a feature, or its timeline row'), (f.of === 'bodies' ? f.bodies : f.feats).length || '', 'objects');
     if (f.kind === 'rect') {
-      h += pf.axis('Direction 1', 'dir1', 'dir1') + `<div class="row2">${pf.num('Count', 'n1', { int: 1, min: 1 })}${pf.num('Spacing', 's1', { len: 1 })}</div>` + pf.chk('Flip direction 1', 'flip1');
-      h += pf.axis('Direction 2 (optional)', 'dir2', 'dir2') + (f.dir2 ? `<div class="row2">${pf.num('Count', 'n2', { int: 1, min: 1 })}${pf.num('Spacing', 's2', { len: 1 })}</div>` + pf.chk('Flip direction 2', 'flip2') : '');
+      h += pf.axis('Direction 1', 'dir1', 'dir1') + `<div class="row2">${pf.num('Turn (°)', 'yaw1', { step: 15 })}${pf.num('Tilt up (°)', 'tilt1', { step: 15 })}</div>` + `<div class="row2">${pf.num('Count', 'n1', { int: 1, min: 1 })}${pf.num('Spacing', 's1', { len: 1 })}</div>` + pf.chk('Flip direction 1', 'flip1');
+      h += pf.axis('Direction 2 (optional)', 'dir2', 'dir2') + (f.dir2 ? `<div class="row2">${pf.num('Turn (°)', 'yaw2', { step: 15 })}${pf.num('Tilt up (°)', 'tilt2', { step: 15 })}</div>` + `<div class="row2">${pf.num('Count', 'n2', { int: 1, min: 1 })}${pf.num('Spacing', 's2', { len: 1 })}</div>` + pf.chk('Flip direction 2', 'flip2') : '');
+      if (f.dir2) h += `<div class="btns"><button class="btn" data-fdo="perp" title="Make direction 2 square to direction 1, in the ground plane">Direction 2 square to 1</button></div>`;
+      h += pf.note('Turn swings a direction about the vertical; Tilt lifts it off the ground plane. Both start at 0, which is exactly the axis or edge you picked.');
     } else if (f.kind === 'circ') {
       h += pf.axis('Axis', 'axis', 'axis', null, true) + `<div class="row2">${pf.num('Count', 'n', { int: 1, min: 1 })}${pf.num('Angle (°)', 'angle', { step: 15 })}</div>` + pf.chk('Reverse direction', 'flip1');
     } else h += pf.plane('Mirror plane', 'plane', 'plane');
@@ -19545,6 +19648,7 @@ FEATS.pattern = {
     return h + pf.note(f.of === 'bodies' ? 'Copies whole bodies.' : 'Features are re-applied at each copy with their own operation, so a patterned cut cuts and a patterned boss joins.');
   },
   hint: c => c.step === 'plane' ? 'click a flat face or construction plane to mirror across' : c.step && c.step !== 'objects' ? 'click a straight edge or sketch line for the direction' : c.f.of === 'bodies' ? 'click the bodies to copy' : 'click faces of the features to copy (or their timeline rows)',
+  act: { perp() { const f = CMD.f; if (!f.dir1) return; f.dir2 = JSON.parse(JSON.stringify(f.dir1)); f.flip2 = !!f.flip1; f.tilt2 = f.tilt1 || 0; f.yaw2 = (f.yaw1 || 0) + 90; if (f.n2 < 2) f.n2 = 2; featSync(); } },
   sub: f => f.kind === 'mirror' ? '' : f.kind === 'circ' ? '× ' + f.n : '× ' + f.n1 + (f.dir2 && f.n2 > 1 ? '·' + f.n2 : ''),
 };
 
@@ -19649,10 +19753,10 @@ function drawAxisRef(ref) {
   const L = Math.max(sceneR * 1.2, 30), s0 = toScreen(add3(a.p, mul3(a.dir, -L))), s1 = toScreen(add3(a.p, mul3(a.dir, L)));
   og.strokeStyle = COL.accent; og.lineWidth = 1.6; og.setLineDash([8, 5]); og.beginPath(); og.moveTo(s0.x, s0.y); og.lineTo(s1.x, s1.y); og.stroke(); og.setLineDash([]);
 }
-function drawDirRef(ref, flip, tag) {
+function drawDirRef(ref, flip, tag, yaw, tilt) {
   const a = ref && axisNow(ref);
   if (!a) return;
-  const bb = beforeBodies(), o = bb.length ? bbCenter(bb) : [0, 0, 0], d = mul3(a.dir, flip ? -1 : 1);
+  const bb = beforeBodies(), o = bb.length ? bbCenter(bb) : [0, 0, 0], d = patDir(a.dir, flip, yaw, tilt);
   const s0 = toScreen(o), s1 = toScreen(add3(o, mul3(d, 60 / ppu()))), u = nrm2(sub2(s1, s0)), n = rot90(u);
   if (dst2(s0, s1) < 4) return;
   og.strokeStyle = COL.accent; og.fillStyle = COL.accent; og.lineWidth = 2;
@@ -19783,14 +19887,17 @@ function modelToolbarHTML(btn, c) {
 }
 
 // ── Sketch array (rectangular / circular pattern of curves) ────────
-S.arr = { kind: 'rect', nx: 3, dx: 10, ny: 1, dy: 10, n: 6, ang: 360, c: P2(0, 0), pick: false };
+S.arr = { kind: 'rect', nx: 3, dx: 10, ny: 1, dy: 10, n: 6, ang: 360, c: P2(0, 0), pick: false, rot: 0, fx: false, fy: false, rev: false, pickDir: false };
+// the grid's two directions: turned by the angle (0° is right, 90° up), each flipped if asked; the second is square to the first
+function arrDirs(A) { const a = (A.rot || 0) * Math.PI / 180, fx = A.fx ? -1 : 1, fy = A.fy ? -1 : 1; return [P2(Math.cos(a) * fx, Math.sin(a) * fx), P2(-Math.sin(a) * fy, Math.cos(a) * fy)]; }
 function arrayCopies() {
   const A = S.arr, src = [...S.mirrorSet], out = [];
   const tf = (e, fp, rot) => e.type === 'line' ? { type: 'line', a: fp(e.a), b: fp(e.b), cons: e.cons } : e.type === 'circle' ? { type: 'circle', c: fp(e.c), r: e.r, cons: e.cons } : { type: 'arc', c: fp(e.c), r: e.r, a0: e.a0 + rot, a1: e.a1 + rot, cons: e.cons };
   if (A.kind === 'rect') {
-    for (let i = 0; i < Math.max(1, A.nx); i++) for (let j = 0; j < Math.max(1, A.ny); j++) if (i || j) { const d = P2(A.dx * i, A.dy * j); for (const e of src) out.push(tf(e, p => add2(p, d), 0)); }
+    const [ux, uy] = arrDirs(A);
+    for (let i = 0; i < Math.max(1, A.nx); i++) for (let j = 0; j < Math.max(1, A.ny); j++) if (i || j) { const d = add2(mul2(ux, A.dx * i), mul2(uy, A.dy * j)); for (const e of src) out.push(tf(e, p => add2(p, d), 0)); }
   } else {
-    const n = Math.max(1, A.n), full = Math.abs(A.ang) >= 360 - 1e-9, step = (full ? 360 / n : A.ang / Math.max(1, n - 1)) * Math.PI / 180;
+    const n = Math.max(1, A.n), full = Math.abs(A.ang) >= 360 - 1e-9, step = (full ? 360 / n : A.ang / Math.max(1, n - 1)) * Math.PI / 180 * (A.rev ? -1 : 1);
     for (let k = 1; k < n; k++) { const th = step * k, c = Math.cos(th), s = Math.sin(th), rp = p => { const v = sub2(p, A.c); return add2(A.c, P2(v.x * c - v.y * s, v.x * s + v.y * c)); }; for (const e of src) out.push(tf(e, rp, th)); }
   }
   return out;
@@ -21036,9 +21143,10 @@ function liveApply(light) {
   else if (src.length) {
     if (t === 'array') {
       if (A.kind === 'rect') {
-        for (let i = 0; i < Math.max(1, A.nx); i++) for (let j = 0; j < Math.max(1, A.ny); j++) if (i || j) { const d = P2(A.dx * i, A.dy * j); for (const e of src) out.push(xfEnt(e, p => add2(p, d), 0, 1)); }
+        const [ux, uy] = arrDirs(A);
+        for (let i = 0; i < Math.max(1, A.nx); i++) for (let j = 0; j < Math.max(1, A.ny); j++) if (i || j) { const d = add2(mul2(ux, A.dx * i), mul2(uy, A.dy * j)); for (const e of src) out.push(xfEnt(e, p => add2(p, d), 0, 1)); }
       } else if (LIVE.base) {
-        const n = Math.max(1, A.n), full = Math.abs(A.ang) >= 360 - 1e-9, step = (full ? 360 / n : A.ang / Math.max(1, n - 1)) * Math.PI / 180;
+        const n = Math.max(1, A.n), full = Math.abs(A.ang) >= 360 - 1e-9, step = (full ? 360 / n : A.ang / Math.max(1, n - 1)) * Math.PI / 180 * (A.rev ? -1 : 1);
         for (let k = 1; k < n; k++) { const th = step * k, fp = rotAbout(LIVE.base, th); for (const e of src) out.push(xfEnt(e, fp, th, 1)); }
       }
     } else if (LIVE.base) {
@@ -21089,7 +21197,7 @@ function liveSnap(raw) {
 const liveNeedsPoint = () => LIVE.step === 'base';
 function liveMove(raw, x, y) {
   S.mouse = { x, y };
-  if (LIVE.step === 'line') { const e = hitEnt(raw, 8); S.hoverEnt = e && e.type === 'line' && !LIVE.made.has(e.id) ? e : null; S.cur = raw; ov.className = S.hoverEnt ? 'pointer' : 'default'; requestDraw(); return; }
+  if (LIVE.step === 'line' || LIVE.step === 'dirline') { const e = hitEnt(raw, 8); S.hoverEnt = e && e.type === 'line' && !LIVE.made.has(e.id) ? e : null; S.cur = raw; ov.className = S.hoverEnt ? 'pointer' : 'default'; requestDraw(); return; }
   if (liveNeedsPoint()) { const s = snapPoint(raw, null); S.cur = s.p; S.snapK = s.k || null; S.hoverEnt = null; requestDraw(); return; }
   if (LIVE.placing) {
     const s = liveSnap(raw), p = s.p, X = S.xf, b = LIVE.base;
@@ -21105,6 +21213,12 @@ function liveMove(raw, x, y) {
   S.cur = raw; ov.className = 'default'; requestDraw();
 }
 function liveDown(raw, x, y, ev) {
+  if (LIVE.step === 'dirline') {                                      // match a line's direction
+    const e = hitEnt(raw, 8);
+    if (!e || e.type !== 'line' || LIVE.made.has(e.id)) { toast('Click a straight line.'); return; }
+    S.arr.rot = +(Math.atan2(e.b.y - e.a.y, e.b.x - e.a.x) * 180 / Math.PI).toFixed(3); LIVE.step = 'adjust';
+    liveApply(); refreshPanel(); updateHint(); return;
+  }
   if (LIVE.step === 'line') {
     const e = hitEnt(raw, 8);
     if (!e || e.type !== 'line' || LIVE.made.has(e.id)) { toast('Click a straight line to mirror across (or use the X / Y axis buttons).'); return; }
@@ -21151,8 +21265,12 @@ function livePanel() {
   if (t === 'mirror') h += `<button class="btn ${LIVE.step === 'select' && n && !LIVE.line ? 'primary' : ''} ${LIVE.step === 'line' ? 'on' : ''}" data-ldo="next" ${n ? '' : 'disabled'}>${LIVE.step === 'line' ? 'Click the mirror line…' : LIVE.line ? 'Pick the mirror line again' : 'Pick mirror line ▸'}</button><div class="seg"><button data-ldo="axx" ${n ? '' : 'disabled'}>Across sketch X axis</button><button data-ldo="axy" ${n ? '' : 'disabled'}>Across sketch Y axis</button></div>`;
   const needBase = t !== 'mirror' && t !== 'spaste' && (t !== 'array' || A.kind === 'circ');
   if (needBase) h += `<button class="btn ${LIVE.step === 'select' && n && !LIVE.base ? 'primary' : ''} ${LIVE.step === 'base' ? 'on' : ''}" data-ldo="next" ${n ? '' : 'disabled'}>${LIVE.step === 'base' ? `Click the ${pickName}…` : LIVE.base ? `Pick the ${pickName} again` : `Pick ${pickName} ▸`}</button>`;
-  if (t === 'array' && A.kind === 'rect') h += `<div class="row2">${inp('a', 'nx', 'Count X')}${inp('a', 'dx', 'Spacing X', 1)}${inp('a', 'ny', 'Count Y')}${inp('a', 'dy', 'Spacing Y', 1)}</div>`;
-  if (t === 'array' && A.kind === 'circ') h += `<div class="row2">${inp('a', 'n', 'Count')}${inp('a', 'ang', 'Angle °', 0, 15)}</div>`;
+  if (t === 'array' && A.kind === 'rect') {
+    h += `<div class="row2">${inp('a', 'nx', 'Count along 1')}${inp('a', 'dx', 'Spacing along 1', 1)}${inp('a', 'ny', 'Count along 2')}${inp('a', 'dy', 'Spacing along 2', 1)}</div>`;
+    h += `<div class="row2">${inp('a', 'rot', 'Direction angle °', 0, 15)}<div class="field"><span>Flip</span><div class="seg"><button data-lflip="fx" class="${A.fx ? 'on' : ''}" title="Reverse the first direction">1 ⇄</button><button data-lflip="fy" class="${A.fy ? 'on' : ''}" title="Reverse the second direction">2 ⇅</button></div></div></div>`;
+    h += `<button class="btn ${LIVE.step === 'dirline' ? 'on' : ''}" data-ldo="dirline">${LIVE.step === 'dirline' ? 'Click a line to match its direction…' : 'Set direction from a line'}</button><p class="note">Direction 1 points along the angle (0° is right, 90° is up); direction 2 is square to it. Flip reverses either one.</p>`;
+  }
+  if (t === 'array' && A.kind === 'circ') h += `<div class="row2">${inp('a', 'n', 'Count')}${inp('a', 'ang', 'Angle °', 0, 15)}</div><div class="seg"><button data-lflip="rev" class="${A.rev ? 'on' : ''}" title="Go the other way round">${A.rev ? 'Clockwise' : 'Counterclockwise'} ⟳</button></div>`;
   if (t === 'smove' && LIVE.base) {
     // from → to: the anchor, and where it goes (type it, or click a point); the move is the difference
     const to = k => `<label class="field"><span>To ${k.toUpperCase()} (${u})</span><input type="number" data-live="1" data-lv="to:${k}" data-len="1" step="${st}" value="${uval(LIVE.base[k] + X['d' + k])}"></label>`;
@@ -21187,12 +21305,14 @@ function bindLivePanel() {
     });
     inp.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter') { ev.preventDefault(); liveOK(); } if (ev.key === 'Escape') { ev.preventDefault(); liveCancel(); setTool('select'); } });
   });
+  panel.querySelectorAll('[data-lflip]').forEach(b => b.addEventListener('click', () => { const k = b.dataset.lflip; S.arr[k] = !S.arr[k]; liveApply(); refreshPanel(); requestDraw(); }));
   panel.querySelectorAll('[data-lk]').forEach(b => b.addEventListener('click', () => { S.arr.kind = b.dataset.lk; if (S.arr.kind === 'rect') LIVE.step = 'select'; liveApply(); refreshPanel(); updateHint(); }));
   const c = panel.querySelector('[data-lcopy]'); if (c) c.addEventListener('change', () => { S.xf.copy = c.checked; liveApply(); });
   panel.querySelectorAll('[data-ldo]').forEach(b => b.addEventListener('click', () => {
     const a = b.dataset.ldo;
     if (a === 'next') liveNext();
     if (a === 'axx' || a === 'axy') { LIVE.line = a === 'axx' ? { a: P2(0, 0), b: P2(1, 0) } : { a: P2(0, 0), b: P2(0, 1) }; LIVE.lineId = null; LIVE.step = 'adjust'; liveApply(); refreshPanel(); updateHint(); }
+    if (a === 'dirline') { LIVE.step = LIVE.step === 'dirline' ? 'adjust' : 'dirline'; refreshPanel(); updateHint(); requestDraw(); }
     if (a === 'topick') { LIVE.placing = true; LIVE.snapList = null; refreshPanel(); updateHint(); requestDraw(); }
     if (a === 'inplace') { S.xf.dx = 0; S.xf.dy = 0; LIVE.placing = false; liveApply(); refreshPanel(); updateHint(); }
     if (a === 'ok') { liveOK(); setTool('select'); }
@@ -21202,6 +21322,7 @@ function bindLivePanel() {
 function liveHint() {
   const t = LIVE.tool, n = LIVE.sel.size;
   if (t === 'spaste') return LIVE.placing ? 'move the copy into place and click (or type X / Y, or Paste in place)' : 'adjust X / Y, then OK (Enter) or Cancel (Esc)';
+  if (LIVE.step === 'dirline') return 'click a straight line: the pattern will run along it';
   if (t === 'mirror') return LIVE.step === 'line' ? 'click the line to mirror across' : !n ? 'click the curves to mirror, or click inside a closed face' : !LIVE.line ? `${n} picked — Pick mirror line, or mirror across the sketch X / Y axis` : 'OK (Enter) keeps it, Cancel (Esc) puts it back';
   if (LIVE.step === 'base') return `click the ${t === 'array' ? 'center of the pattern' : t === 'srot' ? 'center of rotation' : t === 'smove' ? 'point to move from (the anchor) — any vertex on any shape or sketch' : 'base point'}`;
   if (LIVE.placing) return t === 'smove' ? 'click the point to move the anchor to (it snaps to what stays put), or type To X / Y' : t === 'srot' ? 'turn with the mouse, click to set (or type the angle)' : 'drag to size, click to set (or type the factor)';
@@ -21216,6 +21337,11 @@ function liveDraw(m) {
   for (const e of S.sk.ents) if (LIVE.made.has(e.id)) strokeEnt(m, e, COL.snap, 1.8);
   const mark = (p, col) => { const s = xfPt(m, p); og.strokeStyle = col; og.lineWidth = 1.8; og.beginPath(); og.arc(s.x, s.y, 5, 0, TAU); og.moveTo(s.x - 10, s.y); og.lineTo(s.x + 10, s.y); og.moveTo(s.x, s.y - 10); og.lineTo(s.x, s.y + 10); og.stroke(); };
   if (LIVE.base && LIVE.tool !== 'spaste') mark(LIVE.base, COL.accent);
+  if (LIVE.tool === 'array' && S.arr.kind === 'rect' && LIVE.sel.size) {                       // the pattern's two directions, from the middle of the picked curves
+    const b = selBox(S.sk.ents.filter(e => LIVE.sel.has(e.id))), o = P2((b[0] + b[2]) / 2, (b[1] + b[3]) / 2), L = 44 / ppu(), D = arrDirs(S.arr);
+    og.strokeStyle = COL.accent; og.fillStyle = COL.accent; og.lineWidth = 1.8; og.font = '600 11px Inter, system-ui, sans-serif';
+    D.forEach((d, i) => { if (i === 1 && S.arr.ny < 2) return; const s0 = xfPt(m, o), s1 = xfPt(m, add2(o, mul2(d, L))), u = nrm2(sub2(s1, s0)), n = P2(-u.y, u.x); og.beginPath(); og.moveTo(s0.x, s0.y); og.lineTo(s1.x, s1.y); og.stroke(); og.beginPath(); og.moveTo(s1.x + u.x * 9, s1.y + u.y * 9); og.lineTo(s1.x + n.x * 5, s1.y + n.y * 5); og.lineTo(s1.x - n.x * 5, s1.y - n.y * 5); og.closePath(); og.fill(); og.fillText(String(i + 1), s1.x + u.x * 15 - 3, s1.y + u.y * 15 + 4); });
+  }
   if (LIVE.tool === 'mirror' && LIVE.line) {                         // the mirror line, run long and dashed
     const d = nrm2(sub2(LIVE.line.b, LIVE.line.a)), L = Math.max(1e3, sceneR * 4), p = xfPt(m, sub2(LIVE.line.a, mul2(d, L))), q = xfPt(m, add2(LIVE.line.a, mul2(d, L)));
     og.strokeStyle = COL.accent; og.lineWidth = 1.4; og.setLineDash([8, 5]); og.beginPath(); og.moveTo(p.x, p.y); og.lineTo(q.x, q.y); og.stroke(); og.setLineDash([]);
