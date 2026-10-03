@@ -3536,6 +3536,7 @@ return {
 };
 });
 </script>
+<script>try { if (localStorage.getItem('datum.calm') === '1') document.documentElement.classList.add('calm'); } catch (e) { /* storage blocked: animated */ }</script>
 <style>
 :root {
   color-scheme: light;
@@ -4246,7 +4247,7 @@ table.holes td:first-child { width: 22px; }
 table.holes td div.me { font-weight: 700; color: var(--accent); }
 @keyframes card-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 /* Animated dropdowns: the select keeps its look; its popup is replaced by this one */
-.dd-pop { position: fixed; z-index: 200; background: var(--panel); color: var(--ink); border: 1px solid var(--rule); border-radius: 9px; box-shadow: var(--shadow); padding: 4px; overflow-y: auto; overscroll-behavior: contain; transform-origin: top center; animation: dd-in .2s var(--ease) both; }
+.dd-pop { position: fixed; z-index: 100001; background: var(--panel); color: var(--ink); border: 1px solid var(--rule); border-radius: 9px; box-shadow: var(--shadow); padding: 4px; overflow-y: auto; overscroll-behavior: contain; transform-origin: top center; animation: dd-in .2s var(--ease) both; }
 .dd-pop.up { transform-origin: bottom center; }
 .dd-pop.out { animation: dd-out .14s ease-in both; pointer-events: none; }
 .dd-opt { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 9px; border-radius: 6px; cursor: pointer; font-size: 12.5px; line-height: 1.3; animation: dd-opt .22s var(--ease) both; animation-delay: calc(min(var(--i), 10) * 14ms); }
@@ -4259,7 +4260,7 @@ table.holes td div.me { font-weight: 700; color: var(--accent); }
 @keyframes dd-out { to { opacity: 0; transform: translateY(-5px) scaleY(.94); } }
 @keyframes dd-opt { from { opacity: 0; transform: translateX(-5px); } to { opacity: 1; transform: none; } }
 select.dd-open { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-@media (prefers-reduced-motion: reduce) { .dd-pop, .dd-opt, #ctxmenu, .guide-steps { animation-duration: .01s !important; transition-duration: .01s !important; } }
+html.calm .dd-pop, html.calm .dd-opt, html.calm #ctxmenu, html.calm .guide-steps { animation-duration: .01s !important; transition-duration: .01s !important; }   /* motion is on unless it is switched off (command palette: Animations) */
 
 .tool-thumb { width: 54px; height: 72px; flex: none; border-radius: 6px; background: linear-gradient(180deg, var(--view-top), var(--view-bot)); object-fit: contain; }
 .tool-card { flex-direction: row; align-items: stretch; }
@@ -4267,7 +4268,7 @@ select.dd-open { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent
 .tool-card .tool-code { font: 11px ui-monospace, Consolas, monospace; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 .tool-card .tool-code:hover { color: var(--accent); }
 
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
+html.calm *, html.calm *::before, html.calm *::after { transition: none !important; animation: none !important; }
 </style>
 </head>
 <body>
@@ -8783,7 +8784,7 @@ function updateCamera() {
 }
 let viewVer = 0, lastViewSig = '';
 function animateView(to, ms = 420) {
-  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const reduce = document.documentElement.classList.contains('calm');
   view.anim = { from: { target: view.target.clone(), quat: view.quat.clone(), viewH: view.viewH }, to, t0: performance.now(), ms: reduce ? 1 : ms };
   requestDraw();
 }
@@ -11817,7 +11818,7 @@ ov.addEventListener('wheel', e => {
   view.zq = { x, y, log: (view.zq ? view.zq.log : 0) + lg };
   requestDraw();
 }, { passive: false });
-const REDUCED = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+const REDUCED = () => document.documentElement.classList.contains('calm');
 // Eased wheel zoom and orbit inertia, advanced once per frame.
 let lastMotion = 0;
 function stepMotion(now) {
@@ -26733,8 +26734,8 @@ function inspOpen() {
   if (!INSPUI.el) {
     const d = document.createElement('div');
     d.id = 'inspModal';
-    d.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center';
-    d.innerHTML = `<div style="background:var(--panel,#fff);color:var(--text,#111);width:min(1100px,96vw);height:92vh;border-radius:8px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,.4)">
+    d.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;opacity:0;visibility:hidden;transition:opacity .2s var(--ease,ease),visibility 0s linear .2s';
+    d.innerHTML = `<div id="inspCard" style="background:var(--panel,#fff);color:var(--ink,#111);width:min(1100px,96vw);height:92vh;border-radius:8px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,.4);transform:translateY(10px) scale(.98);transition:transform .25s var(--ease,ease)">
       <div style="display:flex;gap:8px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line,#ccc);flex-wrap:wrap">
         <b style="margin-right:auto">Inspection sheet</b>
         <label style="font-size:12px">General tolerance <select id="inspGen"><option value="0.010">±.010"</option><option value="0.005" selected>±.005"</option><option value="0.003">±.003"</option><option value="0.001">±.001"</option></select></label>
@@ -26745,14 +26746,16 @@ function inspOpen() {
     INSPUI.el = d;
     const redo = () => { INSP.gen = +d.querySelector('#inspGen').value; INSP.hole = +d.querySelector('#inspHole').value; d.querySelector('#inspFrame').srcdoc = inspSheetHTML(); };
     d.querySelector('#inspGen').onchange = redo; d.querySelector('#inspHole').onchange = redo;
-    d.querySelector('#inspClose').onclick = () => { d.style.display = 'none'; };
-    d.addEventListener('mousedown', e => { if (e.target === d) d.style.display = 'none'; });
+    const shut = () => { d.style.transitionDelay = ''; d.style.opacity = '0'; d.style.visibility = 'hidden'; d.querySelector('#inspCard').style.transform = 'translateY(10px) scale(.98)'; };
+    d.querySelector('#inspClose').onclick = shut;
+    d.addEventListener('mousedown', e => { if (e.target === d) shut(); });
     d.querySelector('#inspPrint').onclick = () => { const w = d.querySelector('#inspFrame').contentWindow; w.focus(); w.print(); };
     d.querySelector('#inspSave').onclick = () => { const w = d.querySelector('#inspFrame').contentDocument; download('inspection-sheet.html', new Blob(['<!doctype html>' + w.documentElement.outerHTML], { type: 'text/html' })); };
     INSPUI.redo = redo;
   }
-  INSPUI.el.style.display = 'flex';
   INSPUI.redo();
+  void INSPUI.el.offsetWidth;
+  requestAnimationFrame(() => { INSPUI.el.style.visibility = 'visible'; INSPUI.el.style.transitionDelay = '0s'; INSPUI.el.style.opacity = '1'; INSPUI.el.querySelector('#inspCard').style.transform = 'none'; });
 }
 const camActionInsp0 = camAction;
 camAction = function (a) { if (a === 'inspect') { try { inspOpen(); } catch (e) { toast('Inspection sheet: ' + e.message); console.error(e); } return; } camActionInsp0(a); };
@@ -33482,7 +33485,7 @@ ${D2} .rb-panel .rb-col > .rb-sm { padding: 0 4px 0 3px; gap: 4px; font-size: 10
 // Every <select> keeps its look, focus and change events; only its popup is swapped for an animated one.
 (() => {
   let pop = null, cur = null, hi = -1, items = [], openedAt = 0;
-  const reduce = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const reduce = () => document.documentElement.classList.contains('calm');
   function close(animate = true) {
     if (!pop) return;
     const p = pop, s = cur; pop = cur = null; items = []; hi = -1;
@@ -33804,6 +33807,7 @@ function gsIndex() {
   const inWs = (ws, fn) => () => { if (UIX.ws !== ws) setWorkspace(ws); fn(); };
   // workspaces, settings and views
   for (const [k, l] of [['design', 'Design'], ['cam', 'Manufacture'], ['sheet', 'Setup Sheet']]) add('Workspace', l, () => setWorkspace(k), { sub: 'Switch to this workspace', kw: k });
+  add('Setting', 'Turn animations and transitions off / on', () => { const c = document.documentElement.classList.toggle('calm'); try { localStorage.setItem('datum.calm', c ? '1' : '0'); } catch (e) { /* not saved */ } toast(c ? 'Animations off' : 'Animations on'); }, { kw: 'animations motion transitions smooth reduce calm' });
   add('Setting', 'Switch between light and dark theme', () => document.getElementById('btnTheme').click(), { kw: 'dark mode light mode theme appearance colors' });
   add('Setting', 'Show inches', () => setUnits('in'), { sub: 'Units', kw: 'imperial inch units' }); add('Setting', 'Show millimeters', () => setUnits('mm'), { sub: 'Units', kw: 'metric mm units' });
   for (const [k, l] of [['solid', 'Solid'], ['shaded', 'Shaded'], ['wire', 'Wireframe']]) add('View', `Show the model ${l}`, () => setShade(k), { sub: 'How bodies are drawn', kw: 'display render shading mode ' + l });
