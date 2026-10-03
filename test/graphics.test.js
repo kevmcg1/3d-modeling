@@ -9,7 +9,7 @@ const path = require('path'), assert = require('assert');
   const ok = (name, cond, extra) => { n++; assert.ok(cond, name + (extra !== undefined ? ' ' + JSON.stringify(extra) : '')); console.log('ok -', name); };
   const open = async file => {
     const page = await browser.newPage({ viewport: { width: 1400, height: 850 } });
-    page.on('pageerror', e => errs.push(e.message)); page.on('console', m => m.type() === 'error' && errs.push(m.text()));
+    page.on('pageerror', e => errs.push(e.message)); page.on('console', m => m.type() === 'error' && !/Failed to load resource/.test(m.text()) && errs.push(m.text()));
     await page.goto('file://' + path.resolve(__dirname, '..', file)); await page.waitForTimeout(300); return page;
   };
 
@@ -115,6 +115,27 @@ const path = require('path'), assert = require('assert');
     return { total, bad: bad.slice(0, 5), nbad: bad.length };
   });
   ok('150 random edits undo and redo to identical pixels', fuzz.total > 40 && fuzz.nbad === 0, fuzz);
+
+  // redesign: Inter everywhere, custom controls, styled tips, a step-by-step guide that follows the work, a hint over the canvas
+  await ev(() => GFX.resetDoc(800, 600, '#ffffff'));
+  const look = await ev(() => { GFX.setTool('text'); const fam = el => getComputedStyle(el).fontFamily, chk = document.querySelector('#optbar input[type=checkbox]'); return { body: fam(document.body), sel: fam(document.querySelector('select')), chk: getComputedStyle(chk).appearance, range: getComputedStyle(document.querySelector('input[type=range]')).appearance, title: document.querySelectorAll('[title]').length }; });
+  ok('Inter font and custom checkbox, range and select styling', /^"?Inter/.test(look.body) && /^"?Inter/.test(look.sel) && look.chk === 'none' && look.range === 'none', look);
+  ok('tooltips replace native titles', (await ev(() => document.querySelectorAll('[title]').length)) === 0);
+  const tools = await ev(() => Object.keys(GFX.TOOLS)), badGuide = [];
+  for (const id of tools) { await ev(id => GFX.setTool(id), id); const g = await ev(() => ({ steps: document.querySelectorAll('#guide li').length, now: document.querySelectorAll('#guide li.now').length, oc: !!document.querySelector('#optbar .tn') })); if (g.steps < 2 || g.now !== 1 || !g.oc) badGuide.push([id, g]); }
+  ok('every tool has a guide with one current step and an option bar', badGuide.length === 0, badGuide);
+  await ev(() => { GFX.resetDoc(800, 600, '#ffffff'); GFX.setTool('pen'); });
+  const idx0 = await ev(() => GFX.GUIDE.idx); await page.mouse.click(300, 300); await page.waitForTimeout(100); const idx1 = await ev(() => GFX.GUIDE.idx);
+  ok('guide advances after the first pen point', idx0 === 0 && idx1 === 1, [idx0, idx1]);
+  // switching tool with a half-drawn pen path leaves no stray layer behind
+  const stray = await ev(() => { GFX.HIST.max = 1e9; GFX.setTool('pen'); const n0 = GFX.D.layers.length; return n0; });
+  await page.mouse.click(350, 320); await ev(() => GFX.setTool('brush'));
+  ok('abandoned one-point pen path leaves no stray layer', (await ev(() => GFX.D.layers.length)) === stray, stray);
+  // Escape closes menus and dialogs even when nothing inside has focus
+  await page.click('.mb >> nth=0'); await page.keyboard.press('Escape');
+  ok('Escape closes an open menu', await ev(() => document.getElementById('pop').style.display !== 'block'));
+  await ev(() => { document.querySelector('#cv').focus(); GFX.imageSizeDialog(); document.activeElement.blur(); }); await page.keyboard.press('Escape');
+  ok('Escape closes a dialog', await ev(() => !document.getElementById('modal').classList.contains('show')));
 
   // a heavy document still composes quickly
   const heavy = await ev(() => {
