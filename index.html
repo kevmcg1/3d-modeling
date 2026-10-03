@@ -5031,14 +5031,14 @@ const CSG = (() => {
   const mid = ps => { const p = ps[0]; return mul3(add3(add3(p.v[0], p.v[1]), p.v[2]), 1 / 3); };
   // Only the larger operand is culled, against the other's box padded by a
   // generous margin; the smaller operand always keeps its complete BSP.
-  function pad(bb) {
-    const m = 0.08 * Math.max(bb[3] - bb[0], bb[4] - bb[1], bb[5] - bb[2]) + 1e-3;
+  function pad(bb, fac = 0.08, add = 1e-3) {
+    const m = fac * Math.max(bb[3] - bb[0], bb[4] - bb[1], bb[5] - bb[2]) + add;
     return [bb[0] - m, bb[1] - m, bb[2] - m, bb[3] + m, bb[4] + m, bb[5] + m];
   }
-  function partition(a, b) {
+  function partition(a, b, fac, add) {
     const big = a.length >= b.length;
-    const [ai, ao] = big ? cull(a, pad(bboxPolys(b))) : [a, []];
-    const [bi, bo] = big ? [b, []] : cull(b, pad(bboxPolys(a)));
+    const [ai, ao] = big ? cull(a, pad(bboxPolys(b), fac, add)) : [a, []];
+    const [bi, bo] = big ? [b, []] : cull(b, pad(bboxPolys(a), fac, add));
     return { ai, ao, bi, bo };
   }
   function union(a, b) {
@@ -5060,8 +5060,15 @@ const CSG = (() => {
     // nothing was left out of the tree (ao empty): it saw the whole solid, no need to check
     if (!ao.length || subtractHolds(r, bi, GA, GB)) return r;
     // The culled part may not enclose the cutter (a wall just past the margin), so its
-    // tree can misjudge what lies between: redo against the whole solid, then with
+    // tree can misjudge what lies between: first try again with a much wider margin (still a
+    // small part of a big solid, so quick), then against the whole solid, then with
     // other splitting planes. The first result that holds is kept.
+    for (const [fac, add] of [[0.8, 3], [2, 8]]) {
+      const w = partition(a, b, fac, add);
+      if (!w.ao.length) break;
+      const rw = run(w.ai, w.bi, w.ao);
+      if (subtractHolds(rw, w.bi, GA, GB)) return rw;
+    }
     let first = null;
     for (let attempt = 0; attempt < 3; attempt++) {
       SEED = attempt;
