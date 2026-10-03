@@ -12824,6 +12824,43 @@ function drillCycleMoves(P, cy, pt, R, bottom, init, tool, tap) {
   dwell(cy.p);
   out();
 }
+// Round pockets use the control's own circular-pocket cycle, G12 (clockwise): the program is one short line per
+// pass instead of thousands of arc moves. Tool-center radii, so no cutter compensation is needed. I is the first circle,
+// K the last, Q how much each circle steps out; with G91 and L the same cycle repeats Z deeper each time, ending back at the center.
+// The simulated moves here are the moves the control makes, and each cycle's moves carry a g12 note so the post prints the cycle instead.
+function g12Pocket(op, tool, st, P, c, Rp, floor, safe, ret) {
+  const r = tool.d / 2, lw = op.leaveWall || 0, fs = pocketFinishStock(op), so = Math.max(0.05, op.stepover) * tool.d;
+  const fin = op.finish !== false && fs > 1e-4, Kf = Rp - r - lw, Kr = fin ? Kf - fs : Kf;
+  if (Kf < 0.05 || Kr < 0.05) return false;                    // the tool barely fits: leave it to the ordinary path
+  const cx = c.x, cy = c.y, N = 90;
+  const cycle = (K, I, Q, nLoops, zFrom, dz) => {
+    const start = P.m.length;
+    let a0 = zFrom;
+    for (let l = 1; l <= nLoops; l++) {
+      const z = zFrom - dz * l;
+      P.plunge(cx, cy, z);
+      for (let a = I; ; a = Math.min(K, a + Q)) {               // out from the center, one full clockwise circle at each radius
+        P.feed(cx + a, cy, z);
+        for (let k = 1; k <= N; k++) { const t = -2 * Math.PI * k / N; P.feed(cx + a * Math.cos(t), cy + a * Math.sin(t), z); }
+        if (a >= K - 1e-9) break;
+      }
+      P.feed(cx, cy, z);
+      a0 = z;
+    }
+    P.m[start].g12 = { I, K, Q, L: nLoops, dz, cx, cy, zEnd: a0, end: P.m.length - 1, feed: tool.feed };
+  };
+  P.rapid(cx, cy, safe); P.rapid(cx, cy, ret);
+  const nR = Math.max(1, Math.ceil((ret - floor) / Math.max(op.stepdown, 0.01) - 1e-9));
+  cycle(Kr, Math.min(Kr, so), so, nR, ret, (ret - floor) / nR);
+  if (fin) {                                                    // the finish pass: one full circle at the final wall, at full depth when the flutes are long enough
+    const loc = (toolParams(tool).loc || 2 * tool.d) * 0.9, nF = st.z1 - floor <= loc ? 1 : levels(st.z1, floor, loc).length;
+    P.rapid(cx, cy, ret);
+    cycle(Kf, Kf, Kf, nF, ret, (ret - floor) / nF);
+  }
+  P.rapid(cx, cy, ret); P.rapid(cx, cy, safe);
+  P.g12 = (P.g12 || 0) + 1;
+  return true;
+}
 // Stock the pocket's roughing leaves on the walls for the finishing pass.
 const pocketFinishStock = op => op.finishStock == null ? 0.25 : Math.max(0, op.finishStock);
 // Finishing pass round a pocket's walls (and its islands) at their final size: the
@@ -13129,6 +13166,10 @@ const GEN = {
         // roughing stays off the walls by the finishing stock; the finish pass takes it off
         const lw = op.leaveWall || 0, fs = pocketFinishStock(op), tArea = cOffset(area, -(r + lw + fs));
         if (!tArea.length) { if (op.rough) { P.skipped = (P.skipped || 0) + 1; continue; } P.warn.push(`The tool (Ø${tool.d}) does not fit this pocket.`); continue; }
+        if (closed && !islands.length && !(op.restD > tool.d + 1e-6)) {
+          const rl = isRoundLoop(rg.outer);
+          if (rl.round && g12Pocket(op, tool, st, P, rl.c, rl.r, floor, safe, ret)) continue;      // a round pocket: the control's own cycle
+        }
         let ringArea = tArea, restArea = null;
         if (op.restD > tool.d + 1e-6) {
           // only the material the bigger tool left: its centers, grown to reach it
@@ -13192,6 +13233,7 @@ const GEN = {
     if (op.restD > tool.d + 1e-6) P.info = P.restDone ? `Rest pass: only where the Ø${fmtD(op.restD)} could not reach` : 'Nothing left for this tool after the Ø' + fmtD(op.restD);
     else if (P.skipped) P.info = `${P.skipped} narrow area${P.skipped > 1 ? 's' : ''} left for the smaller tool`;
     const fs = pocketFinishStock(op), fin = op.finish !== false && fs > 1e-4;
+    if (P.g12) P.info = (P.info ? P.info + ' · ' : '') + `${P.g12} round pocket${P.g12 > 1 ? 's' : ''} cut with the machine's circle-pocket cycle (G12)`;
     const how = `Center out · roughing leaves ${fmtLs(fs, 4)} on the walls${fin ? (P.finish ? `, then a finish pass (${P.finish} wall${P.finish > 1 ? 's' : ''})` : '') : ' for a finishing op'}`;
     P.info = P.info ? P.info + ' · ' + how : how;
   },
@@ -14439,6 +14481,14 @@ function postGcode() {
       const m = P.m[i];
       SRC = { op: op.id, mi: i };
       if (m.code) L.push(...m.code);
+      if (m.g12 && !grbl && !fr) {
+        const g = m.g12;
+        SRC = { op: op.id, mi: g.end };
+        L.push(`(CIRCULAR POCKET R${N(g.K)} - G12 CLOCKWISE, TOOL-CENTER RADII, NO CUTTER COMP. G13 IS THE COUNTERCLOCKWISE TWIN)`,
+          `G91 G12 I${N(g.I)} ${g.K !== g.I ? `K${N(g.K)} Q${N(g.Q)} ` : ''}${g.L > 1 ? `L${g.L} ` : ''}Z${N(-g.dz)} F${F(g.feed)}`, 'G90');
+        st.g = null; st.x = N(g.cx - o[0]); st.y = N(g.cy - o[1]); st.z = N(g.zEnd - o[2]); st.f = null;
+        i = g.end + 1; continue;
+      }
       if (m.hold) { if (m.dw) L.push(`G4 P${+m.dw.toFixed(2)}`); i++; continue; }
       if (m.r) { const p = rel(m); move('G0', p[0], p[1], p[2]); i++; continue; }
       let j = i;
