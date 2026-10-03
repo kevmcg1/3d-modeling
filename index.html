@@ -4218,6 +4218,7 @@ button svg, .rb-btn svg, .tb svg, .btn svg { transition: transform .22s cubic-be
 .tl-rename { flex: 1; min-width: 0; padding: 1px 4px; border: 1px solid var(--accent); border-radius: 4px; background: var(--panel); font: 500 12px var(--font); }
 .tl-empty { padding: 6px 10px; }
 .err-note { color: var(--danger) !important; }
+.sk-text-ed { position: absolute; z-index: 31; margin: 0; padding: 0 2px; border: 1px dashed var(--accent); border-radius: 3px; background: color-mix(in srgb, var(--panel) 82%, transparent); color: var(--ink); resize: none; overflow: hidden; outline: none; white-space: pre; box-sizing: content-box; }
 #dimEdit { position: absolute; z-index: 30; display: flex; align-items: center; gap: 4px; padding: 5px; background: var(--panel); border: 1px solid var(--accent); border-radius: 7px; box-shadow: var(--shadow); }
 #dimEdit input { width: 96px; padding: 4px 6px; border: 1px solid var(--rule); border-radius: 5px; background: var(--panel-2); color: var(--ink); font: 12.5px var(--mono); }
 #dimEdit span { font-size: 11px; color: var(--muted); margin-right: 2px; }
@@ -8757,6 +8758,8 @@ function jumpTo(k) {
   refreshHistory();
 }
 function restore(s) {
+  if (typeof TXT !== 'undefined' && TXT.edBox) { TXT.edBox.el.remove(); TXT.edBox = null; TXT.ed = null; }
+  if (typeof TXT !== 'undefined') { TXT.sel = null; TXT.drag = null; }
   doc = JSON.parse(s);
   if (S.sk) { S.sk = byId(S.sk.id) || null; if (!S.sk) exitSketchMode(false); }
   S.sel.clear(); S.pts = []; selProfiles.length = 0; sel3D = null; selEdges.length = 0;
@@ -9143,7 +9146,7 @@ function resize() {
 const S = {
   sk: null, tool: 'select', pts: [], cur: null, snapK: null, guides: [], hoverEnt: null, sel: new Set(),
   drag: null, box: null, acc: 0, lastAng: 0, dim: null, trimPrev: null, extPrev: null, corner: null,
-  offset: null, offsetPrev: null, mirrorSet: new Set(), mirrorStep: 0, trimming: false, chainStart: null,
+  offset: null, offsetPrev: null, mirrorSet: new Set(), mirrorStep: 0, trimming: null, chainStart: null,
   filletR: 5, chamferD: 3, polySides: 6, gridSnap: false, osnap: true, mouse: null, hoverChain: null,
 };
 let CMD = null;               // solid-mode command in progress
@@ -9342,6 +9345,8 @@ function setTool(t) {
   if (typeof DIM !== 'undefined') { DIM.pick = []; DIM.prev = null; DIM.hover = null; dimCloseEditor(); }
   if (t === 'spaste' && !(SKCLIP && SKCLIP.ents && SKCLIP.ents.length)) { toast('Nothing copied yet — select curves and press Ctrl+C.'); S.tool = 'select'; t = 'select'; }
   if (isLive(t)) { S.sel = preSel; liveBegin(t); }
+  if (TXT.edBox) textEditClose(true);
+  if (t !== 'text' && t !== 'select') TXT.sel = null;
   if (t !== 'select' && t !== 'mirror' && t !== 'array') S.sel.clear();
   resetDim(); hover3D = null; clearHover3D();
   refreshToolbar(); refreshPanel(); updateHint(); requestDraw();
@@ -9422,8 +9427,8 @@ function centerArc() {
 }
 
 // ── Trim ───────────────────────────────────────────────────────────
-function trimTarget(p) {
-  const e = hitEnt(p, 9);
+function trimTarget(p, ent) {
+  const e = ent || hitEnt(p, 9);
   if (!e) return null;
   const cuts = [];
   for (const o of S.sk.ents) if (o !== e) for (const q of isect(e, o)) cuts.push(G.param(e, q));
@@ -9447,6 +9452,24 @@ function trimTarget(p) {
   if (lo > r0 + eps) keep.push(piece(r0, lo));
   if (hi < r1 - eps) keep.push(piece(hi, r1));
   return { e, lo, hi, keep };
+}
+// Drag-trim: every curve the cursor path a→b crosses is cut at that crossing (so a fast flick never skips a curve).
+function sweepTrim(a, b) {
+  const L = { type: 'line', a, b, id: -1 };
+  let n = 0;
+  for (const o of S.sk.ents.slice()) {
+    const pts = isect(o, L); if (!pts.length) continue;
+    let fam = [o];
+    for (const q of pts) {
+      let cur = null, bd = Infinity;
+      for (const f of fam) { if (!S.sk.ents.includes(f)) continue; const d = G.nearest(f, q).d; if (d < bd) { bd = d; cur = f; } }
+      if (!cur || bd > tolUV(12)) continue;
+      const tp = trimTarget(q, cur); if (!tp) continue;
+      if (!S.trimming.rec) { pushUndo('Trim'); S.trimming.rec = true; }
+      doTrim(tp); n++; fam = fam.filter(f => f !== cur).concat(tp.keep);
+    }
+  }
+  return n;
 }
 function doTrim(tp) {
   const i = S.sk.ents.indexOf(tp.e);
@@ -9694,15 +9717,24 @@ function sketchMove(x, y, ev) {
   if (t === 'dim') { dimMove(raw, x, y); return; }
   if (t === 'array' && S.arr.pick) { const s = snapPoint(raw, null); S.cur = s.p; S.snapK = s.k || null; S.guides = []; requestDraw(); return; }
   ov.className = t === 'select' || t === 'mirror' || t === 'array' ? 'default' : '';
+  if (TXT.drag) {
+    const d = TXT.drag;
+    if (!d.moved && Math.hypot(x - d.sx, y - d.sy) > 3) d.moved = true;
+    if (d.moved) { d.t.p = P2(raw.x - d.off.x, raw.y - d.off.y); textsChanged(); }
+    return;
+  }
+  if (t === 'select' || t === 'text') { const th = textHit(raw, tolUV(3)), id = th ? th.id : null; if (id !== TXT.hover) { TXT.hover = id; requestDraw(); } }
+  if (t === 'text') { S.cur = raw; ov.className = TXT.hover ? 'pointer' : ''; return; }
   if (S.drag) { if (!ptr.moved) return; const s = snapPoint(raw, null, S.drag.moving); S.cur = s.p; S.snapK = s.k; applyDrag(s.p); return; }
   if (t === 'select') { const lab = dimLabelAt(x, y); S.hoverDim = lab; S.hoverEnt = lab ? null : hitEnt(raw, 8); const rg = !lab && !S.hoverEnt && regionAt(raw); S.hoverRegion = rg ? rg.k : null; if (lab) ov.className = 'pointer'; S.cur = raw; S.snapK = null; S.guides = []; requestDraw(); return; }
   if (t === 'select' || t === 'mirror' || t === 'array') { S.hoverEnt = hitEnt(raw, 8); S.cur = raw; S.snapK = null; S.guides = []; requestDraw(); return; }
-  if (t === 'trim') {
-    S.trimPrev = trimTarget(raw); S.cur = raw; S.snapK = null;
-    if (S.trimming && S.trimPrev) { doTrim(S.trimPrev); S.trimPrev = trimTarget(raw); }
+  if (t === 'trim' || t === 'extend') {                   // quick trim: Shift swaps trim ↔ extend; dragging sweeps through curves
+    const ext = (t === 'extend') !== !!(ev && ev.shiftKey);
+    S.trimMouse = { x, y }; S.cur = raw; S.snapK = null;
+    if (S.trimming && !ext) { const tr = S.trimming; if (dst2(tr.last, raw) > tolUV(2) ** 2) { sweepTrim(tr.last, raw); tr.trail.push(raw); tr.last = raw; } }
+    S.trimPrev = ext || S.trimming && S.trimming.trail.length > 1 ? null : trimTarget(raw); S.extPrev = ext ? extendTarget(raw) : null;
     requestDraw(); return;
   }
-  if (t === 'extend') { S.extPrev = extendTarget(raw); S.cur = raw; requestDraw(); return; }
   if (t === 'fillet' || t === 'chamfer') { S.corner = cornerAt(raw); S.cur = raw; requestDraw(); return; }
   if (t === 'origin') { const s = snapPoint(raw, null); S.cur = s.p; S.snapK = s.k || null; S.guides = []; requestDraw(); return; }
   if (t === 'offset') {
@@ -9742,6 +9774,13 @@ function sketchDown(x, y, ev) {
     const lab = dimLabelAt(x, y);
     if (lab) { DIM.sel = DIM.sel === lab ? null : lab; if (!(ev.shiftKey || ev.ctrlKey || ev.metaKey)) S.sel.clear(); refreshPanel(); requestDraw(); return; }
     DIM.sel = null;
+    const th = textHit(raw, tolUV(3));
+    if (th) {                                                    // a text note: select it, drag to move, double-click to edit
+      if (!(ev.shiftKey || ev.ctrlKey || ev.metaKey)) S.sel.clear();
+      TXT.sel = th.id; TXT.drag = { t: th, off: P2(raw.x - th.p.x, raw.y - th.p.y), before: snap(), moved: false, sx: x, sy: y };
+      refreshPanel(); requestDraw(); return;
+    }
+    TXT.sel = null;
     const tol = tolUV(8);
     let hitPt = null;
     for (const e of S.sk.ents) {
@@ -9760,6 +9799,11 @@ function sketchDown(x, y, ev) {
     S.box = { x0: x, y0: y, x1: x, y1: y };
     refreshPanel(); requestDraw(); return;
   }
+  if (t === 'text') {
+    const th = textHit(raw, tolUV(3));
+    if (th) { TXT.sel = th.id; TXT.drag = { t: th, off: P2(raw.x - th.p.x, raw.y - th.p.y), before: snap(), moved: false, sx: x, sy: y, edit: true }; refreshPanel(); requestDraw(); return; }
+    textAdd(snapPoint(raw, null).p); return;
+  }
   if (t === 'array') {
     if (S.arr.pick) { S.arr.c = cp2(snapPoint(raw, null).p); S.arr.pick = false; refreshPanel(); updateHint(); requestDraw(); return; }
     const e = hitEnt(raw, 8);
@@ -9774,12 +9818,15 @@ function sketchDown(x, y, ev) {
     S.mirrorSet.has(e) ? S.mirrorSet.delete(e) : S.mirrorSet.add(e);
     refreshPanel(); requestDraw(); return;
   }
-  if (t === 'trim') {
+  if (t === 'trim' || t === 'extend') {
+    const ext = (t === 'extend') !== !!(ev && ev.shiftKey);
+    if (ext) { const xt = extendTarget(raw); if (xt) { doExtend(xt); S.extPrev = extendTarget(raw); } return; }
+    S.trimming = { last: raw, trail: [raw], rec: false };       // press and drag across curves to trim them all
     const tp = trimTarget(raw);
-    if (!tp) return;
-    pushUndo('Trim'); doTrim(tp); S.trimming = true; S.trimPrev = trimTarget(raw); return;
+    if (tp) { pushUndo('Trim'); S.trimming.rec = true; doTrim(tp); S.trimPrev = trimTarget(raw); }
+    else if (!hitEnt(raw, 9)) { /* empty space: a drag from here still cuts what it crosses */ }
+    return;
   }
-  if (t === 'extend') { const xt = extendTarget(raw); if (xt) { doExtend(xt); S.extPrev = extendTarget(raw); } return; }
   if (t === 'fillet') { const c = cornerAt(raw); if (c) doFillet(c); else toast('Click near a corner where two lines meet.'); return; }
   if (t === 'chamfer') { const c = cornerAt(raw); if (c) doSketchChamfer(c); else toast('Click near a corner where two lines meet.'); return; }
   if (t === 'origin') { sketchMove(x, y, ev); if (S.cur) setSketchOrigin(S.cur, S.snapK); return; }
@@ -9792,8 +9839,18 @@ function sketchDown(x, y, ev) {
   if (!dimSpec()) resetDim();
   updateHint(); refreshPanel();
 }
+for (const kind of ['keydown', 'keyup']) window.addEventListener(kind, ev => {      // Shift flips the quick-trim preview between trim and extend
+  if (ev.key !== 'Shift' || !S.sk || (S.tool !== 'trim' && S.tool !== 'extend') || !S.trimMouse || S.trimming) return;
+  sketchMove(S.trimMouse.x, S.trimMouse.y, { shiftKey: kind === 'keydown' });
+});
 function sketchUp(x, y, ev) {
-  S.trimming = false;
+  S.trimming = null;
+  if (TXT.drag) {
+    const d = TXT.drag; TXT.drag = null;
+    if (d.moved) record('Move text', d.before);
+    else if (d.edit) textEdit(d.t, d.before, false);
+    refreshPanel(); requestDraw(); return;
+  }
   if (S.drag) { S.drag = null; refreshPanel(); requestDraw(); return; }
   if (S.box) {
     const b = S.box, x0 = Math.min(b.x0, b.x1), x1 = Math.max(b.x0, b.x1), y0 = Math.min(b.y0, b.y1), y1 = Math.max(b.y0, b.y1);
@@ -9817,7 +9874,9 @@ function sketchCancel() {
   if (S.tool === 'mirror' && S.mirrorStep === 1) { S.mirrorStep = 0; refreshPanel(); updateHint(); return true; }
   if (S.pts.length) { S.pts = []; S.chainStart = null; requestDraw(); updateHint(); return true; }
   if (S.tool === 'dim' && DIM.pick.length) { DIM.pick = []; DIM.prev = null; requestDraw(); updateHint(); return true; }
+  if (TXT.edBox) { textEditClose(false); return true; }
   if (S.tool !== 'select') { setTool('select'); return true; }
+  if (TXT.sel) { TXT.sel = null; refreshPanel(); requestDraw(); return true; }
   if (S.sel.size) { S.sel.clear(); refreshPanel(); requestDraw(); return true; }
   return false;
 }
@@ -9949,6 +10008,7 @@ function drawOverlay() {
   if (S.sk) drawGrid(planeOf(S.sk));
   if (S.sk) drawSketch(S.sk, true);
   if (S.sk) drawToolPreview();
+  if (!S.sk && UIX.ws === 'design') for (const f of doc.features) if (f.type === 'sketch' && f.texts && f.texts.length && sketchShown(f)) { og.globalAlpha = 0.9; drawSketchTexts(f, planeXf(planeOf(f)), false); og.globalAlpha = 1; }
   if (CMD && CMD.type === 'extrude') { drawArrow(); extToDraw(); }
   if (!S.sk && UIX.ws === 'design') drawWorldAxes();
   drawEdgesAndPoints();
@@ -9995,6 +10055,127 @@ function drawGrid(pl) {
   if (u0 < 0 && u1 > 0) line(P2(0, v0), P2(0, v1), COL['axis-v']);
   og.globalAlpha = 1;
 }
+// ── Text in sketches ───────────────────────────────────────────────
+// A sketch keeps text notes in sk.texts: { id, p:{x,y}, str, h, font, bold, italic, rot }. p is the left end of the first
+// line's baseline, h the type size in mm and rot degrees counter-clockwise. They draw in 2D and on the sketch plane in 3D,
+// and "Convert to curves" turns the letters into sketch lines that extrude or cut like any other profile.
+const TXT = { sel: null, ed: null, drag: null, hover: null, before: null, def: { h: 8, font: 'sans', bold: false, italic: false, rot: 0 } };
+const txtCtx = document.createElement('canvas').getContext('2d');
+const textById = (id, sk = S.sk) => ((sk && sk.texts) || []).find(t => t.id === id) || null;
+const textFontCss = (t, px) => `${t.italic ? 'italic ' : ''}${t.bold ? '700' : '400'} ${px}px ${(ENG_FONTS[t.font] || ENG_FONTS.sans)[1]}`;
+function textBox(t) {                                          // the text block in its own frame (x right, y up, baseline at 0)
+  txtCtx.font = textFontCss(t, 100);
+  const lines = String(t.str || '').split('\n'), lh = t.h * 1.25;
+  const w = Math.max(t.h * 0.5, ...lines.map(l => txtCtx.measureText(l).width * t.h / 100));
+  return { lines, lh, x0: 0, x1: w, y0: -(lines.length - 1) * lh - 0.25 * t.h, y1: 0.8 * t.h };
+}
+function textXf(t) {
+  const a = (t.rot || 0) * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
+  return { to: (x, y) => P2(t.p.x + x * c - y * s, t.p.y + x * s + y * c), from: q => { const dx = q.x - t.p.x, dy = q.y - t.p.y; return P2(dx * c + dy * s, -dx * s + dy * c); } };
+}
+function textHit(q, pad = 0) {
+  const list = (S.sk && S.sk.texts) || [];
+  for (let i = list.length - 1; i >= 0; i--) { const t = list[i], b = textBox(t), l = textXf(t).from(q); if (l.x >= b.x0 - pad && l.x <= b.x1 + pad && l.y >= b.y0 - pad && l.y <= b.y1 + pad) return t; }
+  return null;
+}
+function drawSketchTexts(f, m, active) {
+  const list = f.texts; if (!list || !list.length) return;
+  for (const t of list) {
+    if (TXT.ed === t.id && f === S.sk) continue;               // the editor box is showing it
+    const on = active && TXT.sel === t.id, b = textBox(t);
+    og.save(); og.transform(m[0], m[1], m[2], m[3], m[4], m[5]); og.translate(t.p.x, t.p.y); og.rotate((t.rot || 0) * Math.PI / 180);
+    if (active && (on || TXT.hover === t.id)) {
+      og.save(); og.lineWidth = 1.2 / Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2])); og.setLineDash([4 / Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2])), 3 / Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2]))]);
+      og.strokeStyle = on ? COL['sk-sel'] : COL['sk-hot']; og.strokeRect(b.x0 - 0.15 * t.h, b.y0 - 0.1 * t.h, b.x1 - b.x0 + 0.3 * t.h, b.y1 - b.y0 + 0.2 * t.h); og.restore();
+    }
+    og.scale(t.h / 100, -t.h / 100); og.font = textFontCss(t, 100); og.textBaseline = 'alphabetic'; og.fillStyle = on ? COL['sk-sel'] : COL['sk-line'];
+    b.lines.forEach((ln, i) => og.fillText(ln, 0, -i * 125));
+    og.restore();
+  }
+}
+function textsChanged() { if (S.sk) touch(S.sk); saveLocal(); requestDraw(); }
+function textAdd(q) {
+  const before = snap(), d = TXT.def;
+  const t = { id: newId(), p: P2(q.x, q.y), str: '', h: d.h, font: d.font, bold: d.bold, italic: d.italic, rot: d.rot };
+  (S.sk.texts = S.sk.texts || []).push(t); TXT.sel = t.id; S.sel.clear();
+  textEdit(t, before, true); return t;
+}
+function textDelete(t) {
+  if (!S.sk || !t) return; pushUndo('Delete text');
+  S.sk.texts = S.sk.texts.filter(x => x !== t); if (TXT.sel === t.id) TXT.sel = null; textsChanged(); refreshPanel();
+}
+function textEditClose(commit) {
+  const ed = TXT.edBox; if (!ed) return; const { el, t, before, isNew, start } = ed;
+  TXT.edBox = null; TXT.ed = null; el.remove();
+  if (!S.sk || !S.sk.texts || !S.sk.texts.includes(t)) return;
+  if (!commit) { t.str = start; if (isNew) S.sk.texts = S.sk.texts.filter(x => x !== t); }
+  if (!t.str.trim()) { S.sk.texts = S.sk.texts.filter(x => x !== t); if (TXT.sel === t.id) TXT.sel = null; if (!isNew && commit) record('Delete text', before); }
+  else if (commit && (isNew || t.str !== start)) record(isNew ? 'Add text' : 'Edit text', before);
+  textsChanged(); refreshPanel(); updateHint();
+}
+function textEdit(t, before, isNew) {                           // a small box over the sketch to type the text in
+  textEditClose(true);
+  const m = planeXf(planeOf(S.sk)), o = xfPt(m, t.p), k = Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2])), px = Math.max(11, t.h * k);
+  const el = document.createElement('textarea'); el.className = 'sk-text-ed'; el.spellcheck = false; el.value = t.str; el.rows = Math.max(1, String(t.str).split('\n').length);
+  el.placeholder = 'Type text'; el.style.font = textFontCss(t, px); el.style.lineHeight = '1.25'; el.style.left = o.x + 'px'; el.style.top = (o.y - px * 0.95) + 'px';
+  el.style.transformOrigin = `0 ${px * 0.95}px`; el.style.transform = `rotate(${-(t.rot || 0) + Math.atan2(m[1], m[0]) * 180 / Math.PI}deg)`;
+  const fit = () => { const lines = el.value.split('\n'); el.rows = Math.max(1, lines.length); txtCtx.font = textFontCss(t, px); el.style.width = Math.max(px * 3, ...lines.map(l => txtCtx.measureText(l).width)) + px * 1.2 + 'px'; };
+  TXT.ed = t.id; TXT.edBox = { el, t, before: before || snap(), isNew: !!isNew, start: t.str, t0: performance.now() };
+  el.addEventListener('input', () => { t.str = el.value; fit(); touch(S.sk); requestDraw(); });
+  el.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); textEditClose(true); } else if (e.key === 'Escape') { e.preventDefault(); textEditClose(false); } });
+  el.addEventListener('blur', () => { const b = TXT.edBox; if (!b || b.el !== el) return; if (performance.now() - b.t0 < 250) { setTimeout(() => { if (TXT.edBox === b) { el.focus(); } }, 0); return; } textEditClose(true); });   // the press that placed it may still steal focus
+  viewportEl.appendChild(el); fit(); el.focus(); el.select(); requestDraw();
+}
+function textSet(t, k, v, before) {                             // panel edits: live, with one undo step per edit
+  if (k === 'str') t.str = v; else if (k === 'h') t.h = Math.max(0.01, v); else if (k === 'rot') t.rot = v; else t[k] = v;
+  if (t === textById(TXT.sel)) Object.assign(TXT.def, { h: t.h, font: t.font, bold: t.bold, italic: t.italic });
+  textsChanged();
+}
+function textToCurves(t) {
+  if (!String(t.str).trim()) return 0;
+  const F = 160, lines = String(t.str).split('\n'), lhPx = F * 1.25, c = document.createElement('canvas'), x = c.getContext('2d');
+  x.font = textFontCss(t, F); const wPx = Math.max(...lines.map(l => x.measureText(l).width)), pad = Math.ceil(F * 0.3);
+  const W = Math.ceil(wPx + 2 * pad), H = Math.ceil(lhPx * lines.length + 2 * pad);
+  if (W * H > 9e6) { toast('That text is too big to convert — shorten it.'); return 0; }
+  c.width = W; c.height = H; x.fillStyle = '#fff'; x.fillRect(0, 0, W, H); x.fillStyle = '#000'; x.font = textFontCss(t, F); x.textBaseline = 'alphabetic';
+  const base0 = pad + F * 0.9; lines.forEach((ln, i) => x.fillText(ln, pad, base0 + i * lhPx));
+  const R = { w: W, h: H, d: x.getImageData(0, 0, W, H).data }, k = t.h / F, T = textXf(t), out = [];
+  for (const ch of engOutlines(R, 128, false)) {
+    const pts = engSimplify(ch.map(q => [q[0] / 2 - 0.5, q[1] / 2 - 0.5]), 0.7);
+    if (pts.length < 3) continue;
+    const uv = pts.map(q => T.to((q[0] - pad) * k, -(q[1] - base0) * k));
+    if (dst2(uv[0], uv[uv.length - 1]) > 1e-12) uv.push(P2(uv[0].x, uv[0].y));
+    for (let i = 0; i + 1 < uv.length; i++) if (dst2(uv[i], uv[i + 1]) > 1e-10) out.push({ type: 'line', a: P2(uv[i].x, uv[i].y), b: P2(uv[i + 1].x, uv[i + 1].y) });
+  }
+  if (!out.length) { toast('No letters to convert.'); return 0; }
+  pushUndo('Text to curves'); S.sk.texts = S.sk.texts.filter(x2 => x2 !== t); if (TXT.sel === t.id) TXT.sel = null;
+  addEnts(out); S.sel.clear(); out.forEach(e => S.sel.add(e));
+  refreshPanel(); requestDraw(); return out.length;
+}
+function textPanel() {
+  const t = textById(TXT.sel), d = t || TXT.def, escA = v => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+  const fonts = Object.entries(ENG_FONTS).map(([k, v]) => `<button data-tfont="${k}" class="${d.font === k ? 'on' : ''}">${v[0]}</button>`).join('');
+  return `<div class="divider"></div><div class="field"><span>${t ? 'Selected text' : 'Text style for new notes'}</span></div>
+    ${t ? `<label class="field"><span>Text</span><textarea data-txt="str" data-live="1" rows="2" spellcheck="false">${escA(t.str)}</textarea></label>` : ''}
+    <div class="row2"><label class="field"><span>Height (${uName()})</span><input type="number" data-txt="h" data-live="1" min="0.01" step="any" value="${uval(d.h)}"></label>
+    <label class="field"><span>Rotation (°)</span><input type="number" data-txt="rot" data-live="1" step="any" value="${+(d.rot || 0).toFixed(3)}"></label></div>
+    <div class="field"><span>Font</span><div class="seg">${fonts}</div></div>
+    <div class="field"><div class="seg"><button data-tstyle="bold" class="${d.bold ? 'on' : ''}">Bold</button><button data-tstyle="italic" class="${d.italic ? 'on' : ''}">Italic</button></div></div>
+    ${t ? `<div class="btns"><button class="btn primary" data-do="txt2curves">Convert to curves</button><button class="btn" data-do="txtdel">Delete</button></div>
+    <p class="note">Convert turns the letters into sketch curves. Finish the sketch, then <b>Extrude</b> them for raised text, or cut them into a part.</p>`
+    : '<p class="note">Click in the sketch to place text, type it, then press <span class="kbd">Enter</span>. Click a note again to edit it; drag it to move it.</p>'}`;
+}
+function bindTextPanel() {
+  panel.querySelectorAll('[data-txt]').forEach(inp => {
+    const k = inp.dataset.txt, t = () => textById(TXT.sel), num = k !== 'str';
+    inp.addEventListener('focus', () => { TXT.before = snap(); });
+    inp.addEventListener('input', () => { const v = num ? (k === 'h' ? fromU(parseFloat(inp.value)) : parseFloat(inp.value)) : inp.value; if (num && !isFinite(v)) return; const x = t(); if (x) textSet(x, k, v); else if (num) TXT.def[k] = v; });
+    inp.addEventListener('change', () => { if (t() && TXT.before && snap() !== TXT.before) record('Edit text', TXT.before); TXT.before = null; });
+  });
+  const style = (k, v) => { const x = textById(TXT.sel), before = snap(); if (x) { textSet(x, k, v); record('Edit text', before); } else TXT.def[k] = v; refreshPanel(); };
+  panel.querySelectorAll('[data-tfont]').forEach(b => b.addEventListener('click', () => style('font', b.dataset.tfont)));
+  panel.querySelectorAll('[data-tstyle]').forEach(b => b.addEventListener('click', () => { const k = b.dataset.tstyle, x = textById(TXT.sel); style(k, !(x || TXT.def)[k]); }));
+}
 function drawSketch(f, active) {
   const pl = planeOf(f), m = planeXf(pl);
   if (Math.abs(m[0] * m[3] - m[1] * m[2]) < 1e-9) return;
@@ -10033,6 +10214,7 @@ function drawSketch(f, active) {
     drawDims(f, m, true);
     if (S.tool === 'dim') drawDimPicks(m);
   }
+  drawSketchTexts(f, m, active);
   og.globalAlpha = 1;
 }
 // Sketches that are not being edited live in the WebGL scene so solids
@@ -10108,12 +10290,16 @@ function drawToolPreview() {
   const pl = planeOf(S.sk), m = planeXf(pl), t = S.tool, c = S.cur, A = COL.accent;
   const pv = e => strokeEnt(m, e, A, 1.6, [5, 4]);
   const mouse = S.mouse || P2(0, 0);
-  if (t === 'trim' && S.trimPrev) {
+  if ((t === 'trim' || t === 'extend') && S.trimPrev) {
     const tp = S.trimPrev, e = tp.e;
     const piece = e.type === 'line' ? { type: 'line', a: G.pt(e, tp.lo), b: G.pt(e, tp.hi) } : { type: 'arc', c: e.c, r: e.r, a0: tp.lo, a1: tp.hi };
     strokeEnt(m, piece, COL.danger, 3.2);
   }
-  if (t === 'extend' && S.extPrev && !S.extPrev.none) {
+  if ((t === 'trim' || t === 'extend') && S.trimming && S.trimming.trail.length > 1) {      // the dragged trim line
+    og.save(); og.strokeStyle = COL.accent; og.lineWidth = 1.6; og.setLineDash([6, 4]); og.beginPath();
+    S.trimming.trail.forEach((q, i) => { const sp = xfPt(m, q); i ? og.lineTo(sp.x, sp.y) : og.moveTo(sp.x, sp.y); }); og.stroke(); og.restore();
+  }
+  if ((t === 'extend' || t === 'trim') && S.extPrev && !S.extPrev.none) {
     const x = S.extPrev, e = x.e;
     if (e.type === 'line') pv({ type: 'line', a: e[x.key], b: x.q });
     else pv(x.key === 'a1' ? { type: 'arc', c: e.c, r: e.r, a0: e.a1, a1: e.a1 + x.d } : { type: 'arc', c: e.c, r: e.r, a0: e.a0 - x.d, a1: e.a0 });
@@ -10796,6 +10982,7 @@ const IC = {
   arc3: '<path d="M3.5 15A7 7 0 0116.5 15"/><circle cx="3.5" cy="15" r="1.2"/><circle cx="16.5" cy="15" r="1.2"/><circle cx="10" cy="8" r="1.2"/>',
   carc: '<path d="M4 14a7 7 0 0112 0"/><path d="M10 14V9" stroke-dasharray="1.5 1.5"/><path d="M9 14h2"/>',
   poly: '<path d="M10 3l6 3.5v7L10 17l-6-3.5v-7z"/>',
+  text: '<path d="M4 5V3.5h12V5M10 3.5V16.5M7.5 16.5h5"/>',
   fillet: '<path d="M4 16V9a5 5 0 015-5h7"/><path d="M4 4h3M4 4v3" opacity=".5"/>',
   trim: '<path d="M3 10h14"/><path d="M8 4l4 12M12 4L8 16" opacity=".45"/><path d="M12.5 7.5l3 5"/>',
   extend: '<path d="M3 10h9"/><path d="M12 10h3" stroke-dasharray="1.5 1.8"/><path d="M17 4v12"/>',
@@ -10851,7 +11038,7 @@ const svg = (k, cls = '') => `<svg class="${cls}" viewBox="0 0 20 20">${IC[k] ||
 const SKETCH_XF = [['spaste', 'Paste', 'Ctrl+V'], ['array', 'Pattern', 'P'], ['smove', 'Move', ''], ['srot', 'Rotate', ''], ['sscale', 'Scale', '']];
 const skToolName = t => ([...SKETCH_TOOLS.flat(), ...SKETCH_XF].find(x => x[0] === t) || [0, t])[1];
 const SKETCH_TOOLS = [
-  [['select', 'Select', 'S'], ['dim', 'Dimension', 'D'], ['line', 'Line', 'L'], ['polyline', 'Polyline', 'Y'], ['rect', 'Rectangle', 'R'], ['crect', 'Center Rect', ''], ['circle', 'Circle', 'C'], ['arc3', '3-Pt Arc', 'A'], ['carc', 'Center Arc', ''], ['poly', 'Polygon', 'G']],
+  [['select', 'Select', 'S'], ['dim', 'Dimension', 'D'], ['line', 'Line', 'L'], ['polyline', 'Polyline', 'Y'], ['rect', 'Rectangle', 'R'], ['crect', 'Center Rect', ''], ['circle', 'Circle', 'C'], ['arc3', '3-Pt Arc', 'A'], ['carc', 'Center Arc', ''], ['poly', 'Polygon', 'G'], ['text', 'Text', 'N']],
   [['fillet', 'Fillet', 'I'], ['chamfer', 'Chamfer', ''], ['trim', 'Trim', 'T'], ['extend', 'Extend', 'W'], ['offset', 'Offset', 'O'], ['mirror', 'Mirror', 'M'], ['project', 'Project', 'J'], ['origin', 'Set Origin', 'Z']],
 ];
 const FEAT_IC = { bmode: 'extrude', sketch: 'sketch', extrude: 'extrude', plane: 'plane', fillet: 'fillet3', chamfer: 'chamfer3', thread: 'thread', point: 'point', import: 'import', polyline3d: 'polyline3' };
@@ -10971,6 +11158,7 @@ function action(a) {
   }
 }
 function deleteSelection() {
+  if (S.sk && TXT.sel && !S.sel.size && textById(TXT.sel)) { textDelete(textById(TXT.sel)); return; }
   if (S.sk && DIM.sel && S.sk.dims && S.sk.dims.includes(DIM.sel)) { dimDelete(DIM.sel); return; }
   if (!S.sk || !S.sel.size) return;
   pushUndo('Delete ' + S.sel.size + ' curve' + (S.sel.size > 1 ? 's' : '')); const set = new Set(S.sel); S.sel.clear(); removeEnts(set);
@@ -11497,9 +11685,10 @@ const TOOL_HELP = {
   arc3: 'Click the start, then the end, then a point the arc passes through.',
   carc: 'Click the center, then the start point, then sweep to the end (either direction).',
   poly: 'Click the center, then a vertex.',
+  text: 'Click to place a note, type it and press Enter. Click a note to edit it, drag to move it, then Convert to curves to extrude it into 3D text.',
   fillet: 'Click near a corner where two lines meet. It is rounded with an exact tangent arc.',
-  trim: 'Click a curve segment to remove it back to the nearest intersections. Hold and drag to trim several.',
-  extend: 'Click near the end of a line or arc to extend it to the next curve it would hit.',
+  trim: 'Quick trim: click a curve segment to remove it back to the nearest intersections. Press and drag across several to trim them all. Hold Shift to extend instead.',
+  extend: 'Click near the end of a line or arc to extend it to the next curve it would hit. Hold Shift to trim instead.',
   offset: 'Click a curve — its whole connected chain is offset with corners re-joined. Move to pick side and distance, click to place, or type a distance.',
   mirror: 'Click curves to mirror, then “Choose mirror line” and click a straight line.',
   project: 'Click a face of a body to copy its edges into this sketch (circles stay true circles).',
@@ -11528,6 +11717,7 @@ function sketchPanel() {
     else props = `<div class="row2">${num('cx', e.c.x, 'Center X')}${num('cy', e.c.y, 'Center Y')}${num('r', e.r, 'Radius')}${num('sw', (e.a1 - e.a0) * 180 / Math.PI, 'Sweep °')}${num('a0', mod(e.a0 * 180 / Math.PI, 360), 'Start °')}</div>`;
     props = `<div class="divider"></div><div class="field"><span>Selected ${e.cons ? 'construction ' : ''}${e.type}</span></div>${props}`;
   } else if (S.sel.size > 1) props = `<div class="divider"></div><p class="note"><b>${S.sel.size}</b> curves selected · <span class="kbd">X</span> construction · <span class="kbd">Del</span> delete</p>`;
+  if (t === 'text' || TXT.sel) props += textPanel();
   props += dimsPanel();
   const arr = arrOf(S.sk);
   return `<div class="pn-head"><h2>${S.sk.name}</h2><span class="tag">${arr.regions.length} profile${arr.regions.length === 1 ? '' : 's'}</span></div><div class="pn-body">
@@ -11578,6 +11768,8 @@ function bindPanel() {
     if (d === 'finish') finishSketch();
     if (d === 'look') set2D(true);
     if (d === 'extrude') action('extrude');
+    if (d === 'txt2curves') { const x = textById(TXT.sel); if (x) { const n = textToCurves(x); if (n) toast(`Text is now ${n} curves: finish the sketch, then Extrude`); } }
+    if (d === 'txtdel') { const x = textById(TXT.sel); if (x) textDelete(x); }
     if (d.startsWith('skxf:') && selProfiles.length) sketchXform(byId(selProfiles[0].sketch), d.slice(5));
     if (d === 'sketchsel') createSketchOn(sel3D);
     if (d === 'offsel') cmdOffsetPlane();
@@ -11632,6 +11824,7 @@ function bindPanel() {
   bindFeatPanel();
   if (S.sk) bindDimsPanel();
   if (S.sk && LIVE.on) bindLivePanel();
+  bindTextPanel();
   const pn = document.getElementById('polyN');
   if (pn) pn.addEventListener('input', () => { const v = parseInt(pn.value, 10); if (v >= 3 && v <= 64) { S.polySides = v; requestDraw(); } });
   const os = document.getElementById('osnap'); if (os) os.addEventListener('change', () => { S.osnap = os.checked; });
@@ -11666,9 +11859,10 @@ function updateHint() {
       polyline: S.poly && S.poly.length ? `click the next corner · click the first corner to close · ${k('Enter')} or double-click to finish` : 'click the first corner',
       rect: n ? 'click the opposite corner' : 'click the first corner', crect: n ? 'click a corner' : 'click the center',
       circle: n ? 'click a point on the circle, or type a diameter' : 'click the center', poly: n ? 'click a vertex' : 'click the center',
+      text: 'click where the text goes · click a note to edit · drag to move · Enter to finish typing',
       arc3: n === 0 ? 'click the start point' : n === 1 ? 'click the end point' : 'click a point on the arc',
       carc: n === 0 ? 'click the center' : n === 1 ? 'click the start point' : 'sweep, then click the end',
-      trim: 'click the piece to remove (drag across several)', extend: 'click near the end to extend', fillet: 'click near a corner',
+      trim: 'click the piece to remove · drag across several · Shift extends', extend: 'click near the end to extend · Shift trims', fillet: 'click near a corner',
       offset: S.offset ? 'move to the side you want, click to place (or type a distance)' : 'click a curve to offset its chain',
       mirror: S.mirrorStep ? 'click the mirror line' : 'click curves to mirror, then Choose mirror line',
       project: 'click a body face to project its edges', select: 'click or drag to select and edit',
@@ -11859,6 +12053,7 @@ ov.addEventListener('pointerup', e => {
 });
 ov.addEventListener('dblclick', e => {
   if (S.sk) { const q = local(e), d = dimLabelAt(q.x, q.y); if (d) { dimOpenEditor(d); return; } }
+  if (S.sk && S.tool === 'select') { const q = local(e), uv = sketchUV(q.x, q.y), th = uv && textHit(uv, tolUV(3)); if (th) { TXT.sel = th.id; textEdit(th, snap(), false); return; } }
   if (S.sk || CMD || UIX.ws === 'cam') { if (S.sk && S.tool === 'line' && S.pts.length) { S.pts = []; S.chainStart = null; requestDraw(); } if (S.sk && S.tool === 'polyline' && S.poly) polyFinish(); return; }
   const { x, y } = local(e);
   const h = pick3D(x, y, { profiles: true, faces: true, planes: true });
@@ -11979,7 +12174,7 @@ window.addEventListener('keydown', e => {
   if (key === 'e') { action('extrude'); return; }
   if (UIX.ws === 'cam') return;
   if (S.sk) {
-    const map = { s: 'select', l: 'line', y: 'polyline', r: 'rect', c: 'circle', a: 'arc3', g: 'poly', i: 'fillet', t: 'trim', w: 'extend', o: 'offset', m: 'mirror', j: 'project', z: 'origin', p: 'array', d: 'dim' };
+    const map = { s: 'select', l: 'line', y: 'polyline', r: 'rect', c: 'circle', a: 'arc3', g: 'poly', i: 'fillet', t: 'trim', w: 'extend', o: 'offset', m: 'mirror', j: 'project', z: 'origin', p: 'array', d: 'dim', n: 'text' };
     if (map[key]) { setTool(map[key]); return; }
     if (key === 'x') { action('cons'); return; }
   } else {
@@ -26677,7 +26872,7 @@ ToolLook.build = function (tool) {
 // ═══════════════════════════════════════════════════════════════════
 const FA_VER = '6.5.2', FA_BASE = `https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@${FA_VER}/svgs/`;
 const FA_MAP = {
-  select: 'arrow-pointer', line: 'slash', rect: 'regular/square', crect: 'vector-square', circle: 'regular/circle', arc3: 'bezier-curve', carc: 'circle-notch', poly: 'draw-polygon',
+  select: 'arrow-pointer', line: 'slash', rect: 'regular/square', crect: 'vector-square', circle: 'regular/circle', arc3: 'bezier-curve', carc: 'circle-notch', poly: 'draw-polygon', text: 'font',
   fillet: 'border-top-left', trim: 'scissors', extend: 'arrows-left-right-to-line', offset: 'clone', mirror: 'arrows-left-right', project: 'diagram-project', cons: 'link', del: 'trash-can',
   sketch: 'pen-ruler', extrude: 'arrow-up-from-bracket', plane: 'layer-group', finish: 'check', body: 'cube', eye: 'eye', eyeoff: 'eye-slash', origin: 'crosshairs', origin2: 'location-crosshairs',
   chamfer: 'diamond', fillet3: 'circle-half-stroke', chamfer3: 'diamond', thread: 'screwdriver', point: 'circle-dot', marker: 'flag', blueprint: 'compass-drafting', measure: 'ruler', inspect: 'clipboard-check', fixture: 'cubes-stacked',
@@ -27320,7 +27515,7 @@ function sketchRibbonHTML() {
   const t = a => S.tool === a, T = (a, l, k, ic) => [a, l, k, ic || a, t(a)];
   const np = dimsPending(S.sk).length;
   return rbPanel('Select', [T('select', 'Select', 'S')])
-    + rbPanel('Create', [T('line', 'Line', 'L'), T('polyline', 'Polyline', 'Y'), T('rect', 'Rectangle', 'R'), T('circle', 'Circle', 'C'), T('crect', 'Center Rect', ''), T('arc3', '3-Point Arc', 'A'), T('carc', 'Center Arc', ''), T('poly', 'Polygon', 'G')], 3)
+    + rbPanel('Create', [T('line', 'Line', 'L'), T('polyline', 'Polyline', 'Y'), T('rect', 'Rectangle', 'R'), T('circle', 'Circle', 'C'), T('crect', 'Center Rect', ''), T('arc3', '3-Point Arc', 'A'), T('carc', 'Center Arc', ''), T('poly', 'Polygon', 'G'), T('text', 'Text', 'N')], 3)
     + rbPanel('Modify', [T('trim', 'Trim', 'T'), T('fillet', 'Fillet', 'I'), T('chamfer', 'Chamfer', ''), T('extend', 'Extend', 'W'), T('offset', 'Offset', 'O'), T('origin', 'Set Origin', 'Z', 'origin2')], 1)
     + rbPanel('Transform', [T('mirror', 'Mirror', 'M'), T('array', 'Pattern', 'P'), T('smove', 'Move', ''), T('srot', 'Rotate', ''), T('sscale', 'Scale', ''), ['sk:copy', 'Copy', 'Ctrl+C', 'skcopy'], ['sk:cut', 'Cut', 'Ctrl+X', 'skcut'], T('spaste', 'Paste', 'Ctrl+V')], 0)
     + rbPanel('Constrain', [T('dim', 'Dimension', 'D'), T('project', 'Project', 'J'), ['cons', 'Construction', 'X', 'cons'], ['del', 'Delete', 'Del', 'del']], 1)
@@ -29394,6 +29589,7 @@ const TIP_ART = (() => {
     arc3: [k2(() => dot([28, 62]) + dot([60, 26]) + dot([92, 62])), k2(() => sk('M28,62 A34,34 0 0,1 92,62') + dot([28, 62]) + dot([60, 26]) + dot([92, 62]))],
     carc: [k2(() => dot([60, 60], C.dim) + dot([30, 60])), k2(() => sk('M30,60 A30,30 0 0,1 90,60') + dot([60, 60], C.dim) + dot([30, 60]) + dot([90, 60]))],
     poly: [k2(() => dot([60, 45], C.dim) + dot([86, 45])), k2(() => { const h = hexPts(60, 45, 26); return fillP('M' + h.map(p => p.join(',')).join(' L') + ' Z') + sk('M' + h.map(p => p.join(',')).join(' L') + ' Z') + dot([60, 45], C.dim); })],
+    text: [k2(() => dot([34, 58])), k2(() => `<text x="34" y="58" font-size="30" font-weight="700" font-family="Inter, system-ui, sans-serif" fill="${C.sk}">Ab</text>` + dot([34, 58], C.dim))],
     trim: [k2(() => sk('M20,45 H100') + sk('M60,15 V75') + sk('M60,45 H100', C.warn, 2.6)), k2(() => sk('M20,45 H60') + sk('M60,15 V75'))],
     fillet: [k2(() => sk('M28,70 V24 H92')), k2(() => sk('M28,70 V42 A18,18 0 0,1 46,24 H92') + sk('M28,42 A18,18 0 0,1 46,24', C.warn, 2.6))],
     chamfer: [k2(() => sk('M28,70 V24 H92')), k2(() => sk('M28,70 V42 L46,24 H92') + sk('M28,42 L46,24', C.warn, 2.6))],
@@ -29479,8 +29675,9 @@ const TIP_TXT = {
   circle: ['A circle from its center.', ['Click the center.', 'Click a point on it, or type the diameter.']],
   arc3: ['An arc through three points.', ['Click the start.', 'Click the end.', 'Click a point it passes through.']],
   carc: ['An arc round a center.', ['Click the center.', 'Click the start.', 'Sweep round and click the end.']],
+  text: ['A text note. Convert it to curves and it extrudes like any profile.', ['Click where it goes.', 'Type, then press Enter.', 'Click a note to edit it, drag to move it.']],
   poly: ['A regular polygon (hexagon by default).', ['Click the center.', 'Click a corner, or type the radius.', 'Set the number of sides in the panel.']],
-  trim: ['Cut away a piece of a curve up to where it crosses another.', ['Click the piece to remove.', 'Drag across several to trim them all.']],
+  trim: ['Quick trim: cut away a piece of a curve up to where it crosses another.', ['Click the piece to remove.', 'Press and drag across several to trim them all.', 'Hold Shift to extend instead.']],
   fillet: ['Round a sketch corner.', ['Set the radius in the panel.', 'Click near a corner.']],
   chamfer: ['Bevel a sketch corner.', ['Set the size.', 'Click near a corner.']],
   extend: ['Stretch a line to the next curve it meets.', ['Click near the end to extend.']],

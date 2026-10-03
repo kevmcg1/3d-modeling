@@ -9,7 +9,7 @@ cut('/* ════════ Plan rendering', '/* ════════ E
 cut('/* ════════ Boot');
 const noop = () => ({ style: {}, classList: { add() { }, remove() { }, toggle() { } }, addEventListener() { }, querySelectorAll: () => [] });
 const ctx = vm.createContext({ document: { querySelector: noop, querySelectorAll: () => [], documentElement: { dataset: {} }, createElement: noop }, window: { addEventListener() { } }, console, Math, JSON, Set, Map, Float32Array, isFinite, parseInt, parseFloat });
-vm.runInContext(src + '\n;this.T = { get doc() { return doc; }, set doc(v) { doc = v; }, fmtLen, parseLen, sanitize, newDoc, addWall, footprints, faceAt, roomGeom, stairInfo, floorHoles, triangulate, subtractConvex, area2, buildScene, exportDXF, exportOBJ, sampleDoc, splitWall, openFits, S, OPT, PREF, chainVerts, trimToCorner, transformSel, offsetWall, copyLevelUp, dimGeom, GUIDE, TOOLS, TIPS, tipInfo, RIBBON, byId, REVUP: () => { REV++; } };', ctx);
+vm.runInContext(src + '\n;this.T = { get doc() { return doc; }, set doc(v) { doc = v; }, fmtLen, parseLen, sanitize, newDoc, addWall, footprints, faceAt, roomGeom, stairInfo, floorHoles, triangulate, subtractConvex, area2, buildScene, exportDXF, exportOBJ, sampleDoc, splitWall, openFits, S, OPT, PREF, chainVerts, trimToCorner, quickTrimWall, fenceTrim, trimSpan, extendTarget, transformSel, offsetWall, copyLevelUp, dimGeom, GUIDE, TOOLS, TIPS, tipInfo, RIBBON, byId, REVUP: () => { REV++; } };', ctx);
 const T = ctx.T, near = (a, b, e = 1e-6) => assert(Math.abs(a - b) < e, `${a} != ${b}`);
 
 // lengths: feet-inches in, feet-inches out
@@ -92,6 +92,33 @@ const rt = T.sanitize(JSON.parse(JSON.stringify(sd))); assert.deepStrictEqual(JS
   near(w1.b[0], 120); near(w1.b[1], 0); near(w2.a[1], 0, 1e-6) || 0;
   const p1 = T.addWall([0, 200], [50, 200], 'L1'), p2 = T.addWall([0, 220], [50, 220], 'L1');
   assert.strictEqual(T.trimToCorner(p1, [0, 200], p2, [0, 220]), 'parallel');
+}
+// ── quick trim: click a wall piece to cut it back to the crossing walls; fence trims many; extend runs a wall end to the next wall
+{
+  const D = T.newDoc(); T.doc = D; T.REVUP(); T.S.lv = 'L1';
+  const mid = T.addWall([0, 0], [200, 0], 'L1'), l = T.addWall([60, -50], [60, 50], 'L1'), r = T.addWall([140, -50], [140, 50], 'L1');
+  D.opens.push({ id: 'dA', wall: mid.id, kind: 'door', style: 'single', d: 30, w: 30, h: 80, sill: 0, flip: 0, hinge: 0 }, { id: 'dB', wall: mid.id, kind: 'window', d: 100, w: 30, h: 40, sill: 30 }, { id: 'dC', wall: mid.id, kind: 'door', style: 'single', d: 170, w: 30, h: 80, sill: 0, flip: 0, hinge: 0 });
+  const sp = T.trimSpan(mid, 100); near(sp.lo, 60); near(sp.hi, 140);
+  const res = T.quickTrimWall(mid, 100, false); assert.strictEqual(res.ids.length, 2);
+  const [wl, wr] = res.ids.map(id => T.byId(D.walls, id)); near(wl.b[0], 60); near(wr.a[0], 140); near(wr.b[0], 200);
+  assert(!D.opens.some(o => o.id === 'dB'), 'opening in the removed piece goes with it');
+  assert.strictEqual(D.opens.find(o => o.id === 'dC').wall, wr.id); near(D.opens.find(o => o.id === 'dC').d, 30);
+  // trimming one end only
+  const e1 = T.addWall([0, 200], [200, 200], 'L1'); T.addWall([60, 150], [60, 250], 'L1'); const res2 = T.quickTrimWall(e1, 150, false); assert.strictEqual(res2.ids.length, 1); near(e1.b[0], 60); const e2 = T.addWall([0, 400], [200, 400], 'L1'); T.addWall([60, 350], [60, 450], 'L1'); T.quickTrimWall(e2, 20, false); near(e2.a[0], 60);
+  // a wall nothing crosses cannot be trimmed
+  const lone = T.addWall([0, 300], [100, 300], 'L1'); assert.strictEqual(T.quickTrimWall(lone, 50, false), null);
+  // fence across several walls
+  const D5 = T.newDoc(); T.doc = D5; T.REVUP(); T.S.lv = 'L1';
+  const cross = T.addWall([100, -100], [100, 400], 'L1');
+  for (const y of [0, 100, 200]) T.addWall([0, y], [200, y], 'L1');
+  const n = T.fenceTrim([[150, -20], [150, 120]], false); assert.strictEqual(n, 2);
+  assert.strictEqual(D5.walls.filter(w => Math.abs(w.a[1] - w.b[1]) < 1e-6 && w.a[1] === 200).length, 1, 'wall outside the fence untouched');
+  assert(D5.walls.filter(w => w.a[1] === 0 || w.a[1] === 100).every(w => Math.max(w.a[0], w.b[0]) <= 100.001), 'right halves removed');
+  // extend: nearer end runs to the next wall
+  const D6 = T.newDoc(); T.doc = D6; T.REVUP(); T.S.lv = 'L1';
+  const s1 = T.addWall([0, 0], [80, 0], 'L1'); T.addWall([120, -50], [120, 90], 'L1');
+  const x = T.extendTarget(s1, 70); assert.strictEqual(x.end, 'b'); near(x.pt[0], 120);
+  assert(T.quickTrimWall(s1, 70, true)); near(s1.b[0], 120);
 }
 // ── rotate and mirror about the middle of the selection are exact inverses; mirroring flips door swing
 {
