@@ -4015,6 +4015,7 @@ body.jaws-on #viewtools, body.jaws-on #hint, body.jaws-on #mouseLegend, body.jaw
 .axis-badge.a4 { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
 .axis-badge.a5 { background: color-mix(in srgb, var(--snap) 16%, transparent); color: var(--snap); }
 .axis-badge.a6 { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
+.axis-badge.astress { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
 #sheetWs { display: none; min-height: 0; }
 #sheetWs iframe { width: 100%; height: 100%; border: 0; display: block; background: var(--bg); }
 body.ws-sheet #main { display: none !important; }
@@ -16625,7 +16626,15 @@ function fxBuild(op) {
     cases.push({ id: 'jaw', jaw: true, w: Fj / FX_REF, c: jaw.patch.c, dir: d, loads: [{ kind: 'force', tris: jaw.tris, mag: FX_REF, dir: d, patch: jaw.patch }], desc: ['jaw', jaw.ja.mi, r2(jaw.patch.c[0]), r2(jaw.patch.c[1]), r2(jaw.patch.c[2])] });
   }
   // the cut: a force at a point on the surface, across the part, with a share lifting it
-  const cv = op.cut || [len[0] / 2, len[1] / 2], ca = fxOff2m(E, lat[0], cv[0]), cb = fxOff2m(E, lat[1], cv[1]), ch = fxSurfaceAt(mesh, U, lat[0].mi, lat[1].mi, ca, cb);
+  let cv = op.cut || [len[0] / 2, len[1] / 2], ca = fxOff2m(E, lat[0], cv[0]), cb = fxOff2m(E, lat[1], cv[1]), ch = fxSurfaceAt(mesh, U, lat[0].mi, lat[1].mi, ca, cb);
+  if (ch === null && !op.cut) {                                       // the middle is a slot or a pocket: take the nearest spot with top surface
+    let bd = Infinity;
+    for (let i = 0; i <= 12; i++) for (let j = 0; j <= 12; j++) {
+      const v = [len[0] * (0.1 + 0.8 * i / 12), len[1] * (0.1 + 0.8 * j / 12)], d = Math.hypot(v[0] - len[0] / 2, v[1] - len[1] / 2); if (d >= bd) continue;
+      const a = fxOff2m(E, lat[0], v[0]), b = fxOff2m(E, lat[1], v[1]), h = fxSurfaceAt(mesh, U, lat[0].mi, lat[1].mi, a, b);
+      if (h !== null) { bd = d; cv = v; ca = a; cb = b; ch = h; }
+    }
+  }
   if (ch !== null) {
     const th = (+op.ang || 0) * Math.PI / 180, lift = +op.lift || 0, dir = [0, 0, 0];
     dir[lat[0].mi] = Math.cos(th) * fxUserSign(lat[0]); dir[lat[1].mi] = Math.sin(th) * fxUserSign(lat[1]); dir[U.ax] = U.sg * lift;
@@ -16636,7 +16645,7 @@ function fxBuild(op) {
   }
   const pkey = [P.body.id, P.mesh.pos.length, P.bb.map(v => +v.toFixed(2)).join(','), op.up, op.sup, stressSetup().fxQ || 'draft'].join('|'), sk = sup.map(c => JSON.stringify(c.desc)).join(';');
   for (const cs of cases) cs.key = pkey + '|' + sk + '|' + JSON.stringify(cs.desc);
-  return { P, U, E, lat, len, mid, sup, cases, thick, hmin, jaw };
+  return { P, U, E, lat, len, mid, sup, cases, thick, hmin, jaw, cutAt: cv };
 }
 
 // ── solving, adding up, and judging ──
@@ -16728,7 +16737,7 @@ function fxAdvise(op, B) {
   const SFnow = hold((cs) => cs.w * FX_REF);
   let tauMin = 0; if (cut) { tauMin = Infinity; for (let t = 0.02; t <= 1.0001; t += 0.02) if (hold((cs, j) => t * full[j] * FX_REF) >= FX_SF_HOLD) { tauMin = t; break; } }
   adv.sfHold = SFnow; adv.tauMin = tauMin; adv.tauMax = tauMax; adv.tauPad = tauPad; adv.sfPartAtZero = sf0; adv.W = W; adv.Fcut = Fcut; adv.mu = mu;
-  adv.fits = isFinite(tauMin) && tauMin <= tauMax;
+  adv.fits = isFinite(tauMin) && tauMin <= tauMax + 1e-9;
   adv.tauRec = adv.fits ? Math.min(tauMax * 0.85, Math.max(tauMin * 1.35, tauMin + 0.05)) : null;
   if (adv.tauRec !== null) adv.tauRec = Math.max(tauMin, Math.min(adv.tauRec, tauMax));
   clamps.forEach((cs, j) => {
@@ -16800,7 +16809,7 @@ function fxMinCount(op, B, kind) {
 }
 function fxSuggest(op, kind, existing) {
   const B = fxBuild(op), U = B.U, E = B.E, G = fxGrid(B), cell = G.cell, mc = fxMinCount(op, B, kind), f = { kind, size: '3/8-16' }, pr = fxPadR(f);
-  const cutv = op.cut || [B.len[0] / 2, B.len[1] / 2], cm = [fxOff2m(E, B.lat[0], cutv[0]), fxOff2m(E, B.lat[1], cutv[1])];
+  const cutv = op.cut || B.cutAt || [B.len[0] / 2, B.len[1] / 2], cm = [fxOff2m(E, B.lat[0], cutv[0]), fxOff2m(E, B.lat[1], cutv[1])];
   const out = { kind, mc, picks: [], note: '' };
   if (kind === 'side') {
     // push toward a stop on the opposite wall, along the direction the cut pushes
@@ -16946,7 +16955,7 @@ function fxPanel() {
   const s = stressSetup(), p = fxProj(), op = fxOp(), B = FX.built, U = stressU(), tu = fxTU(), m = stressMat();
   const modes = STRESS_MODES.map(([g, l]) => `<optgroup label="${g}">${l.map(([v, t]) => `<option value="${v}" ${s.show === v ? 'selected' : ''}>${t}</option>`).join('')}</optgroup>`).join('');
   const bodies = visibleBodies().filter(b => !b.hole), pb = fxPart();
-  const cutPos = B ? (op.cut || [B.len[0] / 2, B.len[1] / 2]) : [0, 0], cl = B ? B.lat : [{ letter: 'X' }, { letter: 'Y' }];
+  const cutPos = B ? (op.cut || B.cutAt || [B.len[0] / 2, B.len[1] / 2]) : [0, 0], cl = B ? B.lat : [{ letter: 'X' }, { letter: 'Y' }];
   const sugKinds = Object.entries(FXK).map(([k, v]) => [k, v.name]);
   const sug = FX.sug ? `<div class="fx-sug"><p class="note"><b>${FX.sug.picks.length ? `${FXK[FX.sug.kind].name}s: at least ${FX.sug.mc.n}` : 'No suggestion'}.</b> ${FX.sug.note}</p>
       ${FX.sug.picks.length ? `<ul class="note">${FX.sug.picks.map((q, i) => `<li>${q.wall ? `${q.wall} wall, ${fmtLs(q.u, 2)} along` : `${B.lat[0].letter} ${fmtLs(q.v[0], 2)} · ${B.lat[1].letter} ${fmtLs(q.v[1], 2)}`}</li>`).join('')}</ul>
@@ -17187,6 +17196,31 @@ function bindFx() {
     if (keep) { const r = STRESS.result; STRESS.result = null; model0(); STRESS.result = r; fxSoon(400); } else model0();
   };
 }
+
+// ── ready-made setups: sample parts carry a preset that is built once the model has evaluated ──
+// spec: { name, q?, ops: [{ op: { up, sup, cutPreset, ang, … }, clamps: [{ kind, n?, tau, size? }], cut?: [offsets] }], cur? }
+function fxLoadPreset(spec) {
+  const s = stressSetup(), pj = { id: fxId(), name: spec.name, ops: [], fix: [], opCur: 0 };
+  s.pj = { list: [pj], cur: 0 }; s.fxOn = true; if (spec.q) s.fxQ = spec.q;
+  for (const o of spec.ops) {
+    const op = fxMakeOp(o.name, o.op); if (o.cut) op.cut = o.cut; pj.ops.push(op); pj.opCur = pj.ops.length - 1;
+    for (const c of o.clamps) {
+      FX.built = fxBuild(op);
+      const sg = fxSuggest(op, c.kind, fxPositions(op)), picks = sg.picks.slice(0, c.n || sg.picks.length);
+      picks.forEach(pk => { const f = fxNewFix(c.kind, pk); if (c.size) f.size = c.size; f.torque = +(fxScrewMaxT(f) * c.tau).toFixed(2); FX.built = fxBuild(op); });
+    }
+  }
+  pj.opCur = spec.cur || 0; FX.built = null; FX.sug = null; FX.place = null; FX.cache.clear();
+}
+function fxPresetTry(n) {
+  const sp = doc.fxPreset; if (!sp || !(CMD && CMD.type === 'stress')) return;
+  try {
+    const P = fxPart(), sig = P && P.bb.map(v => v.toFixed(2)).join() + '|' + P.mesh.pos.length;     // the model must stop changing before clamps are placed on it
+    if (!P || sig !== FX.psig) { FX.psig = sig; throw new Error('waiting for the model'); }
+    FX.psig = null; fxLoadPreset(sp); delete doc.fxPreset; refreshPanel(); updateHint(); requestDraw(); fxSoon(0); }
+  catch (e) { if (n < 40) setTimeout(() => fxPresetTry(n + 1), 250); else { delete doc.fxPreset; toast(e.message); } }
+}
+{ const cs0 = cmdStress; cmdStress = function () { cs0(); if (doc.fxPreset && CMD && CMD.type === 'stress') fxPresetTry(0); }; }
 </script>
 <script type="text/plain" id="stress-worker">
 // ═══════════════════════════════════════════════════════════════════
@@ -18879,7 +18913,7 @@ function openSamples() {
   try { prev = JSON.parse(localStorage.getItem('datum.prev') || 'null'); } catch (e) { prev = null; }
   card.innerHTML = `<div class="m-head"><h3>Sample parts</h3><button class="x" data-mx title="Close">×</button></div>
     <p class="note">Each sample is a normal, editable feature history. Open one, then try <b>Manufacture → Auto Detect</b> to see what it takes to machine it.</p>
-    ${['motion', 'model', 3, 'wire', 4, 5, 6].map(a => `<div class="m-sec">${AXIS_WHAT[a]}</div><div class="sample-grid">${SAMPLES.map((s, i) => s.axes === a ? `<button class="sample" data-sample="${i}"><span class="axis-badge a${a}">${a === 'model' || a === 'motion' ? a : a === 'wire' ? 'wire EDM' : a + '-axis'}</span><b>${s.name}</b><span>${s.desc}</span></button>` : '').join('')}</div>`).join('')}
+    ${['stress', 'motion', 'model', 3, 'wire', 4, 5, 6].map(a => `<div class="m-sec">${AXIS_WHAT[a]}</div><div class="sample-grid">${SAMPLES.map((s, i) => s.axes === a ? `<button class="sample" data-sample="${i}"><span class="axis-badge a${a}">${a === 'model' || a === 'motion' ? a : a === 'stress' ? 'stress test' : a === 'wire' ? 'wire EDM' : a + '-axis'}</span><b>${s.name}</b><span>${s.desc}</span></button>` : '').join('')}</div>`).join('')}
     ${prev && prev.features && prev.features.length ? `<div class="m-sec">Your work</div><div class="sample-grid"><button class="sample" data-restore><b>Restore last session</b><span>${prev.features.length} feature${prev.features.length === 1 ? '' : 's'} from the last time Datum was open.</span></button></div>` : ''}`;
   document.getElementById('modal').hidden = false;
   card.querySelector('[data-mx]').addEventListener('click', closeModal);
@@ -32482,6 +32516,21 @@ SAMPLES.push({ axes: 'model', name: 'Toe clamp: stress study', desc: 'An M10 toe
   const d = k.doc(); d.stressKind = 'clamp'; d.stressCases = studyClampCases(id, 10); d.stressCase = 1; d.openStress = true; d.stress = { mat: 'steel1018' };
   return d;
 } });
+// stress tests with the clamps already on and the color map ready: Fixturing study opens by itself
+AXIS_WHAT.stress = 'Stress tests: clamped parts with the color map ready';
+const fxSample = (name, desc, make, spec) => SAMPLES.push({ axes: 'stress', name, desc, make() { const d = make(); d.openStress = true; d.stress = { mat: spec.mat || 'al6061', fxOn: true }; d.fxPreset = spec; return d; } });
+fxSample('Pocketed plate: held right', 'Three toe clamps at the right tightness on a medium roughing cut. Everything reads green and the part keeps a healthy safety factor.', samplePocketPlate,
+  { name: 'Pocketed plate', ops: [{ name: 'Op 10: rough the top', op: { up: 'top', sup: 'parallels', cutPreset: 'medium', ang: 0 }, clamps: [{ kind: 'toe', tau: 0.4 }] }] });
+fxSample('Pocketed plate: too loose', 'One light toe clamp against a heavy roughing cut. The chip says too loose or cannot hold: add clamps or tighten, and watch the color map change.', samplePocketPlate,
+  { name: 'Loose clamps', ops: [{ name: 'Op 10: heavy rough', op: { up: 'top', sup: 'parallels', cutPreset: 'heavy', ang: 0 }, clamps: [{ kind: 'toe', n: 1, tau: 0.06 }] }] });
+fxSample('Pocketed plate: over-tightened', 'The plate flipped onto its thin underside with the clamps cranked well past what the web can take. The color map runs hot under the pads and the chips turn red: back them off to the advised tightness.', samplePocketPlate,
+  { name: 'Over-tight', ops: [{ name: 'Op 20: flip, finish the underside', op: { up: 'bottom', sup: 'parallels', cutPreset: 'light', ang: 90 }, clamps: [{ kind: 'toe', size: '5/8-11', tau: 0.9 }] }] });
+fxSample('Enclosure lid: vise and side clamp', 'A thin lid in a vise with a side clamp pushing it against a stop. Move the clamp or the cut and see where the lid flexes.', sLid,
+  { name: 'Lid in a vise', ops: [{ name: 'Op 10: face the lid', op: { up: 'top', sup: 'vise', cutPreset: 'light', ang: 0, vise: { T: 30 } }, clamps: [{ kind: 'side', n: 1, tau: 0.3 }] }] });
+fxSample('Slotted clamp bar: two operations', 'One project, two operations: toe clamps on the top, then flipped over onto the fixture plate with strap clamps. Switch between them in the panel.', sClampBar,
+  { name: 'Clamp bar', ops: [
+    { name: 'Op 10: top side', op: { up: 'top', sup: 'parallels', cutPreset: 'medium', ang: 0 }, clamps: [{ kind: 'toe', tau: 0.4 }] },
+    { name: 'Op 20: flip, underside', op: { up: 'bottom', sup: 'plate', cutPreset: 'light', ang: 90 }, clamps: [{ kind: 'strap', tau: 0.3 }] }] });
 SAMPLES.push({ axes: 'model', name: 'Cap screw: stress study', desc: 'An M10 × 40 socket head cap screw with six setups ready: tension, shear, bending, torque and tightening. Open Stress, then Compare alloys.', make() {
   const k = sampleKit(), id = k.nid(), f = { id, type: 'screw', name: 'Screw1', ...FEATS.screw.init(), kind: 'socket', L: 40, tlen: 15, thread: 'stress' };
   hwSetSize(f, 'M10'); f.thread = 'stress'; f.L = 40; f.tlen = 15; k.features.push(f);
@@ -34593,7 +34642,7 @@ function gsIndex() {
     if (camStock()) for (const h of camHoles().slice(0, 60)) add('Hole', `${fmtDia(h.d)} hole at X${+uval(h.x - camOrigin()[0]).toFixed(3)} Y${+uval(h.y - camOrigin()[1]).toFixed(3)}`, inWs('cam', () => { CAMUI.view = 'auto'; camRefresh(); }), { sub: `${+uval(h.top - h.bot).toFixed(3)} ${uName()} deep`, kw: 'drill bore' });
   } catch (e) { /* no manufacturing data yet */ }
   // sample parts
-  if (typeof SAMPLES !== 'undefined') SAMPLES.forEach(s => add('Sample part', s.name, () => { const d = s.make(); loadDoc(d, typeof s.axes === 'string' ? `Sample: ${s.name}` : `Sample: ${s.name} (${s.axes}-axis)`); }, { sub: typeof AXIS_WHAT === 'object' && AXIS_WHAT[s.axes] ? AXIS_WHAT[s.axes] : '', kw: s.desc || '' }));
+  if (typeof SAMPLES !== 'undefined') SAMPLES.forEach(s => add('Sample part', s.name, () => { const d = s.make(); loadDoc(d, typeof s.axes === 'string' ? `Sample: ${s.name}` : `Sample: ${s.name} (${s.axes}-axis)`); if (d.openStress) setTimeout(() => { if (!(CMD && CMD.type === 'stress')) cmdStress(); }, 300); }, { sub: typeof AXIS_WHAT === 'object' && AXIS_WHAT[s.axes] ? AXIS_WHAT[s.axes] : '', kw: s.desc || '' }));
   // the shortcut and mouse legend
   document.querySelectorAll('#helpCard tr').forEach(tr => { const td = tr.querySelectorAll('td'); if (td.length >= 2) add('Shortcut', td[0].textContent, () => { document.getElementById('help').hidden = false; }, { sub: td[1].textContent.slice(0, 90), kw: td[1].textContent }); });
   return out;
