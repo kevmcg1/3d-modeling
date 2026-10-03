@@ -12123,10 +12123,10 @@ const CAMPL = { o: [0, 0, 0], u: [1, 0, 0], v: [0, 0, -1], n: [0, 1, 0] };
 const toW = (x, y, z) => [x, z, -y];
 const CS = 1000;                 // Clipper scale: integer micrometers
 const RAPID = 5000;              // mm/min, for time estimates
-const TOOL_TYPES = { flat: 'Flat endmill', ball: 'Ball endmill', bull: 'Bull-nose endmill', drill: 'Drill', spot: 'Spot drill', chamfer: 'Chamfer mill', face: 'Face mill', reamer: 'Reamer', tap: 'Tap', threadmill: 'Thread mill', cbore: 'Counterbore (piloted)', bsf: 'Back spot-face tool (folding blade)' };
+const TOOL_TYPES = { flat: 'Flat endmill', ball: 'Ball endmill', bull: 'Bull-nose endmill', drill: 'Drill', spot: 'Spot drill', chamfer: 'Chamfer mill', face: 'Face mill', reamer: 'Reamer', tap: 'Tap', threadmill: 'Thread mill', cbore: 'Counterbore (piloted)', bsf: 'Back spot-face tool (folding blade)', dovetail: 'Dovetail cutter' };
 // Datum tool type ↔ Tool Builder category (ToolModel), so a cutter looks the
 // same here as in the Tool Builder and codes can be pasted either way.
-const TOOL_CAT = { flat: ['endmill', 'flat'], ball: ['endmill', 'ball'], bull: ['endmill', 'bull'], drill: ['drill'], spot: ['spotdrill'], chamfer: ['chamfer'], face: ['facemill'], reamer: ['reamer'], tap: ['tap'], threadmill: ['threadmill'] };
+const TOOL_CAT = { flat: ['endmill', 'flat'], ball: ['endmill', 'ball'], bull: ['endmill', 'bull'], drill: ['drill'], spot: ['spotdrill'], chamfer: ['chamfer'], face: ['facemill'], reamer: ['reamer'], tap: ['tap'], threadmill: ['threadmill'], dovetail: ['dovetail'] };
 function typeFromParams(p) {
   if (p.category === 'endmill') return p.endType === 'ball' ? 'ball' : p.endType === 'bull' ? 'bull' : 'flat';
   const hit = Object.entries(TOOL_CAT).find(([, c]) => c[0] === p.category);
@@ -12146,6 +12146,7 @@ function toolParams(t) {
     if (category === 'facemill') Object.assign(p, { inserts: Math.max(3, t.flutes || 5), bodyH: Math.max(20, d * 0.45), boreDia: Math.max(10, Math.round(d * 0.4)), holder: true });
     if (category === 'tap') { const P = isoPitch(d); Object.assign(p, { pitch: P, threadSize: `M${+d.toFixed(1)}x${P}`, shankDia: d, loc: d * 2.5, oal: d * 8 + 40, tapType: 'spiralpoint' }); }
     if (category === 'threadmill') Object.assign(p, { shankDia: Math.max(d, 6), loc: d * 1.5, oal: 60, pitch: t.pitch || 1.5 });
+    if (category === 'dovetail') Object.assign(p, { shankDia: Math.min(Math.max(+(d * 0.7).toFixed(1), 4), 12), loc: t.loc || +(d * 0.5).toFixed(2), dtAngle: t.dt || 60, neckDia: t.neck || +(d * 0.4).toFixed(2), neckLen: Math.max(8, d), oal: Math.max(50, d * 4 + 30), flutes: t.flutes || 4 });
   }
   if (endType === 'ball') p.cornerR = d / 2;
   if (endType === 'bull') p.cornerR = t.r > 0 ? t.r : (p.cornerR > 0 && p.cornerR < d / 2 ? p.cornerR : Math.max(0.5, d * 0.1));
@@ -12184,6 +12185,7 @@ function toolFromParams(p, n) {
   if (type === 'face') t.flutes = P.inserts; else if (P.flutes) t.flutes = P.flutes;
   if (type === 'bull') t.r = P.cornerR;
   if (type === 'chamfer' && P.coneAngle) t.cone = P.coneAngle;
+  if (type === 'dovetail') { t.dt = P.dtAngle; t.loc = P.loc; t.neck = P.neckDia; }
   return t;
 }
 function addBuilderTools(list, label) {
@@ -12206,6 +12208,8 @@ const OP_INFO = {
   pocket: { name: '2D Pocket', icon: 'campocket', tip: 'Clears material down to the flat faces you pick. At every depth it goes down in the middle and works outward in rings toward the walls, leaving a little on the walls; a finishing pass then takes the walls to size. Islands (like bosses) are left alone.' },
   drill: { name: 'Drill', icon: 'camdrill', tip: 'Drills every vertical hole of the chosen diameters with a Haas canned cycle: drill, spot, deep peck, chip-break peck, ream or rigid tap.' },
   parallel: { name: '3D Parallel', icon: 'camparallel', tip: 'Finishing raster over the whole part with a drop-cutter, following fillets and chamfers.' },
+  dtrough: { name: 'Rough dovetail slot', icon: 'campocket', tip: 'Cuts the straight slot under the mouth of a dovetail groove with an end mill, straight through, so the dovetail cutter can reach in.' },
+  dovetail: { name: 'Dovetail walls', icon: 'camchamfer', tip: 'A dovetail cutter, whose flank leans at the groove’s angle, takes the undercut walls from the top level down, working out from the slot to the walls.' },
   chamfer: { name: 'Conical Swarf', icon: 'camchamfer', tip: 'Lies the cone of a chamfer mill flat on a sloped face and follows its foot, so the flank cuts the whole face in one pass: a 90° mill on a 45° chamfer, a 60° mill on a 30° one, a long narrow cone on a draft wall. Rough-and-finish passes and a surface-finish target are in the panel.' },
 };
 function camDefaults() {
@@ -12223,7 +12227,7 @@ function camDefaults() {
 }
 const cam = () => doc.cam || (doc.cam = camDefaults());
 let toolOf = n => cam().tools.find(t => t.n === n) || cam().tools[0];
-const toolName = t => t.wire ? `Wire Ø${fmtLs(t.d)}` : `T${t.n} · ${isIn() ? `Ø${fmt(t.d / 25.4, 3)}"` : `Ø${+t.d}`} ${t.type === 'chamfer' ? (t.cone || 90) + '° ' : ''}${TOOL_TYPES[t.type].toLowerCase()}`;
+const toolName = t => t.wire ? `Wire Ø${fmtLs(t.d)}` : `T${t.n} · ${isIn() ? `Ø${fmt(t.d / 25.4, 3)}"` : `Ø${+t.d}`} ${t.type === 'chamfer' ? (t.cone || 90) + '° ' : t.type === 'dovetail' ? (t.dt || 60) + '° ' : ''}${TOOL_TYPES[t.type].toLowerCase()}`;
 
 // ── Part, stock and work origin (CAM absolute coordinates) ─────────
 function camPart() {
@@ -13505,6 +13509,65 @@ function toolpath(op) {
   c.key = key; c.path = P; TP.set(op.id, c);
   return P;
 }
+
+// ── Dovetail slots ─────────────────────────────────────────────────
+// A dovetail groove open at the top (narrow mouth, wide floor). An end mill clears the straight slot under the mouth, then a
+// dovetail cutter, whose flank leans at the groove's own angle, drops in outside the stock, runs through, and takes the
+// undercut walls level by level from the TOP down (so its neck never has to push through wedge it has not cut yet), working
+// out from the slot a few millimeters at a time. g = { axis: 'x' | 'y' (the way it runs), c (middle, across it), z0 (floor),
+// z1 (top of the sloped walls), wl0, wr0 (across position of the walls at the floor), wl1, wr1 (at z1), slotD (end mill) }.
+const dtAt = (g, z) => { const k = (z - g.z0) / Math.max(1e-6, g.z1 - g.z0); return [g.wl0 + (g.wl1 - g.wl0) * k, g.wr0 + (g.wr1 - g.wr0) * k]; };
+const dtPt = (g, u, v) => (g.axis === 'x' ? [u, v] : [v, u]);           // u along the groove, v across it
+const dtRun = (g, st, r) => [(g.axis === 'x' ? st.x0 : st.y0) - r - 2, (g.axis === 'x' ? st.x1 : st.y1) + r + 2];
+GEN.dtrough = (op, tool, st, part, P) => {
+  const r = tool.d / 2, safe = st.z1 + cam().safe;
+  for (const g of op.grooves || []) {
+    const [lo, hi] = dtRun(g, st, r), Wn = g.wr1 - g.wl1;
+    if (tool.d > Wn - 0.2) P.warn.push(`The Ø${fmtD(tool.d)} does not fit the groove's mouth (${fmtLs(Wn)} wide).`);
+    const zs = levels(st.z1, g.z0 + (op.leaveFloor || 0), Math.max(0.2, op.stepdown || Math.min(tool.d * 0.5, 3)));
+    let dir = 1, first = true;
+    for (const z of zs) {
+      const a = dir > 0 ? lo : hi, b = dir > 0 ? hi : lo, A = dtPt(g, a, g.c), B = dtPt(g, b, g.c);
+      if (first) { P.rapid(A[0], A[1], safe); first = false; }
+      P.plunge(A[0], A[1], z); P.feed(B[0], B[1], z);                   // down outside the stock, then straight through
+      dir = -dir;
+    }
+    if (P.cur) P.rapid(P.cur[0], P.cur[1], safe);
+  }
+  P.info = `Straight slot Ø${fmtD(tool.d)} wide, cleared to the floor for the dovetail cutter to reach in`;
+};
+GEN.dovetail = (op, tool, st, part, P) => {
+  if (tool.type !== 'dovetail') P.warn.push('Pick a dovetail cutter: its flank is what cuts the undercut walls.');
+  const R = tool.d / 2, safe = st.z1 + cam().safe, ang = (tool.dt || 60) * Math.PI / 180, loc = tool.loc || tool.d * 0.4, rs = Math.max(0.5, op.radial || tool.d * 0.3);
+  let passes = 0;
+  for (const g of op.grooves || []) {
+    const gang = Math.atan2(g.z1 - g.z0, g.wl1 - g.wl0);
+    if (Math.abs(gang - ang) > 2 * Math.PI / 180) P.warn.push(`The walls lean ${+(gang * 180 / Math.PI).toFixed(1)}° but this cutter's flank is ${tool.dt || 60}°: the walls would come out wrong.`);
+    if (tool.d > g.wr1 - g.wl1 - 0.2) P.warn.push(`The Ø${fmtD(tool.d)} cutter does not fit through the groove's mouth (${fmtLs(g.wr1 - g.wl1)} wide).`);
+    { const nr = Math.min(R, (tool.neck || tool.d * 0.45) / 2), top = g.z1 - g.z0 > (tool.loc || tool.d * 0.4) + 1e-6; if (top && g.wl0 + R - nr < g.wl1 - 1e-6) P.warn.push('The cutter\'s neck would hit the overhang above the lower levels: use a cutter with a longer cutting length or a wider body.'); }
+    const H = g.z1 - g.z0, cover = Math.max(0.5, Math.min(loc, H) - 0.2);
+    const nL = H <= loc + 1e-6 ? 1 : Math.ceil((H - loc) / cover) + 1, half = (g.slotD || 0) / 2, [lo, hi] = dtRun(g, st, R);
+    let dir = 1;
+    for (let k = nL - 1; k >= 0; k--) {                                // top level first
+      const z = nL === 1 ? g.z0 : g.z0 + (H - loc) * k / (nL - 1), [wl, wr] = dtAt(g, z), list = [];
+      for (const side of [-1, 1]) {
+        const wall = side < 0 ? wl : wr, edge0 = g.c + side * half, n = Math.max(1, Math.ceil(Math.abs(edge0 - wall) / rs - 1e-9));
+        for (let j = 1; j <= n; j++) { const e = side < 0 ? Math.max(wall, edge0 - rs * j) : Math.min(wall, edge0 + rs * j); list.push(side < 0 ? e + R : e - R); }   // the outer edge steps out to the wall
+      }
+      for (const vc of list) {
+        const a = dir > 0 ? lo : hi, b = dir > 0 ? hi : lo, A = dtPt(g, a, vc), B = dtPt(g, b, vc);
+        if (!P.cur) { P.rapid(A[0], A[1], safe); P.plunge(A[0], A[1], z); }
+        else {
+          if (Math.hypot(P.cur[0] - A[0], P.cur[1] - A[1]) > 1e-6) P.feed(A[0], A[1], P.cur[2]);   // across, out beyond the stock, at depth
+          if (Math.abs(P.cur[2] - z) > 1e-6) P.plunge(A[0], A[1], z);
+        }
+        P.feed(B[0], B[1], z); dir = -dir; passes++;
+      }
+    }
+    if (P.cur) P.rapid(P.cur[0], P.cur[1], safe);
+  }
+  P.info = `${passes} passes · ${tool.dt || 60}° flank, top level first, working out from the slot to the walls`;
+};
 // Every sideways rapid happens at or above the retract plane (rule used by the auto-fix engine).
 function safeRapids(m, zs) {
   const out = [];
@@ -13621,6 +13684,10 @@ function cutRadius(tool, h) {
   if (t === 'spot') return Math.min(R, h + 1e-3);
   if (t === 'chamfer') return Math.min(R, tool.d * 0.06 + h * Math.tan((tool.cone || 90) * Math.PI / 360));   // cone = included angle
   if (t === 'bull') { const rc = tool.r || tool.d * 0.1; return h >= rc ? R : R - rc + Math.sqrt(Math.max(0, rc * rc - (rc - h) * (rc - h))); }
+  if (t === 'dovetail') {                                            // flat bottom, a flank leaning in at the cutter's angle for its cutting height, then the narrower neck
+    const a = Math.min(85, Math.max(20, tool.dt || 60)) * Math.PI / 180, loc = tool.loc || tool.d * 0.4, nr = Math.min(R, (tool.neck || tool.d * 0.45) / 2);
+    return h <= loc ? Math.max(nr, R - h / Math.tan(a)) : nr;
+  }
   if (t === 'tap' || t === 'threadmill') return 0;                 // they only cut threads into existing walls
   return R;                                                          // flat, face mill
 }
@@ -13630,7 +13697,7 @@ const flatBottom = t => t.type === 'flat' || t.type === 'face' || t.type === 'bu
 function stockLevels(st, segs) {
   const lv = new Set([st.z0, st.z1]), q = z => Math.round(z * 1000) / 1000;
   let curvedLo = Infinity, curvedHi = -Infinity;
-  const side = [];
+  const side = [], dtBands = new Set();
   for (const s of segs) {
     if (s.r) continue;
     if (s.ax || s.tool.up) {                                        // tilted: fine steps through the height it cuts
@@ -13642,6 +13709,12 @@ function stockLevels(st, segs) {
       continue;
     }
     const level = Math.abs(s.a.z - s.b.z) < 1e-6, down = !level && Math.hypot(s.b.x - s.a.x, s.b.y - s.a.y) < 1e-6;
+    if (s.tool.type === 'dovetail') {                                // a flat floor, and fine slabs up the flank so the undercut comes out true
+      const z = Math.min(s.a.z, s.b.z), lo = Math.max(z, st.z0), hi = Math.min(Math.max(s.a.z, s.b.z) + (s.tool.loc || s.tool.d * 0.4) + 0.2, st.z1);
+      if (level && z > st.z0 && z < st.z1) lv.add(q(z));
+      const key = q(lo) + '|' + q(hi); if (hi > lo && !dtBands.has(key)) { dtBands.add(key); side.push([lo, hi, 0.15]); }
+      continue;
+    }
     if (flatBottom(s.tool)) {
       // floors come from level passes; ramps and plunges just pass through the slabs
       if (level && s.a.z > st.z0 && s.a.z < st.z1) lv.add(q(s.a.z));
@@ -13702,7 +13775,24 @@ class StockModel {
   // from above, and a tool is never narrower higher up, so a move is queued
   // only in the slabs where its cut is still widening; flush() carries every
   // removal on up the stack (each slab ⊆ the slab below it).
+  // A dovetail cutter undercuts: it takes material out beneath stock it leaves standing, so its cut goes in the side-cut layer
+  // (slab by slab, at the cutter's own width at that height) and is never carried up the stack.
+  cutUndercut(a, b, tool) {
+    const zlo = Math.min(a.z, b.z), zhi = Math.max(a.z, b.z) + (tool.loc || tool.d * 0.4) + (tool.neckLen || 8);
+    for (let i = Math.max(0, this.layerAbove(zlo) - 1); i < this.n; i++) {
+      if (this.lv[i] >= zhi) break;
+      const z = (this.lv[i] + this.lv[i + 1]) / 2, ra = cutRadius(tool, z - a.z), rb = cutRadius(tool, z - b.z);
+      if (ra < 1e-4 && rb < 1e-4) continue;
+      const pts = [];
+      for (let k = 0; k < 24; k++) { const t = Math.PI * 2 * k / 24, c = Math.cos(t), sn = Math.sin(t); if (ra > 1e-4) pts.push([a.x + ra * c, a.y + ra * sn]); if (rb > 1e-4) pts.push([b.x + rb * c, b.y + rb * sn]); }
+      const hl = StockModel.hull2(pts);
+      if (hl.length < 3) continue;
+      let l = this.spend.get(i); if (!l) this.spend.set(i, l = []);
+      l.push(hl.map(q => ({ X: Math.round(q[0] * CS), Y: Math.round(q[1] * CS) })));
+    }
+  }
   cut(a, b, tool, coarse, ax) {
+    if (tool.type === 'dovetail' && !ax) { this.cutUndercut(a, b, tool); return; }
     if (ax || tool.up) { this.cutAxial(a, b, tool, ax || [0, 0, 1]); return; }
     this.coarse = coarse;
     // ZT: slab heights are kept to the micron, so a pass at a floor may sit a hair above its slab
@@ -17571,7 +17661,7 @@ function sTiltedPlate() {
 function sDovetails() {
   const k = sampleKit();
   kBox(k, -50, -40, 50, 40, 40);
-  const tail = [[-7.5, 41], [7.5, 41], [18, 28], [-18, 28]], lines = p => p.map((q, i) => k.L(q[0], q[1], p[(i + 1) % 4][0], p[(i + 1) % 4][1]));
+  const tail = [[-6.96, 41], [6.96, 41], [11, 34], [-11, 34]], lines = p => p.map((q, i) => k.L(q[0], q[1], p[(i + 1) % 4][0], p[(i + 1) % 4][1]));
   k.extrude(k.sketch({ ...frameForPlane([-1, 0, 0], 0), o: [-51, 0, 0] }, lines(tail)), [P2(0, 35)], -102, 'cut');   // along X
   k.extrude(k.sketch({ ...frameForPlane([0, 0, 1], 0), o: [0, 0, 41] }, lines(tail.map(([u, v]) => [u, v - 16]))), [P2(0, 19)], -82, 'cut');   // a dovetail tunnel along Y, lower down
   return k.doc();
@@ -17859,6 +17949,43 @@ const dirName = d => {
   return `${Math.round(tilt)}° tilt toward ${az}°`;
 };
 
+// Dovetail grooves a dovetail cutter can make from the top: a pair of planar walls leaning the same way out from under a narrow
+// mouth (they point downward, so a flat tool cannot reach them), a flat floor between them, open above, running straight through
+// the part along X or Y. Returned in machine coordinates (X right, Y back, Z up) with the faces they own.
+function detectDovetails(mesh, part) {
+  const out = [], fids = [...new Set(mesh.PL.map(p => p.f))], cands = [];
+  const ext = fid => { const v = faceVerts(mesh, fid); if (!v.length) return null; const b = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity]; for (const q of v) for (let k = 0; k < 3; k++) { b[k] = Math.min(b[k], q[k]); b[k + 3] = Math.max(b[k + 3], q[k]); } return { v, b }; };
+  for (const fid of fids) {
+    const s = Surf.list[fid]; if (!s || s.t !== 'P') continue;
+    const [nx, ny, nz] = s.n; if (!(ny < -0.05 && ny > -0.97)) continue;                 // leaning walls only: not the underside, not vertical
+    const run = Math.abs(nx) < 0.02 ? 'x' : Math.abs(nz) < 0.02 ? 'z' : null; if (!run) continue;
+    const e = ext(fid); if (!e || faceInfo(mesh, fid).area < 3) continue;
+    const lat = run === 'x' ? 2 : 0, rn = run === 'x' ? 0 : 2, nl = run === 'x' ? nz : nx;
+    const at = y => { const q = e.v.filter(p => Math.abs(p[1] - y) < 0.02); return q.reduce((a, p) => a + p[lat], 0) / (q.length || 1); };
+    cands.push({ fid, run, ny, nl, y0: e.b[1], y1: e.b[4], l0: at(e.b[1]), l1: at(e.b[4]), r0: e.b[rn], r1: e.b[rn + 3] });
+  }
+  const used = new Set();
+  for (const A of cands) for (const B of cands) {
+    if (A === B || used.has(A.fid) || used.has(B.fid) || A.run !== B.run || !(A.nl * B.nl < 0) || A.l0 > B.l0) continue;
+    if (Math.abs(A.ny - B.ny) > 0.01 || Math.abs(A.y0 - B.y0) > 0.05 || Math.abs(A.y1 - B.y1) > 0.05 || Math.abs(A.r0 - B.r0) > 0.05 || Math.abs(A.r1 - B.r1) > 0.05) continue;
+    if (!(B.l0 - A.l0 > B.l1 - A.l1 + 0.01) || !(A.l1 > A.l0 && B.l1 < B.l0)) continue;     // wide at the floor, narrow at the mouth: an undercut
+    const rLo = A.run === 'x' ? part.x0 : -part.y1, rHi = A.run === 'x' ? part.x1 : -part.y0;
+    if (A.r0 > rLo + 0.05 || A.r1 < rHi - 0.05) continue;                                   // it must run clear through the part
+    // open above: nothing over the middle of the mouth; clear at the floor too
+    const mid = (A.l1 + B.l1) / 2, cr = (A.r0 + A.r1) / 2, pt = y => (A.run === 'x' ? [cr, y, mid] : [mid, y, cr]);
+    if (pointInMesh(mesh, pt(A.y1 + 0.3)) || pointInMesh(mesh, pt(A.y0 + 0.5))) continue;
+    // its floor: the flat face between the walls at the bottom
+    let floor = null;
+    for (const fid of fids) { const s = Surf.list[fid]; if (!s || s.t !== 'P' || s.n[1] < 0.999 || Math.abs(s.d - A.y0) > 0.02) continue; const e = ext(fid); if (!e) continue; const lo = A.run === 'x' ? e.b[2] : e.b[0], hi = A.run === 'x' ? e.b[5] : e.b[3]; if (lo >= A.l0 - 0.05 && hi <= B.l0 + 0.05 && hi - lo > 0.5) { floor = fid; break; } }
+    used.add(A.fid); used.add(B.fid);
+    // machine coordinates: Y is the negative of the model's Z
+    const X = A.run === 'x', cm = l => (X ? -l : l), l0a = cm(A.l0), l0b = cm(B.l0), l1a = cm(A.l1), l1b = cm(B.l1);
+    const wl0 = Math.min(l0a, l0b), wr0 = Math.max(l0a, l0b), wl1 = Math.min(l1a, l1b), wr1 = Math.max(l1a, l1b);
+    out.push({ axis: X ? 'x' : 'y', c: +((wl1 + wr1) / 2).toFixed(4), z0: +A.y0.toFixed(4), z1: +A.y1.toFixed(4), wl0: +wl0.toFixed(4), wr0: +wr0.toFixed(4), wl1: +wl1.toFixed(4), wr1: +wr1.toFixed(4),
+      ang: Math.atan2(A.y1 - A.y0, Math.abs(A.l1 - A.l0)) * 180 / Math.PI, toTop: Math.abs(A.y1 - part.z1) < 0.05, fids: [A.fid, B.fid, ...(floor != null ? [floor] : [])], mesh });
+  }
+  return out;
+}
 function autoDetect() {
   const part = camPart(), st = camStock();
   if (!part) return null;
@@ -17866,10 +17993,13 @@ function autoDetect() {
   const G = (key, label, o = {}) => { if (!groups.has(key)) groups.set(key, { key, label, n: 0, faces: [], chains: [], notes: [], ...o }); return groups.get(key); };
   const holes = new Map(), threads = new Map(), needs = [];
   let minCornerR = Infinity, minConcave3D = Infinity, freeform = 0;
-  const floors = [], cutoutFaces = [];
+  const floors = [], cutoutFaces = [], dovetails = [];
   for (const b of visibleBodies()) {
     const mesh = bodyMesh(b), fids = [...new Set(mesh.PL.map(p => p.f))], skipFacet = new Set();
+    const dts = detectDovetails(mesh, part), dtF = new Set(dts.flatMap(g => g.fids));
+    dovetails.push(...dts);
     for (const fid of fids) {
+      if (dtF.has(fid)) { skipFacet.add(fid); continue; }                 // a dovetail groove's walls and floor belong to its own operations
       const s = Surf.list[fid], fi = faceInfo(mesh, fid);
       if (fi.area < 0.05) continue;                                          // boolean slivers
       const ref = { mesh, fid }, f = featOfSurf(s), add = (g, extra) => { g.n++; g.faces.push(ref); if (extra) g.notes.push(extra); };
@@ -17992,7 +18122,7 @@ function autoDetect() {
   const tilted = holeList.filter(h => !h.fromTop);
   if (tilted.length) why.push(`${tilted.length} hole${tilted.length > 1 ? 's' : ''} entering from ${[...new Set(tilted.map(h => dirName(h.entry)))].slice(0, 4).join(', ')}`);
   if (dirs.some(n => n.why === 'overhang')) why.push('faces that point downward (overhangs / undercuts)');
-  const res = { part, st, groups, holes: holeList, threads: threadList, axes, rotary, flipOnly, dirs, why, minCornerR, minConcave3D, freeform, floors, cutoutFaces };
+  const res = { part, st, groups, holes: holeList, threads: threadList, axes, rotary, flipOnly, dirs, why, minCornerR, minConcave3D, freeform, floors, cutoutFaces, dovetails };
   res.plan = autoPlan(res);
   return res;
 }
@@ -18004,10 +18134,10 @@ function autoPlan(R) {
   let nextN = nextToolN();
   // a library tool if one suits, else a new one (shared between steps)
   const pick = (type, d, exact, extra) => {
-    const lib = C.tools.filter(t => t.type === type && (type !== 'chamfer' || Math.abs((t.cone || 90) - ((extra && extra.cone) || 90)) <= 2 * SWARF_TOL));
+    const lib = C.tools.filter(t => t.type === type && (type !== 'chamfer' || Math.abs((t.cone || 90) - ((extra && extra.cone) || 90)) <= 2 * SWARF_TOL) && (type !== 'dovetail' || (Math.abs((t.dt || 60) - ((extra && extra.dt) || 60)) <= 1 && (t.loc || 0) >= ((extra && extra.loc) || 0) - 0.5)));
     const t = exact ? lib.find(t => Math.abs(t.d - d) < 0.011) : lib.filter(t => t.d <= d + 1e-9).sort((a, b) => b.d - a.d)[0];
     if (t) return { n: t.n, t, isNew: false };
-    const k = type + ':' + (+d.toFixed(3)) + (extra && extra.cone ? ':' + extra.cone : '');
+    const k = type + ':' + (+d.toFixed(3)) + (extra && extra.cone ? ':' + extra.cone : '') + (extra && extra.dt ? ':dt' + extra.dt + ':' + extra.loc : '');
     if (!newTools.has(k)) newTools.set(k, { n: nextN++, t: { ...toolDefaults(type, d), ...(extra || {}) }, isNew: true });
     const r = newTools.get(k); r.t.n = r.n;
     return r;
@@ -18066,6 +18196,30 @@ function autoPlan(R) {
         tool, faces, op: pop(dSmall), covered: cov ? cov.name : null, _fids: floorFids });
     }
   }
+  // 2b · dovetail grooves open at the top: an end mill clears the straight slot, then a dovetail cutter with the groove's own
+  // flank angle takes the undercut walls (a flat tool cannot reach them, and they do not need a robot)
+  (R.dovetails || []).forEach((g, gi) => {
+    const Wn = g.wr1 - g.wl1, H = g.z1 - g.z0, ang = Math.round(g.ang), tn = Math.tan(ang * Math.PI / 180);
+    const flats = [...new Set([...stdFlat(), ...C.tools.filter(t => t.type === 'flat').map(t => t.d)])].sort((a, b) => b - a);
+    const slotD = flats.find(d => d <= Wn - 1 && d >= 3) || Math.max(3, Math.floor(Wn - 1));
+    // The cutter's neck stands over the wall it is cutting, so its radius must clear the overhang: the cutter must be wider than the wall's
+    // lean (H / tan) by the neck radius. That gives the whole wall in one level, with the neck above the part.
+    const lean = H / tn, sizes = (isIn() ? [1 / 4, 3 / 8, 1 / 2, 5 / 8, 3 / 4, 1].map(x => +(x * 25.4).toFixed(4)) : [6, 8, 10, 12, 16, 20, 25]);
+    const dts = sizes.filter(d => d <= Wn - 1.5 && d <= (g.wr0 - g.wl0) - 1 && d / 2 >= lean + 1.4);
+    if (!dts.length) {
+      step({ key: 'm' + plan.length, type: 'manual', title: `Dovetail groove${R.dovetails.length > 1 ? ' ' + (gi + 1) : ''} along ${g.axis.toUpperCase()}: no standard cutter fits`, why: `The ${ang}° walls lean ${fmtLs(lean)} over ${fmtLs(H)} of height, but a cutter must also pass through the ${fmtLs(Wn)} mouth. A dovetail cutter this size would hit the overhang with its neck. Make the groove shallower, widen the mouth, or machine it on a special setup.`, faces: g.fids.map(fid => ({ mesh: g.mesh, fid })), chains: [] });
+      return;
+    }
+    const dd = dts[dts.length - 1], loc = +H.toFixed(2), neck = +Math.max(2, dd - 2 * loc / tn - 0.2).toFixed(1);
+    const gOp = { axis: g.axis, c: g.c, z0: g.z0, z1: g.z1, wl0: g.wl0, wr0: g.wr0, wl1: g.wl1, wr1: g.wr1, slotD };
+    const wallRefs = g.fids.map(fid => ({ mesh: g.mesh, fid }));
+    const rough = pick('flat', slotD, true), dtool = pick('dovetail', dd, true, { dt: ang, loc, neck });
+    const nm = (R.dovetails.length > 1 ? ` ${gi + 1}` : '') + ` along ${g.axis.toUpperCase()}`;
+    step({ key: 'dtrough' + gi, type: 'dtrough', title: `Rough the dovetail slot${nm} (Ø${fmtD(slotD)})`, why: `The groove is ${fmtLs(Wn)} wide at the mouth and widens to ${fmtLs(g.wr0 - g.wl0)} at the floor, ${fmtLs(H)} down. A Ø${fmtD(slotD)} end mill clears the straight slot under the mouth, straight through, so the dovetail cutter can drop in.`,
+      tool: rough, faces: wallRefs, op: { grooves: [gOp], stepdown: +Math.max(0.5, Math.min(slotD * 0.5, 3)).toFixed(2), leaveFloor: 0 }, covered: coveredBy(o => o.type === 'dtrough') });
+    step({ key: 'dovetail' + gi, type: 'dovetail', title: `Dovetail cutter: cut the ${ang}° undercut walls${nm}`, why: `The walls lean ${ang}° and point downward, so only a dovetail cutter can reach them. A Ø${fmtD(dd)} × ${ang}° cutter goes in through the slot and takes each wall from the top level down, working out from the slot.`,
+      tool: dtool, faces: wallRefs, op: { grooves: [gOp] }, covered: coveredBy(o => o.type === 'dovetail') });
+  });
   // 3 · holes from the top: spot, drill (per size), tap
   const topHoles = R.holes.filter(h => h.fromTop && h.d <= 16.001);
   const tapped = new Set();
@@ -25939,7 +26093,7 @@ const DRILL_ICON = { spot: 'camspot', peck: 'campeck', drill: 'camdrill', tap: '
 camToolbar = function () {
   const v = CAMUI.view, wire = typeof isWire === 'function' && isWire();
   const op = k => OP_INFO[k] ? ['add:' + k, OP_INFO[k].name, '', OP_INFO[k].icon] : null;
-  const D2 = ['face', 'contour', 'pocket', 'chamfer'], D3 = ['parallel'], known = new Set([...D2, ...D3, 'drill', 'wire']);
+  const D2 = ['face', 'contour', 'pocket', 'chamfer'], D3 = ['parallel'], known = new Set([...D2, ...D3, 'drill', 'wire', 'dtrough', 'dovetail']);   // the dovetail ops come from Auto Detect
   const drilling = Object.entries(DRILL_KINDS).map(([k, d]) => ['add:drill:' + k, d.name.replace(' Drill', ''), '', DRILL_ICON[k]]);
   drilling.splice(4, 0, ['threads', 'Threads', '', 'camthread', v === 'threads']);
   const other = Object.keys(OP_INFO).filter(k => !known.has(k));
