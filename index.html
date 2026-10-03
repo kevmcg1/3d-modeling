@@ -4025,6 +4025,14 @@ body.ws-sheet #sheetWs { display: block; }
 #drawWs iframe { width: 100%; height: 100%; border: 0; display: block; background: var(--bg); }
 body.ws-2d #main, body.ws-2d #toolbar, body.ws-2d #modeChip, body.ws-2d #gsearch, body.ws-2d #btnUndo, body.ws-2d #btnRedo, body.ws-2d #btnFile { display: none !important; }
 body.ws-2d #drawWs { display: block; }
+/* House Design: a Revit-style building design app (house.html) in the same kind of full-window tab */
+#houseWs { display: none; min-height: 0; }
+#houseWs iframe { width: 100%; height: 100%; border: 0; display: block; background: var(--bg); }
+body.ws-house #main, body.ws-house #toolbar, body.ws-house #modeChip, body.ws-house #gsearch, body.ws-house #btnUndo, body.ws-house #btnRedo, body.ws-house #btnFile { display: none !important; }
+body.ws-house #houseWs { display: block; }
+.ws button[data-ws="house"] { margin-left: 6px; background: var(--accent); color: #fff; }
+.ws button[data-ws="house"]:hover { color: #fff; filter: brightness(1.1); }
+.ws button[data-ws="house"].on { background: var(--accent); color: #fff; box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); }
 .vis-group { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; padding: 5px; border: 1px solid var(--rule); border-radius: 8px; background: color-mix(in srgb, var(--panel) 92%, transparent); }
 .vis-group .vt-h { font: 500 9.5px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); padding: 1px 3px 2px; }
 .vis-group button { display: flex; align-items: center; gap: 6px; border: 0; background: transparent; border-radius: 5px; padding: 4px 6px; font: 500 11.5px var(--font); color: var(--muted); cursor: pointer; text-align: left; }
@@ -4289,7 +4297,7 @@ html.calm *, html.calm *::before, html.calm *::after { transition: none !importa
     <button class="tb mob-only" id="btnTree" title="Browser"><svg viewBox="0 0 20 20"><path d="M3 5h14M3 10h14M3 15h14"/></svg></button>
     <svg class="brand-mark" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.7" stroke-linejoin="round"><path d="M3 8l9-5 9 5-9 5z"/><path d="M3 8v8l9 5 9-5V8" opacity=".55"/><path d="M12 13v8" opacity=".55"/></svg>
     <span class="brand-name">Datum</span>
-    <div class="ws" role="tablist" aria-label="Workspace"><button data-ws="design" class="on">Design</button><button data-ws="cam">Manufacture</button><button data-ws="sheet">Setup Sheet</button><button data-ws="draw" title="2D Drawing: a separate AutoCAD-style drafting app (no 3D model)">2D Drawing</button></div>
+    <div class="ws" role="tablist" aria-label="Workspace"><button data-ws="design" class="on">Design</button><button data-ws="cam">Manufacture</button><button data-ws="sheet">Setup Sheet</button><button data-ws="draw" title="2D Drawing: a separate AutoCAD-style drafting app (no 3D model)">2D Drawing</button><button data-ws="house" title="House Design: a Revit-style app. Draw walls, doors, windows, rooms, stairs and roofs in 2D plans and see the house extruded live in 3D">House Design</button></div>
     <span class="mode-chip" id="modeChip">Model</span>
   </div>
   <div class="tb-right">
@@ -4368,6 +4376,7 @@ html.calm *, html.calm *::before, html.calm *::after { transition: none !importa
 
 <div id="sheetWs"><iframe id="ssgFrame" title="Setup sheet"></iframe></div>
 <div id="drawWs"><iframe id="d2dFrame" title="2D drawing" allow="clipboard-read; clipboard-write"></iframe></div>
+<div id="houseWs"><iframe id="houseFrame" title="House design" allow="clipboard-read; clipboard-write"></iframe></div>
 <div id="ctxmenu" hidden></div>
 <div id="modal" hidden><div class="card" id="modalCard"></div></div>
 <div id="dropHint" hidden>Drop a 3D file to import it</div>
@@ -10825,6 +10834,11 @@ function refreshToolbar() {
   const btn = (act, lab, key, on, cls = '', ic) => `<button class="tb ${on ? 'on' : ''} ${cls}" data-act="${act}" title="${lab}${key ? ' (' + key + ')' : ''}">${svg(ic || (act === 'finish' ? 'finish' : act))}<span>${lab}</span></button>`;
   const c = t => CMD && CMD.type === t;
   let h = '';
+  if (UIX.ws === 'house') {
+    tb.innerHTML = '';
+    document.querySelectorAll('[data-ws]').forEach(b => b.classList.toggle('on', b.dataset.ws === UIX.ws));
+    return;
+  }
   if (UIX.ws === 'draw') {
     tb.innerHTML = '';
     document.querySelectorAll('[data-ws]').forEach(b => b.classList.toggle('on', b.dataset.ws === UIX.ws));
@@ -15122,6 +15136,8 @@ function setWorkspace(ws) {
   document.body.classList.toggle('ws-2d', ws === 'draw');
   if (ws === 'sheet') sheetFrame();
   if (ws === 'draw') { const f = document.getElementById('d2dFrame'); if (!f.getAttribute('src')) f.src = 'drawing2d.html'; }
+  document.body.classList.toggle('ws-house', ws === 'house');
+  if (ws === 'house') { const f = document.getElementById('houseFrame'); if (!f.getAttribute('src')) f.src = 'house.html'; }
   CAMUI.view = 'overview';
   if (ws === 'cam') { cam(); camGeomCache = { model: null }; }
   // outside Manufacture only the model shows: no toolpaths, stock, tools, fixture or CAM highlights
@@ -34609,6 +34625,7 @@ function gsIndex() {
   const inWs = (ws, fn) => () => { if (UIX.ws !== ws) setWorkspace(ws); fn(); };
   // workspaces, settings and views
   for (const [k, l] of [['design', 'Design'], ['cam', 'Manufacture'], ['sheet', 'Setup Sheet'], ['draw', '2D Drawing']]) add('Workspace', l, () => setWorkspace(k), { sub: 'Switch to this workspace', kw: k });
+  add('Workspace', 'House Design', () => setWorkspace('house'), { sub: 'Switch to this workspace', kw: 'house' });
   add('Setting', 'Turn animations and transitions off / on', () => { const c = document.documentElement.classList.toggle('calm'); try { localStorage.setItem('datum.calm', c ? '1' : '0'); } catch (e) { /* not saved */ } toast(c ? 'Animations off' : 'Animations on'); }, { kw: 'animations motion transitions smooth reduce calm' });
   add('Setting', 'Switch between light and dark theme', () => document.getElementById('btnTheme').click(), { kw: 'dark mode light mode theme appearance colors' });
   add('Setting', 'Show inches', () => setUnits('in'), { sub: 'Units', kw: 'imperial inch units' }); add('Setting', 'Show millimeters', () => setUnits('mm'), { sub: 'Units', kw: 'metric mm units' });
