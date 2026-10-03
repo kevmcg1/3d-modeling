@@ -11591,7 +11591,7 @@ const hintEl = document.getElementById('hint');
 function updateHint() {
   let h;
   const k = s => `<span class="kbd">${s}</span>`;
-  if (CMD && CMD.type === 'stress') h = STRESS.result ? `<b>Stress:</b> hover the part to read the value at that spot, click to pin a probe. ${k('Esc')} to finish.` : `<b>Stress analysis:</b> click faces to hold fixed or to load (choose the target in the panel), then run the analysis. ${k('Esc')} to finish.`;
+  if (CMD && CMD.type === 'stress') h = stressSetup().fxOn ? `<b>Fixturing study:</b> ${FX.place ? 'click the part where it goes.' : 'change a tightness or move a clamp and the colors follow; hover the part to read a value.'} ${k('Esc')} to finish.` : STRESS.result ? `<b>Stress:</b> hover the part to read the value at that spot, click to pin a probe. ${k('Esc')} to finish.` : `<b>Stress analysis:</b> click faces to hold fixed or to load (choose the target in the panel), then run the analysis. ${k('Esc')} to finish.`;
   else if (CMD && CMD.type === 'measure') h = `<b>Measure:</b> click two points — they lock onto endpoints, midpoints, centers, quadrants, perpendiculars and more (switch any off in the Snap bar). ${k('Esc')} to finish.`;
   else if (UIX.ws === 'cam') { const op = CAMUI.view === 'op' && opById(CAMUI.op); h = op && (op.type === 'pocket' || op.type === 'contour') ? `<b>${op.name}:</b> click flat faces to ${op.type === 'pocket' ? 'set the floors' : 'set the boundary'}.` : op && op.type === 'drill' ? `<b>${op.name}:</b> click holes to add or remove their diameter.` : CAMUI.view === 'sim' ? '<b>Simulation:</b> orbit freely while it runs. Orange is stock still to cut, red is a gouge.' : '<b>Manufacture:</b> set up stock and tools, add operations, simulate, then post G-code.'; }
   else if (CMD && CMD.type === 'pickPlane') h = `<b>Create sketch:</b> click a plane or flat face. ${k('Esc')} cancels.`;
@@ -15866,7 +15866,7 @@ const STRESS_PALS = {
 const STRESS = { result: null, worker: null, busy: null, probe: null, probes: [], group: null, hidden: null, conv: null, tex: null };
 const stressSetup = () => {
   const s = doc.stress || (doc.stress = {});
-  const def = { mat: 'al6061', cust: { E: 70000, nu: 0.3, sy: 200, ult: 300, rho: 2700 }, crit: null, cons: [], loads: [], grav: false, q: 'normal', active: 'c0', show: 'vm', pal: 'rainbow', rev: false, bands: 0, range: null, scale: 0, ghost: false, markers: true, sect: { on: false, axis: 'x', i: 0.5, flip: false } };
+  const def = { fxOn: false, fxQ: 'draft', fxBody: null, fxFix: true, fxSug: 'toe', mat: 'al6061', cust: { E: 70000, nu: 0.3, sy: 200, ult: 300, rho: 2700 }, crit: null, cons: [], loads: [], grav: false, q: 'normal', active: 'c0', show: 'vm', pal: 'rainbow', rev: false, bands: 0, range: null, scale: 0, ghost: false, markers: true, sect: { on: false, axis: 'x', i: 0.5, flip: false } };
   for (const k in def) if (s[k] === undefined) s[k] = def[k];
   if (s.cust.ult === undefined) s.cust.ult = 300;
   if (s.sup) { if (!s.cons.length) s.cons = [{ faces: s.sup, kind: 'fixed', dir: 'z-', mag: 0 }]; delete s.sup; }
@@ -16453,6 +16453,723 @@ ${STRESS.conv ? `<h2>Mesh convergence</h2><table><tr><th>Bricks</th><th>Strain e
   toast('Saved stress-report.html');
 }
 </script>
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  Fixturing study (Stress → Fixturing). A PROJECT holds the operations of one part (top side, flip,
+//  side drilling …) and the fixtures (toe, strap and side clamps) that can be put to work in them.
+//  Each operation has its own work support (parallels, plate or vise), cutting load and clamps.
+//  Every clamp is solved on its own (the solver is linear), so the stress map is the sum of the clamps
+//  and the cut: change a tightness and the map follows at once; move a clamp and only that one is
+//  solved again. From the map and the cut it says how tight each clamp should be (enough to hold
+//  the cut, not so much that the part or the screw is overloaded), where to put clamps, and the
+//  fewest that will do.
+//  Inside: mm, N, MPa. Shown in inches, lbf and lbf·ft with inch units.
+// ═══════════════════════════════════════════════════════════════════
+const FX_SIZES = { '1/4-20': [6.35, 20.5], '5/16-18': [7.94, 33.8], '3/8-16': [9.525, 50], '1/2-13': [12.7, 91.5], '5/8-11': [15.875, 145.2], M8: [8, 36.6], M10: [10, 58], M12: [12, 84.3] };
+const FX_K = 0.2, FX_PROOF = 600, FX_SF_HOLD = 2, FX_SF_PART = 1.5, FX_REF = 1000, FX_CUT_REF = 100;
+const FXK = {
+  toe: { name: 'Toe clamp', eff: 0.5, pad: d => 0.75 * d, tip: 'Presses down near the edge; the heel bears on a step block' },
+  strap: { name: 'Strap clamp', eff: 0.5, pad: d => 0.9 * d, tip: 'Presses down on the top face, bolt between the pad and the heel' },
+  side: { name: 'Side clamp', eff: 0.9, pad: d => 1.2 * d, tip: 'Pushes the part sideways against a stop on the opposite wall' },
+};
+const FX_CUTS = [['light', 'Light finishing pass', 110], ['medium', 'Medium roughing', 445], ['heavy', 'Heavy roughing', 1112], ['custom', 'Custom', 0]];
+const FX_OPS = [
+  ['Op 10: top side', { up: 'top', sup: 'parallels', cutPreset: 'medium', ang: 0 }],
+  ['Op 20: flip, finish the underside', { up: 'bottom', sup: 'parallels', cutPreset: 'light', ang: 90 }],
+  ['Op 30: drill from the front', { up: 'front', sup: 'plate', cutPreset: 'light', ang: 0 }],
+  ['Custom operation', { up: 'top', sup: 'plate', cutPreset: 'medium', ang: 0 }],
+];
+const FX_SUPS = [['parallels', 'Parallels (two strips)'], ['plate', 'Fixture plate (whole underside)'], ['vise', 'Vise (parallels and jaws)']];
+const FX_UPS = [['top', 'Top'], ['bottom', 'Bottom'], ['left', 'Left'], ['right', 'Right'], ['front', 'Front'], ['back', 'Back']];
+const FX = { cache: new Map(), busy: false, again: false, timer: 0, place: null, group: null, adv: null, workers: new Set(), sug: null, built: null };
+const fxId = () => 'f' + Math.random().toString(36).slice(2, 7);
+const fxTU = () => isIn() ? { k: 1.35582, n: 'lbf·ft' } : { k: 1, n: 'N·m' };
+const fxFmtT = Nm => { const v = Nm / fxTU().k; return (v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2)) + ' ' + fxTU().n; };
+const fxFmtF = N => { const U = stressU(); return stressNum(N / U.f, 3) + ' ' + U.fn; };
+function fxMakeOp(name, o) { return { id: fxId(), name, up: 'top', sup: 'parallels', cutPreset: 'medium', cutF: 445, ang: 0, lift: 0.25, cut: null, mu: 0.2, use: [], vise: { T: 40 }, ...o }; }
+function fxMakeProject(name) { const p = { id: fxId(), name, ops: [], fix: [], opCur: 0 }; p.ops.push(fxMakeOp(FX_OPS[0][0], FX_OPS[0][1])); return p; }
+function fxProj() {
+  const s = stressSetup();
+  if (!s.pj) s.pj = { list: [], cur: 0 };
+  if (!s.pj.list.length) s.pj.list.push(fxMakeProject('Project 1'));
+  s.pj.cur = Math.min(Math.max(0, s.pj.cur), s.pj.list.length - 1);
+  const p = s.pj.list[s.pj.cur];
+  p.opCur = Math.min(Math.max(0, p.opCur), p.ops.length - 1);
+  return p;
+}
+const fxOp = () => { const p = fxProj(); return p.ops[p.opCur]; };
+const fxUsed = op => fxProj().fix.filter(f => op.use.includes(f.id));
+// ── the part, its up direction and the surfaces that matter ──
+function fxPart() {
+  const s = stressSetup(), bodies = visibleBodies().filter(b => !b.hole), body = bodies.find(b => b.id === s.fxBody) || bodies[0];
+  return body ? { body, mesh: bodyMesh(body), bb: body.bb } : null;
+}
+function fxUp(op) {
+  const v = FIX_SIDES[op.up] || FIX_SIDES.top, ax = v.findIndex(x => x !== 0);
+  return { v, ax, sg: v[ax], i1: (ax + 1) % 3, i2: (ax + 2) % 3 };
+}
+// the two axes across the up direction, named as the user sees them (model x → X, model z → Y back, model y → Z up), X before Y before Z
+const fxLat = U => [0, 1, 2].filter(i => i !== U.ax).map(i => ({ mi: i, letter: 'XZY'[i], rank: i === 0 ? 0 : i === 2 ? 1 : 2 })).sort((a, b) => a.rank - b.rank);
+const fxExt = P => ({ lo: [P.bb[0], P.bb[1], P.bb[2]], hi: [P.bb[3], P.bb[4], P.bb[5]] });
+const fxOff2m = (E, a, v) => a.mi === 2 ? E.hi[2] - v : E.lo[a.mi] + v;                    // an offset from the low end of the user axis → model coordinate
+const fxM2off = (E, a, m) => a.mi === 2 ? E.hi[2] - m : m - E.lo[a.mi];
+const fxUserSign = a => a.mi === 2 ? -1 : 1;                                                // user + direction in model terms
+function fxTris(mesh, pred) {
+  const p = mesh.pos, nr = mesh.nor, out = [];
+  for (let t = 0, T = p.length / 9; t < T; t++) {
+    const q = t * 9;
+    if (pred([nr[q], nr[q + 1], nr[q + 2]], [(p[q] + p[q + 3] + p[q + 6]) / 3, (p[q + 1] + p[q + 4] + p[q + 7]) / 3, (p[q + 2] + p[q + 5] + p[q + 8]) / 3])) out.push(t);
+  }
+  return Int32Array.from(out);
+}
+// the highest up-facing surface under a point (given across the up axis); null when there is none
+function fxSurfaceAt(mesh, U, i1, i2, a, b) {
+  const p = mesh.pos, nr = mesh.nor; let best = null;
+  for (let t = 0, T = p.length / 9; t < T; t++) {
+    const q = t * 9;
+    if (nr[q + U.ax] * U.sg < 0.9) continue;
+    const A0 = p[q + i1], A1 = p[q + i2], B0 = p[q + 3 + i1], B1 = p[q + 3 + i2], C0 = p[q + 6 + i1], C1 = p[q + 6 + i2];
+    const d = (B1 - C1) * (A0 - C0) + (C0 - B0) * (A1 - C1);
+    if (Math.abs(d) < 1e-9) continue;
+    const l1 = ((B1 - C1) * (a - C0) + (C0 - B0) * (b - C1)) / d, l2 = ((C1 - A1) * (a - C0) + (A0 - C0) * (b - C1)) / d, l3 = 1 - l1 - l2;
+    if (l1 < -1e-6 || l2 < -1e-6 || l3 < -1e-6) continue;
+    const h = l1 * p[q + U.ax] + l2 * p[q + 3 + U.ax] + l3 * p[q + 6 + U.ax];
+    if (best === null || h * U.sg > best * U.sg) best = h;
+  }
+  return best;
+}
+// ── clamp forces ──
+const fxSz = f => FX_SIZES[f.size] || FX_SIZES['3/8-16'];
+const fxForce = f => (+f.torque || 0) / (FX_K * fxSz(f)[0]) * 1000 * FXK[f.kind].eff;                         // N on the work (torque in N·m)
+const fxScrewMaxT = f => 0.75 * FX_PROOF * fxSz(f)[1] * FX_K * fxSz(f)[0] / 1000;                              // N·m at 75 % of the screw's proof load
+const fxPadR = f => FXK[f.kind].pad(fxSz(f)[0]);
+const fxCutF = op => { const pr = FX_CUTS.find(c => c[0] === op.cutPreset); return pr && pr[2] ? pr[2] : +op.cutF || 0; };
+// where a fixture sits in an operation (it is placed once per operation)
+const fxAt = (f, op) => { if (!f.at) f.at = {}; return f.at[op.id] || (f.at[op.id] = f.kind === 'side' ? { wall: 'X-', u: 0 } : { v: [0, 0] }); };
+function fxWallInfo(wall, U, E) {
+  const lat = fxLat(U), L = lat.find(a => a.letter === wall[0]) || lat[0], sgn = wall[1] === '+' ? 1 : -1;
+  return { L, sgn, msgn: sgn * fxUserSign(L), other: lat.find(a => a !== L) };            // msgn: outward normal sign in model terms
+}
+
+// ── what the solver is given for one operation ──
+// { P, U, E, lat, sup: [constraint], cases: [{ id, key, w, loads, … }], … }; each case is one load, solved alone
+function fxBuild(op) {
+  const P = fxPart(); if (!P) throw new Error('There is no part to hold.');
+  const U = fxUp(op), E = fxExt(P), mesh = P.mesh, lat = fxLat(U), len = lat.map(a => E.hi[a.mi] - E.lo[a.mi]);
+  const hmin = U.sg > 0 ? E.lo[U.ax] : -E.hi[U.ax], thick = E.hi[U.ax] - E.lo[U.ax], hOf = c => U.sg * c[U.ax], cbot = U.sg * hmin;
+  const downTris = (tol, nmin) => fxTris(mesh, (n, c) => -n[U.ax] * U.sg >= nmin && hOf(c) <= hmin + tol);
+  let bottom = downTris(0.6, 0.95); if (!bottom.length) bottom = downTris(3, 0.7);
+  if (!bottom.length) throw new Error('This side has no flat underside to rest on: pick another side up.');
+  const patch = (c, hs, ax) => ({ c, ax, hx: hs[(ax + 1) % 3], hy: hs[(ax + 2) % 3], zt: 1.5 });
+  const r2 = v => +v.toFixed(2), mid = lat.map(a => (E.lo[a.mi] + E.hi[a.mi]) / 2);
+  const sup = [], longI = len[0] >= len[1] ? 0 : 1, shortI = 1 - longI;
+  const strips = kind => [-1, 1].map(sgn => {
+    const c = [0, 0, 0]; c[U.ax] = cbot; lat.forEach((a, i) => { c[a.mi] = mid[i]; }); c[lat[shortI].mi] += sgn * 0.28 * len[shortI];
+    const hs = [0, 0, 0]; hs[lat[longI].mi] = len[longI] / 2 + 1; hs[lat[shortI].mi] = 3.2;
+    return { kind, tris: bottom, patch: patch(c, hs, U.ax), desc: ['strip', kind, r2(c[0]), r2(c[1]), r2(c[2]), r2(hs[0]), r2(hs[1]), r2(hs[2])] };
+  });
+  let jaw = null;
+  if (op.sup === 'plate') sup.push({ kind: 'fixed', tris: bottom, desc: ['plate'] });
+  else if (op.sup === 'parallels') sup.push(...strips('fixed'));
+  else {
+    sup.push(...strips('frictionless'));
+    const ja = (op.vise.axis && lat.find(a => a.letter === op.vise.axis)) || lat[shortI], oth = lat.find(a => a !== ja), wallH = Math.min(30, thick * 0.6), wallW = Math.min(150, len[lat.indexOf(oth)]);
+    const wp = sgn => { const c = [0, 0, 0]; c[ja.mi] = sgn > 0 ? E.hi[ja.mi] : E.lo[ja.mi]; c[oth.mi] = (E.hi[oth.mi] + E.lo[oth.mi]) / 2; c[U.ax] = U.sg * (hmin + wallH / 2 + 1); const hs = [0, 0, 0]; hs[oth.mi] = wallW / 2; hs[U.ax] = wallH / 2; return patch(c, hs, ja.mi); };
+    const wt = sgn => fxTris(mesh, (n, c) => n[ja.mi] * sgn >= 0.95 && Math.abs(c[ja.mi] - (sgn > 0 ? E.hi[ja.mi] : E.lo[ja.mi])) < 0.6);
+    const fp = wp(-1), mp = wp(1);
+    sup.push({ kind: 'fixed', tris: wt(-1), patch: fp, desc: ['jawfixed', ja.mi, r2(fp.c[0]), r2(fp.c[1]), r2(fp.c[2]), r2(fp.hx), r2(fp.hy)] });
+    jaw = { ja, tris: wt(1), patch: mp };
+  }
+  const cases = [], dirOf = (ax, sg) => { const d = [0, 0, 0]; d[ax] = sg; return d; };
+  for (const f of fxUsed(op)) {
+    const at = fxAt(f, op), pr = fxPadR(f);
+    if (f.kind === 'side') {
+      const W = fxWallInfo(at.wall, U, E), ext = W.msgn > 0 ? E.hi[W.L.mi] : E.lo[W.L.mi], opp = W.msgn > 0 ? E.lo[W.L.mi] : E.hi[W.L.mi];
+      const c = [0, 0, 0]; c[W.L.mi] = ext; c[U.ax] = U.sg * (hmin + Math.min(thick * 0.5, 15));
+      const olen = E.hi[W.other.mi] - E.lo[W.other.mi]; c[W.other.mi] = Math.min(E.hi[W.other.mi] - pr, Math.max(E.lo[W.other.mi] + pr, fxOff2m(E, W.other, +at.u || 0)));
+      const hs = [0, 0, 0]; hs[W.other.mi] = pr; hs[U.ax] = Math.min(pr, thick * 0.4);
+      const wt = sgn => fxTris(mesh, (n, cc) => n[W.L.mi] * sgn >= 0.95 && Math.abs(cc[W.L.mi] - (sgn > 0 ? E.hi[W.L.mi] : E.lo[W.L.mi])) < 0.6);
+      const pp = patch(c, hs, W.L.mi), st = patch(c.slice(), hs, W.L.mi); st.c[W.L.mi] = opp;
+      sup.push({ kind: 'fixed', tris: wt(-W.msgn), patch: st, desc: ['stop', f.id, r2(st.c[0]), r2(st.c[1]), r2(st.c[2]), r2(pr)] });
+      cases.push({ id: 'clamp:' + f.id, fix: f, w: fxForce(f) / FX_REF, c, dir: dirOf(W.L.mi, -W.msgn), side: true,
+        loads: [{ kind: 'force', tris: wt(W.msgn), mag: FX_REF, dir: dirOf(W.L.mi, -W.msgn), patch: pp }], desc: ['side', f.id, r2(c[0]), r2(c[1]), r2(c[2]), r2(pr)] });
+    } else {
+      const a = fxOff2m(E, lat[0], at.v[0]), b = fxOff2m(E, lat[1], at.v[1]), h = fxSurfaceAt(mesh, U, lat[0].mi, lat[1].mi, a, b);
+      if (h === null || at.v[0] < 0 || at.v[1] < 0 || at.v[0] > len[0] || at.v[1] > len[1]) { cases.push({ id: 'clamp:' + f.id, fix: f, w: 0, none: true, loads: [], desc: ['none', f.id, r2(a), r2(b)] }); continue; }
+      const c = [0, 0, 0]; c[U.ax] = h; c[lat[0].mi] = a; c[lat[1].mi] = b;
+      const near = fxTris(mesh, (n, cc) => n[U.ax] * U.sg >= 0.9 && Math.abs(hOf(cc) - U.sg * h) < 1.5 && Math.hypot(cc[lat[0].mi] - a, cc[lat[1].mi] - b) < pr + 40);
+      const dir = dirOf(U.ax, -U.sg);
+      cases.push({ id: 'clamp:' + f.id, fix: f, w: fxForce(f) / FX_REF, c, dir, top: true, loads: [{ kind: 'force', tris: near, mag: FX_REF, dir, patch: { c, ax: U.ax, r: pr, zt: 1.5 } }], desc: ['top', f.id, r2(c[0]), r2(c[1]), r2(c[2]), r2(pr)] });
+    }
+  }
+  if (jaw) {
+    const Fj = (+op.vise.T || 0) / (FX_K * 25.4) * 1000, d = dirOf(jaw.ja.mi, -1);
+    cases.push({ id: 'jaw', jaw: true, w: Fj / FX_REF, c: jaw.patch.c, dir: d, loads: [{ kind: 'force', tris: jaw.tris, mag: FX_REF, dir: d, patch: jaw.patch }], desc: ['jaw', jaw.ja.mi, r2(jaw.patch.c[0]), r2(jaw.patch.c[1]), r2(jaw.patch.c[2])] });
+  }
+  // the cut: a force at a point on the surface, across the part, with a share lifting it
+  const cv = op.cut || [len[0] / 2, len[1] / 2], ca = fxOff2m(E, lat[0], cv[0]), cb = fxOff2m(E, lat[1], cv[1]), ch = fxSurfaceAt(mesh, U, lat[0].mi, lat[1].mi, ca, cb);
+  if (ch !== null) {
+    const th = (+op.ang || 0) * Math.PI / 180, lift = +op.lift || 0, dir = [0, 0, 0];
+    dir[lat[0].mi] = Math.cos(th) * fxUserSign(lat[0]); dir[lat[1].mi] = Math.sin(th) * fxUserSign(lat[1]); dir[U.ax] = U.sg * lift;
+    const dn = Math.hypot(...dir); for (let i = 0; i < 3; i++) dir[i] /= dn;
+    const c = [0, 0, 0]; c[U.ax] = ch; c[lat[0].mi] = ca; c[lat[1].mi] = cb;
+    const near = fxTris(mesh, (n, cc) => n[U.ax] * U.sg >= 0.9 && Math.abs(hOf(cc) - U.sg * ch) < 1.5 && Math.hypot(cc[lat[0].mi] - ca, cc[lat[1].mi] - cb) < 46);
+    cases.push({ id: 'cut', cut: true, w: fxCutF(op) / FX_CUT_REF, c, dir, lift, loads: [{ kind: 'force', tris: near, mag: FX_CUT_REF, dir, patch: { c, ax: U.ax, r: 6.35, zt: 1.5 } }], desc: ['cut', r2(c[0]), r2(c[1]), r2(c[2]), r2(dir[0] * 1e3), r2(dir[1] * 1e3), r2(dir[2] * 1e3)] });
+  }
+  const pkey = [P.body.id, P.mesh.pos.length, P.bb.map(v => +v.toFixed(2)).join(','), op.up, op.sup, stressSetup().fxQ || 'draft'].join('|'), sk = sup.map(c => JSON.stringify(c.desc)).join(';');
+  for (const cs of cases) cs.key = pkey + '|' + sk + '|' + JSON.stringify(cs.desc);
+  return { P, U, E, lat, len, mid, sup, cases, thick, hmin, jaw };
+}
+
+// ── solving, adding up, and judging ──
+function fxSolveCase(cs, B, onProg) {
+  const mat = stressMat(), q = STRESS_TARGET[stressSetup().fxQ || 'draft'] || 4000, mesh = B.P.mesh;
+  const msg = { pos: mesh.pos.slice(), nor: mesh.nor.slice(), edgePos: mesh.edgePos.slice(), mat: { E: mat.E, nu: mat.nu, rho: mat.rho }, target: q,
+    cons: B.sup.map(c => ({ kind: c.kind, tris: c.tris, patch: c.patch })), loads: cs.loads.map(l => ({ kind: l.kind, tris: l.tris, mag: l.mag, dir: l.dir, patch: l.patch })), grav: false };
+  return new Promise((resolve, reject) => {
+    const w = new Worker(URL.createObjectURL(new Blob([document.getElementById('stress-worker').textContent], { type: 'text/javascript' })));
+    FX.workers.add(w);
+    const done = () => { w.terminate(); FX.workers.delete(w); };
+    w.onmessage = ev => { const d = ev.data; if (d.progress !== undefined) { onProg && onProg(d.progress); return; } done(); d.error ? reject(new Error(d.error)) : resolve(d.done); };
+    w.onerror = ev => { done(); reject(new Error('The solver stopped: ' + (ev.message || 'unknown error'))); };
+    w.postMessage(msg);
+  });
+}
+function fxStop() { for (const w of FX.workers) w.terminate(); FX.workers.clear(); FX.busy = false; FX.again = false; clearTimeout(FX.timer); }
+// the stress at a node for a combination of cases: tau scales every clamp, the cut stays
+function fxSF(S, mat) {
+  const xx = S[0], yy = S[1], zz = S[2], xy = S[3], yz = S[4], zx = S[5];
+  const vm = Math.sqrt(Math.max(0, 0.5 * ((xx - yy) ** 2 + (yy - zz) ** 2 + (zz - xx) ** 2) + 3 * (xy * xy + yz * yz + zx * zx)));
+  if (mat.crit === 'vm') return mat.sy / Math.max(1e-9, vm);
+  const p = (xx + yy + zz) / 3, a = xx - p, b = yy - p, c = zz - p, pp = Math.sqrt(Math.max(1e-30, (a * a + b * b + c * c + 2 * (xy * xy + yz * yz + zx * zx)) / 6));
+  const det = (a * (b * c - yz * yz) - xy * (xy * c - yz * zx) + zx * (xy * yz - b * zx)) / (pp * pp * pp), phi = Math.acos(Math.max(-1, Math.min(1, det / 2))) / 3;
+  const e1 = p + 2 * pp * Math.cos(phi), e3 = p + 2 * pp * Math.cos(phi + 2 * Math.PI / 3);
+  return mat.crit === 'tresca' ? mat.sy / Math.max(1e-9, e1 - e3) : Math.min(e1 > 1e-9 ? mat.ult / e1 : Infinity, e3 < -1e-9 ? mat.ult * mat.uc / -e3 : Infinity);
+}
+function fxLoadList(B) {
+  const get = cs => FX.cache.get(cs.key);
+  return { clamps: B.cases.filter(c => (c.fix || c.jaw) && !c.none && get(c)), cut: B.cases.find(c => c.cut && get(c)), get };
+}
+// everything the finished map needs, from the solved cases at their present tightness
+function fxCombine(op, B) {
+  const L = fxLoadList(B), all = [...L.clamps, ...(L.cut ? [L.cut] : [])];
+  if (!all.length) return false;
+  const base = L.get(all[0]), n = base.nNodes, S = new Float32Array(n * 6), U = new Float32Array(n * 3), near = new Uint8Array(n);
+  for (const cs of all) { const R = L.get(cs), w = cs.w; for (let i = 0; i < S.length; i++) S[i] += w * R.S[i]; for (let i = 0; i < U.length; i++) U[i] += w * R.U[i]; for (let i = 0; i < n; i++) if (R.near[i]) near[i] = 1; }
+  const R = Object.assign({}, base, { S, U, near, F: null, Fkey: null, reactions: [], conRef: [], applied: [0, 0, 0], appliedMom: [0, 0, 0], energy: 0, converged: true });
+  let mx = 0; for (let i = 0; i < n; i++) mx = Math.max(mx, Math.hypot(U[i * 3], U[i * 3 + 1], U[i * 3 + 2])); R.maxDisp = mx;
+  const mat = stressMat(), s = stressSetup();
+  R.body = B.P.body; R.mat = mat; R.size = Math.max(...B.len, B.thick); R.auto = mx > 0 ? Math.min(5000, Math.max(1, 0.06 * R.size / mx)) : 1;
+  stressPrepSampling(R);
+  STRESS.result = R; stressFields(R, mat); stressExtremes(R);
+  if (!s.scale) s.scale = +R.auto.toPrecision(2);
+  // the colors keep one scale (zero to yield) so a tighter clamp reads as a hotter map, not the same picture re-spread
+  if (s.fxFix !== false) s.range = STRESS_MODE[s.show][2] === 's' ? [0, mat.sy] : null;
+  return true;
+}
+function fxAdvise(op, B) {
+  const L = fxLoadList(B), mat = stressMat(), clamps = L.clamps, cut = L.cut, adv = { clamps: [], issues: [], B };
+  const fl = B.cases.filter(c => c.fix);
+  adv.noCut = !cut; adv.noClamps = !clamps.length;
+  // free nodes and the stress each clamp adds at its full (75 % of proof) tightness
+  const base = clamps.length ? L.get(clamps[0]) : cut ? L.get(cut) : null;
+  if (!base) { FX.adv = adv; return adv; }
+  const n = base.nNodes, near = new Uint8Array(n); for (const cs of [...clamps, ...(cut ? [cut] : [])]) { const R = L.get(cs); for (let i = 0; i < n; i++) if (R.near[i]) near[i] = 1; }
+  const full = clamps.map(cs => cs.fix ? fxForce({ ...cs.fix, torque: fxScrewMaxT(cs.fix) }) / FX_REF : (fxScrewMaxTJaw() / (FX_K * 25.4) * 1000) / FX_REF);   // weight of each clamp at its screw limit
+  const wc = cut ? cut.w : 0, tmp = new Float32Array(6);
+  const minSF = tau => {
+    let mn = Infinity;
+    for (let i = 0; i < n; i++) {
+      if (near[i]) continue;
+      for (let k = 0; k < 6; k++) { let v = 0; for (let j = 0; j < clamps.length; j++) v += tau * full[j] * L.get(clamps[j]).S[i * 6 + k]; if (cut) v += wc * L.get(cut).S[i * 6 + k]; tmp[k] = v; }
+      const sf = fxSF(tmp, mat); if (sf < mn) mn = sf;
+    }
+    return mn;
+  };
+  // the part's limit: the largest tightness (as a share of the screw limit) that keeps the safety factor
+  let tauMax = 0, sf0 = minSF(0);
+  if (sf0 >= FX_SF_PART) { tauMax = 1; for (let t = 0.04; t <= 1.0001; t += 0.04) { if (minSF(t) < FX_SF_PART) { tauMax = t - 0.04; break; } } }
+  // pad pressure: the clamp must not crush its seat
+  const padMax = clamps.map((cs, j) => cs.fix ? Math.min(1, 0.7 * mat.sy * Math.PI * fxPadR(cs.fix) ** 2 / Math.max(1e-9, full[j] * FX_REF)) : 1);
+  const tauPad = padMax.length ? Math.min(...padMax) : 1;
+  tauMax = Math.min(tauMax, tauPad);
+  // the hold: friction under the clamps against the cut, a stop carries what pushes into it
+  const mu = +op.mu || 0.2, W = (base.mass || 0) / 1000 * 9.81, Fcut = cut ? fxCutF(op) : 0;
+  const hv = cut ? cut.dir.map(v => v * Fcut) : [0, 0, 0], Fup = cut ? Math.max(0, cut.dir[B.U.ax] * B.U.sg * Fcut) : 0;
+  for (let i = 0; i < 3; i++) if (i === B.U.ax) hv[i] = 0;
+  const hold = tauOrForce => {                                       // tauOrForce: { f(clamp weight function) }
+    let fv = 0, hh = hv.slice(), grip = 0;
+    clamps.forEach((cs, j) => { const F = tauOrForce(cs, j); if (cs.top) fv += F; else grip += F; });
+    for (const [j, cs] of clamps.entries()) if (!cs.top) {
+      const F = tauOrForce(cs, j), d = cs.dir, comp = hh[0] * d[0] + hh[1] * d[1] + hh[2] * d[2];
+      if (comp > 0) for (let i = 0; i < 3; i++) hh[i] -= comp * d[i]; else { const c = Math.min(-comp, F); for (let i = 0; i < 3; i++) hh[i] += c * d[i]; }
+    }
+    const cap = mu * Math.max(0, fv - Fup + W) + 2 * mu * grip, dem = Math.hypot(...hh);
+    return dem < 1e-9 ? Infinity : cap / dem;
+  };
+  const SFnow = hold((cs) => cs.w * FX_REF);
+  let tauMin = 0; if (cut) { tauMin = Infinity; for (let t = 0.02; t <= 1.0001; t += 0.02) if (hold((cs, j) => t * full[j] * FX_REF) >= FX_SF_HOLD) { tauMin = t; break; } }
+  adv.sfHold = SFnow; adv.tauMin = tauMin; adv.tauMax = tauMax; adv.tauPad = tauPad; adv.sfPartAtZero = sf0; adv.W = W; adv.Fcut = Fcut; adv.mu = mu;
+  adv.fits = isFinite(tauMin) && tauMin <= tauMax;
+  adv.tauRec = adv.fits ? Math.min(tauMax * 0.85, Math.max(tauMin * 1.35, tauMin + 0.05)) : null;
+  if (adv.tauRec !== null) adv.tauRec = Math.max(tauMin, Math.min(adv.tauRec, tauMax));
+  clamps.forEach((cs, j) => {
+    const Tfull = cs.fix ? fxScrewMaxT(cs.fix) : fxScrewMaxTJaw(), T = cs.fix ? +cs.fix.torque || 0 : +op.vise.T || 0;
+    const lo = isFinite(tauMin) ? tauMin * Tfull : Infinity, hi = tauMax * Tfull, rec = adv.tauRec !== null ? adv.tauRec * Tfull : null;
+    adv.clamps.push({ id: cs.id, name: cs.fix ? cs.fix.name : 'Vise jaws', T, lo, hi, rec, Tfull, status: !isFinite(lo) ? 'weak' : T < lo * 0.999 ? 'loose' : T > hi * 1.001 ? 'tight' : 'ok', jaw: !!cs.jaw });
+  });
+  for (const c of fl) if (c.none) adv.clamps.push({ id: c.id, name: c.fix.name, T: +c.fix.torque || 0, status: 'off', jaw: false });
+  adv.partSF = STRESS.result ? STRESS.result.ext.sf.flo : null;
+  FX.adv = adv;
+  return adv;
+}
+const fxScrewMaxTJaw = () => 120;                                      // N·m the screw of a 6" vise takes before it is abused
+
+// ── where to put clamps, and how few will do ──
+// a map of the part's footprint across the up direction: which cells are flat and face up, which are under the part at all
+function fxGrid(B) {
+  const { P, U, E, lat, len } = B, mesh = P.mesh, p = mesh.pos, nr = mesh.nor, m0 = lat[0].mi, m1 = lat[1].mi;
+  const cell = Math.min(4, Math.max(1.5, Math.max(...len) / 56)), nx = Math.ceil(len[0] / cell) + 1, ny = Math.ceil(len[1] / cell) + 1;
+  const flat = new Uint8Array(nx * ny), occ = new Uint8Array(nx * ny), hgt = new Float32Array(nx * ny).fill(-1e9);
+  for (let t = 0, T = p.length / 9; t < T; t++) {
+    const q = t * 9, nu = nr[q + U.ax] * U.sg, up = nu >= 0.95, face = Math.abs(nu) >= 0.5;
+    if (!face) continue;
+    const A0 = p[q + m0], A1 = p[q + m1], B0 = p[q + 3 + m0], B1 = p[q + 3 + m1], C0 = p[q + 6 + m0], C1 = p[q + 6 + m1];
+    const d = (B1 - C1) * (A0 - C0) + (C0 - B0) * (A1 - C1); if (Math.abs(d) < 1e-9) continue;
+    const i0 = Math.max(0, Math.floor((Math.min(A0, B0, C0) - E.lo[m0]) / cell)), i1 = Math.min(nx - 1, Math.ceil((Math.max(A0, B0, C0) - E.lo[m0]) / cell)), j0 = Math.max(0, Math.floor((Math.min(A1, B1, C1) - E.lo[m1]) / cell)), j1 = Math.min(ny - 1, Math.ceil((Math.max(A1, B1, C1) - E.lo[m1]) / cell));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const a = E.lo[m0] + (i + 0.5) * cell, b = E.lo[m1] + (j + 0.5) * cell;
+      const l1 = ((B1 - C1) * (a - C0) + (C0 - B0) * (b - C1)) / d, l2 = ((C1 - A1) * (a - C0) + (A0 - C0) * (b - C1)) / d, l3 = 1 - l1 - l2;
+      if (l1 < -0.02 || l2 < -0.02 || l3 < -0.02) continue;
+      occ[j * nx + i] = 1;
+      if (up) { const h = l1 * p[q + U.ax] + l2 * p[q + 3 + U.ax] + l3 * p[q + 6 + U.ax]; if (U.sg * h > hgt[j * nx + i]) { hgt[j * nx + i] = U.sg * h; flat[j * nx + i] = 1; } }
+    }
+  }
+  // an up-facing cell under something higher is not reachable: keep a cell flat only where it is the highest thing there
+  const dist = grid => {                                              // chamfer distance (cells) to the nearest 0
+    const D = new Float32Array(nx * ny), INF = 1e6;
+    for (let k = 0; k < D.length; k++) D[k] = grid[k] ? INF : 0;
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) { const k = j * nx + i; if (!D[k]) continue; let v = D[k]; if (i > 0) v = Math.min(v, D[k - 1] + 1); if (j > 0) v = Math.min(v, D[k - nx] + 1); if (i > 0 && j > 0) v = Math.min(v, D[k - nx - 1] + 1.41); if (i < nx - 1 && j > 0) v = Math.min(v, D[k - nx + 1] + 1.41); D[k] = v; }
+    for (let j = ny - 1; j >= 0; j--) for (let i = nx - 1; i >= 0; i--) { const k = j * nx + i; let v = D[k]; if (i < nx - 1) v = Math.min(v, D[k + 1] + 1); if (j < ny - 1) v = Math.min(v, D[k + nx] + 1); if (i < nx - 1 && j < ny - 1) v = Math.min(v, D[k + nx + 1] + 1.41); if (i > 0 && j < ny - 1) v = Math.min(v, D[k + nx - 1] + 1.41); D[k] = v; }
+    return D;
+  };
+  // the border counts as outside
+  const padOcc = new Uint8Array((nx + 2) * (ny + 2)), padFlat = new Uint8Array((nx + 2) * (ny + 2));
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) { padOcc[(j + 1) * (nx + 2) + i + 1] = occ[j * nx + i]; padFlat[(j + 1) * (nx + 2) + i + 1] = flat[j * nx + i]; }
+  const nxo = nx; // distance over the padded grid, then cropped
+  const crop = D => { const o = new Float32Array(nx * ny); for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) o[j * nx + i] = D[(j + 1) * (nx + 2) + i + 1]; return o; };
+  const distP = (grid, W, H) => { const D = new Float32Array(W * H), INF = 1e6; for (let k = 0; k < D.length; k++) D[k] = grid[k] ? INF : 0;
+    for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) { const k = j * W + i; if (!D[k]) continue; let v = D[k]; if (i > 0) v = Math.min(v, D[k - 1] + 1); if (j > 0) v = Math.min(v, D[k - W] + 1); if (i > 0 && j > 0) v = Math.min(v, D[k - W - 1] + 1.41); if (i < W - 1 && j > 0) v = Math.min(v, D[k - W + 1] + 1.41); D[k] = v; }
+    for (let j = H - 1; j >= 0; j--) for (let i = W - 1; i >= 0; i--) { const k = j * W + i; let v = D[k]; if (i < W - 1) v = Math.min(v, D[k + 1] + 1); if (j < H - 1) v = Math.min(v, D[k + W] + 1); if (i < W - 1 && j < H - 1) v = Math.min(v, D[k + W + 1] + 1.41); if (i > 0 && j < H - 1) v = Math.min(v, D[k + W - 1] + 1.41); D[k] = v; }
+    return D; };
+  const dFlat = crop(distP(padFlat, nx + 2, ny + 2)), dOcc = crop(distP(padOcc, nx + 2, ny + 2));
+  return { cell, nx, ny, flat, occ, dFlat, dOcc, E, m0, m1, lat };
+}
+const fxCellAt = (G, i, j) => [G.E.lo[G.m0] + (i + 0.5) * G.cell, G.E.lo[G.m1] + (j + 0.5) * G.cell];
+// the tightness a clamp is asked to work at when counting how many are needed (60 % of its screw's limit)
+const FX_TAU_GOOD = 0.6;
+function fxMinCount(op, B, kind) {
+  const f = { kind, size: '3/8-16', torque: 0 }; f.torque = fxScrewMaxT(f) * FX_TAU_GOOD;
+  const mat = stressMat(), mu = +op.mu || 0.2, Fcut = fxCutF(op), lift = +op.lift || 0, hf = 1 / Math.sqrt(1 + lift * lift), Fh = Fcut * hf, Fup = Fcut * lift * hf;
+  const Fw = fxForce(f), Fpad = 0.5 * mat.sy * Math.PI * fxPadR(f) ** 2, Feach = Math.min(Fw, Fpad);
+  const { len, thick } = B, short = Math.min(...len), perim = 2 * (len[0] + len[1]);
+  let force;
+  if (kind === 'side') force = Math.max(1, Math.ceil(FX_SF_HOLD * Fh / (2 * mu * Feach)));
+  else force = Math.max(1, Math.ceil((FX_SF_HOLD * Fh / mu + Fup) / Feach));
+  const stab = kind === 'side' ? 1 : (short < 3 * 2 * fxPadR(f) ? 2 : 3);
+  const span = kind === 'side' ? 1 : Math.ceil(perim / (14 * Math.max(thick, 6)));
+  return { n: Math.min(8, Math.max(force, stab, span)), force, stab, span, Feach, Fw, Fpad, tau: FX_TAU_GOOD, size: f.size };
+}
+function fxSuggest(op, kind, existing) {
+  const B = fxBuild(op), U = B.U, E = B.E, G = fxGrid(B), cell = G.cell, mc = fxMinCount(op, B, kind), f = { kind, size: '3/8-16' }, pr = fxPadR(f);
+  const cutv = op.cut || [B.len[0] / 2, B.len[1] / 2], cm = [fxOff2m(E, B.lat[0], cutv[0]), fxOff2m(E, B.lat[1], cutv[1])];
+  const out = { kind, mc, picks: [], note: '' };
+  if (kind === 'side') {
+    // push toward a stop on the opposite wall, along the direction the cut pushes
+    const th = (+op.ang || 0) * Math.PI / 180, hv = [Math.cos(th), Math.sin(th)], cands = [];
+    B.lat.forEach((L, i) => { for (const sgn of [-1, 1]) { const inward = -sgn; cands.push({ wall: L.letter + (sgn > 0 ? '+' : '-'), score: hv[i] * inward, span: B.len[i] }); } });
+    cands.sort((a, b) => b.score - a.score || a.span - b.span);
+    const W0 = cands[0], Wi = fxWallInfo(W0.wall, U, E), olen = B.len[B.lat.findIndex(a => a.mi === Wi.other.mi)];
+    const n = mc.n, us = n === 1 ? [0.5] : n === 2 ? [0.28, 0.72] : Array.from({ length: n }, (_, k) => 0.15 + 0.7 * k / (n - 1));
+    out.picks = us.map(u => ({ wall: W0.wall, u: +(u * olen).toFixed(2) }));
+    out.note = `Push from the ${Wi.L.letter}${W0.wall[1]} wall toward the opposite wall: the cut leans into the stop.`;
+    return out;
+  }
+  const reachMax = kind === 'toe' ? [pr + 22, pr + 45, 1e9] : [1e9];
+  let cand = [];
+  for (const reach of reachMax) {
+    cand = [];
+    for (let j = 0; j < G.ny; j++) for (let i = 0; i < G.nx; i++) {
+      const k = j * G.nx + i; if (!G.flat[k]) continue;
+      const df = G.dFlat[k] * cell, dof = G.dOcc[k] * cell;
+      if (df < pr + 1) continue;                                            // the pad has to sit on flat top
+      if (kind === 'toe' && (dof > reach || dof < pr * 0.5)) continue;
+      if (kind === 'strap' && dof < 6) continue;
+      const c = fxCellAt(G, i, j), dc = Math.hypot(c[0] - cm[0], c[1] - cm[1]);
+      cand.push({ i, j, c, dc, dof });
+    }
+    if (cand.length >= mc.n * 3) break;
+  }
+  if (!cand.length) { out.note = 'No flat spot wide enough for the pad on this side. Choose another clamp type, a smaller screw or another side up.'; return out; }
+  // keep the tool away from the clamp, then spread them out: the first nearest the cut (it resists the lift), the rest as far from each other as they go
+  const away = cand.filter(c => c.dc >= 22); const pool = away.length >= mc.n ? away : cand;
+  const picks = [pool.slice().sort((a, b) => a.dc - b.dc)[0]];
+  const taken = (existing || []).map(e => e);
+  while (picks.length < mc.n) {
+    let best = null, bs = -1;
+    for (const c of pool) { let m = Infinity; for (const q of [...picks, ...taken]) m = Math.min(m, Math.hypot(c.c[0] - q.c[0], c.c[1] - q.c[1])); if (m > bs + 1e-6 || (Math.abs(m - bs) < 1e-6 && best && c.dc < best.dc)) { bs = m; best = c; } }
+    if (!best || bs < pr) break;
+    picks.push(best);
+  }
+  out.picks = picks.map(c => ({ v: [+fxM2off(E, B.lat[0], c.c[0]).toFixed(2), +fxM2off(E, B.lat[1], c.c[1]).toFixed(2)] }));
+  out.note = kind === 'toe' ? 'Near the edge on flat top, with room for the pad, spread round the part; the first one closest to the cut.' : 'On flat top inside the outline, spread apart; the first one closest to the cut.';
+  return out;
+}
+
+// ── the clamps, supports and the cut drawn on the part ──
+function fxDraw() {
+  if (FX.group) { scene.remove(FX.group); FX.group.traverse(o => { if (o.geometry) o.geometry.dispose(); }); FX.group = null; }
+  const s = stressSetup(), B = FX.built;
+  if (!(CMD && CMD.type === 'stress' && s.fxOn && B)) { requestDraw(); return; }
+  const g = new THREE.Group(), Y = new THREE.Vector3(0, 1, 0), V = a => new THREE.Vector3(a[0], a[1], a[2]);
+  const col = st => ({ ok: 0x2e9d57, loose: 0xd8920f, weak: 0xd8920f, tight: 0xd93a2f, off: 0x8a93a0 }[st] || 0x2f7df6);
+  const mat = (c, o = 1) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.5, metalness: 0.2, transparent: o < 1, opacity: o });
+  const adv = FX.adv;
+  const stem = (c, dir, r, color, len = 26) => {                       // pad on the surface and a screw standing away from it
+    const d = V(dir).normalize(), q = new THREE.Quaternion().setFromUnitVectors(Y, d.clone().negate());
+    const pad = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 2, 28), mat(color)); pad.quaternion.copy(q); pad.position.copy(V(c)).addScaledVector(d, -1); g.add(pad);
+    const sc = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.38, r * 0.38, len, 16), mat(color)); sc.quaternion.copy(q); sc.position.copy(V(c)).addScaledVector(d, -(2 + len / 2)); g.add(sc);
+    const hd = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.7, r * 0.7, 4, 6), mat(color)); hd.quaternion.copy(q); hd.position.copy(V(c)).addScaledVector(d, -(2 + len + 2)); g.add(hd);
+  };
+  for (const cs of B.cases) {
+    if (cs.cut) {
+      const d = V(cs.dir).normalize(); g.add(new THREE.ArrowHelper(d, V(cs.c).addScaledVector(d, -34), 34, 0xe8590c, 8, 5));
+      const dot = new THREE.Mesh(new THREE.SphereGeometry(2.5, 12, 12), mat(0xe8590c)); dot.position.copy(V(cs.c)); g.add(dot);
+    } else if (cs.fix) {
+      const a = adv && adv.clamps.find(x => x.id === cs.id), st = cs.none ? 'off' : a ? a.status : 'ok';
+      if (cs.none) continue;
+      stem(cs.c, cs.dir, fxPadR(cs.fix), col(st));
+      const d = V(cs.dir).normalize(); g.add(new THREE.ArrowHelper(d, V(cs.c).addScaledVector(d, -18), 16, col(st), 6, 4));
+    } else if (cs.jaw) {
+      const a = adv && adv.clamps.find(x => x.id === 'jaw'), d = V(cs.dir).normalize(), col0 = col(a ? a.status : 'ok'), ax = [0, 1, 2].reduce((m, i) => Math.abs(cs.dir[i]) > Math.abs(cs.dir[m]) ? i : m, 0);
+      const jw = new THREE.Mesh(new THREE.BoxGeometry(...[0, 1, 2].map(i => i === ax ? 6 : 40)), mat(col0, 0.55)); jw.position.copy(V(cs.c)).addScaledVector(d, -3.5); g.add(jw);
+      g.add(new THREE.ArrowHelper(d, V(cs.c).addScaledVector(d, -26), 22, col0, 7, 5));
+    }
+  }
+  // supports
+  const up = V(B.U.v);
+  for (const c of B.sup) {
+    const ds = c.desc[0];
+    if (!c.patch) { if (ds === 'plate') { const sz = [0, 1, 2].map(i => i === B.U.ax ? 6 : B.E.hi[i] - B.E.lo[i] + 20), ctr = [0, 1, 2].map(i => (B.E.hi[i] + B.E.lo[i]) / 2); const b = new THREE.Mesh(new THREE.BoxGeometry(...sz), mat(0x7b8794, 0.55)); b.position.set(...ctr); b.position.addScaledVector(up, -(B.U.sg > 0 ? 1 : 1) * ((B.E.hi[B.U.ax] - B.E.lo[B.U.ax]) / 2 + 3)); g.add(b); } continue; }
+    if (ds === 'strip') { const P = c.patch, hs = [0, 0, 0]; hs[(P.ax + 1) % 3] = P.hx; hs[(P.ax + 2) % 3] = P.hy; hs[P.ax] = 3; const b = new THREE.Mesh(new THREE.BoxGeometry(hs[0] * 2, hs[1] * 2, hs[2] * 2), mat(0x7b8794, 0.7)); b.position.copy(V(P.c)).addScaledVector(up, -3); g.add(b); }
+    else if (ds === 'jawfixed' || ds === 'stop') { const P = c.patch, hs = [0, 0, 0]; hs[(P.ax + 1) % 3] = P.hx; hs[(P.ax + 2) % 3] = P.hy; hs[P.ax] = 3; const b = new THREE.Mesh(new THREE.BoxGeometry(hs[0] * 2, hs[1] * 2, hs[2] * 2), mat(0x7b8794, 0.7)); const out = [0, 0, 0]; out[P.ax] = P.c[P.ax] > (B.E.lo[P.ax] + B.E.hi[P.ax]) / 2 ? 1 : -1; b.position.copy(V(P.c)).addScaledVector(V(out), 3); g.add(b); }
+  }
+  scene.add(g); FX.group = g; requestDraw();
+}
+
+// ── the panel ──
+const fxStyle = document.createElement('style');
+fxStyle.textContent = `.fx-card { border: 1px solid var(--rule); border-radius: 9px; padding: 8px 9px; margin: 6px 0; background: var(--panel-2, transparent); transition: border-color .2s, box-shadow .2s; }
+.fx-card.sel { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.fx-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.fx-chip { font: 600 10.5px var(--mono); padding: 2px 7px; border-radius: 99px; color: #fff; white-space: nowrap; transition: background-color .2s; }
+.fx-chip.ok { background: #2e9d57; } .fx-chip.loose, .fx-chip.weak { background: #d8920f; } .fx-chip.tight { background: #d93a2f; } .fx-chip.off { background: #8a93a0; }
+.fx-adv { border-radius: 9px; padding: 9px 10px; background: var(--accent-soft); font-size: 12.5px; line-height: 1.45; }
+.fx-adv b { font-weight: 650; } .fx-adv ul { margin: 4px 0 0 16px; padding: 0; }
+.fx-ops { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 6px; }
+.fx-ops button { font-size: 12px; padding: 4px 9px; border-radius: 99px; }
+.fx-ops button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.fx-sug li { margin: 2px 0; }`;
+document.head.appendChild(fxStyle);
+const fxModeSeg = on => `<div class="field"><div class="seg"><button data-fx-mode="manual" class="${on ? '' : 'on'}">Loads &amp; constraints</button><button data-fx-mode="fix" class="${on ? 'on' : ''}">Fixturing study</button></div></div>`;
+const fxOptions = (opts, cur) => opts.map(([v, t]) => `<option value="${v}" ${String(v) === String(cur) ? 'selected' : ''}>${t}</option>`).join('');
+function fxChip(a) {
+  if (!a) return '';
+  const t = { ok: 'Right', loose: 'Too loose', tight: 'Too tight', weak: 'Cannot hold the cut', off: 'Not on the part' }[a.status] || '';
+  return `<span class="fx-chip ${a.status}">${t}</span>`;
+}
+function fxAdviceHTML() {
+  const a = FX.adv, op = fxOp(), s = stressSetup();
+  if (FX.busy) return `<p class="note">${FX.msg || 'Solving'}…</p><div class="sbar"><i style="width:${Math.round((FX.prog || 0) * 100)}%"></i></div>`;
+  if (FX.err) return `<p class="note err-note">${FX.err}</p>`;
+  if (!a) return '<p class="note">Add clamps and a cut to see how tight each should be.</p>';
+  const lines = [], u = fxTU();
+  const holdTxt = !a.Fcut ? '' : isFinite(a.sfHold) ? `Holding the cut now: <b style="color:${a.sfHold >= FX_SF_HOLD ? '#2e9d57' : a.sfHold >= 1 ? '#d8920f' : '#d93a2f'}">${stressNum(a.sfHold, 2)}×</b> (aim for ${FX_SF_HOLD}× or more). ` : 'The stop takes the cut. ';
+  const partTxt = a.partSF !== null && a.partSF !== undefined ? `Part safety factor <b style="color:${a.partSF >= 2 ? '#2e9d57' : a.partSF >= FX_SF_PART ? '#d8920f' : '#d93a2f'}">${a.partSF > 999 ? '>999' : stressNum(a.partSF, 2)}</b>. ` : '';
+  let head;
+  if (a.noClamps) head = '<b>No clamp is on the part.</b> Add one, or ask for a suggestion below.';
+  else if (!a.Fcut) head = '<b>Set a cutting force</b> to judge how tight the clamps need to be.';
+  else if (!isFinite(a.tauMin)) head = `<b>These clamps cannot hold this cut</b> even at the screws' limit: add clamps, move them to flat top near the cut, or lighten the cut (below, “Fewest clamps”).`;
+  else if (!a.fits) head = `<b>Holding the cut needs more than the part can take.</b> Holding wants at least ${Math.round(a.tauMin * 100)} % of the screws' limit, but the part (safety factor ${FX_SF_PART}) allows ${Math.round(a.tauMax * 100)} %. Add clamps so each can be lighter.`;
+  else head = `<b>Aim for ${a.clamps.filter(c => c.rec !== null).map(c => `${c.name} ${fxFmtT(c.rec)}`).join(' · ')}.</b> Anything from ${Math.round(a.tauMin * 100)} % to ${Math.round(a.tauMax * 100)} % of each screw's limit holds the cut without overloading the part.`;
+  const rows = a.clamps.map(c => c.status === 'off' ? `<li>${c.name}: not on a flat top, move it.</li>` : `<li>${c.name}: now ${fxFmtT(c.T)} · ${isFinite(c.lo) ? `${fxFmtT(c.lo)} to ${fxFmtT(c.hi)}` : 'cannot hold'}${c.rec !== null && c.status !== 'ok' ? ` → set ${fxFmtT(c.rec)}` : ''} ${fxChip(c)}</li>`).join('');
+  lines.push(`<p>${holdTxt}${partTxt}</p><p>${head}</p>${rows ? `<ul>${rows}</ul>` : ''}`);
+  if (a.tauRec !== null && a.clamps.some(c => c.status !== 'ok' && c.status !== 'off' && c.rec !== null)) lines.push('<div class="btns"><button class="btn primary" data-fx-do="rec">Set the recommended tightness</button></div>');
+  if (a.tauPad < a.tauMax + 1e-9 && a.tauPad < 1) lines.push(`<p class="note">A pad would crush its seat above ${Math.round(a.tauPad * 100)} % of the screw's limit.</p>`);
+  return `<div class="fx-adv">${lines.join('')}</div>`;
+}
+function fxFixCard(f, op, B) {
+  const at = fxAt(f, op), used = op.use.includes(f.id), cs = B && B.cases.find(c => c.id === 'clamp:' + f.id), adv = FX.adv && FX.adv.clamps.find(c => c.id === 'clamp:' + f.id), tu = fxTU();
+  const lat = B ? B.lat : [{ letter: 'X' }, { letter: 'Y' }], len = B ? B.len : [0, 0];
+  const pos = f.kind === 'side'
+    ? `<div class="row2"><label class="field"><span>Wall</span><select data-fx-fw="${f.id}:wall">${fxOptions(lat.flatMap(L => [[L.letter + '-', `Low ${L.letter} wall`], [L.letter + '+', `High ${L.letter} wall`]]), at.wall)}</select></label>
+       <label class="field"><span>Along the wall (${uName()})</span><input type="number" step="any" value="${uval(+at.u || 0)}" data-fx-fw="${f.id}:u"></label></div>`
+    : `<div class="row2"><label class="field"><span>${lat[0].letter} (${uName()})</span><input type="number" step="any" value="${uval(at.v[0])}" data-fx-fw="${f.id}:v0"></label>
+       <label class="field"><span>${lat[1].letter} (${uName()})</span><input type="number" step="any" value="${uval(at.v[1])}" data-fx-fw="${f.id}:v1"></label></div>`;
+  return `<div class="fx-card ${FX.place && FX.place.id === f.id ? 'sel' : ''}" data-fx-card="${f.id}">
+    <div class="fx-h"><label class="chk"><input type="checkbox" data-fx-use="${f.id}" ${used ? 'checked' : ''}> <b>${f.name}</b></label><span id="fx-chip-${f.id}">${used ? fxChip(adv) : ''}</span></div>
+    <div class="row2"><label class="field"><span>Screw</span><select data-fx-fw="${f.id}:size">${fxOptions(Object.keys(FX_SIZES).map(k => [k, k]), f.size)}</select></label>
+      <label class="field"><span>Tightness (${tu.n})</span><input type="number" min="0" step="any" value="${+(f.torque / tu.k).toFixed(2)}" data-fx-t="${f.id}" data-live="1"></label></div>
+    ${pos}
+    <p class="note">${stressNum(fxForce(f) / stressU().f, 3)} ${stressU().fn} on the work · screw limit ${fxFmtT(fxScrewMaxT(f))}</p>
+    <div class="btns"><button class="btn" data-fx-place="${f.id}">${FX.place && FX.place.id === f.id ? 'Click the part…' : 'Place on part'}</button><button class="btn" data-fx-rm="${f.id}">Remove</button></div></div>`;
+}
+function fxPanel() {
+  const s = stressSetup(), p = fxProj(), op = fxOp(), B = FX.built, U = stressU(), tu = fxTU(), m = stressMat();
+  const modes = STRESS_MODES.map(([g, l]) => `<optgroup label="${g}">${l.map(([v, t]) => `<option value="${v}" ${s.show === v ? 'selected' : ''}>${t}</option>`).join('')}</optgroup>`).join('');
+  const bodies = visibleBodies().filter(b => !b.hole), pb = fxPart();
+  const cutPos = B ? (op.cut || [B.len[0] / 2, B.len[1] / 2]) : [0, 0], cl = B ? B.lat : [{ letter: 'X' }, { letter: 'Y' }];
+  const sugKinds = Object.entries(FXK).map(([k, v]) => [k, v.name]);
+  const sug = FX.sug ? `<div class="fx-sug"><p class="note"><b>${FX.sug.picks.length ? `${FXK[FX.sug.kind].name}s: at least ${FX.sug.mc.n}` : 'No suggestion'}.</b> ${FX.sug.note}</p>
+      ${FX.sug.picks.length ? `<ul class="note">${FX.sug.picks.map((q, i) => `<li>${q.wall ? `${q.wall} wall, ${fmtLs(q.u, 2)} along` : `${B.lat[0].letter} ${fmtLs(q.v[0], 2)} · ${B.lat[1].letter} ${fmtLs(q.v[1], 2)}`}</li>`).join('')}</ul>
+      <p class="note">Why ${FX.sug.mc.n}: ${FX.sug.mc.force} to hold the cut with ${FX.sug.mc.size} screws at ${Math.round(FX.sug.mc.tau * 100)} % tightness, ${FX.sug.mc.stab} to keep the part from rocking, ${FX.sug.mc.span} to cover the length of the edge.</p>
+      <div class="btns"><button class="btn primary" data-fx-do="apply">Add these to “${op.name}”</button></div>` : ''}</div>` : '';
+  return stressHead + `<div class="pn-body">${fxModeSeg(true)}
+    <p class="note">Hold the part the way you will in the shop, then read what the clamps do to it. Change a tightness or move a clamp and the colors follow.</p>
+    <div class="m-sec">Project</div>
+    <label class="field"><span>Project</span><select data-fx-proj="1">${fxOptions(s.pj.list.map((q, i) => [i, q.name]), s.pj.cur)}</select></label>
+    <div class="btns"><button class="btn" data-fx-do="newproj">New</button><button class="btn" data-fx-do="dupproj">Duplicate</button><button class="btn" data-fx-do="delproj" ${s.pj.list.length > 1 ? '' : 'disabled'}>Delete</button></div>
+    <label class="field"><span>Name</span><input type="text" value="${p.name.replace(/"/g, '&quot;')}" data-fx-pname="1"></label>
+    ${bodies.length > 1 ? `<label class="field"><span>Part</span>${stressSel('data-fx-body="1"', bodies.map(b => [b.id, bodyNames()[b.id] || 'Body ' + b.id]), pb ? pb.body.id : '')}</label>` : ''}
+    <label class="field"><span>Material</span>${stressSel('data-sx="mat"', Object.entries(STRESS_MATS).map(([k, v]) => [k, v[0]]), s.mat)}</label>
+    <div class="m-sec">Operations</div>
+    <div class="fx-ops">${p.ops.map((o, i) => `<button class="btn ${i === p.opCur ? 'on' : ''}" data-fx-op="${i}">${o.name}</button>`).join('')}</div>
+    <label class="field"><span>Add an operation</span><select data-fx-addop="1"><option value="">Choose…</option>${FX_OPS.map(([n], i) => `<option value="${i}">${n}</option>`).join('')}</select></label>
+    <label class="field"><span>Operation name</span><input type="text" value="${op.name.replace(/"/g, '&quot;')}" data-fx-oname="1"></label>
+    <div class="row2"><label class="field"><span>Side up</span><select data-fx-o="up">${fxOptions(FX_UPS, op.up)}</select></label>
+      <label class="field"><span>Held on</span><select data-fx-o="sup">${fxOptions(FX_SUPS, op.sup)}</select></label></div>
+    ${op.sup === 'vise' ? `<label class="field"><span>Vise screw tightness (${tu.n})</span><input type="number" min="0" step="any" value="${+(op.vise.T / tu.k).toFixed(2)}" data-fx-vt="1" data-live="1"></label>` : ''}
+    <div class="btns"><button class="btn" data-fx-do="delop" ${p.ops.length > 1 ? '' : 'disabled'}>Remove this operation</button></div>
+    <div class="m-sec">Cutting load</div>
+    <label class="field"><span>Cut</span><select data-fx-o="cutPreset">${fxOptions(FX_CUTS.map(([k, t, f]) => [k, f ? `${t} · ${fxFmtF(f)}` : t]), op.cutPreset)}</select></label>
+    ${op.cutPreset === 'custom' ? `<label class="field"><span>Force (${U.fn})</span><input type="number" min="0" step="any" value="${+(op.cutF / U.f).toPrecision(4)}" data-fx-cf="1" data-live="1"></label>` : ''}
+    <div class="row2"><label class="field"><span>Pushes at (°)</span><input type="number" step="15" value="${op.ang}" data-fx-o="ang"></label><label class="field"><span>Lifting share</span><input type="number" min="0" max="2" step="0.05" value="${op.lift}" data-fx-o="lift"></label></div>
+    <p class="note">At ${cl[0].letter} ${fmtLs(cutPos[0], 2)} · ${cl[1].letter} ${fmtLs(cutPos[1], 2)}. 0° pushes toward +${cl[0].letter}, 90° toward +${cl[1].letter}.</p>
+    <div class="btns"><button class="btn" data-fx-place="cut">${FX.place && FX.place.id === 'cut' ? 'Click the part…' : 'Place the cut on part'}</button><button class="btn" data-fx-do="cutmid">Center</button></div>
+    <label class="field"><span>Friction between work and fixture (μ)</span><input type="number" min="0.05" max="0.6" step="0.05" value="${op.mu}" data-fx-o="mu"></label>
+    <div class="m-sec">Fixtures</div>
+    ${p.fix.map(f => fxFixCard(f, op, B)).join('') || '<p class="note">No fixtures in this project yet.</p>'}
+    <label class="field"><span>Add a fixture</span><select data-fx-addfix="1"><option value="">Choose…</option>${Object.entries(FXK).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join('')}</select></label>
+    <div class="m-sec">How tight</div>
+    <div id="fx-adv">${fxAdviceHTML()}</div>
+    <div class="m-sec">Where to clamp</div>
+    <div class="row2"><label class="field"><span>Clamp type</span><select data-fx-sugkind="1">${fxOptions(sugKinds, s.fxSug || 'toe')}</select></label><div class="btns"><button class="btn" data-fx-do="suggest">Suggest</button></div></div>
+    ${sug}
+    <div class="m-sec">Mesh</div>
+    <div class="field"><div class="seg">${STRESS_Q.map(([v, l]) => `<button data-fx-q="${v}" class="${(s.fxQ || 'draft') === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+    <div class="m-sec">Color map</div>
+    <label class="field"><span>Result</span><select data-sx-show="1">${modes}</select></label>
+    <div class="row2"><label class="field"><span>Palette</span>${stressSel('data-sx-pal="1"', Object.entries(STRESS_PALS).map(([k, v]) => [k, v[0]]), s.pal)}</label>
+      <label class="field"><span>Contours</span>${stressSel('data-sx-bands="1"', [[0, 'Smooth'], [5, '5 bands'], [8, '8 bands'], [10, '10 bands'], [15, '15 bands'], [20, '20 bands']], s.bands)}</label></div>
+    <label class="chk"><input type="checkbox" data-fx-fix="1" ${s.fxFix !== false ? 'checked' : ''}> Keep the colors on one scale (zero to yield, ${stressNum(m.sy / U.s)} ${U.sn}) so a tighter clamp reads hotter</label>
+    <label class="chk"><input type="checkbox" data-sx-mark="1" ${s.markers ? 'checked' : ''}> Mark the max and min</label>
+    <label class="field"><span>Deformation shown ×</span><input type="number" min="0" step="1" value="${s.scale}" data-sx-scale="1" data-live="1"></label>
+    <p class="note">Pads and screws are green when the tightness is right, amber when too loose, red when too tight. The orange arrow is the cut. Grey bars are the parallels, plate or vise.</p>
+    <div class="btns"><button class="btn" data-do="cancel">Close</button><button class="btn primary" data-fx-do="run">Run again</button></div></div>`;
+}
+
+// ── keeping the map up to date ──
+const fxOnMode = () => !!(CMD && CMD.type === 'stress' && stressSetup().fxOn);
+function fxFixRange() {
+  const s = stressSetup(), R = STRESS.result; if (!R) return;
+  s.range = s.fxFix !== false && STRESS_MODE[s.show][2] === 's' ? [0, R.mat.sy] : null;
+}
+function fxPaint() {
+  const el = document.getElementById('fx-adv');
+  if (el) { el.innerHTML = fxAdviceHTML(); fxBindAdv(); }
+  const op = fxOp();
+  for (const f of fxProj().fix) {
+    const c = document.getElementById('fx-chip-' + f.id), a = FX.adv && FX.adv.clamps.find(x => x.id === 'clamp:' + f.id);
+    if (c) c.innerHTML = op.use.includes(f.id) && !FX.busy ? fxChip(a) : '';
+  }
+  const vc = document.getElementById('fx-chip-jaw'); if (vc) vc.innerHTML = FX.adv ? fxChip(FX.adv.clamps.find(x => x.id === 'jaw')) : '';
+}
+async function fxRefresh() {
+  if (!fxOnMode()) return;
+  if (FX.busy) { FX.again = true; return; }
+  const gen = FX.gen = FX.gen || 0;
+  FX.busy = true; FX.err = null;
+  try {
+    do {
+      FX.again = false;
+      const op = fxOp(); let B;
+      try { B = fxBuild(op); } catch (e) { FX.built = null; FX.adv = null; FX.err = e.message; if (STRESS.result) stressClear(true); fxDraw(); break; }
+      FX.built = B;
+      const need = [], seen = new Set();
+      for (const c of B.cases) if (!c.none && !FX.cache.has(c.key) && !seen.has(c.key)) { seen.add(c.key); need.push(c); }
+      if (need.length) {
+        const prog = need.map(() => 0); FX.msg = need.length > 1 ? `Solving ${need.length} setups` : 'Solving'; FX.prog = 0; fxPaint();
+        const out = await Promise.all(need.map((c, i) => fxSolveCase(c, B, p => { prog[i] = p; FX.prog = prog.reduce((a, b) => a + b, 0) / prog.length; fxPaint(); })));
+        if (gen !== FX.gen) return;
+        need.forEach((c, i) => FX.cache.set(c.key, out[i]));
+        while (FX.cache.size > 28) FX.cache.delete(FX.cache.keys().next().value);
+      }
+      for (const c of B.cases) if (FX.cache.has(c.key)) { const v = FX.cache.get(c.key); FX.cache.delete(c.key); FX.cache.set(c.key, v); }
+      if (!fxOnMode()) return;
+      if (fxCombine(op, B)) { fxAdvise(op, B); stressShow(); } else { fxAdvise(op, B); if (STRESS.result) stressClear(true); }
+      fxDraw();
+    } while (FX.again && gen === FX.gen);
+  } catch (e) { FX.err = e.message || String(e); }
+  if (gen !== FX.gen) return;
+  FX.busy = false;
+  if (fxOnMode()) fxPaint();
+}
+function fxSoon(ms) { clearTimeout(FX.timer); FX.timer = setTimeout(fxRefresh, ms === undefined ? 350 : ms); }
+function fxStop2() { fxStop(); FX.gen = (FX.gen || 0) + 1; }
+function fxClean() { fxStop2(); FX.place = null; FX.built = null; FX.adv = null; FX.sug = null; if (FX.group) { scene.remove(FX.group); FX.group.traverse(o => { if (o.geometry) o.geometry.dispose(); }); FX.group = null; } }
+// ── projects ──
+function fxCopyProject(p) {
+  const q = JSON.parse(JSON.stringify(p)), ids = {}; q.id = fxId(); q.name = p.name + ' copy';
+  q.ops.forEach(o => { const n = fxId(); ids[o.id] = n; o.id = n; });
+  q.ops.forEach(o => { o.use = o.use.map(u => u); });
+  const fm = {}; q.fix.forEach(f => { const n = fxId(); fm[f.id] = n; f.id = n; const at = {}; for (const k in f.at || {}) at[ids[k] || k] = f.at[k]; f.at = at; });
+  q.ops.forEach(o => { o.use = o.use.map(u => fm[u] || u); });
+  return q;
+}
+function fxPositions(op) {
+  const B = FX.built; if (!B) return [];
+  return B.cases.filter(c => c.top).map(c => ({ c: [c.c[B.lat[0].mi], c.c[B.lat[1].mi]] }));
+}
+function fxNewFix(kind, pick) {
+  const p = fxProj(), op = fxOp(), n = p.fix.filter(f => f.kind === kind).length + 1;
+  const f = { id: fxId(), kind, name: FXK[kind].name + ' ' + n, size: '3/8-16', torque: 0, at: {} };
+  f.torque = +(fxScrewMaxT(f) * 0.5).toFixed(2); p.fix.push(f);
+  if (pick) f.at[op.id] = pick; else fxAt(f, op);
+  op.use.push(f.id);
+  return f;
+}
+function fxPlaceDefault(f, op) {
+  if (f.at && f.at[op.id]) return;
+  try { const sg = fxSuggest(op, f.kind, fxPositions(op)); if (sg.picks.length) f.at = Object.assign(f.at || {}, { [op.id]: sg.picks[0] }); } catch (e) { /* stays at the corner; the chip says so */ }
+}
+function fxStarter() {
+  const p = fxProj(), op = fxOp(); if (p.fix.length) return;
+  try { FX.built = fxBuild(op); const sg = fxSuggest(op, 'toe', []); sg.picks.slice(0, Math.max(2, Math.min(sg.mc.n, 4))).forEach(pk => fxNewFix('toe', pk)); } catch (e) { /* no flat top: the panel says so */ }
+}
+function fxEnter() {
+  const s = stressSetup(); if (!fxPart()) { toast('There is no part to hold.'); return; }
+  stressClear(true); s.fxOn = true; s.range = null;
+  try { fxStarter(); } catch (e) { /* nothing */ }
+  refreshPanel(); updateHint(); requestDraw(); fxSoon(0);
+}
+function fxExit() {
+  const s = stressSetup(); fxClean(); s.fxOn = false; s.range = null; fxDraw(); stressClear(false); updateHint();
+}
+// pick a point on the part under the cursor
+function fxHit(x, y) {
+  const P = fxPart(); if (!P) return null;
+  const ray = rayAt(x, y).ray, p = P.mesh.pos, a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), out = new THREE.Vector3(); let best = null, bd = Infinity;
+  for (let t = 0, T = p.length / 9; t < T; t++) {
+    const q = t * 9; a.set(p[q], p[q + 1], p[q + 2]); b.set(p[q + 3], p[q + 4], p[q + 5]); c.set(p[q + 6], p[q + 7], p[q + 8]);
+    if (ray.intersectTriangle(a, b, c, false, out)) { const d = out.distanceToSquared(ray.origin); if (d < bd) { bd = d; best = out.toArray(); } }
+  }
+  return best;
+}
+function fxPlaceAt(x, y) {
+  const hit = fxHit(x, y), id = FX.place && FX.place.id; if (!hit) { toast('Click on the part.'); return; }
+  const op = fxOp(), B = FX.built || fxBuild(op), E = B.E, lat = B.lat, p = fxProj();
+  const off = [fxM2off(E, lat[0], hit[lat[0].mi]), fxM2off(E, lat[1], hit[lat[1].mi])].map(v => +v.toFixed(2));
+  if (id === 'cut') op.cut = off;
+  else { const f = p.fix.find(q => q.id === id); if (!f) return;
+    if (f.kind === 'side') {
+      let best = null; lat.forEach((L, i) => { for (const sg of [-1, 1]) { const d = Math.abs(hit[L.mi] - (sg > 0 ? E.hi[L.mi] : E.lo[L.mi])); if (!best || d < best.d) best = { d, wall: L.letter + (sg > 0 ? '+' : '-'), other: lat[1 - i] }; } });
+      f.at[op.id] = { wall: best.wall, u: +fxM2off(E, best.other, hit[best.other.mi]).toFixed(2) };
+    } else f.at[op.id] = { v: off };
+    if (!op.use.includes(id)) op.use.push(id); }
+  FX.place = null; refreshPanel(); updateHint(); fxSoon(150);
+}
+// ── the panel ──
+function fxBindAdv() {
+  panel.querySelectorAll('#fx-adv [data-fx-do="rec"]').forEach(el => el.addEventListener('click', () => {
+    const a = FX.adv, op = fxOp(); if (!a) return;
+    for (const c of a.clamps) { if (c.rec === null || c.status === 'off') continue; if (c.id === 'jaw') op.vise.T = +c.rec.toFixed(2); else { const f = fxProj().fix.find(q => 'clamp:' + q.id === c.id); if (f) f.torque = +c.rec.toFixed(2); } }
+    refreshPanel(); fxSoon(30);
+  }));
+}
+function bindFx() {
+  const s = stressSetup(), p = fxProj(), op = fxOp(), U = stressU(), tu = fxTU(), num = el => { const v = parseFloat(el.value); return isFinite(v) ? v : null; };
+  const on = (sel, ev, fn) => panel.querySelectorAll(sel).forEach(el => el.addEventListener(ev, () => fn(el)));
+  const st = () => { refreshPanel(); fxSoon(300); };                 // the structure of the panel changed
+  on('[data-fx-mode]', 'click', el => { el.dataset.fxMode === 'fix' ? fxEnter() : fxExit(); });
+  on('[data-fx-proj]', 'change', el => { s.pj.cur = +el.value; FX.sug = null; FX.place = null; st(); });
+  on('[data-fx-pname]', 'input', el => { p.name = el.value; });
+  on('[data-fx-pname]', 'change', () => refreshPanel());
+  on('[data-fx-body]', 'change', el => { s.fxBody = +el.value; FX.cache.clear(); FX.sug = null; st(); });
+  on('[data-fx-op]', 'click', el => { p.opCur = +el.dataset.fxOp; FX.sug = null; FX.place = null; st(); });
+  on('[data-fx-addop]', 'change', el => { const t = FX_OPS[+el.value]; if (!t) return; const o = fxMakeOp(t[0], t[1]); p.ops.push(o); p.opCur = p.ops.length - 1; FX.sug = null; st(); });
+  on('[data-fx-oname]', 'input', el => { op.name = el.value; });
+  on('[data-fx-oname]', 'change', () => refreshPanel());
+  on('[data-fx-o]', 'change', el => {
+    const k = el.dataset.fxO, v = el.type === 'number' ? num(el) : el.value; if (v === null) return;
+    if (k === 'cutPreset' && v === 'custom') op.cutF = fxCutF(op) || 445;
+    if (k === 'up') op.cut = null;
+    op[k] = v; if (k === 'up' || k === 'sup') { FX.sug = null; for (const f of p.fix) if (op.use.includes(f.id)) fxPlaceDefault(f, op); }
+    st();
+  });
+  on('[data-fx-vt]', 'input', el => { const v = num(el); if (v === null || v < 0) return; op.vise.T = v * tu.k; fxSoon(60); });
+  on('[data-fx-cf]', 'input', el => { const v = num(el); if (v === null || v < 0) return; op.cutF = v * U.f; fxSoon(60); });
+  on('[data-fx-t]', 'input', el => { const v = num(el), f = p.fix.find(q => q.id === el.dataset.fxT); if (v === null || v < 0 || !f) return; f.torque = v * tu.k; fxSoon(60); });
+  on('[data-fx-use]', 'change', el => { const id = el.dataset.fxUse, f = p.fix.find(q => q.id === id); if (el.checked) { if (!op.use.includes(id)) op.use.push(id); if (f) fxPlaceDefault(f, op); } else op.use = op.use.filter(u => u !== id); st(); });
+  on('[data-fx-fw]', 'change', el => {
+    const [id, k] = el.dataset.fxFw.split(':'), f = p.fix.find(q => q.id === id); if (!f) return; const at = fxAt(f, op);
+    if (k === 'size') f.size = el.value; else if (k === 'wall') at.wall = el.value;
+    else { const v = num(el); if (v === null) return; const mm = fromU(v); if (k === 'u') at.u = mm; else at.v[k === 'v0' ? 0 : 1] = mm; }
+    st();
+  });
+  on('[data-fx-place]', 'click', el => { const id = el.dataset.fxPlace; FX.place = FX.place && FX.place.id === id ? null : { id }; refreshPanel(); updateHint(); if (FX.place) toast('Click the part where it goes.'); });
+  on('[data-fx-rm]', 'click', el => { const id = el.dataset.fxRm; p.fix = p.fix.filter(f => f.id !== id); p.ops.forEach(o => { o.use = o.use.filter(u => u !== id); }); st(); });
+  on('[data-fx-addfix]', 'change', el => { const k = el.value; if (!k) return; try { FX.built = FX.built || fxBuild(op); const f = fxNewFix(k, null); fxPlaceDefault(f, op); } catch (e) { toast(e.message); } st(); });
+  on('[data-fx-sugkind]', 'change', el => { s.fxSug = el.value; FX.sug = null; refreshPanel(); });
+  on('[data-fx-q]', 'click', el => { s.fxQ = el.dataset.fxQ; st(); });
+  on('[data-fx-fix]', 'change', el => { s.fxFix = el.checked; fxFixRange(); if (STRESS.result) stressShow(); });
+  on('[data-sx-show]', 'change', () => { fxFixRange(); if (STRESS.result) stressShow(); });
+  on('[data-sx="mat"]', 'change', () => { FX.cache.clear(); st(); });
+  on('[data-fx-do]', 'click', el => {
+    const a = el.dataset.fxDo;
+    if (a === 'newproj') { s.pj.list.push(fxMakeProject('Project ' + (s.pj.list.length + 1))); s.pj.cur = s.pj.list.length - 1; FX.sug = null; fxStarter(); st(); }
+    else if (a === 'dupproj') { s.pj.list.push(fxCopyProject(p)); s.pj.cur = s.pj.list.length - 1; st(); }
+    else if (a === 'delproj') { if (s.pj.list.length > 1) { s.pj.list.splice(s.pj.cur, 1); s.pj.cur = 0; st(); } }
+    else if (a === 'delop') { if (p.ops.length > 1) { p.ops.splice(p.opCur, 1); p.opCur = 0; st(); } }
+    else if (a === 'cutmid') { op.cut = null; st(); }
+    else if (a === 'suggest') {
+      try { FX.sug = fxSuggest(op, s.fxSug || 'toe', s.fxSug === 'side' ? [] : []); } catch (e) { FX.sug = { kind: s.fxSug || 'toe', mc: { n: 0 }, picks: [], note: e.message }; }
+      refreshPanel();
+    }
+    else if (a === 'apply') {
+      const sg = FX.sug; if (!sg || !sg.picks.length) return;
+      sg.picks.forEach(pk => fxNewFix(sg.kind, pk)); FX.sug = null; st();
+    }
+    else if (a === 'run') { FX.cache.clear(); fxSoon(0); }
+  });
+}
+// ── hooked into the stress command ──
+{
+  const panel0 = stressPanel, bind0 = bindStressPanel, setup0 = stressSetupPanel, hl0 = stressHL, h0 = CMD_HANDLERS.stress, cancel0 = cancelCmd, model0 = camModelChanged;
+  stressPanel = function () { return fxOnMode() && !STRESS.busy ? fxPanel() : panel0(); };
+  bindStressPanel = function () { bind0(); if (fxOnMode()) { bindFx(); fxBindAdv(); } else panel.querySelectorAll('[data-fx-mode]').forEach(el => el.addEventListener('click', () => fxEnter())); };
+  stressSetupPanel = function () { return setup0().replace('<div class="pn-body">', '<div class="pn-body">' + fxModeSeg(false)); };
+  stressHL = function () { if (fxOnMode()) return; hl0(); };
+  CMD_HANDLERS.stress = Object.assign({}, h0, {
+    move(x, y) { if (!fxOnMode()) return h0.move(x, y); if (FX.place) { ov.className = 'pointer'; return; } if (STRESS.result) stressProbe(x, y); },
+    click(x, y) { if (!fxOnMode()) return h0.click(x, y); if (FX.place) { fxPlaceAt(x, y); return; } if (STRESS.result) { const v = stressVertexAt(x, y); if (v >= 0) { STRESS.probes.push(v); if (STRESS.probes.length > 6) STRESS.probes.shift(); requestDraw(); } } },
+  });
+  cancelCmd = function () { if (CMD && CMD.type === 'stress') { fxClean(); stressSetup().fxOn = false; } return cancel0(); };
+  camModelChanged = function () {
+    const keep = fxOnMode(); FX.cache.clear();
+    if (keep) { const r = STRESS.result; STRESS.result = null; model0(); STRESS.result = r; fxSoon(400); } else model0();
+  };
+}
+</script>
 <script type="text/plain" id="stress-worker">
 // ═══════════════════════════════════════════════════════════════════
 //  Stress worker: linear-elastic static analysis on a voxel mesh.
@@ -16611,7 +17328,14 @@ function solveStress(d) {
     }
     return bd <= (1.8 * h) ** 2 ? best : -1;
   };
-  const samples = (tris, fn) => {
+  // a patch limits a face to the part of it under a clamp or a jaw: {c: centre, ax: axis normal to the patch, r: circle radius or hx, hy: rectangle half sizes, zt: depth band along ax}
+  const inPatch = (P, x, y, z) => {
+    const q = [x, y, z], ax = P.ax, i1 = (ax + 1) % 3, i2 = (ax + 2) % 3, du = q[i1] - P.c[i1], dv = q[i2] - P.c[i2];
+    if (P.zt !== undefined && Math.abs(q[ax] - P.c[ax]) > P.zt) return false;
+    return P.r !== undefined ? du * du + dv * dv <= P.r * P.r : Math.abs(du) <= P.hx && Math.abs(dv) <= P.hy;
+  };
+  const samplesP = (tris, fn0, patch) => {
+    const fn = patch ? (x, y, z, w, a, b, c) => { if (inPatch(patch, x, y, z)) fn0(x, y, z, w, a, b, c); } : fn0;
     for (const t of tris) {
       const q = t * 9, a = [pos[q], pos[q + 1], pos[q + 2]], b = [pos[q + 3], pos[q + 4], pos[q + 5]], c = [pos[q + 6], pos[q + 7], pos[q + 8]];
       const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
@@ -16624,10 +17348,11 @@ function solveStress(d) {
       for (let i = 0; i < nS; i++) for (let j = 0; j < nS - i; j++) { at((i + 1 / 3) / nS, (j + 1 / 3) / nS); if (i + j < nS - 1) at((i + 2 / 3) / nS, (j + 2 / 3) / nS); }
     }
   };
+  const samples = (tris, fn) => samplesP(tris, fn);
   const pen = [];                                                        // penalty constraints: {n: node, d: direction, t: target displacement, c: constraint}
   const consNodes = d.cons.map(() => []);
   d.cons.forEach((C, ci) => {
-    const nodes = new Map();
+    const samples = (tr, f) => samplesP(tr, f, C.patch), nodes = new Map();
     samples(C.tris, (x, y, z, w, nx_, ny_, nz_) => {
       const id = snap(x, y, z); if (id < 0) return;
       const r = nodes.get(id) || (nodes.set(id, { n: [0, 0, 0] }), nodes.get(id)); r.n[0] += nx_; r.n[1] += ny_; r.n[2] += nz_;
@@ -16647,6 +17372,7 @@ function solveStress(d) {
   let nFixed = 0; for (let i = 0; i < nn; i++) if (fixed[i * 3]) nFixed++;
   const applied = [0, 0, 0], appliedMom = [0, 0, 0]; let appliedAbs = 0;
   d.loads.forEach(L => {
+    const samples = (tr, f) => samplesP(tr, f, L.patch);
     let area = 0, cen = [0, 0, 0]; samples(L.tris, (x, y, z, w) => { area += w; cen[0] += w * x; cen[1] += w * y; cen[2] += w * z; });
     if (!(area > 0)) return;
     cen = cen.map(v => v / area);
@@ -33235,6 +33961,15 @@ const GD = {
   stress: ['Stress analysis steps', () => {
     let s = {}; try { s = stressSetup(); } catch (e) { }
     const nc = (s.cons || []).filter(c => c.faces && c.faces.length).length, nl = (s.loads || []).filter(l => (l.faces && l.faces.length) || l.at).length, R = typeof STRESS !== 'undefined' && STRESS.result;
+    if (s.fxOn) {
+      let p = null, op = null; try { p = fxProj(); op = fxOp(); } catch (e) { }
+      return [
+        gS('Pick the operation', 'Each project holds the operations of one part: which side is up, what it sits on and the cut.', () => !!op),
+        gS('Add clamps', 'Add toe, strap or side clamps, or ask <b>Where to clamp</b> for a suggestion and the fewest that will do.', () => !!(op && op.use.length)),
+        gS('Set the cut', 'Choose the cutting force and click <b>Place the cut on part</b> where the tool will work.', () => !!(op && op.cutPreset)),
+        gS('Tighten right', 'Change a tightness or drag a clamp: the colors follow, and <b>How tight</b> says what each should be.', () => !!R),
+        gS('Try another operation', 'Flip the part or add a drill op; the clamps are shared across the project.', null, true)];
+    }
     return [
       gS('Choose the material', 'Aluminum, steel, titanium, plastics… or enter your own modulus and yield.', () => !!s.mat),
       gS('Fix some faces', 'Add a <b>Constraint</b> and click the faces that are held: bolt holes, a clamped end.', () => nc > 0),
