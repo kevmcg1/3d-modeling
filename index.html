@@ -5974,7 +5974,7 @@ function sameSizeFaces(s0, bodies) {
 // Several cutters in one body at once. One boolean for the whole batch is far quicker than one after another (each cut makes the
 // body many times heavier), but a batch that fails its check is split in half and each half tried again, down to one cutter.
 // items: [{ mk(zA, zB, n), zA, zB, P, must }]; a cutter that cannot be cut is dropped unless it is the picked one (must).
-function threadBatch(polys, items, N) {
+function threadBatch(polys, items, N, rate) {
   if (items.length === 1) {
     const it = items[0];
     try { return threadCut(polys, it.mk, it.zA, it.zB, N, it.P); } catch (e) { if (it.must) throw e; return polys; }
@@ -5982,10 +5982,12 @@ function threadBatch(polys, items, N) {
   const v0 = polyVolume(polys);
   for (const n of [N, N + 12, Math.max(12, N - 12)]) {
     const G = [].concat(...items.map(it => it.mk(it.zA, it.zB, n))), r = CSG.subtract(polys, G), v = polyVolume(r), vg = polyVolume(G);
-    if (v <= v0 + 1e-3 && v >= v0 - vg - 1e-3 && v0 - v >= 0.2 * vg) return r;       // took away something, and no more than the cutters hold
+    // took away something, no more than the cutters hold, and (when the picked hole showed how much a thread takes per mm) about that much
+    const L = items.reduce((a, it) => a + (it.zB - it.zA), 0), tight = !(rate > 0) || Math.abs(v0 - v - rate * L) <= 0.12 * rate * L + 0.5;
+    if (v <= v0 + 1e-3 && v >= v0 - vg - 1e-3 && v0 - v >= 0.2 * vg && tight) return r;
   }
   const h = items.length >> 1;
-  return threadBatch(threadBatch(polys, items.slice(0, h), N), items.slice(h), N);
+  return threadBatch(threadBatch(polys, items.slice(0, h), N, rate), items.slice(h), N, rate);
 }
 function evalThread(f, ctx) {
   const r0 = findFace(ctx.bodies, f.face);
@@ -5996,6 +5998,7 @@ function evalThread(f, ctx) {
   const targets = [{ id: r0.body.id, fid: r0.fid, must: true }];
   if (f.same) for (const o of sameSizeFaces(s0, ctx.bodies)) if (!(o.body.id === r0.body.id && o.fid === r0.fid)) targets.push({ id: o.body.id, fid: o.fid, must: false });
   const tagSet = new Set(), N = f.res || 48;
+  let rate = null;                                                  // material one mm of this thread takes out, measured on the picked hole
   for (const bid of [...new Set(targets.map(t => t.id))]) {
     const body = ctx.bodies.find(b => b.id === bid); if (!body) continue;
     const mesh = bodyMesh(body), items = [];
@@ -6023,7 +6026,13 @@ function evalThread(f, ctx) {
     const batches = [];
     for (const it of items) { const b = batches.find(q => q.every(o => !bbOverlap(o.bb, it.bb, 0.05))); if (b) b.push(it); else batches.push([it]); }
     let polys = body.polys;
-    for (const batch of batches) polys = threadBatch(polys, batch, N);
+    const prim = items.find(it => it.must);
+    if (prim) {                                                      // the picked hole alone first: it sets the rate the batches are checked against
+      const v0 = polyVolume(polys); polys = threadBatch(polys, [prim], N);
+      rate = (v0 - polyVolume(polys)) / Math.max(1e-6, prim.zB - prim.zA);
+      for (const b of batches) { const i = b.indexOf(prim); if (i >= 0) b.splice(i, 1); }
+    }
+    for (const batch of batches) if (batch.length) polys = threadBatch(polys, batch, N, rate);
     ctx.bodies = ctx.bodies.map(b => b === body ? { id: b.id, polys, bb: bboxPolys(polys) } : b);
   }
 }
