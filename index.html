@@ -5085,7 +5085,16 @@ const CSG = (() => {
     if (!bi.length) return inside(mid(a), b) ? a : [];
     return rawIntersect(ai, bi);
   }
-  return { poly, union, subtract, intersect, inside };
+  // The quick local cut, without the whole-solid fallback: only the polygons near the cutter go through the splitting tree. Its
+  // own check is cautious and often rejects a result that is right on a heavy body (then redoing the whole solid takes tens of
+  // seconds), so the caller checks the result itself (the thread code does, by volume).
+  function local(a, b) {
+    const { ai, ao, bi } = partition(a, b);
+    if (!ai.length || !bi.length) return subtract(a, b);
+    const bb = bboxPolys(b), reg = [bb[0] - 0.01, bb[1] - 0.01, bb[2] - 0.01, bb[3] + 0.01, bb[4] + 0.01, bb[5] + 0.01], tag = {};
+    return pruneCutter(rawSubtract(ai, bi.map(p => ({ v: p.v, f: p.f, n: p.n, w: p.w, o: tag }))), tag, rayGrid(a, reg), rayGrid(b, reg)).concat(ao);
+  }
+  return { poly, union, subtract, intersect, inside, local };
 })();
 
 function bboxPolys(ps) {
@@ -5932,21 +5941,20 @@ function polyVolume(ps) {
   for (const p of ps) for (let q = 1; q + 1 < p.v.length; q++) { const a = p.v[0], b = p.v[q], c = p.v[q + 1]; v += (a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0])) / 6; }
   return v;
 }
-// Cut a thread cutter out of a body and prove the result is sane: a cut can only take away material, and no more than the cutter holds.
-// The boolean's splitting can occasionally go wrong on a part with many faces (it once took half a plate with it), and a different
-// facet count shakes it loose, so a bad result is retried that way, then cut a few turns at a time. If it still will not hold, the
-// thread is refused rather than leaving a broken body.
-function threadCut(polys, mk, zA, zB, N, P) {
-  const v0 = polyVolume(polys), holds = (r, G, from) => { const v = polyVolume(r); return v <= from + 1e-3 && v >= from - polyVolume(G) - 1e-3; };
-  for (const n of [N, N + 12, Math.max(12, N - 12), N + 24]) {
-    const G = mk(zA, zB, n), r = CSG.subtract(polys, G);
-    if (holds(r, G, v0)) return r;
-  }
+// Cut a thread cutter out of a body and prove the result is sane: a cut can only take away material, no more than the cutter holds
+// and not next to nothing, and (once the picked hole has shown how much a mm of thread takes out) about the right amount. The quick
+// local boolean is tried first, at a few facet counts; the thorough whole-solid one is the fallback, then a few turns at a time. If
+// nothing holds, the thread is refused rather than leaving a broken body (the boolean once took half a plate with it).
+function threadCut(polys, mk, zA, zB, N, P, rate) {
+  const v0 = polyVolume(polys), want = rate > 0 ? rate * (zB - zA) : 0;
+  const ok = (r, G, from) => { const got = from - polyVolume(r), vg = polyVolume(G); return got >= -1e-3 && got <= vg + 1e-3 && got >= 0.15 * vg && (!want || from !== v0 || Math.abs(got - want) <= 0.12 * want + 0.5); };
+  for (const n of [N, N + 12, Math.max(12, N - 12), N + 24]) { const G = mk(zA, zB, n), r = CSG.local(polys, G); if (ok(r, G, v0)) return r; }
+  for (const n of [N, N + 12]) { const G = mk(zA, zB, n), r = CSG.subtract(polys, G); if (ok(r, G, v0)) return r; }
   let cur = polys, vc = v0;
   const segs = Math.max(2, Math.ceil((zB - zA) / (2 * P)));
   for (let j = 0; j < segs; j++) {
-    const a = zA + (zB - zA) * j / segs - (j ? 0.02 : 0), b = zA + (zB - zA) * (j + 1) / segs + (j < segs - 1 ? 0.02 : 0), G = mk(a, b, N), r = CSG.subtract(cur, G);
-    if (!holds(r, G, vc)) throw new Error('This thread could not be cut cleanly in this part. Try a different pitch or a shorter length.');
+    const a = zA + (zB - zA) * j / segs - (j ? 0.02 : 0), b = zA + (zB - zA) * (j + 1) / segs + (j < segs - 1 ? 0.02 : 0), G = mk(a, b, N), r = CSG.local(cur, G), got = vc - polyVolume(r);
+    if (!(got >= -1e-3 && got <= polyVolume(G) + 1e-3)) throw new Error('This thread could not be cut cleanly in this part. Try a different pitch or a shorter length.');
     cur = r; vc = polyVolume(r);
   }
   return cur;
@@ -5970,24 +5978,6 @@ function sameSizeFaces(s0, bodies) {
     }
   }
   return out;
-}
-// Several cutters in one body at once. One boolean for the whole batch is far quicker than one after another (each cut makes the
-// body many times heavier), but a batch that fails its check is split in half and each half tried again, down to one cutter.
-// items: [{ mk(zA, zB, n), zA, zB, P, must }]; a cutter that cannot be cut is dropped unless it is the picked one (must).
-function threadBatch(polys, items, N, rate) {
-  if (items.length === 1) {
-    const it = items[0];
-    try { return threadCut(polys, it.mk, it.zA, it.zB, N, it.P); } catch (e) { if (it.must) throw e; return polys; }
-  }
-  const v0 = polyVolume(polys);
-  for (const n of [N, N + 12, Math.max(12, N - 12)]) {
-    const G = [].concat(...items.map(it => it.mk(it.zA, it.zB, n))), r = CSG.subtract(polys, G), v = polyVolume(r), vg = polyVolume(G);
-    // took away something, no more than the cutters hold, and (when the picked hole showed how much a thread takes per mm) about that much
-    const L = items.reduce((a, it) => a + (it.zB - it.zA), 0), tight = !(rate > 0) || Math.abs(v0 - v - rate * L) <= 0.12 * rate * L + 0.5;
-    if (v <= v0 + 1e-3 && v >= v0 - vg - 1e-3 && v0 - v >= 0.2 * vg && tight) return r;
-  }
-  const h = items.length >> 1;
-  return threadBatch(threadBatch(polys, items.slice(0, h), N, rate), items.slice(h), N, rate);
 }
 function evalThread(f, ctx) {
   const r0 = findFace(ctx.bodies, f.face);
@@ -6019,20 +6009,18 @@ function evalThread(f, ctx) {
           for (const p of G) if (!tagSet.has(p.f)) { tagSet.add(p.f); Surf.addMeta(p.f, { feat: f.id }); }
           return G;
         };
-        items.push({ mk, zA, zB, P, must: t.must, bb: bboxPolys(mk(zA, zB, N)) });
+        items.push({ mk, zA, zB, P, must: t.must });
       } catch (e) { if (t.must) throw e; }                          // a neighbour that cannot take it is skipped; the picked one must
     }
-    // cutters whose boxes touch are cut in separate batches (overlapping cutters are not one clean solid)
-    const batches = [];
-    for (const it of items) { const b = batches.find(q => q.every(o => !bbOverlap(o.bb, it.bb, 0.05))); if (b) b.push(it); else batches.push([it]); }
     let polys = body.polys;
-    const prim = items.find(it => it.must);
-    if (prim) {                                                      // the picked hole alone first: it sets the rate the batches are checked against
-      const v0 = polyVolume(polys); polys = threadBatch(polys, [prim], N);
-      rate = (v0 - polyVolume(polys)) / Math.max(1e-6, prim.zB - prim.zA);
-      for (const b of batches) { const i = b.indexOf(prim); if (i >= 0) b.splice(i, 1); }
+    items.sort((x, y) => (y.must ? 1 : 0) - (x.must ? 1 : 0));          // the picked hole first: it shows how much a mm of this thread takes out
+    for (const it of items) {
+      try {
+        const v0 = polyVolume(polys);
+        polys = threadCut(polys, it.mk, it.zA, it.zB, N, it.P, rate);
+        if (it.must) rate = (v0 - polyVolume(polys)) / Math.max(1e-6, it.zB - it.zA);
+      } catch (e) { if (it.must) throw e; }                         // a neighbour that cannot take it is skipped
     }
-    for (const batch of batches) if (batch.length) polys = threadBatch(polys, batch, N, rate);
     ctx.bodies = ctx.bodies.map(b => b === body ? { id: b.id, polys, bb: bboxPolys(polys) } : b);
   }
 }
