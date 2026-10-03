@@ -3720,13 +3720,14 @@ body.col-drag { cursor: col-resize; user-select: none; }
 #viewport { position: relative; min-width: 0; min-height: 0; overflow: hidden;
   background: linear-gradient(180deg, var(--view-top), var(--view-bot)); touch-action: none; }
 #gl, #ov { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-/* Shaded mode "studio look": a moody radial backdrop; sketch ink and grid flip to the light set so they stay readable on it */
-:root[data-look="shaded"] { --look-a: #56606e; --look-b: #2c323c; --look-c: #12151a;
-  --sk-line: #edf1f6; --sk-cons: #f0994a; --sk-proj: #b88af0; --sk-sel: #6ea3ff; --sk-hot: #8db8ff; --sk-pt: #edf1f6;
-  --sk-profile: rgba(240, 176, 70, .16); --sk-profile-hot: rgba(240, 176, 70, .36); --sk-profile-sel: rgba(91, 150, 246, .30);
-  --sk-dim: rgba(237, 241, 246, .45); --grid-minor: rgba(215, 228, 245, .05); --grid-major: rgba(215, 228, 245, .11); --edge: #0b0e12; --body: #c9d0d9; }
-:root[data-look="shaded"] #viewport { background:
-  radial-gradient(ellipse 85% 75% at 50% 42%, var(--look-a) 0%, var(--look-b) 55%, var(--look-c) 100%); }
+/* Shaded mode "studio look": a light vignette backdrop (warm white centre, cool grey edges); sketch ink and grid use the light-theme set so they read on it in either UI theme */
+:root[data-look="shaded"] { --look-a: #fbf7f4; --look-b: #e6e5e7; --look-c: #bcc2cd;
+  --sk-line: #17202c; --sk-cons: #d9792a; --sk-proj: #8b4fd0; --sk-sel: #2460c8; --sk-hot: #3d7cf0; --sk-pt: #17202c;
+  --sk-profile: rgba(236, 166, 52, .20); --sk-profile-hot: rgba(236, 166, 52, .42); --sk-profile-sel: rgba(36, 96, 200, .30);
+  --sk-dim: rgba(23, 32, 44, .45); --grid-minor: rgba(35, 52, 76, .07); --grid-major: rgba(35, 52, 76, .15); --edge: #1c232d; --body: #b4bec9;
+  --axis-u: #cf4236; --axis-v: #2b9650; --snap: #e2630f; --face-hot: #3d7cf0; --plane: #6f9be8; }
+:root[data-look="shaded"] body:not(.ws-cam) #viewport { background:
+  radial-gradient(ellipse 90% 80% at 42% 38%, var(--look-a) 0%, var(--look-b) 58%, var(--look-c) 100%); }
 #ov { cursor: crosshair; }
 #ov.nav { cursor: grabbing; }
 #ov.pointer { cursor: pointer; }
@@ -4279,7 +4280,7 @@ table.meas tr.bad td { color: var(--danger); }
     <div id="viewtools">
       <div class="dim-toggle" title="Switch between a flat 2D view and 3D (V)"><button id="btn2D">2D</button><button id="btn3D">3D</button></div>
       <div class="dim-toggle" id="shadeToggle" role="group" aria-label="How the model is drawn">
-        <button data-shade="solid" title="Solid: lit surfaces with their edge lines">Solid</button><button data-shade="shaded" title="Shaded: smooth lit surfaces, no edge lines">Shaded</button><button data-shade="wire" title="Wireframe: edges only, see-through">Wireframe</button>
+        <button data-shade="solid" title="Solid: lit surfaces with their edge lines">Solid</button><button data-shade="shaded" title="Shaded: studio render — reflective satin metal, soft shadows and faint edge lines">Shaded</button><button data-shade="wire" title="Wireframe: edges only, see-through">Wireframe</button>
       </div>
       <button class="vbtn" id="btnHome" title="Home view (H)"><svg viewBox="0 0 20 20"><path d="M3 9l7-6 7 6v8H3z"/></svg>Home</button>
       <button class="vbtn" id="btnFit" title="Fit all (F)"><svg viewBox="0 0 20 20"><path d="M3 7V3h4M13 3h4v4M17 13v4h-4M7 17H3v-4"/></svg>Fit</button>
@@ -8891,8 +8892,10 @@ function frame(now) {
   syncSketch3D();
   // Scale construction planes' outlines with zoom? They are world-sized; fine.
   renderer.setViewport(0, 0, W, H); renderer.setScissorTest(false);
+  LOOK.uni.uViewH.value = view.viewH;
   renderer.clear();
   renderer.render(scene, camera);
+  if (LOOK.on && bodyMeshes.length) lookAO();
   // view cube
   const r = cubeRect();
   cubeCam.position.copy(new THREE.Vector3(0, 0, 3).applyQuaternion(view.quat));
@@ -11817,38 +11820,66 @@ document.getElementById('btnFit').addEventListener('click', () => fitAll());
 // How bodies are drawn: Solid (lit, with edge lines), Shaded (lit, no lines), Wireframe (edges only).
 let SHADE = 'solid';
 try { const v = localStorage.getItem('datum.shade'); if (v === 'shaded' || v === 'wire') SHADE = v; } catch (e) { /* storage unavailable */ }
-// Studio look (Shaded mode): image-based reflections from a softbox environment, a key/fill/rim light rig and a satin
-// metal finish, over a moody gradient backdrop. Solid and Wireframe keep the plain engineering look.
-const LOOK = { on: false, env: null, plain: null };
+// Studio look (Shaded mode): a product-render finish. Satin aluminium lit by a softbox environment (the scene is Y-up), reflections that
+// shift across each face as if seen through a wide lens (the camera is orthographic, so a flat face would otherwise be one
+// flat tone), screen-space ambient occlusion in the corners, soft edge lines and a contact shadow, over a light vignette.
+// Solid and Wireframe keep the plain engineering look.
+const LOOK = {
+  on: false, env: null, plain: null, ao: null,
+  uni: { uViewH: { value: 160 }, uPersp: { value: 1.7 }, uLook: { value: 0 } },
+  edge: new THREE.LineBasicMaterial({ color: 0x2b313b, transparent: true, opacity: 0.4 })
+};
 function lookEnv() {
   if (LOOK.env !== null) return LOOK.env;
   LOOK.env = false;
   try {
-    const sc = new THREE.Scene(), sg = new THREE.SphereGeometry(50, 32, 16), pos = sg.attributes.position, col = new Float32Array(pos.count * 3);
-    const ramp = (h) => {   // sky gradient by height: dim cold top, dark horizon, near-black floor
-      const T = [0.30, 0.34, 0.40], M = [0.07, 0.085, 0.105], B = [0.012, 0.014, 0.018], k = h > 0 ? Math.min(1, h / 0.9) : Math.min(1, -h / 0.6), a = h > 0 ? T : B;
-      return [0, 1, 2].map(i => M[i] + (a[i] - M[i]) * k * k * (3 - 2 * k));
+    const sc = new THREE.Scene(), sg = new THREE.SphereGeometry(50, 48, 24), pos = sg.attributes.position, col = new Float32Array(pos.count * 3);
+    const lerp = (a, b, k) => a.map((v, i) => v + (b[i] - v) * k), sm = k => k * k * (3 - 2 * k);
+    const ramp = h => {   // height → colour: bright ceiling, cool grey horizon band, dark floor
+      const T = [0.92, 0.93, 0.97], M = [0.88, 0.91, 0.98], F = [0.78, 0.79, 0.85];
+      return h > 0 ? lerp(M, T, sm(Math.min(1, h / 0.75))) : lerp(M, F, sm(Math.min(1, -h / 0.6)));
     };
     for (let i = 0; i < pos.count; i++) col.set(ramp(pos.getY(i) / 50), i * 3);
     sg.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    const sky = new THREE.Mesh(sg, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, depthWrite: false }));
-    sc.add(sky);
-    const box = (w, h, gain, x, y, z) => {   // emissive softbox facing the origin; gain > 1 gives HDR highlights
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(gain, gain, gain * 1.03), side: THREE.DoubleSide }));
+    sc.add(new THREE.Mesh(sg, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, depthWrite: false })));
+    const box = (w, h, rgb, gain, x, y, z) => {   // emissive panel facing the origin; gain > 1 gives HDR highlights
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(rgb[0] * gain, rgb[1] * gain, rgb[2] * gain), side: THREE.DoubleSide }));
       m.position.set(x, y, z); m.lookAt(0, 0, 0); sc.add(m);
     };
-    box(34, 22, 1.5, -20, 34, 22);     // key: big overhead softbox, front left
-    box(8, 34, 1.0, 40, 8, 6);         // strip light, right
-    box(30, 6, 0.9, 0, 6, -42);        // rim: long strip behind
-    box(18, 14, 0.4, -38, 4, -14);     // dim fill, left
+    box(60, 40, [1, 1, 1.02], 1.3, -8, 44, -14);          // key: big overhead softbox
+    box(54, 32, [1, 1, 1.03], 1.05, -28, 22, -30);          // second large panel back-left: what a top face mirrors from the iso view
+    box(26, 34, [1.0, 0.90, 0.76], 1.5, 46, 6, -8);        // warm bounce card, right
+    box(44, 44, [1, 1, 1], 0.02, -46, 6, 14);              // black flag, left: gives the deep shadowed walls
+    box(9, 36, [0.92, 0.96, 1.0], 2.4, -26, 14, 38);       // strip light, front left
+    box(46, 9, [1, 1, 1], 1.6, 6, 12, 46);                 // rim strip
     const pm = new THREE.PMREMGenerator(renderer);
-    LOOK.env = pm.fromScene(sc, 0.03).texture; pm.dispose();
-    sky.geometry.dispose(); sky.material.dispose();
+    LOOK.env = pm.fromScene(sc, 0.02).texture; pm.dispose();
+    sg.dispose();
   } catch (e) { LOOK.env = false; }
   return LOOK.env;
 }
+// Style one body material for the current look. Patches the lighting once so reflections use a perspective-like view vector.
+function lookStyle(m) {
+  if (!m.userData.lookPatched) {
+    m.userData.lookPatched = true;
+    m.onBeforeCompile = sh => {
+      Object.assign(sh.uniforms, LOOK.uni);
+      sh.fragmentShader = 'uniform float uViewH, uPersp, uLook;\n' + sh.fragmentShader.replace('#include <lights_fragment_begin>',
+        THREE.ShaderChunk.lights_fragment_begin.replace('( isOrthographic ) ? vec3( 0, 0, 1 )', '( uLook > 0.5 ) ? normalize( vec3( vViewPosition.xy * uPersp / uViewH, 1.0 ) ) : ( isOrthographic ) ? vec3( 0, 0, 1 )'));
+    };
+    m.customProgramCacheKey = () => 'datumLook';
+    m.needsUpdate = true;
+  }
+  const on = LOOK.on && LOOK.env, paint = m !== bodyMat;   // a body with its own colour reads as painted / anodised, the default as bare aluminium
+  m.envMap = on ? LOOK.env : null;
+  m.envMapIntensity = paint ? 0.55 : 1;
+  m.metalness = on ? (paint ? 0.12 : 0.9) : 0.08;
+  m.roughness = on ? (paint ? 0.48 : 0.3) : 0.62;
+  if (on && !paint) m.color.set(0xdde2ea);
+  m.needsUpdate = true;
+}
 const lookRig = { fill: null, rim: null, shadow: null };   // extra lights and the contact shadow, made the first time the look turns on
-// A soft elliptical contact shadow just under the lowest body (Z is up), so the part sits on the backdrop instead of floating.
+// A soft elliptical contact shadow just under the lowest body (Y is up in the scene), so the part sits on the backdrop instead of floating.
 function lookShadowUpdate() {
   const sh = lookRig.shadow;
   if (!sh) return;
@@ -11856,49 +11887,106 @@ function lookShadowUpdate() {
   sh.visible = LOOK.on && bb.length > 0;
   if (!sh.visible) return;
   const x0 = Math.min(...bb.map(b => b[0])), y0 = Math.min(...bb.map(b => b[1])), z0 = Math.min(...bb.map(b => b[2]));
-  const x1 = Math.max(...bb.map(b => b[3])), y1 = Math.max(...bb.map(b => b[4]));
-  const w = x1 - x0, h = y1 - y0, d = Math.max(w, h, 1e-3);
-  sh.position.set((x0 + x1) / 2, (y0 + y1) / 2, z0 - d * 0.004);
-  sh.scale.set(Math.max(w, d * 0.35) * 1.5, Math.max(h, d * 0.35) * 1.5, 1);
+  const x1 = Math.max(...bb.map(b => b[3])), z1 = Math.max(...bb.map(b => b[5]));
+  const w = x1 - x0, h = z1 - z0, d = Math.max(w, h, 1e-3);   // footprint on the XZ ground plane
+  sh.position.set((x0 + x1) / 2 + d * 0.05, y0 - d * 0.004, (z0 + z1) / 2 + d * 0.05);
+  sh.scale.set(Math.max(w, d * 0.35) * 1.45, Math.max(h, d * 0.35) * 1.45, 1);
 }
 function lookShadowMake() {
   const cv = document.createElement('canvas'); cv.width = cv.height = 128;
-  const g = cv.getContext('2d'), rg = g.createRadialGradient(64, 64, 4, 64, 64, 62);
-  rg.addColorStop(0, 'rgba(0,0,0,0.62)'); rg.addColorStop(0.55, 'rgba(0,0,0,0.30)'); rg.addColorStop(1, 'rgba(0,0,0,0)');
+  const g = cv.getContext('2d'), rg = g.createRadialGradient(64, 64, 6, 64, 64, 62);
+  rg.addColorStop(0, 'rgba(48,40,42,0.55)'); rg.addColorStop(0.55, 'rgba(48,40,42,0.26)'); rg.addColorStop(1, 'rgba(48,40,42,0)');
   g.fillStyle = rg; g.fillRect(0, 0, 128, 128);
   const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cv), transparent: true, depthWrite: false, toneMapped: false }));
-  m.renderOrder = -1; m.raycast = () => {}; m.visible = false;
+  m.rotation.x = -Math.PI / 2; m.renderOrder = -1; m.raycast = () => {}; m.visible = false;
   scene.add(m);
   return m;
+}
+// Screen-space ambient occlusion: the bodies' depth is rendered once, then a full-screen pass darkens pixels whose neighbours
+// stand well in front of them (inside corners, pockets, under overhangs). Orthographic depth is linear, which keeps it simple.
+function lookAO() {
+  const bs = renderer.getDrawingBufferSize(new THREE.Vector2());
+  if (!LOOK.ao) {
+    const rt = new THREE.WebGLRenderTarget(2, 2, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
+    rt.depthTexture = new THREE.DepthTexture(2, 2); rt.depthTexture.type = THREE.UnsignedIntType;
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { tDepth: { value: rt.depthTexture }, uRes: { value: new THREE.Vector2(2, 2) }, uNear: { value: 0 }, uFar: { value: 1 }, uRpx: { value: 10 }, uRw: { value: 1 }, uStr: { value: 1 } },
+      transparent: true, depthTest: false, depthWrite: false,
+      vertexShader: 'void main(){ gl_Position = vec4(position.xy, 0.0, 1.0); }',
+      fragmentShader: `uniform sampler2D tDepth; uniform vec2 uRes; uniform float uNear, uFar, uRpx, uRw, uStr;
+        float lin(vec2 uv){ return uNear + texture2D(tDepth, uv).x * (uFar - uNear); }
+        void main(){
+          vec2 uv = gl_FragCoord.xy / uRes;
+          if (texture2D(tDepth, uv).x >= 0.99999) discard;
+          float z0 = lin(uv), occ = 0.0;
+          vec2 px = 1.0 / uRes;
+          float zl = lin(uv - vec2(px.x, 0.0)), zr = lin(uv + vec2(px.x, 0.0)), zd = lin(uv - vec2(0.0, px.y)), zu = lin(uv + vec2(0.0, px.y));
+          float gx = abs(z0 - zl) < abs(zr - z0) ? z0 - zl : zr - z0, gy = abs(z0 - zd) < abs(zu - z0) ? z0 - zd : zu - z0;   // surface slope per pixel
+          if (abs(gx) > uRw || abs(gy) > uRw) { gx = 0.0; gy = 0.0; }
+          float rot = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) * 6.2831853;
+          for (int i = 0; i < 32; i++) {
+            float fi = float(i), a = rot + fi * 2.39996323, r = sqrt((fi + 0.5) / 32.0) * uRpx;
+            vec2 o = vec2(cos(a), sin(a)) * r;
+            vec2 u2 = uv + o / uRes;
+            if (texture2D(tDepth, u2).x >= 0.99999) continue;
+            float dz = (z0 + gx * o.x + gy * o.y) - lin(u2);           // > 0: that neighbour is nearer the camera than this pixel's own surface plane
+            occ += smoothstep(uRw * 0.05, uRw * 0.3, dz) * (1.0 - smoothstep(uRw * 1.2, uRw * 4.0, dz));
+          }
+          gl_FragColor = vec4(0.07, 0.06, 0.08, clamp(occ / 32.0 * uStr, 0.0, 0.55));
+        }`
+    });
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat); quad.frustumCulled = false;
+    const qs = new THREE.Scene(); qs.add(quad);
+    LOOK.ao = { rt, mat, qs, qc: new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), depthMat: new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }) };
+  }
+  const A = LOOK.ao;
+  if (A.rt.width !== bs.x || A.rt.height !== bs.y) { A.rt.setSize(bs.x, bs.y); A.mat.uniforms.uRes.value.set(bs.x, bs.y); }
+  // bodies only, flat depth material, into the target
+  const prevRT = renderer.getRenderTarget(), hidden = [];
+  for (const c of scene.children) if (c !== bodyGroup && c.visible) { c.visible = false; hidden.push(c); }
+  for (const m of bodyMeshes) m.group.children[1].visible = false;
+  scene.overrideMaterial = A.depthMat;
+  renderer.setRenderTarget(A.rt); renderer.clear(true, true, true); renderer.render(scene, camera);
+  scene.overrideMaterial = null; renderer.setRenderTarget(prevRT);
+  for (const c of hidden) c.visible = true;
+  applyShadeVis();
+  const rw = Math.max(sceneR * 0.035, 1e-3), px = Math.min(70, Math.max(4, rw * ppu() * bs.x / W));
+  const u = A.mat.uniforms; u.uNear.value = camera.near; u.uFar.value = camera.far; u.uRw.value = rw; u.uRpx.value = px; u.uStr.value = 1.2;
+  renderer.render(A.qs, A.qc);
 }
 function applyLook() {
   const on = SHADE === 'shaded' && typeof UIX !== 'undefined' && UIX.ws !== 'cam' && UIX.ws !== 'sheet';
   if (on === LOOK.on && LOOK.plain) return;
   LOOK.on = on;
-  const env = on ? lookEnv() : null;
+  if (on) lookEnv();
   if (!LOOK.plain) LOOK.plain = { head: headLight.intensity, hemi: hemi.intensity };
   if (on) document.documentElement.setAttribute('data-look', 'shaded'); else document.documentElement.removeAttribute('data-look');
   if (on && !lookRig.fill) {
-    lookRig.fill = new THREE.DirectionalLight(0x9db4d6, 0.28); lookRig.fill.position.set(-0.9, -0.2, 0.5);
-    lookRig.rim = new THREE.DirectionalLight(0xdce8ff, 0.5); lookRig.rim.position.set(0.5, 0.7, -1);
+    lookRig.fill = new THREE.DirectionalLight(0xa8bddb, 0.25); lookRig.fill.position.set(-0.9, -0.2, 0.5);
+    lookRig.rim = new THREE.DirectionalLight(0xfff0e0, 0.35); lookRig.rim.position.set(0.5, 0.7, -1);
     camera.add(lookRig.fill, lookRig.fill.target, lookRig.rim, lookRig.rim.target);
-    lookRig.shadow = lookShadowMake();
     lookRig.fill.target.position.set(0, 0, -1); lookRig.rim.target.position.set(0, 0, -1);
+    lookRig.shadow = lookShadowMake();
   }
   if (lookRig.fill) lookRig.fill.visible = lookRig.rim.visible = on;
+  LOOK.uni.uLook.value = on ? 1 : 0;
   lookShadowUpdate();
-  headLight.intensity = on ? 0.62 : LOOK.plain.head; hemi.intensity = on ? 0.16 : LOOK.plain.hemi;
-  const mats = [bodyMat, ...(typeof BODY_MATS !== 'undefined' ? BODY_MATS.values() : [])];
-  for (const m of mats) {
-    if (on) { m.envMap = env || null; m.envMapIntensity = 0.8; m.metalness = env ? 0.3 : 0.08; m.roughness = env ? 0.42 : 0.62; }
-    else { m.envMap = null; m.envMapIntensity = 1; m.metalness = 0.08; m.roughness = 0.62; }
-    m.needsUpdate = true;
+  headLight.intensity = on ? 0.4 : LOOK.plain.head; hemi.intensity = on ? 0.12 : LOOK.plain.hemi;
+  for (const m of [bodyMat, ...(typeof BODY_MATS !== 'undefined' ? BODY_MATS.values() : [])]) lookStyle(m);
+  readTheme();   // re-reads the sketch ink / body colours for the backdrop that is now showing
+  applyShadeVis();
+}
+// Which of a body's two objects show: Solid = surface + edges, Shaded = surface + faint edges, Wireframe = edges only.
+function applyShadeVis() {
+  for (const m of bodyMeshes) {
+    m.me.visible = SHADE !== 'wire';
+    const le = m.group.children[1]; le.visible = true;
+    le.material = LOOK.on ? LOOK.edge : edgeMat;
+    if (SHADE === 'shaded' && !LOOK.on) le.visible = false;   // Shaded inside Manufacture/Setup Sheet stays line-free, as before
   }
-  readTheme();   // re-reads the sketch ink / body colors for the backdrop that is now showing
 }
 function applyShade() {
-  for (const m of bodyMeshes) { m.me.visible = SHADE !== 'wire'; m.group.children[1].visible = SHADE !== 'shaded'; }
-  applyLook();
+  applyLook(); applyShadeVis();
   document.querySelectorAll('#shadeToggle [data-shade]').forEach(b => { b.classList.toggle('on', b.dataset.shade === SHADE); b.setAttribute('aria-pressed', b.dataset.shade === SHADE); });
   requestDraw();
 }
@@ -11906,7 +11994,7 @@ function setShade(m) {
   SHADE = m;
   try { localStorage.setItem('datum.shade', m); } catch (e) { /* ignore */ }
   applyShade();
-  toast({ solid: 'Solid: lit surfaces with edge lines', shaded: 'Shaded: smooth surfaces, no edge lines', wire: 'Wireframe: edges only' }[m]);
+  toast({ solid: 'Solid: lit surfaces with edge lines', shaded: 'Shaded: studio render with reflections and soft shadows', wire: 'Wireframe: edges only' }[m]);
 }
 document.querySelectorAll('#shadeToggle [data-shade]').forEach(b => b.addEventListener('click', () => setShade(b.dataset.shade)));
 applyShade();
@@ -20938,7 +21026,7 @@ function bodyMatFor(id) {
   const c = doc.colors && doc.colors[id];
   if (!c) return bodyMat;
   let m = BODY_MATS.get(c);
-  if (!m) { m = bodyMat.clone(); m.color.set(c); BODY_MATS.set(c, m); }
+  if (!m) { m = bodyMat.clone(); m.color.set(c); BODY_MATS.set(c, m); if (typeof lookStyle === 'function') { m.userData = {}; lookStyle(m); m.color.set(c); } }
   m.transparent = bodyMat.transparent; m.opacity = bodyMat.opacity; m.depthWrite = bodyMat.depthWrite;
   return m;
 }
