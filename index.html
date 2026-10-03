@@ -4124,6 +4124,8 @@ button svg, .rb-btn svg, .tb svg, .btn svg { transition: transform .22s cubic-be
 @keyframes panel-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 #toast { transform: translate(-50%, 10px); transition: opacity .25s var(--ease), transform .3s var(--ease); }
 #toast.show { transform: translate(-50%, 0); }
+#ctxmenu { transition: opacity .13s ease, transform .13s ease, visibility 0s linear 0s; }
+#ctxmenu[hidden] { display: block !important; opacity: 0; transform: scale(.96) translateY(-3px); visibility: hidden; pointer-events: none; transition: opacity .13s ease, transform .13s ease, visibility 0s linear .13s; }
 #ctxmenu.in { animation: menu-in .16s var(--ease) both; transform-origin: top left; }
 @keyframes menu-in { from { opacity: 0; transform: scale(.96) translateY(-3px); } to { opacity: 1; transform: none; } }
 #help:not([hidden]) { animation: fade-in .2s var(--ease) both; }
@@ -4233,6 +4235,32 @@ table.meas th { text-align: left; font: 500 9.5px var(--mono); letter-spacing: .
 table.meas td { padding: 4px; border-bottom: 1px solid var(--rule); vertical-align: top; font-variant-numeric: tabular-nums; }
 table.meas td:last-child { text-align: center; color: var(--ok); font-weight: 700; }
 table.meas tr.bad td { color: var(--danger); }
+.holes-wrap { max-height: 260px; overflow: auto; border: 1px solid var(--rule); border-radius: 8px; animation: card-in .28s var(--ease) both; }
+table.holes { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+table.holes th { position: sticky; top: 0; background: var(--panel-2); text-align: left; font-weight: 600; font-size: 10.5px; color: var(--muted); padding: 5px 6px; border-bottom: 1px solid var(--rule); }
+table.holes td { padding: 5px 6px; border-bottom: 1px solid var(--rule); vertical-align: top; font-variant-numeric: tabular-nums; }
+table.holes td:first-child { color: var(--muted); font-weight: 600; }
+table.holes td div + div { margin-top: 4px; }
+table.holes small { color: var(--muted); font-size: 10.5px; }
+table.holes td:first-child { width: 22px; }
+table.holes td div.me { font-weight: 700; color: var(--accent); }
+@keyframes card-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+/* Animated dropdowns: the select keeps its look; its popup is replaced by this one */
+.dd-pop { position: fixed; z-index: 200; background: var(--panel); color: var(--ink); border: 1px solid var(--rule); border-radius: 9px; box-shadow: var(--shadow); padding: 4px; overflow-y: auto; overscroll-behavior: contain; transform-origin: top center; animation: dd-in .2s var(--ease) both; }
+.dd-pop.up { transform-origin: bottom center; }
+.dd-pop.out { animation: dd-out .14s ease-in both; pointer-events: none; }
+.dd-opt { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 9px; border-radius: 6px; cursor: pointer; font-size: 12.5px; line-height: 1.3; animation: dd-opt .22s var(--ease) both; animation-delay: calc(min(var(--i), 10) * 14ms); }
+.dd-opt.hi { background: var(--accent-soft); }
+.dd-opt.sel { font-weight: 650; color: var(--accent); }
+.dd-opt.sel::after { content: ''; width: 5px; height: 9px; border: solid currentColor; border-width: 0 2px 2px 0; transform: rotate(45deg) translate(-1px, -1px); flex: none; }
+.dd-opt.off { opacity: .4; pointer-events: none; }
+.dd-grp { padding: 7px 9px 3px; font: 600 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+@keyframes dd-in { from { opacity: 0; transform: translateY(-7px) scaleY(.92); } to { opacity: 1; transform: none; } }
+@keyframes dd-out { to { opacity: 0; transform: translateY(-5px) scaleY(.94); } }
+@keyframes dd-opt { from { opacity: 0; transform: translateX(-5px); } to { opacity: 1; transform: none; } }
+select.dd-open { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+@media (prefers-reduced-motion: reduce) { .dd-pop, .dd-opt, #ctxmenu, .guide-steps { animation-duration: .01s !important; transition-duration: .01s !important; } }
+
 .tool-thumb { width: 54px; height: 72px; flex: none; border-radius: 6px; background: linear-gradient(180deg, var(--view-top), var(--view-bot)); object-fit: contain; }
 .tool-card { flex-direction: row; align-items: stretch; }
 .tool-card .tool-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
@@ -12739,12 +12767,12 @@ function contourRest(op, tool, st, P, region, loops, bottom) {
 // G85 ream / bore (feed out) · G84 rigid tap. The moves generated here are the moves the
 // control makes for the posted canned cycle, so the simulation shows what the machine does.
 const DRILL_CYCLES = {
-  drill: { g: 'G81', name: 'Drill', what: 'Straight down to depth and straight back out. For shallow holes, up to about 3× the drill diameter.' },
-  spot: { g: 'G82', name: 'Spot / dwell', what: 'Like G81, but pauses at the bottom so the tip cleans up the floor: spot drills, counterbores, countersinks.' },
-  peck: { g: 'G83', name: 'Deep peck', what: 'Drills a bit, pulls all the way out to the R plane to clear the chips, rapids back down to just above where it stopped, and repeats. For deep holes (over about 3–4× diameter).' },
-  chip: { g: 'G73', name: 'Chip-break peck', what: 'Drills a bit, backs off only a hair to snap the chip, and keeps going — much faster than G83. For medium-deep holes and stringy materials; chips stay in the hole, so not for very deep holes.' },
-  ream: { g: 'G85', name: 'Ream / bore', what: 'Feeds in and feeds back out at the same rate, so the tool never drags up the finished wall at rapid. For reamers and boring bars.' },
-  tap: { g: 'G84', name: 'Rigid tap', what: 'Feeds in at exactly one thread pitch per turn (feed = RPM × pitch), reverses the spindle at the bottom and feeds back out.' },
+  drill: { g: 'G81', name: 'Straight drill', what: 'Goes straight down to the bottom and straight back out. Good for shallow holes (up to about 3 times as deep as the drill is wide).' },
+  spot: { g: 'G82', name: 'Drill and pause at the bottom', what: 'Like a straight drill, but waits a moment at the bottom so the tip cleans up the floor. Good for spot drills, counterbores and countersinks.' },
+  peck: { g: 'G83', name: 'Drill a little, pull all the way out, repeat', what: 'Drills a bit, lifts all the way out to clear the chips, dives back down to just above where it stopped, and repeats. Good for deep holes (more than 3 or 4 times as deep as wide).' },
+  chip: { g: 'G73', name: 'Drill a little, back off a hair, repeat', what: 'Drills a bit, backs off just enough to snap the chip, and keeps going. Much faster than pulling all the way out. Good for medium-deep holes; the chips stay in the hole, so not for very deep ones.' },
+  ream: { g: 'G85', name: 'Smooth out a hole (reamer or boring bar)', what: 'Goes in and comes back out at the same slow speed so the tool never scrapes the finished wall on the way out. For reamers and boring bars.' },
+  tap: { g: 'G84', name: 'Cut threads', what: 'Goes in exactly one thread-width per turn, reverses at the bottom and winds back out.' },
 };
 // The op's cycle and its numbers, all in mm and seconds. Missing values take the Haas defaults.
 function drillSpec(op, tool) {
@@ -14781,28 +14809,64 @@ function drillCycleFields(op) {
   const fld = (html, txt) => `<div class="hfield">${html}${hint(txt)}</div>`;
   const cycles = Object.entries(DRILL_CYCLES).filter(([k]) => k !== 'tap');
   let h = t.type === 'tap'
-    ? `<div class="field"><span>Cycle</span><div class="pick"><span>G84 · Rigid tap (a tap is loaded)</span></div></div>`
-    : `<div class="field"><span>Cycle</span><select id="opCycle">${cycles.map(([k, c]) => `<option value="${k}" ${m === k ? 'selected' : ''}>${c.g} · ${c.name}</option>`).join('')}</select></div>`;
-  h += `<p class="note cyc-note"><b>${cy.g}:</b> ${DRILL_CYCLES[m].what}</p>`;
+    ? `<div class="field"><span>How should it drill?</span><div class="pick"><span>Cut threads (a tap is loaded)</span></div></div>`
+    : `<div class="field"><span>How should it drill?</span><select id="opCycle">${cycles.map(([k, c]) => `<option value="${k}" ${m === k ? 'selected' : ''}>${c.name}</option>`).join('')}</select></div>`;
+  h += `<p class="note cyc-note">${DRILL_CYCLES[m].what}</p>`;
   if (pecking) {
-    h += fld(`<div class="row2">${num('opPeck', cy.q, 'Peck (Q)', 0.5, 'min="0.1"')}${num('opPkI', op.peckFirst || 0, 'First peck (I)', 0.5, 'min="0"')}</div>`,
-      '<b>Q</b> is how far the drill goes in each time before it backs out. Smaller pecks clear chips better but take longer. <b>I</b> (optional, 0 = off) makes the first peck a different size — usually deeper, since the chips clear easily near the top. Setting I switches the cycle to I / J / K pecking.');
-    if (cy.i > 0) h += fld(`<div class="row2">${num('opPkJ', op.peckReduce || 0, 'Shorten by (J)', 0.1, 'min="0"')}${num('opPkK', op.peckMin || 0, 'Min peck (K)', 0.1, 'min="0"')}</div>`,
-      '<b>J</b> takes this much off every peck after the first, because chips pack harder the deeper the hole gets. <b>K</b> is the floor: pecks never get shorter than this.');
+    h += fld(`<div class="row2">${num('opPeck', cy.q, 'How far in each time?', 0.5, 'min="0.1"')}${num('opPkI', op.peckFirst || 0, 'First bite different? (0 = no)', 0.5, 'min="0"')}</div>`,
+      'How far the drill goes in before it backs out. Smaller bites clear chips better but take longer. Set a first bite (usually deeper, since chips escape easily near the top) and the machine can also make the later bites smaller and smaller.');
+    if (cy.i > 0) h += fld(`<div class="row2">${num('opPkJ', op.peckReduce || 0, 'How much smaller each bite?', 0.1, 'min="0"')}${num('opPkK', op.peckMin || 0, 'Smallest bite allowed', 0.1, 'min="0"')}</div>`,
+      'Chips pack tighter the deeper the hole gets, so each bite after the first is a little smaller. It never goes smaller than the smallest bite.');
   }
-  if (m === 'spot' || m === 'peck') h += fld(`<div class="row2"><label class="field"><span>Dwell (P, seconds)</span><input type="number" id="opDwell" data-cam-input="1" step="0.1" min="0" value="${+(op.dwell || 0).toFixed(3)}"></label></div>`,
-    '<b>P</b> pauses the drill at the bottom for this many seconds so the point cleans up the floor (spot drills, counterbores). 0 = no pause.');
-  h += fld(`<div class="row2">${num('opRpl', cy.rpl, 'R plane (R)', 0.5, 'min="0.2"')}<div class="field"><span>Between holes</span><div class="seg"><button data-opset="retPlane:init" class="${cy.ret === 'G98' ? 'on' : ''}" title="G98">Start height</button><button data-opset="retPlane:r" class="${cy.ret === 'G99' ? 'on' : ''}" title="G99">R plane</button></div></div></div>`,
-    '<b>R</b> is where the rapid stops and the feed starts, this far above the stock top (pecks count from here). <b>G98</b> (start height) lifts back to the clearance height between holes — safe over clamps. <b>G99</b> (R plane) only lifts to R — faster, but only if nothing sticks up between the holes.');
-  if (pecking) h += fld(`<div class="row2">${num('opS22', cy.s22, 'Setting 22', 0.1, 'min="0.01"')}${m === 'peck' ? num('opS52', cy.s52, 'Setting 52', 0.1, 'min="0"') : '<span></span>'}</div>`,
-    m === 'chip' ? '<b>Setting 22</b> is how far G73 backs up between pecks to snap the chip (Haas default 0.050"). It is set on the control, not in the program — the program notes the value you choose here.'
-      : '<b>Setting 22</b>: after pulling out, G83 rapids back down and stops this far above the last peck before feeding again (Haas default 0.050"). <b>Setting 52</b> lifts this much above R on each pull-out so chips can fly clear. Both are set on the control, not in the program — the program notes them.');
-  if (m === 'tap') h += fld(`<div class="row2"><label class="field"><span>Retract speed (J)</span><input type="number" id="opTapJ" data-cam-input="1" step="1" min="1" max="4" value="${cy.tapJ}"></label></div>`,
-    '<b>J</b> backs the tap out this many times faster than it went in (1 = same speed). Faster saves time; keep 1 for small or fragile taps. Setting 130 caps it.');
-  h += fld(`<div class="row2">${num('opThrough', op.through == null ? 1 : op.through, 'Breakthrough', 0.1, 'min="0"')}${num('opDepth', op.depth || 0, 'Depth (0 = full)', 0.5, 'min="0"')}</div>`,
-    '<b>Breakthrough</b>: how far past the bottom of a through hole the full diameter goes, so no burr or skin is left. <b>Depth</b> stops short of the hole’s bottom, measured from its top (spot drilling); 0 drills the whole hole.');
-  h += `<small class="hint">Feed (F) and speed (S) come from the tool: plunge ${fmtRate(t.plunge)} at ${t.rpm.toLocaleString()} RPM.</small>`;
+  if (m === 'spot' || m === 'peck') h += fld(`<div class="row2"><label class="field"><span>Wait at the bottom for how long? (seconds)</span><input type="number" id="opDwell" data-cam-input="1" step="0.1" min="0" value="${+(op.dwell || 0).toFixed(3)}"></label></div>`,
+    'A short pause at the bottom lets the point clean up the floor. 0 means no pause.');
+  h += fld(`<div class="row2">${num('opRpl', cy.rpl, 'Where does the slow drilling start? (height above the part)', 0.5, 'min="0.2"')}<div class="field"><span>How much to retract after each hole?</span><div class="seg"><button data-opset="retPlane:init" class="${cy.ret === 'G98' ? 'on' : ''}" title="Lift all the way up to the safe height before moving on">All the way up</button><button data-opset="retPlane:r" class="${cy.ret === 'G99' ? 'on' : ''}" title="Lift only to the slow-drilling height before moving on">Just a little</button></div></div></div>`,
+    'The machine moves fast down to the starting height, then drills slowly from there. <b>All the way up</b> lifts to the safe height between holes, which is safe over clamps. <b>Just a little</b> only lifts to the starting height, which is faster, but only use it if nothing sticks up between the holes.');
+  if (pecking) h += fld(`<div class="row2">${num('opS22', cy.s22, 'Gap to leave when diving back in', 0.1, 'min="0.01"')}${m === 'peck' ? num('opS52', cy.s52, 'Extra lift to fling chips out', 0.1, 'min="0"') : '<span></span>'}</div>`,
+    m === 'chip' ? 'How far the drill backs up between bites to snap the chip (the usual is 0.050"). This is set on the machine itself, so the program just leaves a note of the number you choose here.'
+      : 'After pulling out, the drill dives back down and slows when it is this far above the last cut (the usual is 0.050"). The extra lift goes higher on each pull-out so the chips can fly clear. Both are set on the machine itself, so the program just leaves a note of the numbers.');
+  if (m === 'tap') h += fld(`<div class="row2"><label class="field"><span>How many times faster to pull the tap out?</span><input type="number" id="opTapJ" data-cam-input="1" step="1" min="1" max="4" value="${cy.tapJ}"></label></div>`,
+    'Backs the tap out this many times faster than it went in (1 = same speed). Faster saves time; keep 1 for small or fragile taps.');
+  h += fld(`<div class="row2">${num('opThrough', op.through == null ? 1 : op.through, 'How far past the bottom on through-holes?', 0.1, 'min="0"')}${num('opDepth', op.depth || 0, 'Stop short? How deep (0 = whole hole)', 0.5, 'min="0"')}</div>`,
+    'On holes that go all the way through, the full-size drill goes a little past the bottom so no burr or skin is left. If you only want a shallow mark (like a spot drill), say how deep; 0 drills the whole hole.');
+  h += `<small class="hint">How fast it drills and how fast it spins come from the tool: going down at ${fmtRate(t.plunge)}, spinning at ${t.rpm.toLocaleString()} RPM.</small>`;
   return h;
+}
+// ── Every hole the program drills, in the order it drills them, with every tool that touches each ──
+// One row per hole. Tools are listed in program order, each with how deep it goes. opOnly limits the rows to one operation's holes.
+function drillHoleRows(opOnly) {
+  const C = cam(), rows = [], all = camHoles();
+  let pending = 0;
+  for (const op of C.ops) {
+    if (op.sup || op.type !== 'drill' || opAxis(op)) continue;
+    const P = toolpath(op);
+    if (!P || P.pending) { pending++; continue; }
+    const t = toolOf(op.tool), want = op.diams && op.diams.length ? op.diams : null;
+    (P.holes || []).forEach(ph => {
+      const here = all.filter(h => Math.hypot(h.x - ph.x, h.y - ph.y) < 0.06);
+      const mine = here.find(h => want ? want.some(d => Math.abs(d - h.d) < 0.02) : Math.abs(h.d - t.d) < 0.05) || here[0];
+      let r = rows.find(q => Math.hypot(q.x - ph.x, q.y - ph.y) < 0.06 && (!mine || Math.abs(q.d - mine.d) < 0.02));
+      if (!r) { r = { x: ph.x, y: ph.y, d: mine ? mine.d : t.d, top: mine ? mine.top : ph.z, tools: [], ops: new Set() }; rows.push(r); }
+      r.ops.add(op.id);
+      r.tools.push({ op, t, depth: Math.max(0, (mine ? mine.top : r.top) - ph.z) });
+    });
+  }
+  const list = opOnly ? rows.filter(r => r.ops.has(opOnly.id)) : rows;
+  if (opOnly) {   // this operation's own drilling order
+    const P = toolpath(opOnly);
+    if (P && !P.pending && P.holes) list.sort((a, b) => P.holes.findIndex(h => Math.hypot(h.x - a.x, h.y - a.y) < 0.06) - P.holes.findIndex(h => Math.hypot(h.x - b.x, h.y - b.y) < 0.06));
+  }
+  return { rows: list, pending };
+}
+function drillTableHtml(opOnly) {
+  const { rows, pending } = drillHoleRows(opOnly), o = camOrigin(), u = uName();
+  if (!rows.length) return pending ? `<p class="note">Working out which holes it will drill…</p>` : '';
+  const at = (v, c) => Math.abs(+uval(v - c).toFixed(3));
+  const where = r => `${at(r.x, o[0])} ${r.x - o[0] < 0 ? 'left' : 'right'}, ${at(r.y, o[1])} ${r.y - o[1] < 0 ? 'front' : 'back'}`;
+  return `<div class="field"><span>${opOnly ? 'Holes this will drill, in this order' : 'Every hole the program drills, in order'}</span>
+    <div class="holes-wrap"><table class="holes"><thead><tr><th>#</th><th>Hole (${u}, from the origin)</th><th>Tools used on it, in order</th></tr></thead><tbody>${rows.map((r, i) => `<tr>
+      <td>${i + 1}</td><td><b>${fmtDia(r.d)}</b><br><small>${where(r)}</small></td>
+      <td>${r.tools.map(x => `<div class="${opOnly && x.op.id === opOnly.id ? 'me' : ''}">${toolName(x.t)}<small> · ${+uval(x.depth).toFixed(3)} ${u} deep</small></div>`).join('')}</td></tr>`).join('')}</tbody></table></div>${pending ? '<small class="hint">More holes will appear as the other drilling steps finish working out.</small>' : ''}</div>`;
 }
 function camPanel() {
   const C = cam(), v = CAMUI.view, st = camStock();
@@ -14820,7 +14884,7 @@ function camPanel() {
       <p class="note">${matOf().name}. Changing it re-derives the speeds and feeds of every tool.</p>
       <div class="field"><span>Work origin (G54)</span><select id="camOrigin">${opts}</select></div>
       <dl class="kv"><dt>Origin in model (X, Y, Z)</dt><dd>${o.map(x => fmtLs(x)).join(', ')}</dd></dl>
-      <div class="row2">${num('camSafe', C.safe, 'Clearance above stock', 1, 'min="1"')}${num('camRet', C.retract, 'Retract above stock', 0.5, 'min="0.5"')}</div>
+      <div class="row2">${num('camSafe', C.safe, 'How high to travel above the part?', 1, 'min="1"')}${num('camRet', C.retract, 'How high to lift between cuts?', 0.5, 'min="0.5"')}</div>
       <p class="note">Machine axes match the model: <b>X</b> left / right, <b>Y</b> front / back, <b>Z</b> up. Tip: place a construction point in Design to use any vertex, hole center or face center as the origin.</p>
       <div class="btns"><button class="btn primary" data-camdo="overview">Done</button></div></div>`;
   }
@@ -14871,7 +14935,7 @@ function camPanel() {
       if (ax) { const pz = poseForOp(op), S = camSetup(); f += `<p class="note"><b>Indexed:</b> holes from ${dirName([ax[0], ax[2], -ax[1]])} · ${hl.length} hole${hl.length === 1 ? '' : 's'}. The part turns on the ${S ? S.name : 'rotary'} to <b>${pz ? pz.label : '—'}</b> so the spindle comes straight down (shown in the view).</p>`; }
       const ds = [...new Set(hl.map(h => +h.d.toFixed(2)))].sort((a, b) => a - b);
       f += `<div class="field"><span>Hole diameters (click holes in the view too)</span><div class="chips">${ds.map(d => { const n = hl.filter(h => Math.abs(h.d - d) < 0.02).length, on = op.diams.some(x => Math.abs(x - d) < 0.02); return `<button class="chip ${on ? 'on' : ''}" data-dia="${d}">${fmtDia(d)} <small>×${n}</small></button>`; }).join('') || '<span class="note">No vertical holes found.</span>'}</div></div>
-        ${toolOf(op.tool).type === 'bsf' ? bsfFields(op) : drillCycleFields(op)}`;
+        ${toolOf(op.tool).type === 'bsf' ? bsfFields(op) : drillCycleFields(op) + (ax ? '' : drillTableHtml(op))}`;
     }
     if (op.type === 'chamfer') {
       const faces = (op.faces || []).length, tl = toolOf(op.tool), cone = tl.cone || 90, sw = faces ? swarfPlan(op, tl) : null;
@@ -14919,6 +14983,7 @@ function camPanel() {
   for (const op of C.ops) { if (op.sup) continue; const P = toolpath(op); if (!P || P.pending) { pending++; continue; } total += pathStats(P).min; }
   return `<div class="pn-head"><h2>Manufacture</h2><span class="tag">${C.ops.length} operation${C.ops.length === 1 ? '' : 's'}</span></div><div class="pn-body">
     <dl class="kv"><dt>Stock</dt><dd>${[st.x1 - st.x0, st.y1 - st.y0, st.z1 - st.z0].map(x => fmtLs(x)).join(' × ')}</dd><dt>Origin</dt><dd>${wcsName(C)}</dd><dt>Est. cycle time</dt><dd>${fmtTime(total)}${pending ? ' + …' : ''}</dd></dl>
+    ${drillTableHtml(null)}
     <div class="btns"><button class="btn primary" data-camdo="auto">Auto-detect features</button></div>
     <p class="note"><b>Auto Detect</b> finds every face, hole, thread, fillet, chamfer and corner, tells you how many axes the part needs, and suggests tools and an order. Or add operations yourself from the toolbar. Toolpaths update when you change the design.</p>
     <div class="btns"><button class="btn" data-camdo="sim">Simulate</button><button class="btn" data-camdo="post">G-code</button></div></div>`;
@@ -31191,7 +31256,8 @@ const GCED = { el: null, text: '', base: '', edited: false, closed: false, wide:
 #gced.wide { width: min(940px, calc(100% - 28px)); }
 #gced[hidden] { display: none; }
 .ge-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--code-rule); color: var(--code-ink); font-size: 12.5px; flex-wrap: wrap; }
-.ge-head b { font-weight: 600; }
+.ge-head b { font-weight: 600; white-space: nowrap; }
+.ge-head button { white-space: nowrap; }
 .ge-sub { flex: 1; min-width: 80px; font: 11px var(--mono); color: var(--code-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ge-head button { border: 1px solid var(--code-rule); background: transparent; color: var(--code-dim); border-radius: 7px; padding: 3px 8px; font: 600 11px var(--font); cursor: pointer; }
 .ge-head button:hover:not(:disabled) { color: var(--code-ink); }
@@ -31210,14 +31276,33 @@ const GCED = { el: null, text: '', base: '', edited: false, closed: false, wide:
 .ge-hl > div.cur { background: var(--code-hover); box-shadow: inset 3px 0 0 var(--accent); }
 #geIn { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0 10px; border: 0; outline: 0; resize: none; background: transparent; color: transparent; caret-color: var(--code-ink); font: 12px/19px var(--mono); white-space: pre; overflow: auto; tab-size: 4; box-sizing: border-box; }
 #geIn::selection { background: color-mix(in srgb, var(--accent) 32%, transparent); }
+#gced .gf-bar { padding: 7px 10px; border-bottom: 1px solid var(--code-rule); display: flex; flex-direction: column; gap: 6px; background: color-mix(in srgb, var(--code-ink) 5%, transparent); animation: gf-in .2s var(--ease) both; }
+#gced .gf-bar[hidden] { display: none; }
+#gced .gf-row { display: flex; align-items: center; gap: 6px; }
+#gced .gf-row input { flex: 1; min-width: 60px; padding: 4px 8px; border: 1px solid var(--code-rule); border-radius: 6px; background: var(--code-bg); color: var(--code-ink); font: 12px var(--mono); outline: 0; }
+#gced .gf-row input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+#gced .gf-row button { border: 1px solid var(--code-rule); background: transparent; color: var(--code-dim); border-radius: 6px; padding: 3px 8px; font: 600 11px var(--font); cursor: pointer; white-space: nowrap; }
+#gced .gf-row button:hover { color: var(--code-ink); }
+#gced .gf-row button.on { color: var(--accent); border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+#gced .gf-n { font: 11px var(--mono); color: var(--code-dim); min-width: 52px; text-align: right; }
+#gced .gf-n.none { color: var(--danger); }
+.ge-find { position: absolute; left: 0; top: 0; min-width: 100%; white-space: pre; color: transparent; will-change: transform; pointer-events: none; }
+.ge-find > div { height: 19px; padding: 0 10px; }
+.ge-find mark { background: rgba(255, 205, 40, .38); color: transparent; border-radius: 2px; }
+.ge-find mark.cur { background: rgba(255, 130, 20, .7); }
+@keyframes gf-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 .ge-foot { display: flex; gap: 12px; padding: 5px 10px; border-top: 1px solid var(--code-rule); font: 11px var(--mono); color: var(--code-dim); }
 .ge-foot .ed { color: var(--accent); }`;
   document.head.appendChild(css);
   const el = GCED.el = document.createElement('div'); el.id = 'gced'; el.hidden = true;
   el.innerHTML = `<div class="ge-head"><b>G-code</b><span class="ge-sub" id="geSub"></span>
-    <button data-ge="wide" id="geWide" title="Wider panel">Wide</button><button data-ge="reset" id="geReset" title="Throw away edits and use the generated program">Reset</button><button data-ge="copy">Copy</button><button data-ge="save" class="ge-save">Save .nc</button><button data-ge="close" title="Hide the editor">×</button></div>
+    <button data-ge="find" id="geFindBtn" title="Find and replace in the program (Ctrl+F)">Search and replace</button><button data-ge="wide" id="geWide" title="Wider panel">Wide</button><button data-ge="reset" id="geReset" title="Throw away edits and use the generated program">Reset</button><button data-ge="copy">Copy</button><button data-ge="save" class="ge-save">Save .nc</button><button data-ge="close" title="Hide the editor">×</button></div>
+    <div class="gf-bar" id="gfBar" hidden>
+      <div class="gf-row"><input id="gfQ" placeholder="Find in the program…" spellcheck="false" autocomplete="off"><span class="gf-n" id="gfN"></span><button data-gf="prev" title="Previous match (Shift+Enter)">↑</button><button data-gf="next" title="Next match (Enter)">↓</button><button data-gf="case" id="gfCase" title="Match upper and lower case exactly">Aa</button><button data-gf="x" title="Close (Esc)">×</button></div>
+      <div class="gf-row" id="gfRepRow" hidden><input id="gfR" placeholder="Replace with…" spellcheck="false" autocomplete="off"><button data-gf="rep">Replace</button><button data-gf="all">Replace all</button></div>
+    </div>
     <div class="ge-note" id="geNote" hidden></div>
-    <div class="ge-body"><div class="ge-gut" id="geGut"><div id="geGutIn"></div></div><div class="ge-view"><div class="ge-hl" id="geHl"></div><textarea id="geIn" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" aria-label="G-code"></textarea></div></div>
+    <div class="ge-body"><div class="ge-gut" id="geGut"><div id="geGutIn"></div></div><div class="ge-view"><div class="ge-find" id="geFind"></div><div class="ge-hl" id="geHl"></div><textarea id="geIn" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off" aria-label="G-code"></textarea></div></div>
     <div class="ge-foot"><span id="geLn">Ln 1, Col 1</span><span id="geCount"></span><span class="ed" id="geEd"></span></div>`;
   const host = document.getElementById('simcode').parentNode; host.appendChild(el);
 })();
@@ -31232,6 +31317,7 @@ function gcedDraw() {
   const hl = document.getElementById('geHl'), gi = document.getElementById('geGutIn');
   hl.innerHTML = h; hl.style.transform = `translate(${-left}px, ${first * H - top}px)`;
   gi.innerHTML = g; gi.style.transform = `translateY(${first * H - top}px)`;
+  gfDraw(first, last, lines, top, left);
   const col = pos - GCED.text.lastIndexOf('\n', pos - 1);
   document.getElementById('geLn').textContent = `Ln ${cur + 1}, Col ${col}`;
   document.getElementById('geCount').textContent = `${lines.length.toLocaleString()} lines`;
@@ -31269,6 +31355,86 @@ function gcedProgram(gen) { return GCED.edited && GCED.base === gen ? GCED.text 
     if (a === 'save') { download(`datum-O${cam().post.program}.nc`, new Blob([GCED.text], { type: 'text/plain' })); toast('G-code saved'); }
   });
   window.addEventListener('resize', gcedDraw);
+})();
+// ── Find, and Search and replace ──
+const GF = { open: false, rep: false, cs: false, hits: [], idx: -1, starts: null, text: null };
+const gfEsc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+function gfScan(keep) {
+  const q = document.getElementById('gfQ').value, t = GCED.text, hits = [];
+  if (q) { const a = GF.cs ? t : t.toLowerCase(), b = GF.cs ? q : q.toLowerCase(); for (let i = a.indexOf(b); i >= 0; i = a.indexOf(b, i + b.length)) hits.push(i); }
+  GF.hits = hits; GF.q = q;
+  if (GF.text !== t) { GF.text = t; GF.starts = [0]; for (let i = t.indexOf('\n'); i >= 0; i = t.indexOf('\n', i + 1)) GF.starts.push(i + 1); }
+  if (!hits.length) GF.idx = -1;
+  else if (!keep || GF.idx < 0 || GF.idx >= hits.length) { const at = document.getElementById('geIn').selectionStart; GF.idx = Math.max(0, hits.findIndex(h => h >= at)); if (hits.findIndex(h => h >= at) < 0) GF.idx = 0; }
+  const n = document.getElementById('gfN'); n.textContent = !q ? '' : hits.length ? `${GF.idx + 1} of ${hits.length}` : 'No matches'; n.classList.toggle('none', !!q && !hits.length);
+}
+function gfShow() {
+  if (GF.idx < 0) { gcedDraw(); return; }
+  const ta = document.getElementById('geIn'), h = GF.hits[GF.idx], line = GF.starts.findIndex((st, i) => st <= h && (i + 1 >= GF.starts.length || GF.starts[i + 1] > h));
+  const y = line * GCED.rowH;
+  if (y < ta.scrollTop + 20 || y > ta.scrollTop + ta.clientHeight - 40) ta.scrollTop = Math.max(0, y - ta.clientHeight / 2);
+  ta.setSelectionRange(h, h + GF.q.length);
+  gcedDraw();
+}
+function gfDraw(first, last, lines, top, left) {
+  const f = document.getElementById('geFind'); if (!f) return;
+  if (!GF.open || !GF.hits.length) { f.innerHTML = ''; return; }
+  if (GF.text !== GCED.text) gfScan(true);
+  const ql = GF.q.length; let html = '';
+  for (let i = first; i < last; i++) {
+    const st = GF.starts[i], en = st + lines[i].length; let out = '', p = 0;
+    let lo = 0, hi = GF.hits.length; while (lo < hi) { const m = (lo + hi) >> 1; if (GF.hits[m] < st) lo = m + 1; else hi = m; }
+    for (let k = lo; k < GF.hits.length && GF.hits[k] < en; k++) { const a = GF.hits[k] - st; out += gfEsc(lines[i].slice(p, a)) + `<mark${k === GF.idx ? ' class="cur"' : ''}>${gfEsc(lines[i].slice(a, a + ql))}</mark>`; p = a + ql; }
+    html += `<div>${out + gfEsc(lines[i].slice(p)) || ' '}</div>`;
+  }
+  f.innerHTML = html; f.style.transform = `translate(${-left}px, ${first * GCED.rowH - top}px)`;
+}
+function gfOpen(withReplace) {
+  GF.open = true; if (withReplace) GF.rep = true;
+  const bar = document.getElementById('gfBar'), ta = document.getElementById('geIn'), q = document.getElementById('gfQ');
+  bar.hidden = false; document.getElementById('gfRepRow').hidden = !GF.rep;
+  document.getElementById('geFindBtn').classList.add('on');
+  const sel = ta.value.slice(ta.selectionStart, ta.selectionEnd);
+  if (sel && !sel.includes('\n')) q.value = sel;
+  gfScan(false); gfShow();
+  (withReplace && q.value ? document.getElementById('gfR') : q).focus(); if (!withReplace || !q.value) q.select();
+}
+function gfClose() { GF.open = false; GF.rep = false; document.getElementById('gfBar').hidden = true; document.getElementById('geFindBtn').classList.remove('on'); gcedDraw(); document.getElementById('geIn').focus(); }
+function gfStep(d) { gfScan(true); if (!GF.hits.length) return; GF.idx = (GF.idx + d + GF.hits.length) % GF.hits.length; document.getElementById('gfN').textContent = `${GF.idx + 1} of ${GF.hits.length}`; gfShow(); }
+function gfReplace(all) {
+  const ta = document.getElementById('geIn'), r = document.getElementById('gfR').value; gfScan(true);
+  if (!GF.hits.length) return;
+  if (all) {
+    const n = GF.hits.length, ql = GF.q.length; let out = '', p = 0, t = GCED.text;
+    for (const h of GF.hits) { out += t.slice(p, h) + r; p = h + ql; }
+    ta.value = out + t.slice(p); ta.dispatchEvent(new Event('input')); gfScan(false); gcedDraw(); toast(`Replaced ${n} match${n === 1 ? '' : 'es'}`);
+  } else {
+    const h = GF.hits[GF.idx]; ta.setRangeText(r, h, h + GF.q.length, 'end'); ta.dispatchEvent(new Event('input'));
+    gfScan(false); GF.idx = Math.min(GF.idx, Math.max(0, GF.hits.length - 1)); const nxt = GF.hits.findIndex(x => x >= h + r.length); if (nxt >= 0) GF.idx = nxt;
+    document.getElementById('gfN').textContent = GF.hits.length ? `${GF.idx + 1} of ${GF.hits.length}` : 'No matches'; gfShow();
+  }
+}
+(() => {
+  const bar = document.getElementById('gfBar'), q = document.getElementById('gfQ');
+  q.addEventListener('input', () => { gfScan(false); gfShow(); });
+  bar.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); if (e.target.id === 'gfR') gfReplace(false); else gfStep(e.shiftKey ? -1 : 1); }
+    else if (e.key === 'Escape') { e.preventDefault(); gfClose(); }
+  });
+  bar.addEventListener('click', e => {
+    const b = e.target.closest('[data-gf]'); if (!b) return; const a = b.dataset.gf;
+    if (a === 'next') gfStep(1); else if (a === 'prev') gfStep(-1); else if (a === 'x') gfClose();
+    else if (a === 'case') { GF.cs = !GF.cs; b.classList.toggle('on', GF.cs); gfScan(false); gfShow(); }
+    else if (a === 'rep') gfReplace(false); else if (a === 'all') gfReplace(true);
+  });
+  GCED.el.addEventListener('click', e => { if (e.target.closest('[data-ge="find"]')) { if (GF.open && GF.rep) gfClose(); else gfOpen(true); } });
+  // Ctrl+F (find) and Ctrl+H (replace) belong to the program editor whenever it is showing
+  document.addEventListener('keydown', e => {
+    if (GCED.el.hidden || !(e.ctrlKey || e.metaKey) || e.altKey) return;
+    const k = e.key.toLowerCase();
+    if (k === 'f' || k === 'h') { e.preventDefault(); e.stopPropagation(); gfOpen(k === 'h'); }
+  }, true);
 })();
 // Post shows the editor, every other view hides it
 const bindCamPanelG = bindCamPanel;
@@ -31984,8 +32150,8 @@ camClick = function (x, y) {
 .guide.shut .guide-head .gv { transform: rotate(-45deg) translate(-1px, -1px); }
 .guide-bar { height: 3px; background: var(--rule); }
 .guide-bar i { display: block; height: 100%; background: var(--accent); border-radius: 0 3px 3px 0; transition: width .35s cubic-bezier(.2,.7,.2,1); }
-.guide-steps { list-style: none; margin: 0; padding: 6px 8px 8px; position: relative; }
-.guide.shut .guide-steps { display: none; }
+.guide-steps { list-style: none; margin: 0; padding: 6px 8px 8px; position: relative; max-height: 640px; overflow: hidden; transition: max-height .34s var(--ease), opacity .24s ease, padding .34s var(--ease); }
+.guide.shut .guide-steps { max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; pointer-events: none; }
 .guide-steps li { display: flex; gap: 10px; padding: 6px 4px; border-radius: 8px; position: relative; font-size: 12px; line-height: 1.4; color: var(--muted); }
 .guide-steps li + li::before { content: ''; position: absolute; left: 14px; top: -8px; height: 12px; width: 2px; background: var(--rule); }
 .guide-steps li.done + li::before { background: var(--accent); opacity: .55; }
@@ -32425,5 +32591,80 @@ ${D2} .rb-panel .rb-col > .rb-sm { padding: 0 4px 0 3px; gap: 4px; font-size: 10
 })();
 </script>
 <!-- RIB3-END -->
+<script>
+// ═══ Animated dropdowns ═══
+// Every <select> keeps its look, focus and change events; only its popup is swapped for an animated one.
+(() => {
+  let pop = null, cur = null, hi = -1, items = [], openedAt = 0;
+  const reduce = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function close(animate = true) {
+    if (!pop) return;
+    const p = pop, s = cur; pop = cur = null; items = []; hi = -1;
+    if (s) s.classList.remove('dd-open');
+    if (animate && !reduce()) { p.classList.add('out'); setTimeout(() => p.remove(), 150); } else p.remove();
+  }
+  function choose(i) {
+    const s = cur, it = items[i];
+    if (!s || !it || it.o.disabled) return;
+    const changed = s.selectedIndex !== it.o.index;
+    s.selectedIndex = it.o.index;
+    close();
+    s.focus();
+    if (changed) { s.dispatchEvent(new Event('input', { bubbles: true })); s.dispatchEvent(new Event('change', { bubbles: true })); }
+  }
+  function mark(i) {
+    if (!items.length) return;
+    hi = (i + items.length) % items.length;
+    items.forEach((x, k) => x.el.classList.toggle('hi', k === hi));
+    const el = items[hi].el, t = el.offsetTop, b = t + el.offsetHeight;   // keep the highlighted row in view without scrolling the page
+    if (t < pop.scrollTop) pop.scrollTop = t - 4; else if (b > pop.scrollTop + pop.clientHeight) pop.scrollTop = b - pop.clientHeight + 4;
+  }
+  function open(s) {
+    close(false);
+    cur = s; openedAt = performance.now(); s.classList.add('dd-open');
+    pop = document.createElement('div'); pop.className = 'dd-pop'; pop.setAttribute('role', 'listbox');
+    let n = 0, lastGroup = null;
+    for (const o of s.options) {
+      const g = o.parentElement && o.parentElement.tagName === 'OPTGROUP' ? o.parentElement : null;
+      if (g && g !== lastGroup) { const h = document.createElement('div'); h.className = 'dd-grp'; h.textContent = g.label; pop.appendChild(h); }
+      lastGroup = g;
+      const el = document.createElement('div');
+      el.className = 'dd-opt' + (o.selected ? ' sel' : '') + (o.disabled ? ' off' : '');
+      el.style.setProperty('--i', n); el.setAttribute('role', 'option'); el.textContent = o.text;
+      const k = n++; el.addEventListener('mousedown', e => { e.preventDefault(); choose(k); }); el.addEventListener('mousemove', () => mark(k));
+      pop.appendChild(el); items.push({ el, o });
+    }
+    document.body.appendChild(pop);
+    const r = s.getBoundingClientRect(), ph = Math.min(pop.scrollHeight + 2, 300), below = innerHeight - r.bottom - 8, up = below < ph && r.top > below;
+    pop.style.minWidth = r.width + 'px'; pop.style.maxWidth = Math.max(r.width, 360) + 'px';
+    pop.style.maxHeight = Math.min(300, Math.max(120, (up ? r.top : below) - 6)) + 'px';
+    pop.classList.toggle('up', up);
+    pop.style.left = Math.max(8, Math.min(r.left, innerWidth - pop.offsetWidth - 8)) + 'px';
+    pop.style.top = up ? Math.max(8, r.top - Math.min(ph, r.top - 8) - 4) + 'px' : (r.bottom + 4) + 'px';
+    mark(Math.max(0, s.selectedIndex));
+  }
+  const usable = s => s && s.tagName === 'SELECT' && !s.multiple && !(s.size > 1) && !s.disabled;
+  document.addEventListener('mousedown', e => {
+    const s = e.target.closest && e.target.closest('select');
+    if (usable(s)) { e.preventDefault(); s.focus(); if (cur === s) close(); else open(s); return; }
+    if (pop && !(e.target.closest && e.target.closest('.dd-pop'))) close();
+  }, true);
+  document.addEventListener('keydown', e => {
+    if (pop) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); mark(hi + 1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); mark(hi - 1); }
+      else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); choose(hi); }
+      else if (e.key === 'Escape' || e.key === 'Tab') { if (e.key === 'Escape') e.preventDefault(); close(); }
+      return;
+    }
+    const s = document.activeElement;
+    if (usable(s) && (e.key === ' ' || e.key === 'Enter' || (e.altKey && e.key === 'ArrowDown'))) { e.preventDefault(); open(s); }
+  }, true);
+  addEventListener('resize', () => close(false));
+  addEventListener('blur', () => close(false));
+  document.addEventListener('scroll', e => { if (pop && performance.now() - openedAt > 250 && !(e.target.closest && e.target.closest('.dd-pop'))) close(false); }, true);
+  document.addEventListener('wheel', e => { if (pop && !(e.target.closest && e.target.closest('.dd-pop'))) close(false); }, { passive: true, capture: true });
+})();
+</script>
 </body>
 </html>
