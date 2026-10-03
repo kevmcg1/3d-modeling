@@ -3726,7 +3726,7 @@ body.col-drag { cursor: col-resize; user-select: none; }
   --sk-profile: rgba(236, 166, 52, .20); --sk-profile-hot: rgba(236, 166, 52, .42); --sk-profile-sel: rgba(36, 96, 200, .30);
   --sk-dim: rgba(23, 32, 44, .45); --grid-minor: rgba(35, 52, 76, .07); --grid-major: rgba(35, 52, 76, .15); --edge: #1c232d; --body: #b4bec9;
   --axis-u: #cf4236; --axis-v: #2b9650; --snap: #e2630f; --face-hot: #3d7cf0; --plane: #6f9be8; }
-:root[data-look="shaded"] body:not(.ws-cam) #viewport { background:
+:root[data-look="shaded"] #viewport, :root[data-look="shaded"] body.ws-cam #viewport { background:
   radial-gradient(ellipse 90% 80% at 42% 38%, var(--look-a) 0%, var(--look-b) 58%, var(--look-c) 100%); }
 #ov { cursor: crosshair; }
 #ov.nav { cursor: grabbing; }
@@ -11827,7 +11827,7 @@ try { const v = localStorage.getItem('datum.shade'); if (v === 'shaded' || v ===
 const LOOK = {
   on: false, env: null, plain: null, ao: null,
   uni: { uViewH: { value: 160 }, uPersp: { value: 1.7 }, uLook: { value: 0 } },
-  edge: new THREE.LineBasicMaterial({ color: 0x2b313b, transparent: true, opacity: 0.4 })
+  edge: new THREE.LineBasicMaterial({ color: 0x232830, transparent: true, opacity: 0.55 })
 };
 function lookEnv() {
   if (LOOK.env !== null) return LOOK.env;
@@ -11836,7 +11836,7 @@ function lookEnv() {
     const sc = new THREE.Scene(), sg = new THREE.SphereGeometry(50, 48, 24), pos = sg.attributes.position, col = new Float32Array(pos.count * 3);
     const lerp = (a, b, k) => a.map((v, i) => v + (b[i] - v) * k), sm = k => k * k * (3 - 2 * k);
     const ramp = h => {   // height → colour: bright ceiling, cool grey horizon band, dark floor
-      const T = [0.92, 0.93, 0.97], M = [0.88, 0.91, 0.98], F = [0.78, 0.79, 0.85];
+      const T = [0.97, 0.97, 1.0], M = [0.88, 0.91, 0.98], F = [0.78, 0.79, 0.85];
       return h > 0 ? lerp(M, T, sm(Math.min(1, h / 0.75))) : lerp(M, F, sm(Math.min(1, -h / 0.6)));
     };
     for (let i = 0; i < pos.count; i++) col.set(ramp(pos.getY(i) / 50), i * 3);
@@ -11846,8 +11846,8 @@ function lookEnv() {
       const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(rgb[0] * gain, rgb[1] * gain, rgb[2] * gain), side: THREE.DoubleSide }));
       m.position.set(x, y, z); m.lookAt(0, 0, 0); sc.add(m);
     };
-    box(60, 40, [1, 1, 1.02], 1.3, -8, 44, -14);          // key: big overhead softbox
-    box(54, 32, [1, 1, 1.03], 1.05, -28, 22, -30);          // second large panel back-left: what a top face mirrors from the iso view
+    box(60, 40, [1, 1, 1.02], 1.65, -8, 44, -14);          // key: big overhead softbox
+    box(54, 32, [1, 1, 1.03], 1.25, -28, 22, -30);          // second large panel back-left: what a top face mirrors from the iso view
     box(26, 34, [1.0, 0.90, 0.76], 1.5, 46, 6, -8);        // warm bounce card, right
     box(44, 44, [1, 1, 1], 0.02, -46, 6, 14);              // black flag, left: gives the deep shadowed walls
     box(9, 36, [0.92, 0.96, 1.0], 2.4, -26, 14, 38);       // strip light, front left
@@ -11951,11 +11951,11 @@ function lookAO() {
   for (const c of hidden) c.visible = true;
   applyShadeVis();
   const rw = Math.max(sceneR * 0.035, 1e-3), px = Math.min(70, Math.max(4, rw * ppu() * bs.x / W));
-  const u = A.mat.uniforms; u.uNear.value = camera.near; u.uFar.value = camera.far; u.uRw.value = rw; u.uRpx.value = px; u.uStr.value = 1.2;
+  const u = A.mat.uniforms; u.uNear.value = camera.near; u.uFar.value = camera.far; u.uRw.value = rw; u.uRpx.value = px; u.uStr.value = 2.0;
   renderer.render(A.qs, A.qc);
 }
 function applyLook() {
-  const on = SHADE === 'shaded' && typeof UIX !== 'undefined' && UIX.ws !== 'cam' && UIX.ws !== 'sheet';
+  const on = SHADE === 'shaded' && typeof UIX !== 'undefined' && UIX.ws !== 'sheet';
   if (on === LOOK.on && LOOK.plain) return;
   LOOK.on = on;
   if (on) lookEnv();
@@ -11982,7 +11982,7 @@ function applyShadeVis() {
     m.me.visible = SHADE !== 'wire';
     const le = m.group.children[1]; le.visible = true;
     le.material = LOOK.on ? LOOK.edge : edgeMat;
-    if (SHADE === 'shaded' && !LOOK.on) le.visible = false;   // Shaded inside Manufacture/Setup Sheet stays line-free, as before
+    if (SHADE === 'shaded' && !LOOK.on) le.visible = false;   // Shaded outside the studio look (Setup Sheet) stays line-free, as before
   }
 }
 function applyShade() {
