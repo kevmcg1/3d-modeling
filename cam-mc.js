@@ -282,6 +282,27 @@
       defaults: () => ({ stepover: 0.4, stepdown: 1.5, leaveWall: 0, leaveFloor: 0, restD: 0 }) },
   });
 
+  // ── Hover tip cards: a before and an after picture for each mode (tip-anim.js morphs one into the other) ──
+  if (typeof TipArt === 'object' && typeof TIP_ART === 'object' && typeof TIP_TXT === 'object') {
+    const { C, P, poly, line, box } = TipArt, iso = f => () => { TipArt.at(60, 48, 1.55); return f(); };
+    const blk = () => box(-16, -12, 0, 32, 24, 12);
+    const pocket = (hx, hy) => poly([P(-hx, -hy, 12), P(hx, -hy, 12), P(hx, hy, 12), P(-hx, hy, 12)], '#7d8896');
+    const oct = (hx, hy, c, z = 12.3) => line([P(-hx + c, -hy, z), P(hx - c, -hy, z), P(hx, -hy + c, z), P(hx, hy - c, z), P(hx - c, hy, z), P(-hx + c, hy, z), P(-hx, hy - c, z), P(-hx, -hy + c, z), P(-hx + c, -hy, z)], C.acc, 1.1);
+    const rect = (hx, hy, z = 12.3, col = C.acc, w = 1.1) => line([P(-hx, -hy, z), P(hx, -hy, z), P(hx, hy, z), P(-hx, hy, z), P(-hx, -hy, z)], col, w);
+    Object.assign(TIP_ART, {
+      'mc:dynamic': [iso(() => blk() + pocket(10, 7)), iso(() => blk() + pocket(10, 7) + [0, 1, 2, 3].map(k => oct(8.4 - 2.1 * k, 5.4 - 1.7 * k, 2.2 - 0.4 * k)).join(''))],
+      'mc:peel': [iso(() => blk() + box(-6, -4, 12, 12, 8, 5)), iso(() => blk() + box(-6, -4, 12, 12, 8, 5) + [0, 1, 2].map(k => rect(8 + 2.6 * (2 - k) + 0, 6 + 2.6 * (2 - k), 12.3, k === 2 ? C.warn : C.acc, 1.2)).join(''))],
+      'mc:area': [iso(() => blk() + pocket(10, 7)), iso(() => blk() + pocket(10, 7) + [-5.5, -2.75, 0, 2.75, 5.5].map((y, i) => line(i % 2 ? [P(8.6, y, 12.3), P(-8.6, y, 12.3)] : [P(-8.6, y, 12.3), P(8.6, y, 12.3)], C.acc, 1.2)).join('') + rect(8.6, 6.4, 12.3, C.warn, 1))],
+      'mc:rest': [iso(() => blk() + pocket(10, 7) + rect(7.4, 4.4, 12.3, '#9aa6b4', 1) + oct(7.4, 4.4, 2.6, 12.3).replace(C.acc, '#9aa6b4')), iso(() => blk() + pocket(10, 7) + [[1, 1], [-1, 1], [1, -1], [-1, -1]].map(([a, b]) => line([P(a * 9.2, b * 4.4, 12.3), P(a * 9.2, b * 6.2, 12.3), P(a * 7.4, b * 6.2, 12.3)], C.warn, 2.2)).join(''))],
+    });
+    Object.assign(TIP_TXT, {
+      'mc:dynamic': ['Rough an area fast: deep cuts with a light side bite, rounded corners, and a raised feed for the thin chip.', ['Click a closed chain (the pocket outline), with any islands.', 'Set the radial bite and the depth per level.', 'Leave stock on the walls for a Contour or Pocket finish.']],
+      'mc:peel': ['Take a band of stock off along a chain in full-depth passes, working in toward the wall.', ['Click the chain along the wall.', 'Pick the stock side and how wide a band to peel.', 'Set the side bite and the depth per level.']],
+      'mc:area': ['Clear a closed area with straight zigzag strokes at any angle, then a pass round the walls.', ['Click a closed chain, with any islands.', 'Set the stroke angle, stepover and stepdown.']],
+      'mc:rest': ['After a bigger tool, clear only the corners it left, with a smaller tool.', ['Click the same closed chain.', 'Set the diameter of the roughing tool that went first.', 'Pick the smaller tool; only the leftover corners are cut.']],
+    });
+  }
+
   // ── Panel wiring ──
   window.mcBind = function (op, setN) {
     const set = (k, lo) => v => camEdit(op, k, Math.max(lo, v));
