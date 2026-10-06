@@ -8355,6 +8355,230 @@ FEATX.bmode = () => {};                // Solid / Hole acts after every feature:
 
 <script data-kernel>
 // ═══════════════════════════════════════════════════════════════════
+//  More modeling tools: primitives, push / pull, draft, align, stretch
+//  and delete body. Push / pull and draft move whole faces: every vertex
+//  slides the shortest way that keeps it on all of its faces' new
+//  positions, so neighbors stretch or shrink to follow (the same
+//  machinery as Shell). Align and stretch map finished solids.
+// ═══════════════════════════════════════════════════════════════════
+// ── Primitives: box, cylinder, cone, sphere, torus ─────────────────
+const PRIM_NAMES = { box: 'Box', cyl: 'Cylinder', cone: 'Cone', sphere: 'Sphere', torus: 'Torus' };
+function evalPrimitive(f, ctx, tol) {
+  const B = ORIGIN_PLANES[f.base || 'XZ'], n = B.n, k = f.shape || 'box';
+  const pos = (v, what) => { if (!(+v > 0)) throw new Error(what + ' must be positive'); return +v; };
+  const C = add3(planeTo3(B, P2(+f.cx || 0, +f.cy || 0)), mul3(n, +f.off || 0));
+  const pl = { o: C, u: B.u, v: B.v, n };
+  const ccw = pts => { const o = loopOf(pts, 1); if (loopArea(o) < 0) return loopOf(pts.slice().reverse(), 1); return o; };
+  let tool;
+  if (k === 'box') {
+    const w = pos(f.w, 'Width'), d = pos(f.d, 'Depth'), h = pos(f.h, 'Height'), ox = f.center === false ? 0 : -w / 2, oy = f.center === false ? 0 : -d / 2;
+    tool = prism({ outer: ccw([P2(ox, oy), P2(ox + w, oy), P2(ox + w, oy + d), P2(ox, oy + d)]), holes: [] }, pl, 0, h, tol, f.id);
+  } else if (k === 'cyl') {
+    const r = pos(f.dia, 'Diameter') / 2, h = pos(f.h, 'Height');
+    tool = prism({ outer: [circleSeg(r, 1)], holes: [] }, pl, 0, h, tol, f.id);
+  } else {
+    // turned shapes: a profile in a plane that holds the axis (x out from the axis, y along it), turned all the way round
+    const rp = { o: C, u: B.u, v: n, n: crs3(B.u, n) };
+    let outer, rMax;
+    if (k === 'cone') {
+      const r1 = pos(f.dia, 'Diameter') / 2, r2 = Math.max(0, +f.dia2 || 0) / 2, h = pos(f.h, 'Height');
+      outer = ccw(r2 > 1e-9 ? [P2(0, 0), P2(r1, 0), P2(r2, h), P2(0, h)] : [P2(0, 0), P2(r1, 0), P2(0, h)]);
+      rMax = Math.max(r1, r2);
+    } else if (k === 'sphere') {
+      const r = pos(f.dia, 'Diameter') / 2;
+      if (f.sit !== false) rp.o = add3(C, mul3(n, r));
+      outer = [{ k: 'A', c: P2(0, 0), r, t0: -Math.PI / 2, s: Math.PI, a: P2(0, -r), b: P2(0, r), src: 1 }, { k: 'L', a: P2(0, r), b: P2(0, -r), src: 2 }];
+      rMax = r;
+    } else if (k === 'torus') {
+      const R = pos(f.dia, 'Ring diameter') / 2, r = pos(f.tube, 'Tube diameter') / 2;
+      if (!(R > r + 1e-6)) throw new Error('The ring has to be wider than the tube');
+      if (f.sit !== false) rp.o = add3(C, mul3(n, r));
+      outer = [{ k: 'A', c: P2(R, 0), r, t0: 0, s: TAU, a: P2(R + r, 0), b: P2(R + r, 0), src: 1 }];
+      rMax = R + r;
+    } else throw new Error('Pick a shape');
+    tool = revolveBuild({ outer, holes: [] }, rp, { p: rp.o, dir: n }, 0, TAU, Math.max(16, circleN(rMax, tol)), true, tol, f.id);
+  }
+  finishTool(f, ctx, tool);
+}
+FEATX.primitive = evalPrimitive;
+
+// ── Move whole faces: push / pull and draft ────────────────────────
+// plan(fid) → null (the face stays), {b} (moves b along its own normal) or {n, d} (becomes the plane n·x = d).
+function moveFacesOf(body, f, plan, cap) {
+  const mesh = bodyMesh(body), VP = mesh.VP, inc = VP.map(() => []), memo = new Map();
+  for (const p of mesh.PL) for (const i of p.ids) if (!inc[i].includes(p.f)) inc[i].push(p.f);
+  const pl = fid => { if (!memo.has(fid)) memo.set(fid, plan(fid)); return memo.get(fid); };
+  const W = VP.map((v, i) => {
+    const rows = [];
+    for (const fid of inc[i]) {
+      const q = pl(fid);
+      const n = q && q.n ? q.n : Surf.normalAt(fid, v), b = q ? (q.n ? q.d - dot3(q.n, v) : q.b) : 0, r = rows.find(x => dot3(x.n, n) > 0.9995);
+      if (r) { if (Math.abs(b) > Math.abs(r.b)) r.b = b; continue; }
+      rows.push({ n, b });
+    }
+    return rows.length ? add3(v, offsetMove(rows, cap)) : v;
+  });
+  const cache = new Map();
+  const surfOf = fid => {
+    if (cache.has(fid)) return cache.get(fid);
+    const q = pl(fid), s = Surf.list[fid];
+    let r = fid;
+    if (q) {
+      if (q.n) r = Surf.plane(q.n, q.d);
+      else if (s.t === 'P' && s.patch === undefined) r = Surf.plane(s.n, s.d + q.b);
+      else if (s.t === 'C' && s.r + s.sg * q.b > 1e-6) r = Surf.cyl(s.p, s.dir, s.r + s.sg * q.b, s.sg);
+      else if (s.t === 'T' && s.prm.r + s.sg * q.b > 1e-6) r = Surf.torus(s.prm.p, s.prm.dir, s.prm.R, s.prm.r + s.sg * q.b, s.sg, s.kp[8] || 0);
+      else r = null;
+      if (r !== null && r !== fid) Surf.addMeta(r, { feat: f.id, src: (s.metas || [])[0] || fid });
+    }
+    cache.set(fid, r);
+    return r;
+  };
+  const polys = [];
+  for (const p of mesh.PL) {
+    const vs = p.ids.map(i => W[i]), sf = surfOf(p.f);
+    for (let i = 1; i + 1 < vs.length; i++) {
+      const tri = [vs[0], vs[i], vs[i + 1]];
+      if (len3(crs3(sub3(tri[1], tri[0]), sub3(tri[2], tri[0]))) < 1e-12) continue;
+      const pp = CSG.poly(tri, 0);
+      let f2 = sf;
+      if (f2 === null) { f2 = Surf.facet(pp.n, pp.w, 'mv' + f.id + ':' + p.f); Surf.addMeta(f2, { feat: f.id }); }
+      polys.push(CSG.poly(tri, f2, pp.n, pp.w));
+    }
+  }
+  let vol = 0;
+  for (const p of polys) for (let i = 1; i + 1 < p.v.length; i++) vol += dot3(p.v[0], crs3(p.v[i], p.v[i + 1]));
+  if (!(vol > 1e-9)) throw new Error('That move folds the part inside out — use a smaller distance');
+  return polys;
+}
+function pickedFaces(f, ctx) {
+  const hits = (f.faces || []).map(ref => findFace(ctx.bodies, ref));
+  if (!hits.length) throw new Error('Pick the faces first');
+  if (hits.some(h => !h)) throw new Error('A picked face no longer exists');
+  const body = hits[0].body;
+  if (hits.some(h => h.body !== body)) throw new Error('All the faces have to be on one body');
+  return { body, fids: new Set(hits.map(h => h.fid)) };
+}
+function evalPushPull(f, ctx) {
+  const d = +f.d;
+  if (!d) throw new Error('Distance is zero');
+  let body, fids;
+  if (f.whole) {
+    body = ctx.bodies.find(b => b.id === f.body);
+    if (!body) throw new Error('Pick a body');
+    fids = new Set(body.polys.map(p => p.f));
+  } else ({ body, fids } = pickedFaces(f, ctx));
+  const polys = moveFacesOf(body, f, fid => fids.has(fid) ? { b: d } : null, Math.abs(d));
+  ctx.bodies = ctx.bodies.map(b => b === body ? mkBody(b.id, polys) : b);
+  ctx.hl[f.id] = [body.id];
+}
+FEATX.pushpull = evalPushPull;
+function evalDraft(f, ctx) {
+  const a = (+f.angle || 0) * Math.PI / 180;
+  if (!a) throw new Error('The draft angle is zero');
+  if (Math.abs(a) > 80 * Math.PI / 180) throw new Error('Use a draft angle under 80°');
+  const { body, fids } = pickedFaces(f, ctx), P = resolveMirrorPlane(f.plane, ctx), m = nrm3(P.n), pull = mul3(m, f.flip ? -1 : 1);
+  const plans = new Map();
+  for (const fid of fids) {
+    const s = Surf.list[fid];
+    if (s.t !== 'P' || s.patch !== undefined) throw new Error('Only flat faces can be drafted');
+    const h = crs3(s.n, m);
+    if (len3(h) < 1e-6) throw new Error('A face parallel to the neutral plane cannot be drafted');
+    let q = sub3(pull, mul3(s.n, dot3(pull, s.n)));
+    if (len3(q) < 1e-6) throw new Error('A face that faces along the pull direction cannot be drafted');
+    q = nrm3(q);
+    const n2 = nrm3(add3(mul3(s.n, Math.cos(a)), mul3(q, Math.sin(a)))), o = solveLin([s.n, m, nrm3(h)], [s.d, P.w, 0]);
+    if (!o) throw new Error('The neutral plane does not meet a picked face');
+    plans.set(fid, { n: n2, d: dot3(n2, o) });
+  }
+  const bb = body.bb, diag = Math.hypot(bb[3] - bb[0], bb[4] - bb[1], bb[5] - bb[2]);
+  const polys = moveFacesOf(body, f, fid => plans.get(fid) || null, diag * 0.5);
+  ctx.bodies = ctx.bodies.map(b => b === body ? mkBody(b.id, polys) : b);
+  ctx.hl[f.id] = [body.id];
+}
+FEATX.draft = evalDraft;
+
+// ── Align: move one body so a face of it meets a face of another ───
+function evalAlign(f, ctx) {
+  const A = f.fa && findFace(ctx.bodies, f.fa), B = f.fb && findFace(ctx.bodies, f.fb);
+  if (!A || !B) throw new Error('Pick the face to move, then the face it should meet');
+  if (A.body === B.body) throw new Error('Pick faces on two different bodies');
+  const sa = Surf.list[A.fid], sb = Surf.list[B.fid], ia = faceInfo(A.mesh, A.fid), ib = faceInfo(B.mesh, B.fid);
+  const gap = +f.gap || 0, spin = (+f.spin || 0) * Math.PI / 180, plane = sa.t === 'P' && sb.t === 'P', round = sa.t === 'C' && sb.t === 'C';
+  if (!plane && !round) throw new Error('Pick two flat faces or two round faces');
+  const na = plane ? sa.n : sa.dir, nb = plane ? sb.n : sb.dir, want = plane ? (f.flush ? nb : neg3(nb)) : (f.flush ? neg3(nb) : nb);
+  const R0 = XF.turn(na, want), c = ia.center;
+  const M1 = { R: R0.R, t: sub3(c, XF.vec(R0, c)) };
+  const a1 = c;                                              // the pivot stays where it is
+  let T;
+  if (plane) T = f.center ? add3(sub3(ib.center, a1), mul3(nb, gap)) : mul3(nb, dot3(nb, sub3(ib.on, a1)) + gap);
+  else { const d = sub3(ib.center, a1); T = add3(sub3(d, mul3(nb, f.center ? 0 : dot3(nb, d))), mul3(nb, gap)); }
+  let M = XF.mul(XF.trans(T), M1);
+  if (spin) M = XF.mul(XF.rot(add3(a1, T), nb, spin), M);
+  const id = A.body.id;
+  ctx.bodies = ctx.bodies.map(b => b === A.body ? mkBody(id, xformPolys(b.polys, M, f.id + ':' + id, { feat: f.id })) : b);
+  ctx.hl[f.id] = [id];
+}
+FEATX.align = evalAlign;
+
+// ── Stretch: scale a body by a different factor along each axis ────
+function evalStretch(f, ctx) {
+  const src = bodiesById(f.bodies, ctx);
+  if (!src.length) throw new Error('Pick bodies to stretch');
+  const sc = [+f.sx || 1, +f.sz || 1, +f.sy || 1];                     // the page's X right, Z up (y here), Y back (−z here)
+  if (sc.some(v => !(v > 0))) throw new Error('Scale factors must be positive');
+  const pivot = f.pivot === 'origin' ? [0, 0, 0] : bbCenter(src), eq = (a, b) => Math.abs(a - b) < 1e-9;
+  const Ap = v => [pivot[0] + (v[0] - pivot[0]) * sc[0], pivot[1] + (v[1] - pivot[1]) * sc[1], pivot[2] + (v[2] - pivot[2]) * sc[2]];
+  const Nm = n => nrm3([n[0] / sc[0], n[1] / sc[1], n[2] / sc[2]]);   // normals follow the inverse transpose
+  const uniform = eq(sc[0], sc[1]) && eq(sc[1], sc[2]), ids = [];
+  const exact = new Map();
+  const exactSurf = fid => {
+    if (exact.has(fid)) return exact.get(fid);
+    const s = Surf.list[fid];
+    let r = null;
+    if (s.t === 'P' && s.patch === undefined) { const n = Nm(s.n); r = Surf.plane(n, dot3(n, Ap(mul3(s.n, s.d)))); }
+    else if (s.t === 'C') {
+      const k = [0, 1, 2].find(i => eq(Math.abs(s.dir[i]), 1));
+      if (k !== undefined) { const o = [0, 1, 2].filter(i => i !== k); if (eq(sc[o[0]], sc[o[1]])) r = Surf.cyl(Ap(s.p), s.dir, s.r * sc[o[0]], s.sg); }
+    }
+    if (r !== null) Surf.addMeta(r, { feat: f.id, src: (s.metas || [])[0] || fid });
+    exact.set(fid, r);
+    return r;
+  };
+  ctx.bodies = ctx.bodies.map(b => {
+    if (!src.includes(b)) return b;
+    ids.push(b.id);
+    if (uniform) return mkBody(b.id, xformPolys(b.polys, XF.scale(pivot, sc[0]), f.id + ':' + b.id, { feat: f.id }));
+    const out = [], groups = new Map();
+    for (const p of b.polys) {
+      const vs = p.v.map(Ap), ex = exactSurf(p.f);
+      if (ex !== null) { out.push(CSG.poly(vs, ex)); continue; }
+      let g = groups.get(p.f); if (!g) groups.set(p.f, g = { P: [], N: [], tris: [], cell: 0 });
+      g.tris.push(vs);
+      p.v.forEach((v, i) => { const q = vs[i], n = Nm(Surf.normalAt(p.f, v)); g.P.push(q[0], q[1], q[2]); g.N.push(n[0], n[1], n[2]); g.cell = Math.max(g.cell, dist3(q, vs[(i + 1) % vs.length])); });
+    }
+    for (const [fid, g] of groups) {
+      const sid = Surf.free(Float64Array.from(g.P), Float32Array.from(g.N), Math.max(g.cell, 1e-6), [f.id, b.id, fid, g.P.length]);
+      Surf.addMeta(sid, { feat: f.id, face: fid });
+      for (const vs of g.tris) out.push(CSG.poly(vs, sid));
+    }
+    return mkBody(b.id, out);
+  });
+  ctx.hl[f.id] = ids;
+}
+FEATX.stretch = evalStretch;
+
+// ── Delete body ────────────────────────────────────────────────────
+function evalDeleteBody(f, ctx) {
+  const gone = bodiesById(f.bodies, ctx);
+  if (!gone.length) throw new Error('Pick the bodies to delete');
+  ctx.bodies = ctx.bodies.filter(b => !gone.includes(b));
+}
+FEATX.delbody = evalDeleteBody;
+</script>
+
+<script data-kernel>
+// ═══════════════════════════════════════════════════════════════════
 //  CAM kernel (runs in the worker): drop-cutter for 3D finishing.
 //  CAM frame: X = world x, Y = −world z, Z = world y (spindle axis up).
 // ═══════════════════════════════════════════════════════════════════
@@ -21158,7 +21382,8 @@ function featDeps(f, ids, fromMeta) {
   if (f.type === 'bmode') for (const b of [f.body, ...(Array.isArray(f.to) ? f.to : [])]) ids.add(Math.floor(b));
   if (f.type === 'loft') for (const s of f.secs || []) ids.add(s.sketch);
   if (f.type === 'hole' && f.face) fromMeta(f.face.m);
-  if (f.type === 'shell') for (const r of f.faces || []) fromMeta(r.m);
+  if (f.type === 'shell' || f.type === 'pushpull' || f.type === 'draft') for (const r of f.faces || []) fromMeta(r.m);
+  if (f.type === 'align') for (const r of [f.fa, f.fb]) if (r) fromMeta(r.m);
   for (const k of ['axis', 'dir1', 'dir2', 'plane']) if (FEATS[f.type] && f[k] && typeof f[k] === 'object') ref(f[k]);
   if (f.type === 'pattern' && f.of !== 'bodies') for (const id of f.feats || []) ids.add(id);
   for (const b of [...(f.bodies || []), ...(f.tools || []), f.target, f.body]) if (typeof b === 'number') ids.add(Math.floor(b));
@@ -28217,8 +28442,9 @@ modelToolbarHTML = function () {
   const c = t => CMD && CMD.type === t, edge = k => c('edge') && CMD.f.type === k, pat = k => cmdIs('pattern') && CMD.f.kind === k;
   const f = (k, l, key) => ['f:' + k, l, key, k, cmdIs(k)];
   return rbPanel('Sketch', [['sketch', 'Create Sketch', 'K', 'sketch', c('pickPlane')]])
-    + rbPanel('Create', [['extrude', 'Extrude', 'E', 'extrude', c('extrude')], f('revolve', 'Revolve', 'R'), f('sweep', 'Sweep', 'S'), f('loft', 'Loft', 'L'), f('coil', 'Coil', ''), f('hole', 'Hole', ''), FEATS.gear ? f('gear', 'Gear', '') : null], 2)
-    + rbPanel('Modify', [['fillet3', 'Fillet', 'F', 'fillet3', edge('fillet')], ['chamfer3', 'Chamfer', 'C', 'chamfer3', edge('chamfer')], f('shell', 'Shell', ''), ['thread', 'Thread', 'T', 'thread', c('thread')], f('combine', 'Combine', ''), f('split', 'Split Body', ''), f('move', 'Move / Copy', 'G'), f('rotate', 'Rotate', ''), f('scale', 'Scale', '')], 2)
+    + rbPanel('Create', [['extrude', 'Extrude', 'E', 'extrude', c('extrude')], f('revolve', 'Revolve', 'R'), f('sweep', 'Sweep', 'S'), f('loft', 'Loft', 'L'), f('coil', 'Coil', ''), f('hole', 'Hole', ''), FEATS.gear ? f('gear', 'Gear', '') : null, FEATS.primitive ? f('primitive', 'Primitive', '') : null], 2)
+    + rbPanel('Modify', [['fillet3', 'Fillet', 'F', 'fillet3', edge('fillet')], ['chamfer3', 'Chamfer', 'C', 'chamfer3', edge('chamfer')], f('shell', 'Shell', ''), ['thread', 'Thread', 'T', 'thread', c('thread')], f('combine', 'Combine', ''), f('split', 'Split Body', ''), f('move', 'Move / Copy', 'G'), f('rotate', 'Rotate', ''), f('scale', 'Scale', ''), FEATS.stretch ? f('stretch', 'Stretch', '') : null, FEATS.delbody ? f('delbody', 'Delete Body', '') : null], 2)
+    + (FEATS.pushpull ? rbPanel('Direct', [f('pushpull', 'Push / Pull', ''), f('draft', 'Draft', ''), f('align', 'Align', '')], 1) : '')
     + rbPanel('Pattern', [['p:rect', 'Rectangular', '', 'pattern', pat('rect')], ['p:circ', 'Circular', '', 'patternc', pat('circ')], ['p:mirror', 'Mirror', '', 'mirror3', pat('mirror')]], 0)
     + rbPanel('Construct', [['plane', 'Offset Plane', 'P', 'plane', c('offset')], ['point', 'Point', 'O', 'point', c('point')]], 1)
     + rbPanel('Inspect', [['measure', 'Measure', 'M', 'measure', c('measure')], ['stress', 'Stress', '', 'stress', c('stress')], ['blueprint', 'Blueprint Drawing', '', 'blueprint']], 2)
@@ -30483,6 +30709,189 @@ const TIP_TXT = {
   document.addEventListener('keydown', hide, true);
   addEventListener('scroll', hide, true);
   addEventListener('blur', hide);
+})();
+</script>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  More modeling tools (Design tab): Primitive, Push / Pull, Draft,
+//  Align, Stretch and Delete Body. The kernel half lives next to the
+//  deform code; this half is the panels, picking, icons and help cards.
+// ═══════════════════════════════════════════════════════════════════
+Object.assign(FEAT_BASE, { primitive: 'Primitive', pushpull: 'Push Pull', draft: 'Draft', align: 'Align', stretch: 'Stretch', delbody: 'Delete' });
+Object.assign(FEAT_IC, { primitive: 'primitive', pushpull: 'pushpull', draft: 'draft', align: 'align', stretch: 'stretch', delbody: 'delbody' });
+TOOL_FEATS.add('primitive');
+Object.assign(IC, {
+  primitive: '<path d="M3 9l5-2.5L13 9v6l-5 2.5L3 15z"/><path d="M3 9l5 2.5L13 9M8 11.5v6" opacity=".55"/><circle cx="15" cy="5.5" r="2.6"/>',
+  pushpull: '<path d="M3 12.5l6 3 6-3V9.5l-6 3-6-3z"/><path d="M3 9.5l6 3 6-3" opacity=".5"/><path d="M10 11V2.5M7.3 5.2L10 2.5l2.7 2.7"/>',
+  draft: '<path d="M3 17h14M5 17L7.5 4h5L15 17"/><path d="M7.5 4l-1 5" stroke-dasharray="1.6 1.6" opacity=".5"/>',
+  align: '<path d="M3 3.5v13" /><path d="M6.5 10h7M10.8 7.2L13.6 10l-2.8 2.8"/><rect x="14.5" y="5.5" width="3" height="9" rx=".6"/>',
+  stretch: '<rect x="6.5" y="6.5" width="7" height="7" rx=".8"/><path d="M2 10h3M18 10h-3M3.7 8.2L2 10l1.7 1.8M16.3 8.2L18 10l-1.7 1.8"/>',
+  delbody: '<path d="M4 7l6-3 6 3v7l-6 3-6-3z" opacity=".5"/><path d="M7.5 8.3l5 5M12.5 8.3l-5 5"/>',
+});
+Object.assign(MENU_IC, { 'f:primitive': 'primitive', 'f:pushpull': 'pushpull', 'f:draft': 'draft', 'f:align': 'align', 'f:stretch': 'stretch', 'f:delbody': 'delbody' });
+TB_MENUS.create.push(['f:primitive', 'Primitive', '']);
+TB_MENUS.modify.push(null, ['f:pushpull', 'Push / Pull', ''], ['f:draft', 'Draft', ''], ['f:align', 'Align', ''], ['f:stretch', 'Stretch', ''], ['f:delbody', 'Delete Body', '']);
+RB_HUE.direct = 14;
+
+// ── Primitive ──────────────────────────────────────────────────────
+FEATS.primitive = {
+  label: 'Primitive', need: '',
+  title: f => PRIM_NAMES[f.shape] || 'Primitive',
+  init: () => ({ shape: 'box', w: 40, d: 30, h: 20, dia: 30, dia2: 0, tube: 6, center: true, sit: true, base: 'XZ', cx: 0, cy: 0, off: 0, op: 'new' }),
+  ready: () => true,
+  panel: f => {
+    const k = f.shape, st = isIn() ? 0.05 : 1, L = { len: 1, min: 0, step: st };
+    let h = pf.seg('Shape', 'shape', [['box', 'Box'], ['cyl', 'Cylinder'], ['cone', 'Cone']]) + pf.seg('', 'shape', [['sphere', 'Sphere'], ['torus', 'Torus']]);
+    if (k === 'box') h += `<div class="row2">${pf.num('Width', 'w', L)}${pf.num('Depth', 'd', L)}</div>${pf.num('Height', 'h', L)}${pf.chk('Centered on the point', 'center')}`;
+    else if (k === 'cyl') h += `<div class="row2">${pf.num('Diameter', 'dia', L)}${pf.num('Height', 'h', L)}</div>`;
+    else if (k === 'cone') h += `<div class="row2">${pf.num('Base Ø', 'dia', L)}${pf.num('Top Ø (0 = point)', 'dia2', L)}</div>${pf.num('Height', 'h', L)}`;
+    else if (k === 'sphere') h += pf.num('Diameter', 'dia', L) + pf.chk('Rest on the plane (else centered)', 'sit');
+    else h += `<div class="row2">${pf.num('Ring Ø', 'dia', L)}${pf.num('Tube Ø', 'tube', L)}</div>` + pf.chk('Rest on the plane (else centered)', 'sit');
+    return h + pf.seg('Base plane', 'base', [['XZ', 'Top'], ['XY', 'Front'], ['YZ', 'Side']])
+      + `<div class="row2">${pf.num('Center X', 'cx', { len: 1 })}${pf.num('Center Y', 'cy', { len: 1 })}</div>${pf.num('Offset from the plane', 'off', { len: 1 })}` + pf.op(f)
+      + pf.note('Round shapes are exact. Join, cut or intersect to add one to a part — a cylinder cut makes a hole, a sphere cut makes a dimple.');
+  },
+  hint: () => 'pick a shape and type its sizes — it updates live',
+  sub: f => { const u = v => fmtLs(+v); return `${OP_SIGN[f.op] || ''} ${f.shape === 'box' ? `${u(f.w)}×${u(f.d)}×${u(f.h)}` : f.shape === 'torus' ? 'Ø' + u(f.dia) : 'Ø' + u(f.dia)}`.trim(); },
+};
+
+// ── Push / Pull ────────────────────────────────────────────────────
+const pickFaceToggle = (f, key, h) => {
+  const i = f[key].findIndex(ref => { const r = findFace(beforeBodies(), ref); return r && r.fid === h.fid && r.body.id === h.body; });
+  if (i >= 0) f[key].splice(i, 1); else f[key].push(faceRef(h.mesh, h.fid, faceInfo(h.mesh, h.fid).on));
+};
+const hlFaces = (add, list) => { for (const ref of list) { const r = findFace(beforeBodies(), ref); if (r) add.face(r.mesh, r.fid, selMat); } };
+FEATS.pushpull = {
+  label: 'Push / Pull', before: true, need: 'Pick the faces to push or pull.',
+  init: () => ({ faces: [], d: 5, whole: false, body: null }),
+  ready: f => f.whole ? f.body != null : f.faces.length > 0,
+  start(c) { const s = sel3D; if (s && s.kind === 'face') c.f.faces = [faceRef(s.mesh, s.fid, faceInfo(s.mesh, s.fid).on)]; },
+  move(x, y) { if (CMD.f.whole) hoverBody(x, y); else hoverBeforeFace(x, y); },
+  click(x, y) {
+    const f = CMD.f;
+    if (f.whole) { const h = hover3D; if (h && h.kind === 'bbody') FEATS.pushpull.bodyClick(h.body); return; }
+    const h = pickBefore(x, y);
+    if (!h) return;
+    pickFaceToggle(f, 'faces', h); featSync();
+  },
+  bodyClick(id) { if (CMD.f.whole) { CMD.f.body = id; featSync(); } },
+  hl(add) { const f = CMD.f; if (f.whole) { if (f.body != null) add.body(f.body, selMat); } else hlFaces(add, f.faces); },
+  panel: f => pf.seg('Move', 'whole', [[false, 'Faces'], [true, 'Whole body']])
+    + (f.whole ? pf.pick('Body', f.body != null ? bodyNames()[f.body] || 'Body' : 'Click a body', '', null)
+      : pf.pick('Faces', f.faces.length ? 'Click a face again to drop it' : 'Click faces of a body', f.faces.length || '') + (f.faces.length ? '<div class="btns"><button class="btn" data-fdo="clear">Clear faces</button></div>' : ''))
+    + pf.num('Distance', 'd', { len: 1, step: isIn() ? 0.05 : 1 })
+    + pf.note(f.whole ? 'Every face moves out by the distance (a negative one shrinks the body).' : 'Positive pulls the faces out and adds material; negative pushes them in. The faces next to them stretch to follow, and round faces grow or shrink.'),
+  act: { clear() { CMD.f.faces = []; featSync(); } },
+  hint: c => c.f.whole ? 'click the body to grow or shrink' : 'click the faces to move, then type a distance',
+  sub: f => (f.d > 0 ? '+' : '') + fmtLs(f.d),
+};
+
+// ── Draft ──────────────────────────────────────────────────────────
+FEATS.draft = {
+  label: 'Draft', home: 'faces', before: true, need: 'Pick the flat faces to tilt.',
+  init: () => ({ faces: [], plane: { k: 'origin', w: 'XZ' }, angle: 3, flip: false }),
+  ready: f => f.faces.length > 0 && !!f.plane,
+  start(c) { const s = sel3D; if (s && s.kind === 'face' && Surf.list[s.fid].t === 'P') c.f.faces = [faceRef(s.mesh, s.fid, faceInfo(s.mesh, s.fid).on)]; },
+  move(x, y) { if (CMD.step === 'plane') hoverPlaneRef(x, y); else hoverBeforeFace(x, y, h => Surf.list[h.fid].t === 'P'); },
+  click(x, y) {
+    const f = CMD.f;
+    if (CMD.step === 'plane') { const p = planeRefFromHover(hover3D); if (!p) return; f.plane = p; CMD.step = 'faces'; featSync(); return; }
+    const h = pickBefore(x, y);
+    if (!h) return;
+    if (Surf.list[h.fid].t !== 'P') { toast('Only flat faces can be drafted.'); return; }
+    pickFaceToggle(f, 'faces', h); featSync();
+  },
+  hl(add) { hlFaces(add, CMD.f.faces); },
+  panel: f => pf.pick('Faces to tilt', f.faces.length ? 'Click a face again to drop it' : 'Click flat faces', f.faces.length || '', 'faces')
+    + `<div class="btns"><button class="btn" data-fdo="sides" ${f.faces.length ? '' : 'disabled'}>Add every side face</button>${f.faces.length ? '<button class="btn" data-fdo="clear">Clear</button>' : ''}</div>`
+    + pf.plane('Neutral plane (stays put)', 'plane', 'plane') + pf.num('Angle (°)', 'angle', { step: 1, min: 0 }) + pf.chk('Reverse the pull direction', 'flip')
+    + pf.note('Each face tilts about the line where it meets the neutral plane, so the part gets narrower going away from that plane (toward the pull direction). Use it to make walls release from a mold.'),
+  act: {
+    clear() { CMD.f.faces = []; featSync(); },
+    sides() {
+      const f = CMD.f, first = f.faces[0] && findFace(beforeBodies(), f.faces[0]);
+      if (!first) return;
+      let P; try { P = resolveMirrorPlane(f.plane, { bodies: beforeBodies(), planes: MODEL.planes || {} }); } catch (e) { toast('Pick a neutral plane first.'); return; }
+      const m = nrm3(P.n), have = new Set(f.faces.map(r => { const q = findFace(beforeBodies(), r); return q && q.fid; }));
+      for (const p of first.mesh.PL) {
+        const s = Surf.list[p.f];
+        if (have.has(p.f) || s.t !== 'P' || s.patch !== undefined || Math.abs(dot3(s.n, m)) > 0.02) continue;
+        have.add(p.f); f.faces.push(faceRef(first.mesh, p.f, faceInfo(first.mesh, p.f).on));
+      }
+      featSync();
+    },
+  },
+  hint: c => c.step === 'plane' ? 'click a flat face or construction plane to be the neutral plane' : 'click the flat faces to tilt',
+  sub: f => (f.flip ? '−' : '') + +(+f.angle).toFixed(2) + '°',
+};
+
+// ── Align ──────────────────────────────────────────────────────────
+FEATS.align = {
+  label: 'Align', home: 'a', before: true, need: 'Pick the face to move, then the face it should meet.',
+  init: () => ({ fa: null, fb: null, flush: false, center: false, gap: 0, spin: 0 }),
+  ready: f => !!f.fa && !!f.fb,
+  start(c) { const s = sel3D; if (s && s.kind === 'face' && 'PC'.includes(Surf.list[s.fid].t)) { c.f.fa = faceRef(s.mesh, s.fid, faceInfo(s.mesh, s.fid).on); c.step = 'b'; } },
+  move(x, y) { hoverBeforeFace(x, y, h => 'PC'.includes(Surf.list[h.fid].t)); },
+  click(x, y) {
+    const f = CMD.f, h = pickBefore(x, y);
+    if (!h) return;
+    if (!'PC'.includes(Surf.list[h.fid].t)) { toast('Pick a flat or round face.'); return; }
+    const ref = faceRef(h.mesh, h.fid, faceInfo(h.mesh, h.fid).on);
+    if (CMD.step === 'b') f.fb = ref; else { f.fa = ref; CMD.step = 'b'; }
+    featSync();
+  },
+  hl(add) { const f = CMD.f; for (const [ref, mat] of [[f.fa, selMat], [f.fb, hotMat]]) { const r = ref && findFace(beforeBodies(), ref); if (r) add.face(r.mesh, r.fid, mat); } },
+  panel: f => {
+    const name = ref => { const r = ref && findFace(beforeBodies(), ref); return r ? (bodyNames()[r.body.id] || 'Body') + (Surf.list[r.fid].t === 'C' ? ' · round face' : ' · flat face') : null; };
+    return pf.pick('Face to move', name(f.fa) || 'Click a flat or round face', f.fa ? '✓' : '', 'a') + pf.pick('Face to meet', name(f.fb) || 'Click a face on another body', f.fb ? '✓' : '', 'b')
+      + pf.seg('Flat faces', 'flush', [[false, 'Touch'], [true, 'Flush']]) + pf.chk('Center on the target face', 'center')
+      + `<div class="row2">${pf.num('Gap', 'gap', { len: 1, step: isIn() ? 0.05 : 1 })}${pf.num('Spin (°)', 'spin', { step: 15 })}</div>`
+      + pf.note('The body of the first face moves; the second stays. Flat faces touch face to face (or sit flush); two round faces share one axis — use it to drop a pin into a hole.');
+  },
+  hint: c => c.step === 'b' ? 'click the face it should meet (on another body)' : 'click the face to move',
+  sub: f => f.flush ? 'flush' : 'touch',
+};
+
+// ── Stretch, Delete Body ───────────────────────────────────────────
+FEATS.stretch = bodyTool({
+  label: 'Stretch',
+  init: () => ({ bodies: [], sx: 1.5, sy: 1, sz: 1, pivot: 'center' }),
+  panel: f => bodyPickPanel(f, 'bodies', 'Bodies')
+    + `<div class="row3">${pf.num('X (×)', 'sx', { step: 0.1, min: 0.01 })}${pf.num('Y (×)', 'sy', { step: 0.1, min: 0.01 })}${pf.num('Z (×)', 'sz', { step: 0.1, min: 0.01 })}</div>`
+    + pf.seg('About', 'pivot', [['center', 'Body center'], ['origin', 'Origin']])
+    + pf.note('Scale each direction on its own: 2 doubles that direction and 1 leaves it alone. Flat faces stay flat; round faces that are squashed become smooth freeform surfaces.'),
+  sub: f => `${+(+f.sx).toFixed(2)}·${+(+f.sy).toFixed(2)}·${+(+f.sz).toFixed(2)}`,
+});
+FEATS.delbody = bodyTool({
+  label: 'Delete Body',
+  init: () => ({ bodies: [] }),
+  panel: f => bodyPickPanel(f, 'bodies', 'Bodies to delete') + pf.note('The bodies are removed from the model from this step on. Roll the history marker back to bring them back.'),
+  sub: f => f.bodies.length > 1 ? '× ' + f.bodies.length : '',
+});
+
+// ── Help cards: what each tool does, before and after ──────────────
+Object.assign(TIP_TXT, {
+  'f:primitive': ['A ready-made box, cylinder, cone, sphere or torus from its sizes.', ['Choose the shape and type its sizes.', 'Pick the base plane and where its center goes.', 'Choose New body, Join, Cut or Intersect, then OK.']],
+  'f:pushpull': ['Push or pull faces straight in or out — or grow or shrink a whole body.', ['Click the faces to move (or choose Whole body).', 'Type a distance: positive pulls out, negative pushes in.', 'Neighboring faces stretch to follow. OK.']],
+  'f:draft': ['Tilt walls by a few degrees so a part releases from its mold.', ['Click the flat faces to tilt, or Add every side face.', 'Pick the neutral plane — the line where it meets each face stays put.', 'Set the angle, then OK.']],
+  'f:align': ['Move one body so a face of it meets a face of another.', ['Click the face on the body you want to move.', 'Click the face it should meet (flat to flat, or round to round).', 'Add a gap, a spin or centering if you need it, then OK.']],
+  'f:stretch': ['Scale a body by different amounts in X, Y and Z.', ['Pick the bodies.', 'Type a factor for each direction (1 leaves it alone).', 'OK.']],
+  'f:delbody': ['Remove whole bodies from the model.', ['Click the bodies to delete.', 'OK. Roll the history back to bring them back.']],
+});
+(() => {
+  const A = TipArt, { C, at, P, poly, line, box, ell, cyl, arrow, plane } = A;
+  const iso = (f, ox = 60, oy = 48, s = 1.55) => () => { at(ox, oy, s); return f(); };
+  const ghost = svg => svg.replace(/fill="[^"]+"/g, 'fill="none"').replace(/stroke="[^"]+"/g, 'stroke="#b8c2ce" stroke-dasharray="2 2"');
+  const frustum = (t = 'a') => poly([P(-14, 10, 0), P(14, 10, 0), P(10, 6, 16), P(-10, 6, 16)], C.accL) + poly([P(14, -10, 0), P(14, 10, 0), P(10, 6, 16), P(10, -6, 16)], C.accR) + poly([P(-10, -6, 16), P(10, -6, 16), P(10, 6, 16), P(-10, 6, 16)], C.accT);
+  Object.assign(TIP_ART, {
+    'f:primitive': [iso(() => plane(0, 28)), iso(() => box(-14, -10, 0, 22, 18, 12, 'a') + cyl(12, 6, 0, 8, 22, 'a'), 60, 52, 1.35)],
+    'f:pushpull': [iso(() => box(-15, -11, 0, 30, 22, 12) + line([P(-15, -11, 12), P(15, -11, 12), P(15, 11, 12), P(-15, 11, 12), P(-15, -11, 12)], C.warn, 2)), iso(() => box(-15, -11, 0, 30, 22, 12) + box(-15, -11, 12, 30, 22, 9, 'a') + arrow(P(0, 0, 21), P(0, 0, 32), C.acc), 60, 54, 1.35)],
+    'f:draft': [iso(() => box(-14, -10, 0, 28, 20, 16) + line([P(-14, 10, 0), P(-14, 10, 16)], C.warn, 2.4)), iso(() => frustum())],
+    'f:align': [iso(() => box(-26, -9, 0, 18, 18, 14) + box(10, -9, 0, 18, 18, 14, 'a') + arrow(P(10, 0, 20), P(-6, 0, 20), C.acc), 60, 52, 1.35), iso(() => box(-18, -9, 0, 18, 18, 14) + box(0, -9, 0, 18, 18, 14, 'a'), 60, 52, 1.35)],
+    'f:stretch': [iso(() => box(-8, -8, 0, 16, 16, 12)), iso(() => ghost(box(-8, -8, 0, 16, 16, 12)) + box(-22, -8, 0, 44, 16, 12, 'a') + arrow(P(10, 0, 14), P(24, 0, 14), C.acc), 60, 52, 1.2)],
+    'f:delbody': [iso(() => box(-26, -9, 0, 18, 18, 14) + box(8, -9, 0, 18, 18, 14, 'a'), 60, 52, 1.35), iso(() => box(-26, -9, 0, 18, 18, 14) + ghost(box(8, -9, 0, 18, 18, 14)), 60, 52, 1.35)],
+  });
 })();
 </script>
 
