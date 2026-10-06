@@ -70,6 +70,12 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
     const r = await page.evaluate(() => { const op = opById(CAMUI.op), P = toolpath(op), g = postGcode().text; return { n: (op.chains || []).length, holes: (P.holes || []).length, warn: P.warn, gcode: /G8[1-5]/.test(g) }; });
     assert(r.n === 1 && r.holes === 1 && !r.warn.length && r.gcode, JSON.stringify(r));
   });
+  await ok('sidebar has separate Manual and Auto categories', async () => {
+    const r = await page.evaluate(() => { const h = [...document.querySelectorAll('.auto-head')].map(e => e.textContent.replace(/\s+/g, ' ').trim()), man = document.querySelector('.manual-card'); return { h, manual: man ? man.querySelectorAll('[data-op]').length : -1 }; });
+    assert(r.h[0].startsWith('Manual') && r.h[1].startsWith('Auto') && r.manual === 1, JSON.stringify(r));
+    const a = await page.evaluate(() => { camAddOp('face'); const op = cam().ops[cam().ops.length - 1]; op.auto = true; camRefresh(); return [...document.querySelectorAll('.auto-card')].map(c => c.querySelectorAll('[data-op]').length); });
+    assert.deepStrictEqual(a, [1, 1], JSON.stringify(a));
+  });
   await ok('no page errors', async () => assert(!errs.length, errs.join(' | ')));
   await browser.close();
   console.log(fail ? fail + ' FAILED' : 'all chain checks passed'); process.exit(fail ? 1 : 0);

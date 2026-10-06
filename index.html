@@ -4251,6 +4251,9 @@ button svg, .rb-btn svg, .tb svg, .btn svg { transition: transform .22s cubic-be
 .auto-head .icon-btn { margin-left: auto; font-size: 15px; width: 26px; height: 22px; }
 .auto-head .icon-btn:hover { color: var(--accent); background: var(--accent-soft); }
 .auto-card .tree { padding: 0 4px 5px; }
+.manual-card { border-color: var(--rule); background: var(--panel); }
+.manual-card .auto-head { color: var(--ink); }
+.auto-card .empty { padding: 4px 8px 6px; font-size: 11.5px; color: var(--muted); }
 .sec-note { padding: 0 14px 4px; font-size: 11px; color: var(--muted); }
 .det { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .det li { display: grid; grid-template-columns: 18px 1fr auto; gap: 7px; align-items: baseline; padding: 5px 7px; border-radius: 6px; font-size: 12px; cursor: default; }
@@ -15814,18 +15817,16 @@ function camAction(a) {
 }
 function camTree() {
   const C = cam(), st = camStock();
-  let k = 0;
+  let k = 0; const nums = new Map(); for (const o of C.ops) if (!o.sup) nums.set(o.id, ++k);
   const row = op => {
     const P = toolpath(op), warn = P && P.warn.length, busy = P && P.pending;
-    return `<li data-op="${op.id}" title="${(op.why || '').replace(/"/g, '&quot;')}" class="${CAMUI.op === op.id && CAMUI.view === 'op' ? 'sel' : ''} ${op.sup ? 'dim' : ''} ${warn ? 'err' : ''}"><span class="tl-num">${op.sup ? '' : ++k}</span>${svg(OP_INFO[op.type].icon, 'ic')}<span class="nm">${op.name}</span><span class="sub">${busy ? '<span class="spin"></span>' : op.type === 'wire' ? 'Wire' : 'T' + op.tool}</span><button class="eye ${op.hide ? 'off' : ''}" data-ophide="${op.id}" title="${op.hide ? 'Show toolpath' : 'Hide toolpath'}">${svg('eye')}</button></li>`;
+    return `<li data-op="${op.id}" title="${(op.why || '').replace(/"/g, '&quot;')}" class="${CAMUI.op === op.id && CAMUI.view === 'op' ? 'sel' : ''} ${op.sup ? 'dim' : ''} ${warn ? 'err' : ''}"><span class="tl-num">${op.sup ? '' : nums.get(op.id)}</span>${svg(OP_INFO[op.type].icon, 'ic')}<span class="nm">${op.name}</span><span class="sub">${busy ? '<span class="spin"></span>' : op.type === 'wire' ? 'Wire' : 'T' + op.tool}</span><button class="eye ${op.hide ? 'off' : ''}" data-ophide="${op.id}" title="${op.hide ? 'Show toolpath' : 'Hide toolpath'}">${svg('eye')}</button></li>`;
   };
-  // Runs of auto-detected operations sit in their own card; yours stay in the plain list.
-  const runs = [];
-  for (const op of C.ops) { const a = !!op.auto, r = runs[runs.length - 1]; if (r && r.auto === a) r.ops.push(op); else runs.push({ auto: a, ops: [op] }); }
-  const hasMine = C.ops.some(o => !o.auto);
-  const ops = runs.map(r => r.auto
-    ? `<div class="auto-card"><div class="auto-head">${svg('auto')}Auto-detected <span class="cnt">${r.ops.length} op${r.ops.length > 1 ? 's' : ''}</span><button class="icon-btn" data-automenu title="Auto-detected operations">⋯</button></div><ul class="tree">${r.ops.map(row).join('')}</ul></div>`
-    : `${hasMine && C.ops.some(o => o.auto) ? '<div class="sec-note">Your operations</div>' : ''}<ul class="tree">${r.ops.map(row).join('')}</ul>`).join('');
+  // Two categories: Manual (clicked, chained or added by hand) and Auto (programmed from model feature detection).
+  // Program order is unchanged; the numbers are the order the program runs in.
+  const manual = C.ops.filter(o => !o.auto), auto = C.ops.filter(o => o.auto);
+  const sec = (title, icon, list, empty, menu) => `<div class="auto-card ${menu ? '' : 'manual-card'}"><div class="auto-head">${svg(icon)}${title} <span class="cnt">${list.length} op${list.length === 1 ? '' : 's'}</span>${menu ? '<button class="icon-btn" data-automenu title="Auto-detected operations">⋯</button>' : ''}</div>${list.length ? `<ul class="tree">${list.map(row).join('')}</ul>` : `<ul class="tree"><li class="empty">${empty}</li></ul>`}</div>`;
+  const ops = C.ops.length ? sec('Manual', 'camchain', manual, 'Add a Chain, Contour, Pocket or Drill from the toolbar', false) + sec('Auto', 'auto', auto, 'Run Auto Detect to program from the model', true) : '';
   return `<div class="sec-title">Setup</div><ul class="tree">
       <li data-camview="setup" class="${CAMUI.view === 'setup' ? 'sel' : ''}">${svg('camsetup', 'ic')}<span class="nm">Stock &amp; origin</span><span class="sub">${st ? [st.x1 - st.x0, st.y1 - st.y0, st.z1 - st.z0].map(x => fmt(toU(x), isIn() ? 2 : 0)).join('×') : '—'}</span></li>
       <li data-camview="tools" class="${CAMUI.view === 'tools' ? 'sel' : ''}">${svg('camtools', 'ic')}<span class="nm">Tool library</span><span class="sub">${C.tools.length}</span></li>
