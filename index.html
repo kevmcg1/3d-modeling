@@ -4327,6 +4327,36 @@ html.calm .dd-pop, html.calm .dd-opt, html.calm #ctxmenu, html.calm .guide-steps
 
 html.calm *, html.calm *::before, html.calm *::after { transition: none !important; animation: none !important; }
 </style>
+<style id="motion">
+/* ── Motion: one set of timing tokens for every control, panel and mode switch ── */
+:root { --mo-fast: 150ms; --mo: 200ms; --mo-slow: 250ms; --mo-ease: cubic-bezier(.2, .7, .2, 1); }
+:where(button, [role="tab"], [role="button"], a, select, input, textarea, summary, label, .btn, .tb, .chip, .tab, li) {
+  transition-property: background-color, color, border-color, box-shadow, opacity, transform, fill, stroke;
+  transition-duration: var(--mo); transition-timing-function: var(--mo-ease);
+}
+:where(button, [role="tab"], [role="button"], .btn, .tb, .chip):active:not(:disabled) { transition-duration: 80ms; }
+:where(button, input, select, textarea, [role="tab"], a):focus-visible { transition-duration: var(--mo-fast); }
+:where(svg, svg *) { transition: fill var(--mo) var(--mo-ease), stroke var(--mo) var(--mo-ease), opacity var(--mo) var(--mo-ease), transform var(--mo) var(--mo-ease); }
+@keyframes mo-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes mo-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  *:not(.spin), *::before, *::after { animation-duration: .01ms !important; animation-delay: 0s !important; transition-duration: .01ms !important; transition-delay: 0s !important; scroll-behavior: auto !important; }
+}
+
+/* workspace switches fade in instead of snapping */
+#main, #sheetWs, #drawWs, #houseWs, #gfxWs { animation: mo-in var(--mo-slow) var(--mo-ease) both; }
+/* Manufacture rail and the right panel */
+.cat-btn { transition: background-color var(--mo) var(--mo-ease), color var(--mo) var(--mo-ease), border-color var(--mo) var(--mo-ease), box-shadow var(--mo) var(--mo-ease), transform var(--mo-fast) var(--mo-ease); }
+.cat-btn svg { transition: transform var(--mo) var(--mo-ease); }
+.cat-btn:hover svg { transform: translateY(-1px) scale(1.08); }
+.cat-btn:active { transform: scale(.95); transition-duration: 80ms; }
+#catrail:not([hidden]) { animation: mo-in var(--mo-slow) var(--mo-ease) both; }
+.cat-btn.on { box-shadow: 0 1px 6px color-mix(in srgb, var(--accent) 18%, transparent); }
+#panel .pn-body, #panel .pn-head { animation: none; }
+#panel.pn-enter .pn-head, #panel.pn-enter .pn-body { animation: panel-in var(--mo-slow) var(--mo-ease) both; }
+#panel.pn-enter .pn-body { animation-delay: 30ms; }
+.tree li { transition: background-color var(--mo-fast) var(--mo-ease), color var(--mo-fast) var(--mo-ease), box-shadow var(--mo-fast) var(--mo-ease), opacity var(--mo) var(--mo-ease); }
+</style>
 </head>
 <body>
 <header id="topbar">
@@ -11548,6 +11578,10 @@ function refreshPanel() {
   const ae = document.activeElement;
   const mode = CMD ? CMD.type + (CMD.f ? CMD.f.id : '') + (CMD.base ? 'b' : '') : S.sk ? 'sketch' : UIX.ws === 'cam' ? 'cam' + CAMUI.view + CAMUI.op : 'idle';
   if (ae && panel.contains(ae) && ae.dataset.live && panel.dataset.mode === mode) return;
+  // the panel eases in only when it switches to a different view, not on every refresh while editing
+  const enterKey = mode + (CAMUI.view === 'cat' ? CAMUI.cat : '');
+  panel.classList.toggle('pn-enter', panel.dataset.enter !== enterKey);
+  panel.dataset.enter = enterKey;
   panel.dataset.mode = mode;
   let h = '';
   if (CMD && CMD.type === 'measure') { panel.innerHTML = measurePanel(); panel.hidden = false; bindPanel(); bindMeasurePanel(); return; }
@@ -15842,8 +15876,12 @@ function catRailRender() {
   rail.hidden = !on;
   if (!on) { rail.innerHTML = ''; return; }
   const cur = CAMUI.view === 'cat' ? CAMUI.cat : CAMUI.view === 'op' && opById(CAMUI.op) ? catOf(opById(CAMUI.op)) : null;
-  rail.innerHTML = Object.entries(CAT_INFO).map(([k, c]) => `<button class="cat-btn ${cur === k ? 'on' : ''}" data-cat="${k}">${svg(c.icon)}<span>${c.name}</span><i>${cam().ops.filter(o => catOf(o) === k).length}</i></button>`).join('');
-  rail.querySelectorAll('[data-cat]').forEach(b => b.addEventListener('click', () => { if (SIM.on) simStop(); CAMUI.view = CAMUI.view === 'cat' && CAMUI.cat === b.dataset.cat ? 'overview' : 'cat'; CAMUI.cat = b.dataset.cat; camRefresh(); }));
+  // built once, then updated in place so the active state and counts ease instead of flashing
+  if (!rail.querySelector('[data-cat]')) {
+    rail.innerHTML = Object.entries(CAT_INFO).map(([k, c]) => `<button class="cat-btn ${''}" data-cat="${k}">${svg(c.icon)}<span>${c.name}</span><i>${cam().ops.filter(o => catOf(o) === k).length}</i></button>`).join('');
+    rail.querySelectorAll('[data-cat]').forEach(b => b.addEventListener('click', () => { if (SIM.on) simStop(); CAMUI.view = CAMUI.view === 'cat' && CAMUI.cat === b.dataset.cat ? 'overview' : 'cat'; CAMUI.cat = b.dataset.cat; camRefresh(); }));
+  }
+  rail.querySelectorAll('[data-cat]').forEach(b => { b.classList.toggle('on', cur === b.dataset.cat); const n = String(cam().ops.filter(o => catOf(o) === b.dataset.cat).length), i = b.querySelector('i'); if (i.textContent !== n) i.textContent = n; });
 }
 function catPanel(k) {
   const C = cam(), c = CAT_INFO[k] || CAT_INFO.manual, list = C.ops.filter(o => catOf(o) === (CAT_INFO[k] ? k : 'manual')), nums = camOpNums();

@@ -184,6 +184,22 @@ input[type=text], input[type=number], textarea { background:#fff; border:1px sol
 @media (prefers-reduced-motion:reduce) { *, *::before, *::after { animation:none !important; transition:none !important; } }
 @media (max-width:900px) { #layerPal, #propPal { position:absolute; z-index:10; top:0; bottom:0; box-shadow:var(--shadow); } #propPal { right:0; } .rbtn { width:50px; } #coord { min-width:150px; } }
 </style>
+<style id="motion">
+/* ── Motion: one set of timing tokens for every control, panel and mode switch ── */
+:root { --mo-fast: 150ms; --mo: 200ms; --mo-slow: 250ms; --mo-ease: cubic-bezier(.2, .7, .2, 1); }
+:where(button, [role="tab"], [role="button"], a, select, input, textarea, summary, label, .btn, .tb, .chip, .tab, li) {
+  transition-property: background-color, color, border-color, box-shadow, opacity, transform, fill, stroke;
+  transition-duration: var(--mo); transition-timing-function: var(--mo-ease);
+}
+:where(button, [role="tab"], [role="button"], .btn, .tb, .chip):active:not(:disabled) { transition-duration: 80ms; }
+:where(button, input, select, textarea, [role="tab"], a):focus-visible { transition-duration: var(--mo-fast); }
+:where(svg, svg *) { transition: fill var(--mo) var(--mo-ease), stroke var(--mo) var(--mo-ease), opacity var(--mo) var(--mo-ease), transform var(--mo) var(--mo-ease); }
+@keyframes mo-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes mo-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  *:not(.spin), *::before, *::after { animation-duration: .01ms !important; animation-delay: 0s !important; transition-duration: .01ms !important; transition-delay: 0s !important; scroll-behavior: auto !important; }
+}
+</style>
 </head>
 <body>
 <div id="app">
