@@ -218,6 +218,7 @@ input[type=color] { appearance:none; -webkit-appearance:none; width:34px; height
 <div id="modal"><div id="mcard"><h3 id="mtitle"></h3><div id="mbody"></div><div id="mfoot"></div></div></div>
 <div id="toast"></div><div id="drop">Drop an image, SVG or .gfx project</div>
 <input type="file" id="fileIn" hidden multiple>
+<script src="tip-anim.js"></script>
 <script>
 (() => {
 'use strict';
@@ -2516,7 +2517,7 @@ const CARDGROUP = el => el.closest('#optbar') ? 'Options' : el.closest('#tools')
   new MutationObserver(ms => { for (const m of ms) { if (m.type === 'attributes') adopt(m.target); else m.addedNodes.forEach(sweep); } }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['title'] });
   let el = null, t1 = 0, t2 = 0;
   const strip = s => s.replace(/<[^>]+>/g, '');
-  const hide = () => { clearTimeout(t1); clearTimeout(t2); card.classList.remove('in', 'more'); card.hidden = true; el = null; };
+  const hide = () => { clearTimeout(t1); clearTimeout(t2); TipAnim.stop(); card.classList.remove('in', 'more'); card.hidden = true; el = null; };
   const place = () => {
     if (!el || !el.isConnected) return; const r = el.getBoundingClientRect(), w = card.offsetWidth, h = card.offsetHeight; let x, y;
     if (el.classList.contains('tool') || el.classList.contains('mi')) { x = r.right + 10; y = clamp(r.top + r.height / 2 - h / 2, 8, innerHeight - h - 8); if (x + w > innerWidth - 8) x = r.left - w - 10; }
@@ -2542,9 +2543,9 @@ const CARDGROUP = el => el.closest('#optbar') ? 'Options' : el.closest('#tools')
   }
   const show = () => {
     if (!el || !el.isConnected) return; const { name, key, desc, steps, art } = info(el), grp = CARDGROUP(el) || '';
-    const pic = art ? `<div class="tip-pics"><figure>${art[0]}<figcaption>Before</figcaption></figure><span class="tip-arr">→</span><figure>${art[1]}<figcaption>After</figcaption></figure></div>` : (() => { const ic = el.querySelector && el.querySelector('svg'); return ic ? `<div class="tip-plate">${ic.outerHTML}</div>` : ''; })();
+    const pic = art ? TipAnim.pics(art[0], art[1]) : (() => { const ic = el.querySelector && el.querySelector('svg'); return ic ? `<div class="tip-plate">${ic.outerHTML}</div>` : ''; })();
     card.innerHTML = `<div class="tip-head"><b>${esc(name)}</b>${key ? `<span class="kbd">${esc(key)}</span>` : ''}${grp ? `<span class="tip-group">${esc(grp)}</span>` : ''}</div>${desc ? `<p class="tip-what">${esc(desc)}</p>` : ''}${pic}${steps ? `<div class="tip-more"><div class="tip-step">How to use it</div><ol>${steps.map(s => `<li>${esc(s)}</li>`).join('')}</ol></div>` : ''}`;
-    card.hidden = false; place(); requestAnimationFrame(() => card.classList.add('in'));
+    card.hidden = false; place(); TipAnim.start(card); requestAnimationFrame(() => card.classList.add('in'));
     if (steps) t2 = setTimeout(() => { card.classList.add('more'); requestAnimationFrame(place); setTimeout(place, 260); }, 1300);
   };
   const SELQ = '[data-tip], button, .dd, input[type=checkbox], input[type=range], input[type=color]';
