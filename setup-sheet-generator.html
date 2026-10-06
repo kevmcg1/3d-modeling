@@ -432,6 +432,22 @@
     * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   }
 </style>
+<style id="motion">
+/* ── Motion: one set of timing tokens for every control, panel and mode switch ── */
+:root { --mo-fast: 150ms; --mo: 200ms; --mo-slow: 250ms; --mo-ease: cubic-bezier(.2, .7, .2, 1); }
+:where(button, [role="tab"], [role="button"], a, select, input, textarea, summary, label, .btn, .tb, .chip, .tab, li) {
+  transition-property: background-color, color, border-color, box-shadow, opacity, transform, fill, stroke;
+  transition-duration: var(--mo); transition-timing-function: var(--mo-ease);
+}
+:where(button, [role="tab"], [role="button"], .btn, .tb, .chip):active:not(:disabled) { transition-duration: 80ms; }
+:where(button, input, select, textarea, [role="tab"], a):focus-visible { transition-duration: var(--mo-fast); }
+:where(svg, svg *) { transition: fill var(--mo) var(--mo-ease), stroke var(--mo) var(--mo-ease), opacity var(--mo) var(--mo-ease), transform var(--mo) var(--mo-ease); }
+@keyframes mo-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes mo-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  *:not(.spin), *::before, *::after { animation-duration: .01ms !important; animation-delay: 0s !important; transition-duration: .01ms !important; transition-delay: 0s !important; scroll-behavior: auto !important; }
+}
+</style>
 </head>
 <body>
 <div id="app">
