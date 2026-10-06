@@ -305,8 +305,8 @@
       updateHint0.apply(this, arguments);
       if (S.sk && !CMD && typeof mineTool === 'function' && mineTool(S.tool)) {
         const n = S.pts.length, kb = s => `<span class="kbd">${s}</span>`;
-        hintEl.innerHTML = S.tool === 'slot'
-          ? `<b>Slot:</b> ${n === 0 ? 'click the first end center' : n === 1 ? `click the second end center · type ${kb('123')} for length, ${kb('Tab')} angle` : `click to set the width · or type it`}`
+        hintEl.innerHTML = isSlot(S.tool)
+          ? `<b>${SLOT_NAME[S.tool]}:</b> ${n === 0 ? SLOT_FIRST[S.tool] : n === 1 ? `click the second end center · type ${kb('123')} for length, ${kb('Tab')} angle` : `click to set the width · or type it`}`
           : `<b>Ellipse:</b> ${n === 0 ? 'click the center' : n === 1 ? `click the end of the major axis · type ${kb('123')} for the radius` : 'click to set the minor radius · or type it'}`;
       }
       return;
@@ -490,7 +490,12 @@
     h = rbAppend(h, 'Create', [['f:pipe', 'Pipe', '', 'pipe', cmdIs('pipe')]]);
     return rbAppend(h, 'Pattern', [['f:pathpat', 'On Path', '', 'pathpat', cmdIs('pathpat')]]);
   };
+  const SLOT_NAME = { slot: 'Slot', slotov: 'Overall Slot', slotcp: 'Center Point Slot' }, SLOT_FIRST = { slot: 'click the first end center', slotov: 'click one outer end', slotcp: 'click the center of the slot' };
+  Object.assign(IC, { slotov: '<rect x="2.5" y="6.5" width="15" height="7" rx="3.5"/><path d="M2.5 3.5v3M17.5 3.5v3M2.5 5h15" opacity=".6"/>', slotcp: '<rect x="2.5" y="6.5" width="15" height="7" rx="3.5"/><path d="M10 8v4M8 10h4" opacity=".8"/>' });
+  Object.assign(FA_MAP, { slotov: 'grip-lines', slotcp: 'bullseye' });
   Object.assign(TIP_TXT, {
+    slotov: ['A slot measured by its outer ends.', ['Click one outer end.', 'Click the other outer end.', 'Click to set the width (or type it).']],
+    slotcp: ['A slot from its center.', ['Click the center of the slot.', 'Click the center of one end.', 'Click to set the width (or type it).']],
     'f:pipe': ['A round or square tube along a sketch path, solid or hollow.', ['Click a sketch curve; joined curves come along.', 'Pick round or square, the size, and a wall if hollow.', 'Choose New body, Join or Cut, then OK.']],
     'f:pathpat': ['Repeat bodies along a sketch path.', ['Click the bodies to copy.', 'Click the path.', 'Set the count (or a fixed distance) and OK.']],
     slot: ['A slot: two round ends joined by straight sides.', ['Click the first end center.', 'Click the second end center (or type the length).', 'Click to set the width (or type it).']],
@@ -498,6 +503,7 @@
   });
   Object.assign(TOOL_HELP, {
     slot: 'Click the two end centers, then the width. Type a length and angle, then the width.',
+    slotov: 'Click the two outer ends, then the width.', slotcp: 'Click the center of the slot, then the center of one end, then the width.',
     ellipse: 'Click the center, the end of the major axis, then a point for the minor radius. Drawn as exact-fit arcs, so it extrudes and machines like any other profile.',
   });
   if (typeof TipArt !== 'undefined' && typeof TIP_ART !== 'undefined') {
@@ -508,6 +514,8 @@
     Object.assign(TIP_ART, {
       'f:pipe': [iso(() => line(wave(4), C.path, 1.6, 'stroke-dasharray="3 2"'), 60, 52, 1.3), iso(() => line(wave(4), C.acc, 7) + line(wave(4), '#dfe9fb', 3.2), 60, 52, 1.3)],
       'f:pathpat': [iso(() => line([P(-24, 6, 0), P(-8, -8, 0), P(8, -8, 0), P(24, 6, 0)], C.path, 1.4, 'stroke-dasharray="3 2"') + box(-28, 2, 0, 8, 8, 8, 'a'), 60, 52, 1.3), iso(() => line([P(-24, 6, 0), P(-8, -8, 0), P(8, -8, 0), P(24, 6, 0)], C.path, 1.4, 'stroke-dasharray="3 2"') + box(-28, 2, 0, 8, 8, 8, 'a') + box(-12, -12, 0, 8, 8, 8, 'a') + box(4, -12, 0, 8, 8, 8, 'a') + box(20, 2, 0, 8, 8, 8, 'a'), 60, 52, 1.3)],
+      slotov: [k2(() => dot([30, 45]) + dot([90, 45])), k2(() => sk('M39,36 H81 A9,9 0 0 1 81,54 H39 A9,9 0 0 1 39,36 Z') + dot([30, 45], C.dim) + dot([90, 45], C.dim))],
+      slotcp: [k2(() => dot([60, 45]) + dot([88, 45])), k2(() => sk('M32,36 H88 A9,9 0 0 1 88,54 H32 A9,9 0 0 1 32,36 Z') + dot([60, 45], C.dim) + dot([88, 45], C.dim))],
       slot: [k2(() => dot([36, 45]) + dot([84, 45])), k2(() => sk('M36,36 H84 A9,9 0 0 1 84,54 H36 A9,9 0 0 1 36,36 Z') + dot([36, 45], C.dim) + dot([84, 45], C.dim))],
       ellipse: [k2(() => dot([60, 45]) + dot([88, 45])), k2(() => sk('M60,45 m-28,0 a28,17 0 1,0 56,0 a28,17 0 1,0 -56,0') + dot([60, 45], C.dim) + dot([88, 45], C.dim))],
     });
@@ -540,23 +548,31 @@
     return out;
   }
   const slotWidth = p => { const c1 = S.pts[0], u = nrm2(sub2(S.pts[1], c1)), q = sub2(p, c1); return 2 * Math.abs(u.x * q.y - u.y * q.x); };
-  const mineTool = t => t === 'slot' || t === 'ellipse';
+  const isSlot = t => t === 'slot' || t === 'slotov' || t === 'slotcp';
+  const mineTool = t => isSlot(t) || t === 'ellipse';
+  // the three slot flavors differ only in what the first two clicks mean
+  function slotFor(t, pts, w) {
+    const [p, q] = pts, r = w / 2;
+    if (t === 'slotcp') return slotEnts(sub2(mul2(p, 2), q), q, w);                         // slot center, then an end center
+    if (t === 'slotov') { const L = dst2(p, q); if (L <= w + 1e-9) return null; const u = nrm2(sub2(q, p)); return slotEnts(add2(p, mul2(u, r)), sub2(q, mul2(u, r)), w); }   // the two outer ends
+    return slotEnts(p, q, w);
+  }
   const sideOf = (a, b, p) => { const u = sub2(b, a), q = sub2(p, a); return (u.x * q.y - u.y * q.x) < 0 ? -1 : 1; };
   const toolClick0 = toolClick;
   toolClick = function (p) {
     const t = S.tool;
     if (!mineTool(t)) return toolClick0.apply(this, arguments);
     if (S.pts.length < 2) { if (S.pts.length === 1 && dst2(S.pts[0], p) < 1e-9) return; S.pts.push(p); resetDim(); return; }
-    const ents = t === 'slot' ? slotEnts(S.pts[0], S.pts[1], slotWidth(p)) : ellipseEnts(S.pts[0], S.pts[1], p);
+    const ents = isSlot(t) ? slotFor(t, S.pts, slotWidth(p)) : ellipseEnts(S.pts[0], S.pts[1], p);
     if (!ents) return;
-    pushUndo(t === 'slot' ? 'Slot' : 'Ellipse'); addEnts(ents); S.pts = []; resetDim();
+    pushUndo(isSlot(t) ? 'Slot' : 'Ellipse'); addEnts(ents); S.pts = []; resetDim();
   };
   const dimSpec0 = dimSpec;
   dimSpec = function () {
     const t = S.tool, n = S.pts.length;
     if (!mineTool(t)) return dimSpec0.apply(this, arguments);
-    if (n === 1) return t === 'slot' ? ['Length', 'Angle°'] : ['Major radius', 'Angle°'];
-    return n === 2 ? [t === 'slot' ? 'Width' : 'Minor radius'] : null;
+    if (n === 1) return isSlot(t) ? ['Length', 'Angle°'] : ['Major radius', 'Angle°'];
+    return n === 2 ? [isSlot(t) ? 'Width' : 'Minor radius'] : null;
   };
   const applyDims0 = applyDims;
   applyDims = function (p) {
@@ -570,7 +586,7 @@
       return add2(a, P2(Math.cos(th) * L, Math.sin(th) * L));
     }
     if (v0 === null) return p;
-    const u = nrm2(sub2(S.pts[1], a)), sd = sideOf(a, S.pts[1], p), h = (t === 'slot' ? Math.abs(v0) / 2 : Math.abs(v0)) * sd;
+    const u = nrm2(sub2(S.pts[1], a)), sd = sideOf(a, S.pts[1], p), h = (isSlot(t) ? Math.abs(v0) / 2 : Math.abs(v0)) * sd;
     return add2(a, P2(-u.y * h, u.x * h));
   };
   const drawToolPreview0 = drawToolPreview;
@@ -580,21 +596,155 @@
     if (!mineTool(t) || !c || !S.pts.length) return;
     const m = planeXf(planeOf(S.sk)), mouse = S.mouse || P2(0, 0), pv = e => strokeEnt(m, e, COL.accent, 1.6, [5, 4]);
     const p0 = S.pts[0];
-    if (S.pts.length === 1) { pv({ type: 'line', a: p0, b: c }); label((t === 'slot' ? 'Length ' : 'R ') + fmtLs(dst2(p0, c)), mouse.x + 16, mouse.y - 12); }
+    if (S.pts.length === 1) { pv({ type: 'line', a: p0, b: c }); label((isSlot(t) ? 'Length ' : 'R ') + fmtLs(dst2(p0, c)), mouse.x + 16, mouse.y - 12); }
     else {
-      const ents = t === 'slot' ? slotEnts(p0, S.pts[1], slotWidth(c)) : ellipseEnts(p0, S.pts[1], c);
+      const ents = isSlot(t) ? slotFor(t, [p0, S.pts[1]], slotWidth(c)) : ellipseEnts(p0, S.pts[1], c);
       if (ents) ents.forEach(pv);
       pv({ type: 'line', a: p0, b: S.pts[1] });
-      label(t === 'slot' ? 'Width ' + fmtLs(slotWidth(c)) : `${fmtLs(dst2(p0, S.pts[1]))} × ${fmtLs(2 * Math.abs((() => { const u = nrm2(sub2(S.pts[1], p0)), q = sub2(c, p0); return u.x * q.y - u.y * q.x; })()))}`, mouse.x + 16, mouse.y - 12);
+      label(isSlot(t) ? 'Width ' + fmtLs(slotWidth(c)) : `${fmtLs(dst2(p0, S.pts[1]))} × ${fmtLs(2 * Math.abs((() => { const u = nrm2(sub2(S.pts[1], p0)), q = sub2(c, p0); return u.x * q.y - u.y * q.x; })()))}`, mouse.x + 16, mouse.y - 12);
     }
     og.fillStyle = COL.accent;
     for (const p of S.pts) { const s = xfPt(m, p); og.beginPath(); og.arc(s.x, s.y, 3, 0, TAU); og.fill(); }
   };
-  SKETCH_TOOLS[0].push(['slot', 'Slot', ''], ['ellipse', 'Ellipse', '']);
+  SKETCH_TOOLS[0].push(['slot', 'Slot', ''], ['slotov', 'Overall Slot', ''], ['slotcp', 'Center Slot', ''], ['ellipse', 'Ellipse', '']);
   const sketchRibbon0 = sketchRibbonHTML;
   sketchRibbonHTML = function () {
     const T = (a, l, k) => [a, l, k, a, S.tool === a];
-    return rbAppend(sketchRibbon0.apply(this, arguments), 'Create', [T('slot', 'Slot', ''), T('ellipse', 'Ellipse', '')]);
+    return rbAppend(sketchRibbon0.apply(this, arguments), 'Create', [T('slot', 'Slot', ''), T('slotov', 'Overall Slot', ''), T('slotcp', 'Center Slot', ''), T('ellipse', 'Ellipse', '')]);
+  };
+
+  // ═══ Batch 3: Rib / Web and the Spline sketch tool ═══
+  Object.assign(FEAT_BASE, { rib: 'Rib' });
+  Object.assign(FEAT_IC, { rib: 'rib' });
+  TOOL_FEATS.add('rib'); BODY_MAKERS.add('rib');
+  const featDeps2 = featDeps;
+  featDeps = function (f, ids) { featDeps2.apply(this, arguments); if (f.type === 'rib') for (const c of f.chains || []) ids.add(c.sketch); };
+
+  // Rib: click sketch curves one after another; each click takes the chain of curves joined to it (click again to drop it)
+  FEATS.rib = {
+    label: 'Rib / Web', home: 'chains', need: 'Pick the sketch curves for the rib.',
+    init: () => ({ chains: [], t: 3, dist: 15, mode: 'one', extent: 'dist', op: opDefault() }),
+    ready: f => f.chains.length > 0,
+    showSketch: (f, id) => { const sk = byId(id); return !!sk && (sk.vis !== false || f.chains.some(c => c.sketch === id) || CMD.step === 'chains'); },
+    start() { CMD.step = 'chains'; },
+    move(x, y) {
+      const e = hoverSkEnt(x, y);
+      if (e) { const sk = byId(e.sketch); CMD.chainPrev = { sketch: e.sketch, ents: curveChain(sk, sk.ents.find(q => q.id === e.ent)).map(q => q.id) }; } else CMD.chainPrev = null;
+      requestDraw();
+    },
+    click() {
+      const h = hover3D, f = CMD.f;
+      if (!h || h.kind !== 'skent') return;
+      const sk = byId(h.sketch), chain = curveChain(sk, sk.ents.find(q => q.id === h.ent)).map(e => e.id), i = f.chains.findIndex(c => c.sketch === sk.id && c.ents.includes(h.ent));
+      if (i >= 0) f.chains.splice(i, 1); else f.chains.push({ sketch: sk.id, ents: chain });
+      featSync();
+    },
+    draw() {
+      for (const c of CMD.f.chains) strokeSkEnts(c.sketch, c.ents, COL.accent, 3.2);
+      if (CMD.chainPrev) strokeSkEnts(CMD.chainPrev.sketch, CMD.chainPrev.ents, COL['face-hot'], 2.6);
+    },
+    panel: f => pf.pick('Curves', f.chains.length ? f.chains.length + ' chain' + (f.chains.length > 1 ? 's' : '') + ' picked' : 'Click open or closed sketch curves', f.chains.length || '', 'chains')
+      + (f.chains.length ? '<div class="btns"><button class="btn" data-fdo="clear">Clear curves</button></div>' : '')
+      + pf.num('Thickness', 't', { len: 1, min: 0, step: isIn() ? 0.01 : 0.5 })
+      + pf.seg('Height', 'extent', [['dist', 'Distance'], ['all', 'Through all']])
+      + (f.extent === 'all' ? '' : pf.num('Distance', 'dist', { len: 1, step: isIn() ? 0.05 : 1 }) + pf.seg('Direction', 'mode', [['one', 'One side'], ['sym', 'Symmetric']]))
+      + pf.op(f)
+      + pf.note('Each curve becomes a thin wall standing square to the sketch plane. Pick several curves for a web. The ends are flat and the wall does not fit itself to the part, so set the height to reach the walls it should join.'),
+    act: { clear() { CMD.f.chains = []; featSync(); } },
+    hint: () => 'click the sketch curves for the rib (joined curves come along); click again to drop one',
+    sub: f => `${OP_SIGN[f.op] || ''} ${fmtLs(f.t)} × ${f.extent === 'all' ? 'all' : fmtLs(Math.abs(f.dist))}`.trim(),
+    hideSketch: f => { for (const c of f.chains) { const sk = byId(c.sketch); if (sk) sk.vis = false; } },
+  };
+  Object.assign(IC, {
+    rib: '<path d="M3 16h14" opacity=".5"/><path d="M5 16V8l10 8V8" /><path d="M5 8h2M13 8h2" opacity=".6"/>',
+    spline: '<path d="M2.5 14C5 6 8 6 10 10s5 4 7.5-4"/><circle cx="2.5" cy="14" r="1.2"/><circle cx="10" cy="10" r="1.2"/><circle cx="17.5" cy="6" r="1.2"/>',
+  });
+  Object.assign(FA_MAP, { rib: 'grip-lines-vertical', spline: 'bezier-curve' });
+  Object.assign(MENU_IC, { 'f:rib': 'rib' });
+  TB_MENUS.create.push(['f:rib', 'Rib / Web', '']);
+  const modelToolbar2 = modelToolbarHTML;
+  modelToolbarHTML = function () { return rbAppend(modelToolbar2.apply(this, arguments), 'Create', [['f:rib', 'Rib / Web', '', 'rib', cmdIs('rib')]]); };
+  Object.assign(TIP_TXT, {
+    'f:rib': ['A thin wall from open sketch curves: a stiffening rib, or several for a web.', ['Click the sketch curves (joined curves come along).', 'Set the thickness and the height.', 'Choose Join, then OK.']],
+    spline: ['A smooth curve through the points you click.', ['Click the points it passes through.', 'Click the first point again to close it; Enter or right-click to finish.']],
+  });
+  Object.assign(TOOL_HELP, { spline: 'Click the points the curve passes through. Click the first point to close it, or press Enter or right-click to finish. The curve is stored as a chain of arcs, so it extrudes, trims and machines like any other profile; it cannot be reshaped by dragging points afterward.' });
+  if (typeof TipArt !== 'undefined' && typeof TIP_ART !== 'undefined') {
+    const { C, at, P, poly, line, box, dot, sk, grid } = TipArt;
+    const iso = (f, ox = 60, oy = 48, s = 1.55) => () => { at(ox, oy, s); return f(); };
+    const k2 = f => () => grid() + f();
+    Object.assign(TIP_ART, {
+      'f:rib': [iso(() => box(-24, -14, 0, 48, 28, 6) + line([P(-20, 0, 6), P(20, 0, 6)], C.sk, 2.4), 60, 56, 1.3), iso(() => box(-24, -14, 0, 48, 28, 6) + box(-20, -1.5, 6, 40, 3, 16, 'a'), 60, 56, 1.3)],
+      spline: [k2(() => dot([22, 62]) + dot([52, 30]) + dot([80, 56]) + dot([100, 30])), k2(() => sk('M22,62 C34,22 44,20 52,30 S70,66 80,56 S92,24 100,30') + dot([22, 62], C.dim) + dot([52, 30], C.dim) + dot([80, 56], C.dim) + dot([100, 30], C.dim))],
+    });
+  }
+
+  // ── Sketch: Spline (fit points; stored as a chain of arcs through points of a Catmull-Rom curve) ──
+  const SPLINE_SUB = 2;                                              // arcs per span between two fit points
+  function splineEnts(pts, closed) {
+    const n = pts.length, ents = [];
+    if (n < 2) return ents;
+    const P = i => pts[closed ? (i + n) % n : clamp(i, 0, n - 1)];
+    const tan = i => (closed || (i > 0 && i < n - 1)) ? mul2(sub2(P(i + 1), P(i - 1)), 0.5) : (i === 0 ? sub2(P(1), P(0)) : sub2(P(n - 1), P(n - 2)));
+    const spans = closed ? n : n - 1;
+    for (let i = 0; i < spans; i++) {
+      const p0 = P(i), p1 = P(i + 1), m0 = tan(i), m1 = tan(i + 1), span = dst2(p0, p1);
+      const h = t => { const t2 = t * t, t3 = t2 * t; return add2(add2(mul2(p0, 2 * t3 - 3 * t2 + 1), mul2(m0, t3 - 2 * t2 + t)), add2(mul2(p1, -2 * t3 + 3 * t2), mul2(m1, t3 - t2))); };
+      for (let k = 0; k < SPLINE_SUB; k++) {
+        const t0 = k / SPLINE_SUB, t1 = (k + 1) / SPLINE_SUB, a = k === 0 ? p0 : h(t0), b = k === SPLINE_SUB - 1 ? p1 : h(t1), mid = h((t0 + t1) / 2), g = arcThrough(a, mid, b);
+        if (!g || g.r > span * 1e4) ents.push({ type: 'line', a: cp2(a), b: cp2(b) });
+        else ents.push({ type: 'arc', c: cp2(g.c), r: g.r, a0: g.a0, a1: g.a1 });
+      }
+    }
+    return ents;
+  }
+  // the spline rides on the polyline tool's clicking and finishing (Enter, double-click, right-click, Esc), flagged by S.spline
+  const setTool0 = setTool;
+  setTool = function (t) {
+    if (t === 'spline') { setTool0('polyline'); S.spline = true; refreshToolbar(); updateHint(); requestDraw(); return; }
+    const r = setTool0.apply(this, arguments);                      // (leaving the tool finishes a spline in progress first)
+    S.spline = false;
+    return r;
+  };
+  const polyFinish0 = polyFinish;
+  polyFinish = function () {
+    if (!(S.spline && S.tool === 'polyline')) return polyFinish0.apply(this, arguments);
+    const pts = (S.poly || []).filter((p, i, a) => !i || dst2(p, a[i - 1]) > 1e-9);
+    S.poly = null; S.pts = []; S.chainStart = null;
+    const closed = pts.length >= 4 && dst2(pts[0], pts[pts.length - 1]) < 1e-9;
+    if (closed) pts.pop();
+    if (pts.length >= 2) { pushUndo('Spline'); addEnts(splineEnts(pts, closed)); }
+    resetDim(); updateHint(); requestDraw();
+  };
+  const drawToolPreview1 = drawToolPreview;
+  drawToolPreview = function () {
+    if (!(S.spline && S.tool === 'polyline')) return drawToolPreview1.apply(this, arguments);
+    const t = S.tool;
+    S.tool = 'spline';                                               // so the plain polyline preview stays out of the way
+    try { drawToolPreview1.apply(this, arguments); } finally { S.tool = t; }
+    if (!S.poly || !S.poly.length) return;
+    const m = planeXf(planeOf(S.sk)), pts = S.poly.concat(S.cur && dst2(S.cur, S.poly[S.poly.length - 1]) > 1e-9 ? [S.cur] : []);
+    for (const e of splineEnts(pts, false)) strokeEnt(m, e, COL.accent, 1.6, [5, 4]);
+    og.fillStyle = COL.accent;
+    for (const p of S.poly) { const s = xfPt(m, p); og.beginPath(); og.arc(s.x, s.y, 3, 0, TAU); og.fill(); }
+  };
+  const updateHint2 = updateHint;
+  updateHint = function () {
+    updateHint2.apply(this, arguments);
+    if (S.sk && !CMD && S.spline && S.tool === 'polyline') {
+      const kb = s => `<span class="kbd">${s}</span>`;
+      hintEl.innerHTML = `<b>Spline:</b> ${S.poly && S.poly.length ? `click the next point · click the first point to close · ${kb('Enter')} or right-click to finish` : 'click the first point'}`;
+    }
+  };
+  SKETCH_TOOLS[0].push(['spline', 'Spline', '']);
+  const sketchRibbon1 = sketchRibbonHTML;
+  sketchRibbonHTML = function () {
+    let h = sketchRibbon1.apply(this, arguments);
+    if (S.spline && S.tool === 'polyline') {                         // the Polyline button is not the active one in spline mode
+      const i = h.indexOf('data-act="polyline"'), j = h.lastIndexOf('<button', i);
+      if (i > 0 && j >= 0) h = h.slice(0, j) + h.slice(j, i).replace(/\bon\b/, '') + h.slice(i);
+    }
+    return rbAppend(h, 'Create', [['spline', 'Spline', '', 'spline', !!(S.spline && S.tool === 'polyline')]]);
   };
 
   refreshUI();                                                    // the ribbon was drawn before this file ran

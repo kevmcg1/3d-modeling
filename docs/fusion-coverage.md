@@ -19,8 +19,8 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | Thread | ✅ | Modeled threads, metric and inch |
 | Box / Cylinder / Sphere / Torus / Cone | ✅ | Primitive (PR #39) |
 | Pipe | ✅ | Round or square section along a sketch path, solid or hollow; closed paths make rings; corners are mitered (batch 2) |
-| Rib | 🔜 3 | Thin wall from an open sketch line up to the body |
-| Web | 🔜 3 | Several ribs in one go |
+| Rib | 🟡 | Thin wall from an open or closed sketch curve, distance, symmetric or through-all, join/cut/new (batch 3). No auto-fit to the walls of the body |
+| Web | 🟡 | Same tool: pick several curves and they fuse into one web (batch 3) |
 | Emboss / Deboss | 🟡 | Text → "Convert to curves" → extrude cut/join works today; wrapping onto curved faces is ⛔ (needs face-parametric projection), planar-face emboss 🔜 4 |
 | Boundary Fill | 🔜 5 | Fill the space enclosed by bodies and planes |
 | Thicken | ⛔ | Needs surface bodies, which this kernel does not have |
@@ -80,10 +80,10 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | Fillet, Chamfer, Trim, Extend, Offset, Mirror, Pattern, Move, Rotate, Scale, Copy / Paste | ✅ | |
 | Project / Include | ✅ | |
 | Dimension | ✅ | Driving dimensions with Update |
-| Slot | 🟡 | Center-to-center slot with typed length, angle and width (batch 2). Overall, center-point and arc slots 🔜 6 |
+| Slot | ✅ | Center-to-center, Overall and Center Point slots (batches 2 and 3). Arc slots 🔜 6 |
 | Ellipse | 🟡 | Center, major and minor radius, drawn as 16 arcs: within 0.3% of the true curve for axis ratios up to 3:1, so it extrudes and machines like any profile; not a true conic (batch 2) |
 | Conic curve | 🔜 3 | Alongside Spline |
-| Spline (fit point, control point) | 🔜 3 | Needs a sampled-curve entity through trim, offset and extrude |
+| Spline (fit point) | 🟡 | Smooth curve through clicked points, stored as tangent-continuous arcs, so it trims, offsets and extrudes like any sketch curve. Points are not editable by dragging afterwards; control-point splines 🔜 7 |
 | Geometric constraints (coincident, tangent, parallel, perpendicular, equal, symmetric, fix) | 🔜 7 | Needs a real constraint solver; today only shared endpoints and dimensions |
 | Sketch on a plane, face or construction plane | ✅ | |
 | 3D sketch | 🟡 | 3D polyline exists; no full 3D sketch environment |
@@ -153,7 +153,7 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | 0 ✅ | Everything marked ✅ above, including PR #39 |
 | 1 ✅ | Physical Properties, Interference, Section Analysis, Midplane, Plane at Angle, Plane Through Three Points (PR #42) |
 | 2 ✅ | Pipe, Pattern on Path, Ellipse, Slot |
-| 3 | Rib, Web, Spline |
+| 3 ✅ | Rib, Web, Spline, Overall Slot, Center Point Slot |
 | 4 | Variable and setback fillets, two-distance chamfer, Split Face, Delete Face, planar Emboss |
 | 5 | Boundary Fill, Sweep and Loft rails, mesh-only non-uniform Scale |
 | 6 | Standalone axes, tangent and two-edge planes, analysis overlays, Silhouette Split, Replace Face, Insert SVG / DXF |
