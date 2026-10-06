@@ -52,7 +52,7 @@
     const fs = feedsOf(op, tool);
     if (plunge || drillish(tool)) { ae = d; ap = Math.max(0.5, op.peck || d * 0.5); }
     else if (op.type === 'parallel' || op.type === 'waterline') { ae = (op.stepover || 0.1) * d; ap = Math.min(op.stepdown || d * 0.1, d * 0.25); }
-    else if (op.type === 'contour' || (op.type === 'chain' && op.cm !== 'pocket')) { ae = Math.min(d, Math.max(0.1 * d, op.stepover ? op.stepover * d : 0.3 * d)); ap = op.stepdown || d * 0.5; }
+    else if (op.type === 'contour' || (op.type === 'chain' && op.cm !== 'pocket' && !(typeof MC_CM === 'object' && MC_CM[op.cm] && MC_CM[op.cm].mrr))) { ae = Math.min(d, Math.max(0.1 * d, op.stepover ? op.stepover * d : 0.3 * d)); ap = op.stepdown || d * 0.5; }
     else { ae = Math.min(d, fs.so); ap = fs.sd || Math.min(d * 0.5, 3); }
     const mrr = plunge ? Math.PI * d * d / 4 * f / 1000 : f * ae * ap / 1000;                    // cm³/min
     const fz = f / Math.max(1, rpm * z), engaged = Math.max(1, z * Math.acos(Math.max(-1, 1 - 2 * ae / d)) / (2 * Math.PI));

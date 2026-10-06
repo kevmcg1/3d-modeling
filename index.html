@@ -15733,9 +15733,12 @@ function offsetOpen(pts, d, s) {
   out.push(add2(pts[n - 1], mul2(nl(n - 2), d)));
   return out;
 }
+// Extra toolpath modes of the Chain operation (Mastercam-style), filled in by cam-mc.js
+const MC_CM = {};
 GEN.chain = function (op, tool, st, part, P) {
   const chains = (op.chains || []).filter(c => c.pts && c.pts.length > 1);
   const cm = op.cm || 'contour';
+  if (MC_CM[cm]) return MC_CM[cm].gen(op, tool, st, part, P, chains);
   if (!chains.length) { P.warn.push(cm === 'drill' ? 'Click circles (hole edges) in the model to drill them.' : cm === 'circle' ? 'Click circles (the edge of a hole or a boss) in the model to mill them.' : 'Click an edge in the model, or double-click it to take the whole chain.'); return; }
   if (cm === 'drill') return chainDrill(op, tool, st, part, P, chains);
   if (cm === 'pocket') return chainPocket(op, tool, st, part, P, chains);
@@ -15791,6 +15794,11 @@ function chainContour(op, tool, st, part, P, chains) {
       const S = useArc ? arcIn(0) : L[0];
       zs.forEach((z, li) => {
         const zAbove = Math.min(ret, (li ? zs[li - 1] : st.z1) + 1);
+        if (op.ramp && path.closed && !(z < tabZ - 1e-6)) {            // ramp contour: one spiral down the loop, no plunge and lead at every level
+          if (!li) { if (!started) { P.rapid(L[0].x, L[0].y, safe); started = true; } else P.rapid(P.cur[0], P.cur[1], ret); P.rapid(L[0].x, L[0].y, ret); P.rapid(L[0].x, L[0].y, zAbove); }
+          rampLoop(P, L, li ? zs[li - 1] : zAbove, z, op.rampAngle || 3, 0);
+          return;
+        }
         if (!started) { P.rapid(S.x, S.y, safe); started = true; } else P.rapid(P.cur[0], P.cur[1], ret);
         P.rapid(S.x, S.y, ret); P.rapid(S.x, S.y, zAbove); P.plunge(S.x, S.y, z);
         if (useArc) for (let k = 1; k <= 8; k++) { const q = arcIn(k); P.feed(q.x, q.y, z); } else P.feed(L[0].x, L[0].y, z);
@@ -16039,6 +16047,8 @@ function chainxFields(op, cm) {
   return '';
 }
 function camxBind(op, setN) {
+  if (typeof mcBind === 'function') mcBind(op, setN);
+  const cmSel = document.getElementById('opCm'); if (cmSel) cmSel.addEventListener('change', () => chainSetMode(op, cmSel.value));
   const set = (k, lo) => v => camEdit(op, k, Math.max(lo, v));
   setN('opTabs', v => camEdit(op, 'tabs', clamp(Math.round(v), 0, 12))); setN('opTabW', set('tabW', 0.5)); setN('opTabH', set('tabH', 0.2));
   setN('opSlotW', set('slotW', 0.1)); setN('opRamp', v => camEdit(op, 'rampAngle', clamp(v, 0.5, 30))); setN('opTroch', set('trochStep', 0.02));
@@ -16083,7 +16093,7 @@ function waterlineFields(op) {
 function feedsOf(op, t) {
   const vc = Math.PI * t.d * t.rpm / 1000, fzTool = t.feed / ((t.rpm || 1) * (t.flutes || 1)), ref = toolDefaults(t.type, t.d), fzRef = ref.feed / ((ref.rpm || 1) * (ref.flutes || 1));
   const ratio = fzTool / (fzRef || 1), sd = op.stepdown || (op.type === 'chain' && op.stepdown) || 0, so = (op.stepover || 0.4) * t.d;
-  const mrr = op.type === 'pocket' || op.type === 'face' || op.type === 'clear' || (op.type === 'chain' && op.cm === 'pocket') ? so * sd * t.feed / 1000 : null;
+  const mrr = op.type === 'pocket' || op.type === 'face' || op.type === 'clear' || (op.type === 'chain' && (op.cm === 'pocket' || (MC_CM[op.cm] && MC_CM[op.cm].mrr))) ? so * sd * t.feed / 1000 : null;
   return { vc, fzTool, ref, fzRef, ratio, sd, so, mrr };
 }
 function feedsCard(op) {
@@ -16193,7 +16203,9 @@ function chainOverlay() {
 // ── Panel ──
 function chainPanelFields(op) {
   const cm = op.cm || 'contour', chains = op.chains || [], seg = (k, items, cur, tip) => `<div class="seg" ${items.length > 4 ? 'style="flex-wrap:wrap"' : ''}>${items.map(([v, l, t]) => `<button data-opset="${k}:${v}" class="${cur === v ? 'on' : ''}" ${t ? `title="${t}"` : ''}>${l}</button>`).join('')}</div>`;
-  let f = `<div class="field"><span>Toolpath</span>${seg('cm', [['contour', 'Contour'], ['pocket', 'Pocket'], ['slot', 'Slot', 'Mills a slot along the chain; wider than the tool it is cleared with trochoidal loops'], ['circle', 'Circle', 'Helical interpolation: mills a hole or a boss to size with a spiral'], ['deburr', 'Deburr', 'Breaks the edge with a chamfer mill'], ['drill', 'Drill']], cm)}</div>`;
+  const mcGroups = {}; for (const [k, m] of Object.entries(MC_CM)) (mcGroups[m.group] = mcGroups[m.group] || []).push([k, m.name]);
+  const cmOpt = (k, n) => `<option value="${k}" ${cm === k ? 'selected' : ''}>${n}</option>`;
+  let f = `<div class="field"><span>Toolpath</span><select id="opCm"><optgroup label="Chain">${[['contour', 'Contour'], ['pocket', 'Pocket'], ['slot', 'Slot (trochoidal)'], ['circle', 'Circle mill (helical)'], ['deburr', 'Deburr'], ['drill', 'Drill']].map(([k, n]) => cmOpt(k, n)).join('')}</optgroup>${Object.entries(mcGroups).map(([g, l]) => `<optgroup label="${g}">${l.map(([k, n]) => cmOpt(k, n)).join('')}</optgroup>`).join('')}</select></div>${MC_CM[cm] ? `<p class="note">${MC_CM[cm].tip}</p>` : ''}`;
   if (!chainIsCircle(op)) f += `<div class="field"><span>Click selects</span><div class="seg"><button data-chmode="single" class="${CHAINUI.mode === 'single' ? 'on' : ''}" title="One edge at a time. Double-click an edge for its whole chain.">One edge</button><button data-chmode="chain" class="${CHAINUI.mode === 'chain' ? 'on' : ''}" title="Every click takes the whole connected run of edges.">Whole chain</button></div></div>`;
   const rows = chains.map((c, i) => `<li data-chrow="${c.id}"><span class="nm">Chain ${i + 1}</span><span class="sub">${c.closed ? 'closed' : 'open'} · ${fmtLs(chainLength(c))}</span>
       <button class="mini" data-chdo="rev:${c.id}" title="Run the tool the other way round the chain">Reverse</button>${c.closed && !chainIsCircle(op) ? `<button class="mini ${CHAINUI.startFor === c.id ? 'on' : ''}" data-chdo="start:${c.id}" title="Then click a corner of the chain to start there">Start…</button>` : ''}${!c.closed ? `<button class="mini" data-chdo="close:${c.id}" title="Join the two ends with a straight line">Close</button>` : c.joined ? `<button class="mini" data-chdo="open:${c.id}" title="Take the joining line away again">Open</button>` : ''}<button class="mini" data-chdo="del:${c.id}" title="Remove this chain">✕</button></li>`).join('');
@@ -16201,8 +16213,10 @@ function chainPanelFields(op) {
   if (cm === 'contour') f += `<div class="field"><span>Tool side (looking along the arrow)</span>${seg('side', [['auto', 'Auto', 'Finds the open side of the chain'], ['left', 'Left'], ['right', 'Right'], ['on', 'On line']], op.side || 'auto')}</div>
     <div class="field"><span>Cut down to</span>${seg('depthMode', [['auto', 'Auto'], ['chain', 'The chain'], ['through', 'Through'], ['below', 'Below it']], op.depthMode || 'auto')}</div>
     <div class="row3">${num('opSd', op.stepdown, 'Stepdown', 0.1)}${num('opLeave', op.leave, 'Leave', 0.05)}${op.depthMode === 'below' ? num('opDepth', op.depth || 0, 'Depth below chain', 0.1) : num('opThrough', op.through, 'Below bottom', 0.1)}</div>
-    <div class="field"><span>Lead in / out</span>${seg('lead', [['arc', 'Arc'], ['none', 'None']], op.lead || 'arc')}</div>` + chainxFields(op, 'contour');
+    <div class="field"><span>Lead in / out</span>${seg('lead', [['arc', 'Arc'], ['none', 'None']], op.lead || 'arc')}</div>
+    <label class="chk"><input type="checkbox" id="opMcRamping" ${op.ramp ? 'checked' : ''}> Ramp contour: spiral down the loop instead of stepping (closed chains)</label>` + chainxFields(op, 'contour');
   if (cm === 'slot' || cm === 'circle' || cm === 'deburr') f += chainxFields(op, cm);
+  if (MC_CM[cm]) f += MC_CM[cm].fields(op);
   if (cm === 'pocket') f += `<div class="field"><span>Floor</span>${seg('depthMode', [['chain', 'At the chain'], ['below', 'Below it']], op.depthMode === 'below' ? 'below' : 'chain')}</div>
     <div class="row3">${num('opSo', op.stepover, 'Stepover ×Ø', 0.05)}${num('opSd', op.stepdown, 'Stepdown', 0.1)}${op.depthMode === 'below' ? num('opDepth', op.depth || 0, 'Depth below chain', 0.1) : num('opLf', op.leaveFloor, 'Leave on floor', 0.05)}</div>
     <div class="row2">${num('opLw', op.leaveWall, 'Leave on walls', 0.05)}${num('opFs', op.finishStock == null ? (isIn() ? 0.254 : 0.25) : op.finishStock, 'Leave for finishing', 0.05)}</div>`;
@@ -16220,14 +16234,15 @@ function chainDo(op, a) {
   camRefresh();
 }
 function chainSetMode(op, cm) {
-  const C = cam(), before = snap(), want = cm === 'drill' ? ['drill', 'spot'] : cm === 'deburr' ? ['chamfer'] : cm === 'slot' || cm === 'circle' ? ['flat', 'bull'] : ['flat', 'bull'];
+  const C = cam(), before = snap(), want = MC_CM[cm] ? MC_CM[cm].tools : cm === 'drill' ? ['drill', 'spot'] : cm === 'deburr' ? ['chamfer'] : cm === 'slot' || cm === 'circle' ? ['flat', 'bull'] : ['flat', 'bull'];
   op.cm = cm;
   const cur = toolOf(op.tool);
   if (!want.includes(cur.type)) { const t = C.tools.find(x => want.includes(x.type)) || (cm === 'deburr' ? camToolOfType('chamfer', stdChamfer()[3] || 12, { cone: 90 }) : null); if (t) op.tool = t.n; }
   if (cm === 'slot' && !(op.stepdown > 0)) op.stepdown = 2;
   if (cm === 'circle') op.side = op.side === 'out' ? 'out' : 'in'; else if (op.side === 'in' || op.side === 'out') op.side = 'auto';
   if (cm === 'drill' && !op.mode) op.mode = 'peck';
-  if (cm !== 'drill') op.depthMode = cm === 'pocket' ? 'chain' : 'auto';
+  if (cm !== 'drill') op.depthMode = cm === 'pocket' || (MC_CM[cm] && MC_CM[cm].floorMode) ? 'chain' : 'auto';
+  if (MC_CM[cm]) { const d = MC_CM[cm].defaults(toolOf(op.tool)); for (const k in d) if (op['mc_' + cm] !== true || op[k] == null) op[k] = d[k]; op['mc_' + cm] = true; }
   if (cm === 'slot' || cm === 'circle') op.depth = 0;
   record(`${op.name}: ${cm}`, before);
   camRefresh();
@@ -20448,6 +20463,12 @@ function autoPlan(R) {
         tool, faces, op: pop(dUni, { leaveWall: 0, leaveFloor: 0, finishOnly: true, fromWall: LEAVE_DEF, fromFloor: LEAVE_DEF }), covered: cov ? cov.name : null, _fids: floorFids });
     } else step({ key: 'pocket', type: 'pocket', entry: 'ramp', title: `Pocket ${nf} (${fmtToolD(dUni)})`, why: `Clear down to every flat floor (deepest ${fmtLs(deep)}) to size, with a finish pass round the walls. The features are too narrow to leave ${fmtLs(LEAVE_DEF)} on the walls, so there is no separate finish operation.${tight}`,
       tool, faces, op: pop(dUni), covered: cov ? cov.name : null, _fids: floorFids });
+    // an alternative to the rough pass: Dynamic Mill (deep cuts, light side bite). Off until it is ticked, and then the Rough pocket above should be unticked.
+    if (leavePC && deep >= 0.5 * dUni && R.floors.every(f => faceRegion(f.mesh, f.fid))) {
+      const dt = uniTool();
+      step({ key: 'pocketdyn', type: 'chain', alt: true, title: `Dynamic rough pocket ${nf} (${fmtToolD(dUni)})`, why: `Instead of the Rough pocket: clears the same floors (deepest ${fmtLs(deep)}) with deep cuts and a light side bite, leaving ${fmtLs(LEAVE_DEF)}. Faster in deep pockets and easier on the tool. Tick it and untick Rough pocket.`,
+        tool: dt, faces, op: { cm: 'dynamic', chains: [], faces: R.floors.map(refOf), depthMode: 'chain', ...MC_CM.dynamic.defaults({ d: dUni }), leaveWall: leavePC, leaveFloor: leavePC }, covered: null, _fids: floorFids });
+    }
   }
   // 2b · dovetail grooves open at the top: an end mill clears the straight slot, then a dovetail cutter with the groove's own
   // flank angle takes the undercut walls (a flat tool cannot reach them, and they do not need a robot)
@@ -20592,7 +20613,7 @@ function autoPlan(R) {
   if (R.groups.get('under')) man('Machine the overhangs', `${R.groups.get('under').n} face${R.groups.get('under').n > 1 ? 's point' : ' points'} downward — ${R.flipOnly ? 'flip the part for a second setup' : R.axes === 6 ? 'reachable only by a robot arm or several setups' : 'tilt the part to reach them'}.`, R.groups.get('under').faces);
   if (R.groups.get('sharp')) man(`${R.groups.get('sharp').n} sharp inside corner${R.groups.get('sharp').n > 1 ? 's' : ''}`, 'A round tool leaves its own radius in these. Add a fillet in the design, or finish them by EDM or broaching.', [], R.groups.get('sharp').chains);
   if (cam().stock.bottom > 1e-3) man('Face the bottom', `The stock is ${fmtLs(cam().stock.bottom)} deeper than the part: flip it and face the underside.`, R.groups.get('bottom') ? R.groups.get('bottom').faces : []);
-  for (const s of plan) if (s.type !== 'manual' && AUTO.on[s.key] === undefined) s.def = !s.covered;
+  for (const s of plan) if (s.type !== 'manual' && AUTO.on[s.key] === undefined) s.def = !s.covered && !s.alt;
   return plan;
 }
 function autoResult() {
@@ -36111,6 +36132,7 @@ function gsPick(i) {
 }
 </script>
 <!-- 3D Print workspace: the slicer engine and its front end (own files, so the modeler stays untouched) -->
+<script src="cam-mc.js"></script>
 <script src="heatmap.js"></script>
 <script src="slicer.js"></script>
 <script src="costing.js"></script>
