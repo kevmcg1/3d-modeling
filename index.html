@@ -3709,7 +3709,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .tb-right { display: flex; gap: 2px; align-items: stretch; margin-left: auto; }
 
 /* ── Main ── */
-#main { display: grid; grid-template-columns: var(--browser-w, 230px) 1fr auto; min-height: 0; min-width: 0; }
+#main { display: grid; grid-template-columns: var(--browser-w, 230px) 1fr auto auto; min-height: 0; min-width: 0; }
 #browser { background: var(--panel); border-right: 1px solid var(--rule); min-height: 0; display: flex; flex-direction: column; overflow: hidden; position: relative; }
 #brGrip { position: absolute; top: 0; bottom: 0; right: 0; width: 7px; cursor: col-resize; z-index: 5; touch-action: none; }
 #brGrip::after { content: ''; position: absolute; top: 50%; right: 2px; width: 3px; height: 34px; margin-top: -17px; border-radius: 2px; background: var(--rule); opacity: 0; transition: opacity .15s, background-color .15s; }
@@ -3806,6 +3806,13 @@ body.col-drag { cursor: col-resize; user-select: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ── Right panel ── */
+#catrail { display: flex; flex-direction: column; gap: 6px; padding: 8px 6px; width: 64px; background: var(--panel); border-left: 1px solid var(--rule); min-height: 0; }
+#catrail[hidden] { display: none; }
+.cat-btn { position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 2px 6px; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--muted); font: 600 11px var(--font); cursor: pointer; transition: background .15s, color .15s, border-color .15s; }
+.cat-btn svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.6; }
+.cat-btn:hover { background: var(--accent-soft); color: var(--accent); }
+.cat-btn.on { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 45%, var(--rule)); color: var(--accent); }
+.cat-btn i { font-style: normal; font-weight: 500; font-size: 10.5px; color: var(--muted); }
 #panel { width: 270px; background: var(--panel); border-left: 1px solid var(--rule); overflow-y: auto; min-height: 0; }
 .pn-head { padding: 14px 16px 10px; border-bottom: 1px solid var(--rule); display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .pn-head h2 { margin: 0; font-size: 14px; font-weight: 600; }
@@ -4082,6 +4089,7 @@ body.sim-on #mouseLegend { bottom: 132px; }
 .mob-only { display: none; }
 @media (max-width: 820px) {
   #main { grid-template-columns: 1fr; position: relative; }
+  #catrail { position: absolute; right: 8px; top: 8px; width: auto; flex-direction: row; z-index: 13; border: 1px solid var(--rule); border-radius: 10px; }
   #browser { position: absolute; left: 0; top: 0; bottom: 0; width: min(260px, 80vw); z-index: 15; box-shadow: var(--shadow); }
   #browser:not(.open) { display: none; }
   #panel { position: absolute; left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 46%; z-index: 12; border: 1px solid var(--rule); border-radius: 10px; box-shadow: var(--shadow); }
@@ -4401,6 +4409,7 @@ html.calm *, html.calm *::before, html.calm *::after { transition: none !importa
     </div>
     <div id="help" hidden><div class="card" id="helpCard"></div></div>
   </div>
+  <nav id="catrail" hidden aria-label="Operation categories"></nav>
   <aside id="panel"></aside>
 </div>
 
@@ -11535,6 +11544,7 @@ addEventListener('keydown', e => { if (e.key === 'Escape' && !ctxmenu.hidden) ct
 // ── Right panel ────────────────────────────────────────────────────
 const panel = document.getElementById('panel');
 function refreshPanel() {
+  catRailRender();
   const ae = document.activeElement;
   const mode = CMD ? CMD.type + (CMD.f ? CMD.f.id : '') + (CMD.base ? 'b' : '') : S.sk ? 'sketch' : UIX.ws === 'cam' ? 'cam' + CAMUI.view + CAMUI.op : 'idle';
   if (ae && panel.contains(ae) && ae.dataset.live && panel.dataset.mode === mode) return;
@@ -15815,24 +15825,42 @@ function camAction(a) {
   CAMUI.view = CAMUI.view === a ? 'overview' : a;
   camRefresh();
 }
+// Program-order numbers and one operation row, shared by the category panel.
+const camOpNums = () => { let k = 0; const m = new Map(); for (const o of cam().ops) if (!o.sup) m.set(o.id, ++k); return m; };
+function camOpRow(op, nums) {
+  const P = toolpath(op), warn = P && P.warn.length, busy = P && P.pending;
+  return `<li data-op="${op.id}" title="${(op.why || '').replace(/"/g, '&quot;')}" class="${CAMUI.op === op.id && CAMUI.view === 'op' ? 'sel' : ''} ${op.sup ? 'dim' : ''} ${warn ? 'err' : ''}"><span class="tl-num">${op.sup ? '' : nums.get(op.id)}</span>${svg(OP_INFO[op.type].icon, 'ic')}<span class="nm">${op.name}</span><span class="sub">${busy ? '<span class="spin"></span>' : op.type === 'wire' ? 'Wire' : 'T' + op.tool}</span><button class="eye ${op.hide ? 'off' : ''}" data-ophide="${op.id}" title="${op.hide ? 'Show toolpath' : 'Hide toolpath'}">${svg('eye')}</button></li>`;
+}
+// Two categories of operations, as a rail left of the right sidebar: Manual (clicked, chained or added by hand) and
+// Auto (programmed from model feature detection). Program order is unchanged; the numbers are the order it runs in.
+const CAT_INFO = { manual: { name: 'Manual', icon: 'camchain', tag: 'by hand' }, auto: { name: 'Auto', icon: 'auto', tag: 'from model detection' } };
+const catOf = op => op.auto ? 'auto' : 'manual';
+function catRailRender() {
+  const rail = document.getElementById('catrail');
+  if (!rail) return;
+  const on = UIX.ws === 'cam' && !!camStock();
+  rail.hidden = !on;
+  if (!on) { rail.innerHTML = ''; return; }
+  const cur = CAMUI.view === 'cat' ? CAMUI.cat : CAMUI.view === 'op' && opById(CAMUI.op) ? catOf(opById(CAMUI.op)) : null;
+  rail.innerHTML = Object.entries(CAT_INFO).map(([k, c]) => `<button class="cat-btn ${cur === k ? 'on' : ''}" data-cat="${k}">${svg(c.icon)}<span>${c.name}</span><i>${cam().ops.filter(o => catOf(o) === k).length}</i></button>`).join('');
+  rail.querySelectorAll('[data-cat]').forEach(b => b.addEventListener('click', () => { if (SIM.on) simStop(); CAMUI.view = CAMUI.view === 'cat' && CAMUI.cat === b.dataset.cat ? 'overview' : 'cat'; CAMUI.cat = b.dataset.cat; camRefresh(); }));
+}
+function catPanel(k) {
+  const C = cam(), c = CAT_INFO[k] || CAT_INFO.manual, list = C.ops.filter(o => catOf(o) === (CAT_INFO[k] ? k : 'manual')), nums = camOpNums();
+  const empty = k === 'auto' ? 'Nothing programmed from the model yet. Run Auto Detect.' : 'Nothing here yet. Add a Chain, Contour, Pocket or Drill from the toolbar, or click an edge in a Chain.';
+  return `<div class="pn-head"><h2>${c.name}</h2><span class="tag">${list.length} op${list.length === 1 ? '' : 's'}</span></div><div class="pn-body">
+    <p class="note">${k === 'auto' ? 'Toolpaths programmed from model feature detection (faces, holes, threads, fillets, chamfers).' : 'Toolpaths you made by hand: chain-click edges, or added from the toolbar.'}</p>
+    <ul class="tree cat-list">${list.length ? list.map(o => camOpRow(o, nums)).join('') : `<li class="empty">${empty}</li>`}</ul>
+    <div class="btns">${k === 'auto' ? '<button class="btn primary" data-camdo="auto">Auto-detect features</button><button class="btn" data-automenu>Options…</button>' : '<button class="btn primary" data-camadd="chain">Add Chain</button>'}</div></div>`;
+}
 function camTree() {
   const C = cam(), st = camStock();
-  let k = 0; const nums = new Map(); for (const o of C.ops) if (!o.sup) nums.set(o.id, ++k);
-  const row = op => {
-    const P = toolpath(op), warn = P && P.warn.length, busy = P && P.pending;
-    return `<li data-op="${op.id}" title="${(op.why || '').replace(/"/g, '&quot;')}" class="${CAMUI.op === op.id && CAMUI.view === 'op' ? 'sel' : ''} ${op.sup ? 'dim' : ''} ${warn ? 'err' : ''}"><span class="tl-num">${op.sup ? '' : nums.get(op.id)}</span>${svg(OP_INFO[op.type].icon, 'ic')}<span class="nm">${op.name}</span><span class="sub">${busy ? '<span class="spin"></span>' : op.type === 'wire' ? 'Wire' : 'T' + op.tool}</span><button class="eye ${op.hide ? 'off' : ''}" data-ophide="${op.id}" title="${op.hide ? 'Show toolpath' : 'Hide toolpath'}">${svg('eye')}</button></li>`;
-  };
-  // Two categories: Manual (clicked, chained or added by hand) and Auto (programmed from model feature detection).
-  // Program order is unchanged; the numbers are the order the program runs in.
-  const manual = C.ops.filter(o => !o.auto), auto = C.ops.filter(o => o.auto);
-  const sec = (title, icon, list, empty, menu) => `<div class="auto-card ${menu ? '' : 'manual-card'}"><div class="auto-head">${svg(icon)}${title} <span class="cnt">${list.length} op${list.length === 1 ? '' : 's'}</span>${menu ? '<button class="icon-btn" data-automenu title="Auto-detected operations">⋯</button>' : ''}</div>${list.length ? `<ul class="tree">${list.map(row).join('')}</ul>` : `<ul class="tree"><li class="empty">${empty}</li></ul>`}</div>`;
-  const ops = C.ops.length ? sec('Manual', 'camchain', manual, 'Add a Chain, Contour, Pocket or Drill from the toolbar', false) + sec('Auto', 'auto', auto, 'Run Auto Detect to program from the model', true) : '';
   return `<div class="sec-title">Setup</div><ul class="tree">
       <li data-camview="setup" class="${CAMUI.view === 'setup' ? 'sel' : ''}">${svg('camsetup', 'ic')}<span class="nm">Stock &amp; origin</span><span class="sub">${st ? [st.x1 - st.x0, st.y1 - st.y0, st.z1 - st.z0].map(x => fmt(toU(x), isIn() ? 2 : 0)).join('×') : '—'}</span></li>
       <li data-camview="tools" class="${CAMUI.view === 'tools' ? 'sel' : ''}">${svg('camtools', 'ic')}<span class="nm">Tool library</span><span class="sub">${C.tools.length}</span></li>
       <li data-camview="auto" class="${CAMUI.view === 'auto' ? 'sel' : ''}">${svg('auto', 'ic')}<span class="nm">Auto Detect</span><span class="sub">${AUTO.res && CAMUI.view === 'auto' ? AUTO.res.axes + '-axis' : ''}</span></li>
       <li data-camview="threads" class="${CAMUI.view === 'threads' ? 'sel' : ''}">${svg('camthread', 'ic')}<span class="nm">Threads</span><span class="sub"></span></li></ul>
-    <div class="sec-title">Operations <span>${C.ops.length || ''}</span></div>${ops || '<ul class="tree"><li class="empty">Run Auto Detect, or add Face, Contour, Pocket, Drill or 3D Parallel from the toolbar</li></ul>'}`;
+    <div class="sec-title">Operations <span>${C.ops.length || ''}</span></div><ul class="tree"><li class="empty">${C.ops.length ? 'Open Manual or Auto on the right to see them' : 'Run Auto Detect, or add Face, Contour, Pocket, Drill or Chain from the toolbar'}</li></ul>`;
 }
 function bindCamTree(el) {
   el.querySelectorAll('[data-camview]').forEach(li => li.addEventListener('click', () => { if (SIM.on) simStop(); CAMUI.view = li.dataset.camview; camRefresh(); }));
@@ -15934,6 +15962,7 @@ function camPanel() {
   const C = cam(), v = CAMUI.view, st = camStock();
   if (!st) return `<div class="pn-head"><h2>Manufacture</h2></div><div class="pn-body"><p class="note">There is no body to machine yet. Switch to <b>Design</b> and extrude something, or open a sample part.</p><div class="btns"><button class="btn" data-do="samples">Sample parts…</button></div></div>`;
   if (v === 'auto') return autoPanel();
+  if (v === 'cat') return catPanel(CAMUI.cat);
   if (v === 'report') return reportPanel();
   if (v === 'setup') {
     const pts = doc.features.filter(f => f.type === 'point' && !f.sup);
@@ -16053,9 +16082,10 @@ function camPanel() {
 }
 function bindCamPanel() {
   const C = cam();
+  if (CAMUI.view === 'cat') { bindCamTree(panel); panel.querySelectorAll('[data-camadd]').forEach(b => b.addEventListener('click', () => camAddOp(b.dataset.camadd))); }
   panel.querySelectorAll('[data-camdo]').forEach(b => b.addEventListener('click', () => {
     const d = b.dataset.camdo;
-    if (d === 'overview') { CAMUI.view = 'overview'; camRefresh(); }
+    if (d === 'overview') { const o = CAMUI.view === 'op' && opById(CAMUI.op); if (o && CAMUI.cat) { CAMUI.view = 'cat'; CAMUI.cat = catOf(o); } else CAMUI.view = 'overview'; camRefresh(); }
     if (d === 'sim') camAction('sim');
     if (d === 'post') camAction('post');
     if (d === 'auto') camAction('auto');
