@@ -1,0 +1,161 @@
+# Fusion-style modeling coverage (Design tab)
+
+Which of Autodesk Fusion's 3D modeling methods the Design tab has, which are partial, and which are planned or not feasible in a browser app. The kernel is a polygon B-rep with exact analytic faces (planes, cylinders, cones, tori) and a BSP boolean, so tools that rebuild faces exactly are cheap, while true NURBS surfaces, T-splines and a full assembly solver are not.
+
+Legend: ✅ done · 🟡 partial (what is missing is noted) · 🔜 planned (batch number) · ⛔ not feasible in this kernel (reason noted)
+
+Batches ship one PR at a time. Batch 0 is what existed before this work plus the "More 3D modeling tools" PR (#39).
+
+## Solid → Create
+
+| Fusion tool | Status | Notes |
+|---|---|---|
+| Extrude (distance, symmetric, to object, through all, to next) | ✅ | New / Join / Cut / Intersect, drag arrow |
+| Revolve | ✅ | Angle, symmetric, axis from a line or edge |
+| Sweep | 🟡 | Twist and scale along the path; guide rails 🔜 5 |
+| Loft | 🟡 | Smooth or ruled; rails and centerline 🔜 5 |
+| Coil | ✅ | Circle, square, triangle sections |
+| Hole | ✅ | Simple, counterbore, countersink, tapped |
+| Thread | ✅ | Modeled threads, metric and inch |
+| Box / Cylinder / Sphere / Torus / Cone | ✅ | Primitive (PR #39) |
+| Pipe | 🔜 2 | Circular or square section along a sketch path, with wall thickness |
+| Rib | 🔜 3 | Thin wall from an open sketch line up to the body |
+| Web | 🔜 3 | Several ribs in one go |
+| Emboss / Deboss | 🟡 | Text → "Convert to curves" → extrude cut/join works today; wrapping onto curved faces is ⛔ (needs face-parametric projection), planar-face emboss 🔜 4 |
+| Boundary Fill | 🔜 5 | Fill the space enclosed by bodies and planes |
+| Thicken | ⛔ | Needs surface bodies, which this kernel does not have |
+| Gears (spur, helical, herringbone, internal, rack, bevel, worm) | ✅ | Beyond Fusion's stock tools |
+| Hardware (screws, nuts, washers) | ✅ | Parametric |
+
+## Solid → Modify
+
+| Fusion tool | Status | Notes |
+|---|---|---|
+| Press Pull / Offset Face | ✅ | Push / Pull (PR #39) |
+| Fillet | 🟡 | Constant radius. Variable radius, setback, rule fillet, full round 🔜 4 |
+| Chamfer | 🟡 | Equal distance. Two-distance and distance-angle 🔜 4 |
+| Shell | ✅ | Open faces, uniform wall |
+| Draft | ✅ | Neutral plane (PR #39) |
+| Scale | 🟡 | Uniform only. Non-uniform scale breaks exact cylinders; a mesh-only fallback is 🔜 5 |
+| Combine (join, cut, intersect, keep tools) | ✅ | |
+| Split Body | ✅ | By plane or face |
+| Split Face | 🔜 4 | |
+| Silhouette Split | 🔜 6 | |
+| Move / Copy | ✅ | Translate, rotate, scale in one command |
+| Align | ✅ | PR #39 |
+| Stretch | ✅ | PR #39 |
+| Delete Body | ✅ | PR #39 |
+| Delete Face | 🔜 4 | Healing by extending the neighbours is the hard part |
+| Replace Face | 🔜 6 | |
+| Physical Material | 🟡 | Per-body color exists; materials with density arrive with Physical Properties (batch 1) |
+| Change Parameters | 🟡 | Every feature keeps its own numbers and the history re-evaluates; no named parameter table (🔜 7) |
+
+## Solid → Pattern and Mirror
+
+| Fusion tool | Status | Notes |
+|---|---|---|
+| Rectangular Pattern | ✅ | |
+| Circular Pattern | ✅ | |
+| Mirror | ✅ | Bodies and features |
+| Pattern on Path | 🔜 2 | |
+
+## Construct
+
+| Fusion tool | Status | Notes |
+|---|---|---|
+| Offset Plane | ✅ | |
+| Midplane | 🔜 1 | |
+| Plane at Angle | 🔜 1 | |
+| Plane Through Three Points | 🔜 1 | |
+| Plane Through Two Edges, Tangent Plane, Plane Along Path | 🔜 6 | |
+| Axis (cylinder, edge, two points, perpendicular to face) | 🟡 | Edges, cylinders and sketch lines already act as axes inside other tools; a standalone visible axis feature is 🔜 6 |
+| Point (vertex, edge midpoint, center) | ✅ | Point feature with snapping |
+| Point Through Two Edges / Three Planes | 🔜 6 | |
+
+## Sketch
+
+| Fusion tool | Status | Notes |
+|---|---|---|
+| Line, Polyline, Rectangle (2 point, center), Circle, 3-point arc, Center arc, Polygon, Text | ✅ | |
+| Fillet, Chamfer, Trim, Extend, Offset, Mirror, Pattern, Move, Rotate, Scale, Copy / Paste | ✅ | |
+| Project / Include | ✅ | |
+| Dimension | ✅ | Driving dimensions with Update |
+| Ellipse, Slot, Conic curve | 🔜 2 | Slots and ellipses can be approximated with arcs today |
+| Spline (fit point, control point) | 🔜 3 | Needs a sampled-curve entity through trim, offset and extrude |
+| Geometric constraints (coincident, tangent, parallel, perpendicular, equal, symmetric, fix) | 🔜 7 | Needs a real constraint solver; today only shared endpoints and dimensions |
+| Sketch on a plane, face or construction plane | ✅ | |
+| 3D sketch | 🟡 | 3D polyline exists; no full 3D sketch environment |
+| Insert SVG / DXF | 🔜 6 | The Graphics and 2D Drawing tabs can already author the shapes |
+
+## Surface
+
+| Fusion tool | Status | Notes |
+|---|---|---|
+| Extrude, Revolve, Sweep, Loft, Patch, Offset, Trim, Extend, Stitch, Unstitch, Ruled, Thicken | ⛔ | Bodies are closed solids: there are no open shell or NURBS surface bodies. Adding them is a separate kernel project |
+| Deform | ✅ | Bend, twist, taper and more on solids |
+
+## Mesh
+
+| Fusion tool | Status | Notes |
+|---|---|---|
+| Insert Mesh (STL / OBJ) | ✅ | Imported as a body |
+| Convert Mesh | 🟡 | Imports are triangle bodies that can be combined and cut; face-group reconstruction to a B-rep is ⛔ at useful quality in a browser |
+| Reduce, Remesh, Repair, Smooth, Reverse Normal | 🔜 8 | Decimation and normal repair are feasible |
+| Plane Cut, Combine, Shell, Separate | 🔜 8 | Through the existing boolean |
+
+## Sheet Metal
+
+| Fusion tool | Status | Notes |
+|---|---|---|
+| Flange, Bend, Unfold, Refold, Flat Pattern, Rip, Corner Relief | 🔜 9 | Needs a sheet-metal body type with bend allowance; the flat pattern would export to the 2D Drawing tab |
+
+## Form (T-spline sculpt)
+
+| Fusion tool | Status | Notes |
+|---|---|---|
+| Box / Sphere / Cylinder forms, Edit Form, Subdivide, Crease | ⛔ | T-splines are proprietary. A Catmull-Clark sculpt mode is possible later as a separate feature |
+
+## Inspect
+
+| Fusion tool | Status | Notes |
+|---|---|---|
+| Measure | ✅ | Two-point distance with snapping |
+| Physical Properties (mass, volume, area, center of mass, bounding box) | 🔜 1 | With material densities |
+| Interference | 🔜 1 | Pairwise body overlap with volume |
+| Section Analysis | 🔜 1 | Live clipping plane with outline and section area |
+| Zebra, Curvature Comb, Curvature Map, Draft Analysis, Accessibility | 🔜 6 | Draft and curvature come from face normals; zebra and curvature on analytic faces only |
+| Stress / fixturing study | ✅ | Beyond Fusion's basic tools |
+| Blueprint drawing | ✅ | Hands off to the 2D Drawing tab |
+
+## Assemble
+
+| Fusion tool | Status | Notes |
+|---|---|---|
+| Joint (rigid, revolute, slider, cylindrical, pin-slot, planar, ball), As-built Joint, Motion Link, Drive Joints, Contact Sets, Motion Study | 🔜 10 | Needs bodies as components with a transform plus a small joint solver |
+| Rigid Group, Enable Contact | 🔜 10 | |
+
+## Environment
+
+| Fusion feature | Status | Notes |
+|---|---|---|
+| Parametric timeline (rollback, reorder, edit any step, suppress) | ✅ | Timeline and History |
+| Direct modeling alongside the history | ✅ | Push / Pull, Stretch, Align, Delete Body |
+| Components and browser tree | 🟡 | Bodies, planes and sketches in a tree; no nested components (🔜 10) |
+| User parameters and expressions in fields | 🔜 7 | |
+| Render, Animation, Simulation, Generative design | 🟡 | Render look modes exist; cloud simulation and generative design are ⛔. Manufacture is the CAM tab, tracked separately |
+
+## Batch plan
+
+| Batch | Tools |
+|---|---|
+| 0 ✅ | Everything marked ✅ above, including PR #39 |
+| 1 | Physical Properties, Interference, Section Analysis, Midplane, Plane at Angle, Plane Through Three Points |
+| 2 | Pipe, Pattern on Path, Ellipse, Slot |
+| 3 | Rib, Web, Spline |
+| 4 | Variable and setback fillets, two-distance chamfer, Split Face, Delete Face, planar Emboss |
+| 5 | Boundary Fill, Sweep and Loft rails, mesh-only non-uniform Scale |
+| 6 | Standalone axes, tangent and two-edge planes, analysis overlays, Silhouette Split, Replace Face, Insert SVG / DXF |
+| 7 | Sketch constraints and user parameters |
+| 8 | Mesh tools |
+| 9 | Sheet metal |
+| 10 | Components and joints |
