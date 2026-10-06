@@ -47,12 +47,12 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
       if (!seed) return { err: 'no outline edge' };
       const c = buildChain(seed.m, seed.ch, true); op.chains = [{ id: 1, rev: false, start: 0, ...c }];
       const P = toolpath(op), xs = P.m.map(q => q.x), ys = P.m.map(q => q.y), cut = P.m.filter(q => !q.r);
-      const res = { closed: c.closed, n: c.pts.length, warn: P.warn, minz: Math.min(...P.m.map(q => q.z)), outside: Math.min(...cut.map(q => Math.min(60 - Math.abs(q.x), 40 - Math.abs(q.y)))) };
+      const res = { rad: toolOf(op.tool).d / 2, closed: c.closed, n: c.pts.length, warn: P.warn, minz: Math.min(...P.m.map(q => q.z)), outside: Math.min(...cut.map(q => Math.min(60 - Math.abs(q.x), 40 - Math.abs(q.y)))) };
       op.chains = keep; return res;
     });
     assert(!r.err && r.closed && r.n >= 4 && !r.warn.length, JSON.stringify(r));
     assert(Math.abs(r.minz + 0.5) < 0.05, 'through the part: ' + r.minz);
-    assert(r.outside < -5, 'the tool centre runs about a tool radius outside the outline: ' + r.outside);
+    assert(r.outside < -r.rad * 0.9, 'the tool centre runs about a tool radius outside the outline: ' + r.outside);
   });
   await ok('reverse flips the direction, Start… moves the start point, undo restores', async () => {
     const r = await page.evaluate(() => { const op = opById(CAMUI.op), a = chainTravel(op.chains[0])[0], b0 = chainTravel(op.chains[0]); chainDo(op, 'rev:' + op.chains[0].id); const b = chainTravel(op.chains[0]); undo(); const c = chainTravel(opById(CAMUI.op).chains[0]); return { same: Math.hypot(a.x - b[0].x, a.y - b[0].y) < 1e-6, flipped: Math.hypot(b0[1].x - b[b.length - 1].x, b0[1].y - b[b.length - 1].y) < 1e-6, restored: Math.hypot(a.x - c[0].x, a.y - c[0].y) < 1e-6 && !opById(CAMUI.op).chains[0].rev }; });

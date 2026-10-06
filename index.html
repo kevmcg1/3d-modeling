@@ -3709,7 +3709,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .tb-right { display: flex; gap: 2px; align-items: stretch; margin-left: auto; }
 
 /* ── Main ── */
-#main { display: grid; grid-template-columns: var(--browser-w, 230px) 1fr auto auto; min-height: 0; min-width: 0; }
+#main { display: grid; grid-template-columns: var(--browser-w, 230px) minmax(0, 1fr) auto auto; min-height: 0; min-width: 0; }
 #browser { background: var(--panel); border-right: 1px solid var(--rule); min-height: 0; display: flex; flex-direction: column; overflow: hidden; position: relative; }
 #brGrip { position: absolute; top: 0; bottom: 0; right: 0; width: 7px; cursor: col-resize; z-index: 5; touch-action: none; }
 #brGrip::after { content: ''; position: absolute; top: 50%; right: 2px; width: 3px; height: 34px; margin-top: -17px; border-radius: 2px; background: var(--rule); opacity: 0; transition: opacity .15s, background-color .15s; }
@@ -13065,7 +13065,8 @@ function camDefaults() {
   const T = (n, type, d) => ({ n, ...toolDefaults(type, d) });
   return {
     stock: { side: 6.35, top: 6.35, bottom: 6.35 }, material: 'aluminum', origin: 'top-center', safe: 10, retract: 2,
-    tools: [T(1, 'flat', 12.7), T(2, 'flat', 6.35), T(3, 'ball', 6.35), T(4, 'drill', 7.9375), T(5, 'face', 50.8)],
+    tools: [T(1, 'flat', 12.7), T(2, 'flat', 6.35), T(3, 'ball', 6.35), T(4, 'drill', 7.9375), T(5, 'face', 50.8),
+      T(6, 'flat', 19.05), T(7, 'flat', 3.175), T(8, 'bull', 12.7), T(9, 'bull', 6.35), T(10, 'ball', 12.7), T(11, 'ball', 3.175)],
     ops: [], post: { flavor: 'fanuc', arcs: true, coolant: true, program: 1001 }, next: 1,
   };
 }
@@ -14627,7 +14628,7 @@ function simProgram() {
     if (!P || P.pending) continue;
     for (let i = 1; i < P.m.length; i++) {
       const a = P.m[i - 1], b = P.m[i], L = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z), dt = L / (b.r ? RAPID : b.f) + (b.dw || 0) / 60;
-      out.push({ a, b, r: b.r, tool: b.tool || P.tool, t0: t, t1: t + dt, op: op.id, mi: i, fin: op.type === 'parallel' && !op.rough, ax: opAxis(op), slug: b.slug, stop: b.stop });
+      out.push({ a, b, r: b.r, tool: b.tool || P.tool, t0: t, t1: t + dt, op: op.id, mi: i, fin: mcFin(op), ax: opAxis(op), slug: b.slug, stop: b.stop });
       t += dt;
     }
   }
@@ -15729,6 +15730,7 @@ function camAddOp(type, kind) {
     parallel: { tool: pick('ball'), stepover: 0.5, leave: 0, angle: 0, overrun: true },
     chamfer: { tool: pick('chamfer'), through: 0.3, leave: 0, faces: [] },
     waterline: { tool: pick('flat'), stepdown: 1, leave: 0, entry: 'ramp', bottom: null },
+    surf: { tool: pick('ball'), strategy: 'radial', stepover: 0.5, leave: 0, overrun: true },
     zrough: { tool: pick('flat'), stepover: 0.5, stepdown: 2, leaveWall: 0.5, leaveFloor: 0.5, flats: true, bottom: null },
     chain: { tool: pick('flat'), cm: 'contour', side: 'auto', depthMode: 'auto', lead: 'arc', stepdown: 2, stepover: 0.45, leave: 0, leaveWall: 0, leaveFloor: 0, through: 0.5, mode: 'peck', peck: 3, chains: [] },
     get engrave() { return engDefaults(camStock(), (C.tools.find(t => t.type === 'chamfer' && (t.cone || 90) <= 90) || camToolOfType('chamfer', 3, { cone: 60 })).n); },
@@ -15737,6 +15739,7 @@ function camAddOp(type, kind) {
   if (type === 'chamfer' && !C.tools.some(t => t.type === 'chamfer')) op.tool = camToolOfType('chamfer', stdChamfer()[3] || 12, { cone: 90 }).n;   // a cone is what lies on the face
   if (dk) Object.assign(op, { kind, mode: dk.mode }, drillKindSetup(kind));
   else if (type === 'drill') { const hs = camHoles(), t = toolOf(op.tool); op.diams = [...new Set(hs.filter(h => Math.abs(h.d - t.d) < 0.05).map(h => +h.d.toFixed(2)))]; if (!op.diams.length) op.diams = [...new Set(hs.map(h => +h.d.toFixed(2)))]; }
+  if (typeof camAutoTool === 'function') camAutoTool(op);        // 3D ops: the part's recesses are known already
   C.ops.push(op);
   record('Add ' + op.name, before);
   CAMUI.view = 'op'; CAMUI.op = op.id;
@@ -15746,6 +15749,7 @@ const opById = id => cam().ops.find(o => o.id === id);
 function camEdit(op, key, val) {
   const before = snap();
   op[key] = val;
+  if (['faces', 'holes', 'side', 'cm', 'depthMode', 'depth', 'through'].includes(key) && typeof camAutoTool === 'function') camAutoTool(op);   // internal feature: the largest tool that fits
   record(`Edit ${op.name} ${key}`, before);
   camRefresh();
 }
@@ -15909,6 +15913,7 @@ function offsetOpen(pts, d, s) {
 }
 // Extra toolpath modes of the Chain operation (Mastercam-style), filled in by cam-mc.js
 const MC_CM = {};
+const mcFin = op => typeof window.mcFinish3d === 'function' ? window.mcFinish3d(op) : op.type === 'parallel' && !op.rough;   // moves that follow the surface itself: no gouge check, no stock removal model
 GEN.chain = function (op, tool, st, part, P) {
   const chains = (op.chains || []).filter(c => c.pts && c.pts.length > 1);
   const cm = op.cm || 'contour';
@@ -16301,6 +16306,7 @@ function chainAdd(op, e, whole, additive) {
     list.push({ id: (cur.reduce((m, c) => Math.max(m, c.id || 0), 0)) + 1, rev: false, start: 0, ...nc });
   }
   op.chains = list;
+  if (typeof camAutoTool === 'function') camAutoTool(op);
   record(`${op.name}: ${whole ? 'chain' : 'edge'}`, before);
   camRefresh();
 }
@@ -16400,14 +16406,15 @@ function chainDo(op, a) {
   if (!c) return;
   if (k === 'rev') { c.rev = !c.rev; record(`${op.name}: reverse`, before); }
   else if (k === 'start') { CHAINUI.startFor = CHAINUI.startFor === c.id ? null : c.id; if (CHAINUI.startFor != null) toast('Click a corner of the chain to start there.'); }
-  else if (k === 'close') { c.closed = true; c.joined = true; record(`${op.name}: close chain`, before); }
-  else if (k === 'open') { c.closed = false; c.joined = false; c.start = 0; record(`${op.name}: open chain`, before); }
-  else if (k === 'del') { op.chains = op.chains.filter(q => q !== c); record(`${op.name}: remove chain`, before); }
+  else if (k === 'close') { c.closed = true; c.joined = true; camAutoTool(op); record(`${op.name}: close chain`, before); }
+  else if (k === 'open') { c.closed = false; c.joined = false; c.start = 0; camAutoTool(op); record(`${op.name}: open chain`, before); }
+  else if (k === 'del') { op.chains = op.chains.filter(q => q !== c); camAutoTool(op); record(`${op.name}: remove chain`, before); }
   camRefresh();
 }
 function chainSetMode(op, cm) {
   const C = cam(), before = snap(), want = MC_CM[cm] ? MC_CM[cm].tools : cm === 'drill' ? ['drill', 'spot'] : cm === 'deburr' ? ['chamfer'] : cm === 'slot' || cm === 'circle' ? ['flat', 'bull'] : ['flat', 'bull'];
   op.cm = cm;
+  if (typeof camAutoTool === 'function') camAutoTool(op);
   const cur = toolOf(op.tool);
   if (!want.includes(cur.type)) { const t = C.tools.find(x => want.includes(x.type)) || (cm === 'deburr' ? camToolOfType('chamfer', stdChamfer()[3] || 12, { cone: 90 }) : null); if (t) op.tool = t.n; }
   if (cm === 'slot' && !(op.stepdown > 0)) op.stepdown = 2;
@@ -16667,7 +16674,7 @@ function camPanel() {
     if (!op) { CAMUI.view = 'overview'; return camPanel(); }
     const P = toolpath(op), stats = P && !P.pending ? pathStats(P) : null;
     const tools = C.tools.map(t => `<option value="${t.n}" ${op.tool === t.n ? 'selected' : ''}>${toolName(t)}</option>`).join('');
-    let f = `<div class="field"><span>Tool</span><select id="opTool">${tools}</select></div>`;
+    let f = `<div class="field"><span>Tool</span><select id="opTool">${tools}</select></div>${typeof camAutoToolCard === 'function' ? camAutoToolCard(op) : ''}`;
     const faces = (op.faces || []).length;
     if (op.type === 'face') f += `<div class="row3">${num('opSo', op.stepover, 'Stepover ×Ø', 0.05)}${num('opSd', op.stepdown, 'Stepdown', 0.1)}${num('opLeave', op.leave, 'Leave', 0.05)}</div>
       <div class="field"><span>Passes</span><div class="seg"><button data-opset="pattern:zigzag" class="${op.pattern !== 'oneway' ? 'on' : ''}" title="Across, step over off the end of the stock, and straight back: the tool never lifts">Zig-zag</button><button data-opset="pattern:oneway" class="${op.pattern === 'oneway' ? 'on' : ''}" title="Every stroke cuts the same direction; the tool lifts and comes back between strokes (a more even finish)">One way</button></div></div>
@@ -16707,6 +16714,7 @@ function camPanel() {
     if (op.type === 'engrave') f += engraveFields(op);
     if (op.type === 'waterline') f += waterlineFields(op);
     if (op.type === 'zrough') f += zroughFields(op);
+    if (op.type === 'surf') f += surfFields(op);
     { const fb = ['parallel', 'chamfer', 'contour', 'pocket'].includes(op.type) && !op.rough ? finishBlock(op, toolOf(op.tool)) : ''; if (fb) f += `<h3 class="sub">Surface finish</h3>${fb}`; }
     f += feedsCard(op);
     const warn = P && P.warn.length ? P.warn.map(w => `<p class="note err-note">${w}</p>`).join('') : '';
@@ -16812,7 +16820,8 @@ function bindCamPanel() {
   // op fields
   const op = CAMUI.view === 'op' && opById(CAMUI.op);
   if (op) {
-    const ot = document.getElementById('opTool'); if (ot) ot.addEventListener('change', () => camEdit(op, 'tool', +ot.value));
+    const ot = document.getElementById('opTool'); if (ot) ot.addEventListener('change', () => camSetToolManual(op, +ot.value));
+    panel.querySelectorAll('[data-autotool]').forEach(b => b.addEventListener('click', () => { if (b.dataset.autotool === 'auto') camToolAuto(op); else camSetToolManual(op, +b.dataset.autotool); }));
     const map = { opSo: 'stepover', opSoL: 'stepover', opSd: 'stepdown', opLeave: 'leave', opThrough: 'through', opLw: 'leaveWall', opLf: 'leaveFloor', opPeck: 'peck', opRest: 'restD', opFs: 'finishStock', opRough: 'roughStock' };
     for (const [id, k] of Object.entries(map)) setN(id, v => {
       const val = k === 'leave' || k === 'leaveWall' || k === 'leaveFloor' || k === 'through' || k === 'restD' || k === 'finishStock' || k === 'roughStock' ? Math.max(0, v) : Math.max(0.01, v);
@@ -25443,7 +25452,7 @@ function camOptimizeAll() {
         feedLen += L;
         const plunge = Math.hypot(b.x - A.x, b.y - A.y) < 1e-6 && b.z < A.z;
         if (L > 0.3 && !plunge && !airEngaged(model, A, b, tool)) { b.air = true; b.f = Math.max(b.f || 0, AIR.feed); airLen += L; }
-        model.cut(A, b, tool, op.type === 'parallel' && !op.rough);
+        model.cut(A, b, tool, mcFin(op));
         if (++n % 48 === 0) model.flush();
         outM.push(b);
       }
@@ -34975,7 +34984,7 @@ bindPanel = function () {
   css.textContent = `
 #codeDock { display: flex; flex-direction: column; width: clamp(300px, 28vw, 470px); min-height: 0; min-width: 0; background: var(--code-bg); border-right: 1px solid var(--rule); }
 #codeDock[hidden] { display: none; }
-body.code-docked #main { grid-template-columns: var(--browser-w, 230px) auto 1fr auto; }
+body.code-docked #main { grid-template-columns: var(--browser-w, 230px) auto minmax(0, 1fr) auto auto; }
 #codeDock > #simcode, #codeDock > #gced { position: static; left: auto; top: auto; bottom: auto; width: auto; flex: 1; min-height: 0; border: 0; border-radius: 0; box-shadow: none; }
 #codeDock > #simcode[hidden], #codeDock > #gced[hidden] { display: none; }
 @media (max-width: 820px) { #codeDock { position: absolute; left: 0; top: 0; bottom: 0; z-index: 8; width: min(92vw, 430px); } body.code-docked #main { grid-template-columns: 1fr; } }
@@ -36309,6 +36318,7 @@ function gsPick(i) {
 <!-- 3D Print workspace: the slicer engine and its front end (own files, so the modeler stays untouched) -->
 <script src="tip-anim.js"></script>
 <script src="cam-mc.js"></script>
+<script src="cam-autotool.js"></script>
 <script src="cam-flow.js"></script>
 <script src="heatmap.js"></script>
 <script src="slicer.js"></script>

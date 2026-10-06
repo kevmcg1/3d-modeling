@@ -71,6 +71,10 @@
   function recommend(op) {
     const types = compat(op), lib = cam().tools.filter(t => types.includes(t.type));
     if (!lib.length) return null;
+    if (op.autoTool) {                                                // cam-autotool.js chose it from the geometry: the largest tool that fits
+      const t = lib.find(x => x.n === op.tool);
+      return !op.toolMan && t ? { tool: t, why: op.autoTool.reason || 'Largest tool that fits', auto: true } : null;
+    }
     const fit = fitDiameter(op), last = CF.last[keyOf(op)], lt = last && lib.find(t => t.n === last.tool);
     if (lt && (!fit || lt.d <= fit + 1e-6)) return { tool: lt, why: 'You used it last time' };
     if (fit) { const ok = lib.filter(t => t.d <= fit + 1e-6).sort((a, b) => b.d - a.d); if (ok.length) return { tool: ok[0], why: `Largest that fits the ${fmtLs(fit)} feature` }; }
@@ -103,6 +107,11 @@
       else if (KEEP.includes(key)) { l.vals[key] = val; if (FLOW().id === op.id && key !== 'side' && key !== 'faces') FLOW().touched = true; }
     } catch (e) { /* the last-used memory is a convenience */ }
   };
+
+  if (typeof camSetToolManual === 'function') {
+    const csm = camSetToolManual;
+    camSetToolManual = function (op, n) { csm(op, n); try { const l = CF.last[keyOf(op)] || (CF.last[keyOf(op)] = { tool: null, vals: {} }); l.tool = n; if (FLOW().id === op.id) FLOW().autoTool = false; } catch (e) { /* convenience only */ } };
+  }
 
   // ═══ Starting a toolpath ═══
   function collapse(n0, label) {                                       // several records, one undo step
@@ -308,12 +317,13 @@
   }
   function h3Bucket(el) { const t = el.textContent.toLowerCase(); return /feeds/.test(t) ? 'feeds' : /tab/.test(t) ? 'lead' : 'cut'; }
   function arrange(body, op) {
-    const B = { geo: [], tool: [], cut: [], depth: [], lead: [], link: [], feeds: [], warn: [], stats: [], intro: [] };
+    const B = { auto: [], geo: [], tool: [], cut: [], depth: [], lead: [], link: [], feeds: [], warn: [], stats: [], intro: [] };
     let section = null, foot = null;
     for (const el of [...body.children]) {
       if (el.matches('.btns') && el.querySelector('[data-camdo="overview"]')) { foot = el; continue; }
       if (el.matches('.cf-flow')) continue;
       if (el.matches('h3.sub')) { section = h3Bucket(el); B[section].push(el); continue; }
+      if (el.matches('.autotool')) { B.auto.push(el); continue; }
       if (el.matches('p.err-note')) { B.warn.push(el); continue; }
       if (el.matches('dl.kv') && /^cutting/i.test(el.textContent.trim())) { section = null; B.stats.push(el); continue; }
       if (el.matches('p.note') && /computing/i.test(el.textContent)) { section = null; B.stats.push(el); continue; }
@@ -332,7 +342,7 @@
   const ctoolHTML = (op, B) => {
     const types = compat(op), all = cam().tools, rec = recommend(op), fit = all.filter(t => types.includes(t.type)), other = all.filter(t => !types.includes(t.type));
     const card = t => `<button class="cf-tool ${op.tool === t.n ? 'on' : ''}" data-cftool="${t.n}"><span class="nm">${esc(toolName(t))}</span><span class="sub">${t.flutes} fl · ${Math.round(t.rpm).toLocaleString()} rpm · ${uval(t.feed, 1)} ${uRate()}</span>${rec && rec.tool.n === t.n ? `<i class="cf-rec" ${rec.why ? `data-tip="${esc(rec.why)}"` : ''}>Recommended</i>` : ''}</button>`;
-    return `<div class="cf-tools">${fit.length ? fit.map(card).join('') : '<p class="note">No tool of the right type yet. Add one in the Tool Library.</p>'}</div>${rec && rec.why ? `<p class="note cf-why">${esc(rec.tool.n === op.tool ? 'Recommended: ' : 'Suggested: T' + rec.tool.n + ' · ')}${esc(rec.why)}.</p>` : ''}${other.length ? `<details class="cf-more"><summary>Other tools in the library (${other.length})</summary><div class="cf-tools">${other.map(card).join('')}</div></details>` : ''}`;
+    return `<div class="cf-tools">${fit.length ? fit.map(card).join('') : '<p class="note">No tool of the right type yet. Add one in the Tool Library.</p>'}</div>${rec && rec.why && !rec.auto ? `<p class="note cf-why">${esc(rec.tool.n === op.tool ? 'Recommended: ' : 'Suggested: T' + rec.tool.n + ' · ')}${esc(rec.why)}.</p>` : ''}${other.length ? `<details class="cf-more"><summary>Other tools in the library (${other.length})</summary><div class="cf-tools">${other.map(card).join('')}</div></details>` : ''}`;
   };
   function linkHTML(op) {
     const C = cam();
@@ -352,7 +362,7 @@
     // tool tab: cards, then the library select the operation already built
     B.link.push(Object.assign(document.createElement('div'), { className: 'cf-link', innerHTML: linkHTML(op) }));
     const toolBox = document.createElement('div'); toolBox.className = 'cf-toolbox'; toolBox.innerHTML = ctoolHTML(op, B);
-    B.tool = [toolBox];
+    B.tool = [...B.auto, toolBox];
     if (op.type === 'chain') {
       B.geo = B.geo.filter(e => !e.querySelector('[data-opset^="cm:"]') && !(e.matches('h3.sub') && /high speed|^2d$|^3d$/i.test(e.textContent.trim())));
       const m = MC_CM[op.cm], nm = m ? m.name : { contour: 'Contour', pocket: 'Pocket', slot: 'Slot Mill', circle: 'Circle Mill', deburr: 'Chamfer / Deburr', drill: 'Drill' }[op.cm || 'contour'];
@@ -408,7 +418,7 @@
     body.querySelectorAll('[data-cfback]').forEach(b => b.addEventListener('click', () => back(op)));
     body.querySelectorAll('[data-cfdel]').forEach(b => b.addEventListener('click', () => { const d = body.querySelector('[data-camdo="delop"]'); if (d) d.click(); }));
     body.querySelectorAll('[data-cftab]').forEach(b => b.addEventListener('click', () => { const f = FLOW(); f.tab = b.dataset.cftab; f.step = f.tab === 'tool' ? 'tool' : 'params'; apply(op, body, true); if (window.guideRefresh) guideRefresh(); updateHint(); }));
-    body.querySelectorAll('[data-cftool]').forEach(b => b.addEventListener('click', () => { const n = +b.dataset.cftool; if (n !== op.tool) camEdit(op, 'tool', n); }));
+    body.querySelectorAll('[data-cftool]').forEach(b => b.addEventListener('click', () => { const n = +b.dataset.cftool; if (n === op.tool) return; if (typeof camSetToolManual === 'function') camSetToolManual(op, n); else camEdit(op, 'tool', n); }));
     body.querySelectorAll('[data-cfsel]').forEach(b => b.addEventListener('click', () => doSelect(op, b.dataset.cfsel)));
     body.querySelectorAll('[data-cfsetup]').forEach(b => b.addEventListener('click', () => { CAMUI.view = 'setup'; camRefresh(); }));
     const sl = body.querySelector('#cfSafeLinks'); if (sl) sl.addEventListener('change', () => camEdit(op, 'safeLinks', sl.checked));
@@ -425,7 +435,8 @@
     const f = FLOW();
     if (!f.fresh || !f.autoTool) return;
     const r = recommend(op);
-    if (r && r.tool.n !== op.tool) { op.tool = r.tool.n; if (!f.touched) smartDefaults(op); }
+    if (r && r.tool.n !== op.tool) op.tool = r.tool.n;
+    if (!f.touched) smartDefaults(op);
   }
   function next(op) {
     const st = STEPS(op), i = st.indexOf(FLOW().step);
