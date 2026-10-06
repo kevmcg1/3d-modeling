@@ -45,15 +45,15 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
     assert(await page.evaluate(() => CHAINUI.mode === 'chain'));
   });
 
-  await ok('select by feature: All pockets takes the floor chain, the path appears and the tool is the largest that fits', async () => {
+  await ok('select by feature: All pockets takes the floor chain, the path appears and the tool is the automatic pick, marked Recommended', async () => {
     await page.click('[data-cfsel="pockets"]'); await page.waitForTimeout(900);
     const r = await page.evaluate(() => { const op = opById(CAMUI.op); const P = toolpath(op); return { n: op.chains.length, closed: op.chains[0].closed, moves: P.m.length, warn: P.warn }; });
     assert(r.n === 1 && r.closed && r.moves > 100 && !r.warn.length, JSON.stringify(r));
     await page.keyboard.press('Enter'); await page.waitForTimeout(600);
     const s = await st();
     assert(s.step === 'tool', JSON.stringify(s));
-    const rec = await page.evaluate(() => { const r = CAMFLOW.recommend(opById(CAMUI.op)); const lib = cam().tools.filter(t => ['flat', 'bull'].includes(t.type) && t.d <= 44.8 + 1e-6).sort((a, b) => b.d - a.d); return { rec: r.tool.n, want: lib[0].n, onCard: !!document.querySelector('.cf-tool.on .cf-rec'), sd: opById(CAMUI.op).stepdown, d: toolOf(opById(CAMUI.op).tool).d }; });
-    assert(rec.rec === rec.want && rec.onCard && Math.abs(rec.sd - 0.5 * rec.d) < 0.02, JSON.stringify(rec));
+    const rec = await page.evaluate(() => { const r = CAMFLOW.recommend(opById(CAMUI.op)); return { rec: r.tool.n, want: opById(CAMUI.op).tool, auto: !!opById(CAMUI.op).autoTool, onCard: !!document.querySelector('.cf-tool.on .cf-rec'), sd: opById(CAMUI.op).stepdown, d: toolOf(opById(CAMUI.op).tool).d }; });
+    assert(rec.rec === rec.want && rec.auto && rec.onCard && Math.abs(rec.sd - 0.5 * rec.d) < 0.02, JSON.stringify(rec));
   });
 
   await ok('parameters step: tabs split the panel and the fields sit in the right one', async () => {

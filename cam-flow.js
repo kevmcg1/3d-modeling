@@ -266,6 +266,7 @@
     if (!list.length) { toast('Nothing like that in this part.'); return; }
     const before = snap();
     op.chains = list.map((c, i) => ({ id: i + 1, rev: false, start: 0, ...JSON.parse(JSON.stringify(c)) }));
+    if (typeof camAutoTool === 'function') camAutoTool(op);                  // the largest tool that fits what was picked
     record(`${op.name}: ${label}`, before);
     camRefresh();
   }
@@ -287,7 +288,7 @@
   }
   function doSelect(op, what) {
     const S = CF.selectors;
-    if (what === 'clear') { const before = snap(); op.chains = []; record(`${op.name}: clear`, before); camRefresh(); return; }
+    if (what === 'clear') { const before = snap(); op.chains = []; if (typeof camAutoTool === 'function') camAutoTool(op); record(`${op.name}: clear`, before); camRefresh(); return; }
     if (what.startsWith('hole:')) { const d = +what.slice(5); setChains(op, S.holes().filter(h => Math.abs(h.o.d - d) < 0.02).map(h => h.c), `all Ø${fmtLs(d)} holes`); return; }
     if (what === 'pockets') { setChains(op, S.pockets(), 'all pockets'); return; }
     if (what === 'outline') { setChains(op, S.outline(), 'part outline'); return; }
