@@ -14,6 +14,8 @@ What the Manufacture tab can cut compared with Mastercam's toolpath families, an
 
 **How a new toolpath is built.** 2D chain toolpaths are extra modes of the Chain operation (`MC_CM` in `index.html`, defined in `cam-mc.js`), so every one of them has Manual chain/click selection for free. Each mode can also read `op.faces`, so Auto Detect can offer it for the faces it finds. Every move goes through the shared `Path` object, so simulation, G-code, Verify and the heat map (`feedsOf` / `moveLoad`) see it with no extra work. Each mode ships a before/after pair for the hover tip card (`TIP_ART` / `TIP_TXT`).
 
+**Choosing the tool.** `camPickTool({ air, depth, kind, tools })` in `cam-autotool.js` returns the largest library tool that fits an internal feature (smallest inside radius, narrowest width, flute length for the depth) with a one-line reason. `air` is the space the cutter must fit into (Clipper paths, µm); `kind` is `wall` (square end mills), `pocket` (square, then bull nose) or `surface` (bull nose, then ball nose). A new toolpath mode calls it with its own region, and `camAutoTool(op)` / `op.autoTool` / `op.toolMan` give it the sidebar card and the one-click override.
+
 ## 2D
 
 | Mastercam toolpath | Status | Notes |

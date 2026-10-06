@@ -13065,7 +13065,8 @@ function camDefaults() {
   const T = (n, type, d) => ({ n, ...toolDefaults(type, d) });
   return {
     stock: { side: 6.35, top: 6.35, bottom: 6.35 }, material: 'aluminum', origin: 'top-center', safe: 10, retract: 2,
-    tools: [T(1, 'flat', 12.7), T(2, 'flat', 6.35), T(3, 'ball', 6.35), T(4, 'drill', 7.9375), T(5, 'face', 50.8)],
+    tools: [T(1, 'flat', 12.7), T(2, 'flat', 6.35), T(3, 'ball', 6.35), T(4, 'drill', 7.9375), T(5, 'face', 50.8),
+      T(6, 'flat', 19.05), T(7, 'flat', 3.175), T(8, 'bull', 12.7), T(9, 'bull', 6.35), T(10, 'ball', 12.7), T(11, 'ball', 3.175)],
     ops: [], post: { flavor: 'fanuc', arcs: true, coolant: true, program: 1001 }, next: 1,
   };
 }
@@ -15737,6 +15738,7 @@ function camAddOp(type, kind) {
   if (type === 'chamfer' && !C.tools.some(t => t.type === 'chamfer')) op.tool = camToolOfType('chamfer', stdChamfer()[3] || 12, { cone: 90 }).n;   // a cone is what lies on the face
   if (dk) Object.assign(op, { kind, mode: dk.mode }, drillKindSetup(kind));
   else if (type === 'drill') { const hs = camHoles(), t = toolOf(op.tool); op.diams = [...new Set(hs.filter(h => Math.abs(h.d - t.d) < 0.05).map(h => +h.d.toFixed(2)))]; if (!op.diams.length) op.diams = [...new Set(hs.map(h => +h.d.toFixed(2)))]; }
+  if (typeof camAutoTool === 'function') camAutoTool(op);        // 3D ops: the part's recesses are known already
   C.ops.push(op);
   record('Add ' + op.name, before);
   CAMUI.view = 'op'; CAMUI.op = op.id;
@@ -15746,6 +15748,7 @@ const opById = id => cam().ops.find(o => o.id === id);
 function camEdit(op, key, val) {
   const before = snap();
   op[key] = val;
+  if (['faces', 'holes', 'side', 'cm', 'depthMode', 'depth', 'through'].includes(key) && typeof camAutoTool === 'function') camAutoTool(op);   // internal feature: the largest tool that fits
   record(`Edit ${op.name} ${key}`, before);
   camRefresh();
 }
@@ -16301,6 +16304,7 @@ function chainAdd(op, e, whole, additive) {
     list.push({ id: (cur.reduce((m, c) => Math.max(m, c.id || 0), 0)) + 1, rev: false, start: 0, ...nc });
   }
   op.chains = list;
+  if (typeof camAutoTool === 'function') camAutoTool(op);
   record(`${op.name}: ${whole ? 'chain' : 'edge'}`, before);
   camRefresh();
 }
@@ -16400,14 +16404,15 @@ function chainDo(op, a) {
   if (!c) return;
   if (k === 'rev') { c.rev = !c.rev; record(`${op.name}: reverse`, before); }
   else if (k === 'start') { CHAINUI.startFor = CHAINUI.startFor === c.id ? null : c.id; if (CHAINUI.startFor != null) toast('Click a corner of the chain to start there.'); }
-  else if (k === 'close') { c.closed = true; c.joined = true; record(`${op.name}: close chain`, before); }
-  else if (k === 'open') { c.closed = false; c.joined = false; c.start = 0; record(`${op.name}: open chain`, before); }
-  else if (k === 'del') { op.chains = op.chains.filter(q => q !== c); record(`${op.name}: remove chain`, before); }
+  else if (k === 'close') { c.closed = true; c.joined = true; camAutoTool(op); record(`${op.name}: close chain`, before); }
+  else if (k === 'open') { c.closed = false; c.joined = false; c.start = 0; camAutoTool(op); record(`${op.name}: open chain`, before); }
+  else if (k === 'del') { op.chains = op.chains.filter(q => q !== c); camAutoTool(op); record(`${op.name}: remove chain`, before); }
   camRefresh();
 }
 function chainSetMode(op, cm) {
   const C = cam(), before = snap(), want = MC_CM[cm] ? MC_CM[cm].tools : cm === 'drill' ? ['drill', 'spot'] : cm === 'deburr' ? ['chamfer'] : cm === 'slot' || cm === 'circle' ? ['flat', 'bull'] : ['flat', 'bull'];
   op.cm = cm;
+  if (typeof camAutoTool === 'function') camAutoTool(op);
   const cur = toolOf(op.tool);
   if (!want.includes(cur.type)) { const t = C.tools.find(x => want.includes(x.type)) || (cm === 'deburr' ? camToolOfType('chamfer', stdChamfer()[3] || 12, { cone: 90 }) : null); if (t) op.tool = t.n; }
   if (cm === 'slot' && !(op.stepdown > 0)) op.stepdown = 2;
@@ -16667,7 +16672,7 @@ function camPanel() {
     if (!op) { CAMUI.view = 'overview'; return camPanel(); }
     const P = toolpath(op), stats = P && !P.pending ? pathStats(P) : null;
     const tools = C.tools.map(t => `<option value="${t.n}" ${op.tool === t.n ? 'selected' : ''}>${toolName(t)}</option>`).join('');
-    let f = `<div class="field"><span>Tool</span><select id="opTool">${tools}</select></div>`;
+    let f = `<div class="field"><span>Tool</span><select id="opTool">${tools}</select></div>${typeof camAutoToolCard === 'function' ? camAutoToolCard(op) : ''}`;
     const faces = (op.faces || []).length;
     if (op.type === 'face') f += `<div class="row3">${num('opSo', op.stepover, 'Stepover ×Ø', 0.05)}${num('opSd', op.stepdown, 'Stepdown', 0.1)}${num('opLeave', op.leave, 'Leave', 0.05)}</div>
       <div class="field"><span>Passes</span><div class="seg"><button data-opset="pattern:zigzag" class="${op.pattern !== 'oneway' ? 'on' : ''}" title="Across, step over off the end of the stock, and straight back: the tool never lifts">Zig-zag</button><button data-opset="pattern:oneway" class="${op.pattern === 'oneway' ? 'on' : ''}" title="Every stroke cuts the same direction; the tool lifts and comes back between strokes (a more even finish)">One way</button></div></div>
@@ -16812,7 +16817,8 @@ function bindCamPanel() {
   // op fields
   const op = CAMUI.view === 'op' && opById(CAMUI.op);
   if (op) {
-    const ot = document.getElementById('opTool'); if (ot) ot.addEventListener('change', () => camEdit(op, 'tool', +ot.value));
+    const ot = document.getElementById('opTool'); if (ot) ot.addEventListener('change', () => camSetToolManual(op, +ot.value));
+    panel.querySelectorAll('[data-autotool]').forEach(b => b.addEventListener('click', () => { if (b.dataset.autotool === 'auto') camToolAuto(op); else camSetToolManual(op, +b.dataset.autotool); }));
     const map = { opSo: 'stepover', opSoL: 'stepover', opSd: 'stepdown', opLeave: 'leave', opThrough: 'through', opLw: 'leaveWall', opLf: 'leaveFloor', opPeck: 'peck', opRest: 'restD', opFs: 'finishStock', opRough: 'roughStock' };
     for (const [id, k] of Object.entries(map)) setN(id, v => {
       const val = k === 'leave' || k === 'leaveWall' || k === 'leaveFloor' || k === 'through' || k === 'restD' || k === 'finishStock' || k === 'roughStock' ? Math.max(0, v) : Math.max(0.01, v);
@@ -36309,6 +36315,7 @@ function gsPick(i) {
 <!-- 3D Print workspace: the slicer engine and its front end (own files, so the modeler stays untouched) -->
 <script src="tip-anim.js"></script>
 <script src="cam-mc.js"></script>
+<script src="cam-autotool.js"></script>
 <script src="heatmap.js"></script>
 <script src="slicer.js"></script>
 <script src="costing.js"></script>
