@@ -5,7 +5,7 @@
 // on the Contour mode, see chainContour).
 (function () {
   const seg = (k, items, cur) => `<div class="seg">${items.map(([v, l, t]) => `<button data-opset="${k}:${v}" class="${cur === v ? 'on' : ''}" ${t ? `data-tip="${t}"` : ''}>${l}</button>`).join('')}</div>`;
-  ['opMcPeelW', 'opMcAp', 'opMcRestD'].forEach(k => CAM_LEN.add(k));
+  ['opMcPeelW', 'opMcAp', 'opMcRestD', 'opShift'].forEach(k => CAM_LEN.add(k));
 
   // ── Where the material is: closed chains (nested ones are islands) or, from Auto Detect, the floors of the picked faces ──
   // Returns [{ area (Clipper paths, outer ccw and islands cw), floor }].
@@ -53,33 +53,36 @@
     return rings;
   };
 
-  // The rings are cut from the middle out, level by level (the engine behind Dynamic Mill and the Corner Rest Mill).
+  // One level of rings, cut from the middle out: the tool goes down at the innermost loop it cannot reach straight from where it is,
+  // then works out ring by ring. zFrom is where the level above left the floor.
+  function clearLevel(P, st, tool, items, link, z, zFrom, fe) {
+    const r = tool.d / 2, safe = st.z1 + cam().safe, ret = st.z1 + cam().retract, left = items.slice();
+    let first = true;
+    while (left.length) {
+      let bi = -1;
+      if (!first) for (let i = 0; i < left.length; i++) if (!segHitsPaths(P2(P.cur[0], P.cur[1]), left[i].pts[0], link) && (bi < 0 || left[i].k > left[bi].k)) bi = i;
+      const goDown = bi < 0;
+      if (goDown) { bi = 0; left.forEach((q, i) => { if (q.k > left[bi].k) bi = i; }); }
+      const L = left.splice(bi, 1)[0], s = L.pts[0];
+      if (goDown) {
+        if (!P.cur) P.rapid(s.x, s.y, safe); else P.rapid(P.cur[0], P.cur[1], ret);
+        P.rapid(s.x, s.y, ret); P.rapid(s.x, s.y, Math.min(ret, zFrom + 0.5));
+        rampLoop(P, L.pts, zFrom, z, 3, 0.35 * r);
+      } else {
+        if (Math.abs(P.cur[2] - z) > 1e-9) P.feed(P.cur[0], P.cur[1], z);
+        P.feed(s.x, s.y, z, fe);
+        for (let j = 1; j <= L.pts.length; j++) P.feed(L.pts[j % L.pts.length].x, L.pts[j % L.pts.length].y, z, fe);
+      }
+      first = false;
+    }
+  }
+  const itemsOf = rings => { const items = []; rings.forEach((rg, k) => rg.forEach(q => items.push({ k, pts: uP(q) }))); return items; };
+  // The rings are cut level by level (the engine behind Dynamic Mill and the Corner Rest Mill).
   function clearRings(P, st, tool, tArea, rings, floor, ap, fe) {
-    const r = tool.d / 2, safe = st.z1 + cam().safe, ret = st.z1 + cam().retract, items = [];
-    rings.forEach((rg, k) => rg.forEach(q => items.push({ k, pts: uP(q) })));
+    const items = itemsOf(rings);
     if (!items.length) return 0;
     const link = cOffset(tArea, 0.002), zs = levels(st.z1, floor, ap);
-    zs.forEach((z, li) => {
-      const zFrom = li ? zs[li - 1] : st.z1, left = items.slice();
-      let first = true;
-      while (left.length) {
-        let bi = -1;
-        if (!first) for (let i = 0; i < left.length; i++) if (!segHitsPaths(P2(P.cur[0], P.cur[1]), left[i].pts[0], link) && (bi < 0 || left[i].k > left[bi].k)) bi = i;
-        const goDown = bi < 0;
-        if (goDown) { bi = 0; left.forEach((q, i) => { if (q.k > left[bi].k) bi = i; }); }
-        const L = left.splice(bi, 1)[0], s = L.pts[0];
-        if (goDown) {
-          if (!P.cur) P.rapid(s.x, s.y, safe); else P.rapid(P.cur[0], P.cur[1], ret);
-          P.rapid(s.x, s.y, ret); P.rapid(s.x, s.y, Math.min(ret, zFrom + 0.5));
-          rampLoop(P, L.pts, zFrom, z, 3, 0.35 * r);
-        } else {
-          if (Math.abs(P.cur[2] - z) > 1e-9) P.feed(P.cur[0], P.cur[1], z);
-          P.feed(s.x, s.y, z, fe);
-          for (let j = 1; j <= L.pts.length; j++) P.feed(L.pts[j % L.pts.length].x, L.pts[j % L.pts.length].y, z, fe);
-        }
-        first = false;
-      }
-    });
+    zs.forEach((z, li) => clearLevel(P, st, tool, items, link, z, li ? zs[li - 1] : st.z1, fe));
     return zs.length;
   }
 
@@ -282,6 +285,81 @@
       defaults: () => ({ stepover: 0.4, stepdown: 1.5, leaveWall: 0, leaveFloor: 0, restD: 0 }) },
   });
 
+  // ── 3D roughing ──────────────────────────────────────────────────────────
+  // Levels from the stock top down, with extra levels at the part's flat floors (plus the floor stock) so they are cut to size.
+  function levelsWith(top, bottom, step, must) {
+    const zs = [...new Set(must.filter(z => z < top - 1e-6 && z > bottom + 1e-6).map(z => +z.toFixed(3)))].sort((a, b) => b - a);
+    zs.push(bottom);
+    const out = []; let prev = top;
+    for (const z of zs) { const n = Math.max(1, Math.ceil((prev - z) / step - 1e-9)); for (let i = 1; i <= n; i++) out.push(prev - (prev - z) * i / n); prev = z; }
+    return out;
+  }
+  // Heights of the part's flat, upward-facing areas bigger than minArea.
+  function flatLevels(minArea) {
+    const g = camGeom(), T = (g.fineG || g.G).T, acc = new Map();
+    for (const t of T) {
+      if (!(t.n[2] > 0.9995)) continue;
+      const a = t.a, b = t.b, c = t.c;
+      if (Math.abs(a[2] - b[2]) > 1e-4 || Math.abs(a[2] - c[2]) > 1e-4) continue;
+      const area = 0.5 * Math.abs((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])), k = Math.round(a[2] * 100) / 100;
+      acc.set(k, (acc.get(k) || 0) + area);
+    }
+    return [...acc].filter(([, a]) => a >= minArea).map(([z]) => z);
+  }
+  // 3D Rough Pocket: at each level the cutter goes everywhere the part does not rise above that height, from the middle of each area out.
+  GEN.zrough = function (op, tool, st, part, P) {
+    const r = tool.d / 2, so = Math.max(0.05, op.stepover || 0.5) * tool.d, lw = op.leaveWall == null ? 0.5 : op.leaveWall, lf = op.leaveFloor == null ? 0.5 : op.leaveFloor, step = Math.max(0.1, op.stepdown || 2);
+    const bottom = (op.bottom != null && op.bottom > -1e8 ? op.bottom : part.z0) + lf;
+    if (st.z1 - bottom < 0.05) { P.warn.push('The stock is not above the part: nothing to rough.'); return; }
+    const flats = op.flats === false ? [] : flatLevels(Math.max(25, tool.d * tool.d * 0.5)).map(z => z + lf);
+    const zs = levelsWith(st.z1, bottom, step, flats), rect = [orient(cP([P2(st.x0, st.y0), P2(st.x1, st.y0), P2(st.x1, st.y1), P2(st.x0, st.y1)]), true)];
+    let did = 0, areas = 0;
+    zs.forEach((z, li) => {
+      const forbid = silhouetteAbove(z - 1e-3, true), tArea = (forbid.length ? cDiff(rect, cOffset(forbid, r + lw)) : rect).filter(q => Math.abs(cArea(q)) > 1e-3);
+      if (!tArea.length) return;
+      const rings = ringsOf(tArea, so), items = itemsOf(rings);
+      if (!items.length) return;
+      clearLevel(P, st, tool, items, cOffset(tArea, 0.002), z, li ? zs[li - 1] : st.z1);
+      did++; areas += rings[0].length;
+    });
+    if (P.cur) P.rapid(P.cur[0], P.cur[1], st.z1 + cam().safe);
+    if (!did) P.warn.push('Nothing to cut: the part fills the stock at every level.');
+    else P.info = `${did} of ${zs.length} levels, ${fmtLs(step)} apart (extra levels at ${flats.length} flat floor${flats.length === 1 ? '' : 's'}), ${fmtLs(lw)} left on walls, ${fmtLs(lf)} on floors`;
+  };
+  OP_INFO.zrough = { name: '3D Rough Pocket', icon: 'campocket', tip: 'Roughs the whole part from the stock in levels: at each height the tool clears everywhere the part does not rise above that height, from the middle of every area out. Extra levels land on the flat floors so they are cut to size. Leaves stock on walls and floors for the finishing operations.' };
+  window.zroughFields = op => `<div class="row3">${num('opSo', op.stepover || 0.5, 'Stepover ×Ø', 0.05)}${num('opSd', op.stepdown || 2, 'Stepdown', 0.1)}${num('opWlBot', op.bottom != null && op.bottom > -1e8 ? op.bottom : (camPart() || { z0: 0 }).z0, 'Down to Z', 0.5)}</div>
+    <div class="row2">${num('opLw', op.leaveWall == null ? 0.5 : op.leaveWall, 'Leave on walls', 0.05)}${num('opLf', op.leaveFloor == null ? 0.5 : op.leaveFloor, 'Leave on floors', 0.05)}</div>
+    <label class="chk"><input type="checkbox" id="opMcFlats" ${op.flats !== false ? 'checked' : ''}> Cut a level at every flat floor</label>
+    <p class="note">Steep walls come out as steps the height of the stepdown; a finishing operation (Waterline, 3D Parallel) takes them off.</p>`;
+
+  // 3D Parallel in rough mode: the same drop-cutter raster, but cut level by level, and only where the surface lies at or below the level.
+  const parallelRough = function (op, tool, st, part, P, res) {
+    const pts = res.pts, n = pts.length / 3, safe = st.z1 + cam().safe, ret = st.z1 + cam().retract, step = Math.max(0.1, op.stepdown || 2);
+    let lo = Infinity; for (let i = 2; i < pts.length; i += 3) lo = Math.min(lo, pts[i]);
+    if (!(n > 1)) { P.warn.push('Nothing to machine.'); return; }
+    const zs = levelsWith(st.z1, Math.min(lo, st.z1 - 0.1), step, []);
+    let runsN = 0;
+    zs.forEach((z, li) => {
+      const zFrom = li ? zs[li - 1] : st.z1;
+      let run = [];
+      const flush = () => {
+        if (run.length > 1) {
+          if (!P.cur) P.rapid(run[0].x, run[0].y, safe); else P.rapid(P.cur[0], P.cur[1], ret);
+          P.rapid(run[0].x, run[0].y, ret); P.rapid(run[0].x, run[0].y, Math.min(ret, zFrom + 0.5));
+          rampPoly(P, run, zFrom, z, op.rampAngle || 3); runsN++;
+        }
+        run = [];
+      };
+      for (let i = 0; i < n; i++) { if (pts[i * 3 + 2] <= z + 1e-6) run.push(P2(pts[i * 3], pts[i * 3 + 1])); else flush(); }
+      flush();
+    });
+    if (P.cur) P.rapid(P.cur[0], P.cur[1], safe);
+    if (!runsN) P.warn.push('Nothing to cut at these levels.');
+    else P.info = `rough: ${runsN} strokes over ${zs.length} levels, ${fmtLs(step)} apart, ${fmtLs(op.leave || 0)} left (${res.lines} passes over ${res.tris.toLocaleString()} triangles)`;
+  };
+  window.mcParallelRough = parallelRough;
+  window.mcParallelFields = op => `<label class="chk"><input type="checkbox" id="opMcRough" ${op.rough ? 'checked' : ''}> Rough: cut in levels, leaving stock</label>${op.rough ? `<div class="row2">${num('opSd', op.stepdown || 2, 'Stepdown', 0.1)}</div>` : ''}`;
+
   // ── Hover tip cards: a before and an after picture for each mode (tip-anim.js morphs one into the other) ──
   if (typeof TipArt === 'object' && typeof TIP_ART === 'object' && typeof TIP_TXT === 'object') {
     const { C, P, poly, line, box } = TipArt, iso = f => () => { TipArt.at(60, 48, 1.55); return f(); };
@@ -293,9 +371,11 @@
       'mc:dynamic': [iso(() => blk() + pocket(10, 7)), iso(() => blk() + pocket(10, 7) + [0, 1, 2, 3].map(k => oct(8.4 - 2.1 * k, 5.4 - 1.7 * k, 2.2 - 0.4 * k)).join(''))],
       'mc:peel': [iso(() => blk() + box(-6, -4, 12, 12, 8, 5)), iso(() => blk() + box(-6, -4, 12, 12, 8, 5) + [0, 1, 2].map(k => rect(8 + 2.6 * (2 - k) + 0, 6 + 2.6 * (2 - k), 12.3, k === 2 ? C.warn : C.acc, 1.2)).join(''))],
       'mc:area': [iso(() => blk() + pocket(10, 7)), iso(() => blk() + pocket(10, 7) + [-5.5, -2.75, 0, 2.75, 5.5].map((y, i) => line(i % 2 ? [P(8.6, y, 12.3), P(-8.6, y, 12.3)] : [P(-8.6, y, 12.3), P(8.6, y, 12.3)], C.acc, 1.2)).join('') + rect(8.6, 6.4, 12.3, C.warn, 1))],
+      'add:zrough': [iso(() => box(-16, -12, 0, 32, 24, 14, 's') + box(-6, -4, 0, 12, 8, 8, 'a')), iso(() => box(-16, -12, 0, 32, 24, 5) + box(-16, -12, 5, 32, 24, 3).replace(/fill="[^"]+"/g, 'fill="rgba(47,123,232,.15)"') + box(-6, -4, 0, 12, 8, 8, 'a') + [0, 1].map(k => rect(14 - 3 * k, 10 - 3 * k, 8.3, C.acc, 1.1)).join('') + rect(14, 10, 12.3, C.warn, 0.8))],
       'mc:rest': [iso(() => blk() + pocket(10, 7) + rect(7.4, 4.4, 12.3, '#9aa6b4', 1) + oct(7.4, 4.4, 2.6, 12.3).replace(C.acc, '#9aa6b4')), iso(() => blk() + pocket(10, 7) + [[1, 1], [-1, 1], [1, -1], [-1, -1]].map(([a, b]) => line([P(a * 9.2, b * 4.4, 12.3), P(a * 9.2, b * 6.2, 12.3), P(a * 7.4, b * 6.2, 12.3)], C.warn, 2.2)).join(''))],
     });
     Object.assign(TIP_TXT, {
+      'add:zrough': ['Rough the whole part from the stock in levels, from the middle of every area out, leaving stock for finishing.', ['Pick the roughing end mill.', 'Set the stepover and the stepdown.', 'Set how much to leave on walls and floors.']],
       'mc:dynamic': ['Rough an area fast: deep cuts with a light side bite, rounded corners, and a raised feed for the thin chip.', ['Click a closed chain (the pocket outline), with any islands.', 'Set the radial bite and the depth per level.', 'Leave stock on the walls for a Contour or Pocket finish.']],
       'mc:peel': ['Take a band of stock off along a chain in full-depth passes, working in toward the wall.', ['Click the chain along the wall.', 'Pick the stock side and how wide a band to peel.', 'Set the side bite and the depth per level.']],
       'mc:area': ['Clear a closed area with straight zigzag strokes at any angle, then a pass round the walls.', ['Click a closed chain, with any islands.', 'Set the stroke angle, stepover and stepdown.']],
@@ -304,11 +384,19 @@
   }
 
   // ── Panel wiring ──
+  window.mcRampPoly = rampPoly;
   window.mcBind = function (op, setN) {
     const set = (k, lo) => v => camEdit(op, k, Math.max(lo, v));
-    setN('opMcAp', set('stepdown', 0.1)); setN('opMcPeelW', set('peelW', 0.1)); setN('opMcCorner', set('corner', 0));
+    setN('opShift', set('shift', 0.01)); setN('opMcAp', set('stepdown', 0.1)); setN('opMcPeelW', set('peelW', 0.1)); setN('opMcCorner', set('corner', 0));
     setN('opMcAngle', v => camEdit(op, 'angle', ((v % 180) + 180) % 180)); setN('opMcRestD', set('restD', 0)); setN('opMcRamp', v => camEdit(op, 'rampAngle', clamp(v, 0.5, 30)));
     const ck = (id, k) => { const el = document.getElementById(id); if (el) el.addEventListener('change', () => camEdit(op, k, el.checked)); };
+    ck('opMcFlats', 'flats');
+    const rg = document.getElementById('opMcRough');
+    if (rg) rg.addEventListener('change', () => {
+      const before = snap(), t = toolOf(op.tool); op.rough = rg.checked;
+      if (rg.checked) { op.stepdown = op.stepdown > 0 ? op.stepdown : 2; if (!(op.leave > 0)) op.leave = 0.5; op.stepover = Math.max(op.stepover || 0, 0.5 * t.d); delete op.ra; }
+      record(`${op.name}: ${rg.checked ? 'rough' : 'finish'}`, before); camRefresh();
+    });
     ck('opMcThin', 'chipThin'); ck('opMcWalls', 'walls'); ck('opMcRamping', 'ramp');
   };
 })();

@@ -13620,6 +13620,9 @@ const DRILL_CYCLES = {
   peck: { g: 'G83', name: 'Drill a little, pull all the way out, repeat', what: 'Drills a bit, lifts all the way out to clear the chips, dives back down to just above where it stopped, and repeats. Good for deep holes (more than 3 or 4 times as deep as wide).' },
   chip: { g: 'G73', name: 'Drill a little, back off a hair, repeat', what: 'Drills a bit, backs off just enough to snap the chip, and keeps going. Much faster than pulling all the way out. Good for medium-deep holes; the chips stay in the hole, so not for very deep ones.' },
   ream: { g: 'G85', name: 'Smooth out a hole (reamer or boring bar)', what: 'Goes in and comes back out at the same slow speed so the tool never scrapes the finished wall on the way out. For reamers and boring bars.' },
+  bore: { g: 'G86', name: 'Bore, stop the spindle, rapid out', what: 'Feeds in, stops the spindle at the bottom and lifts out at rapid. For boring bars when a light drag mark on the wall is acceptable (roughing a bore).' },
+  bored: { g: 'G89', name: 'Bore, pause at the bottom, feed out', what: 'Feeds in, waits at the bottom so the floor cleans up, then feeds back out at the same slow speed. Good for boring a blind hole or a counterbore to a clean floor.' },
+  fine: { g: 'G76', name: 'Fine bore (shift off the wall, lift out)', what: 'Feeds in, stops the spindle in a set position, shifts the boring bar off the wall and lifts out at rapid, so the finished wall is never scratched. Needs a machine with spindle orient.' },
   tap: { g: 'G84', name: 'Cut threads', what: 'Goes in exactly one thread-width per turn, reverses at the bottom and winds back out.' },
 };
 // The op's cycle and its numbers, all in mm and seconds. Missing values take the Haas defaults.
@@ -13632,7 +13635,8 @@ function drillSpec(op, tool) {
     i: pecking ? Math.max(0, op.peckFirst || 0) : 0,                // I: first peck (0: use Q)
     j: pecking ? Math.max(0, op.peckReduce || 0) : 0,               // J: take this off each later peck
     k: pecking ? Math.max(0, op.peckMin || 0) : 0,                  // K: never peck less than this
-    p: mode === 'spot' || mode === 'peck' ? Math.max(0, op.dwell || 0) : 0,     // P: dwell at the bottom, seconds
+    p: mode === 'spot' || mode === 'peck' || mode === 'bored' || mode === 'fine' ? Math.max(0, op.dwell || 0) : 0,     // P: dwell at the bottom, seconds
+    shift: mode === 'fine' ? Math.max(0.01, op.shift == null ? 0.2 : op.shift) : 0,                 // Q on G76: how far the bar shifts off the wall
     ret: op.retPlane === 'r' ? 'G99' : 'G98',
     rpl: op.rPlane == null ? cam().retract : Math.max(0.2, op.rPlane),           // R plane above the stock
     s22: op.chipBack == null ? 1.27 : Math.max(0.01, op.chipBack),             // Setting 22 (0.050")
@@ -13653,6 +13657,13 @@ function drillCycleMoves(P, cy, pt, R, bottom, init, tool, tap) {
   const dwell = sec => { if (sec > 0) { const q = pt(bottom); P.m.push({ x: q[0], y: q[1], z: q[2], r: 0, f: tool.plunge, dw: sec }); } };
   const out = () => { if (cy.ret === 'G98') go(P.rapid, init); else go(P.rapid, R); };
   if (tap) { go(P.feed, bottom, P.tap.feed); go(P.feed, R, P.tap.feed * cy.tapJ); if (cy.ret === 'G98') go(P.rapid, init); return; }
+  if (cy.mode === 'bore') { go(P.feed, bottom, tool.plunge); out(); return; }                      // G86: feed in, the spindle stops, rapid out
+  if (cy.mode === 'bored') { go(P.feed, bottom, tool.plunge); dwell(cy.p); go(P.feed, R, tool.plunge); if (cy.ret === 'G98') go(P.rapid, init); return; }   // G89
+  if (cy.mode === 'fine') {                                                                          // G76: feed in, orient, shift off the wall, rapid out, shift back
+    go(P.feed, bottom, tool.plunge); dwell(cy.p);
+    const q = pt(bottom), u = pt(R); P.rapid(q[0] + cy.shift, q[1], q[2]); P.rapid(u[0] + cy.shift, u[1], u[2]); P.rapid(u[0], u[1], u[2]);
+    if (cy.ret === 'G98') go(P.rapid, init); return;
+  }
   if (cy.mode === 'ream') { go(P.feed, bottom, tool.plunge); go(P.feed, R, tool.plunge); if (cy.ret === 'G98') go(P.rapid, init); return; }
   if (cy.mode === 'peck' || cy.mode === 'chip') {
     // pecks count from the R plane, as the control counts them
@@ -14219,6 +14230,7 @@ const GEN = {
   },
   parallel(op, tool, st, part, P, res) {
     if (!res) { P.pending = true; return; }
+    if (op.rough) return mcParallelRough(op, tool, st, part, P, res);
     const pts = res.pts, safe = st.z1 + cam().safe, ret = st.z1 + cam().retract;
     if (pts.length < 6) { P.warn.push('Nothing to machine.'); return; }
     P.rapid(pts[0], pts[1], safe); P.rapid(pts[0], pts[1], ret); P.plunge(pts[0], pts[1], pts[2]);
@@ -14390,7 +14402,7 @@ function toolpath(op) {
   const P = new Path(op, tool);
   try { GEN[op.type](op, tool, st, part, P, res); } catch (e) { console.error(e); P.warn.push('Could not generate this toolpath.'); }
   if (op.safeLinks) P.m = safeRapids(P.m, st.z1 + cam().retract);
-  if (res) P.info = `${res.lines} passes over ${res.tris.toLocaleString()} triangles · ${Math.round(res.ms || 0)} ms${op.type === 'parallel' && tool.type === 'ball' ? ` · ≈ ${fmtRa(raOf(Math.max(0.05, op.stepover), tool.d / 2))} Ra` : ''}`;
+  if (res && !(op.rough && P.info)) P.info = `${res.lines} passes over ${res.tris.toLocaleString()} triangles · ${Math.round(res.ms || 0)} ms${op.type === 'parallel' && tool.type === 'ball' ? ` · ≈ ${fmtRa(raOf(Math.max(0.05, op.stepover), tool.d / 2))} Ra` : ''}`;
   c = TP.get(op.id) || {};
   c.key = key; c.path = P; TP.set(op.id, c);
   return P;
@@ -14564,7 +14576,7 @@ function simProgram() {
     if (!P || P.pending) continue;
     for (let i = 1; i < P.m.length; i++) {
       const a = P.m[i - 1], b = P.m[i], L = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z), dt = L / (b.r ? RAPID : b.f) + (b.dw || 0) / 60;
-      out.push({ a, b, r: b.r, tool: b.tool || P.tool, t0: t, t1: t + dt, op: op.id, mi: i, fin: op.type === 'parallel', ax: opAxis(op), slug: b.slug, stop: b.stop });
+      out.push({ a, b, r: b.r, tool: b.tool || P.tool, t0: t, t1: t + dt, op: op.id, mi: i, fin: op.type === 'parallel' && !op.rough, ax: opAxis(op), slug: b.slug, stop: b.stop });
       t += dt;
     }
   }
@@ -15508,6 +15520,7 @@ function postGcode() {
 function cycleWords(cy, N) {
   let w = '';
   if (cy.mode === 'peck' || cy.mode === 'chip') w += cy.i > 0 ? ` I${N(cy.i)} J${N(cy.j)} K${N(cy.k > 0 ? cy.k : Math.min(cy.i, cy.q))}` : ` Q${N(cy.q)}`;
+  if (cy.mode === 'fine') w += ` Q${N(cy.shift)}`;
   if (cy.p > 0) { const v = +cy.p.toFixed(3); w += ` P${Number.isInteger(v) ? v + '.' : v}`; }
   return w;
 }
@@ -15515,6 +15528,8 @@ function cycleWords(cy, N) {
 function cycleNotes(cy, P, N) {
   const u = isIn() ? ' IN' : ' MM', out = [];
   if (cy.mode === 'tap') out.push(`(RIGID TAP G84 - PITCH ${fmtLs(P.tap.pitch, 4)}, F = RPM X PITCH${cy.tapJ > 1 ? `, J${cy.tapJ} RETRACTS ${cy.tapJ}X FASTER` : ''})`);
+  if (cy.mode === 'fine') out.push(`(G76 FINE BORE - Q${N(cy.shift)} SHIFTS THE BAR OFF THE WALL, THE SPINDLE ORIENTS FIRST - CHECK SETTING 27 FOR THE SHIFT DIRECTION)`);
+  if (cy.mode === 'bore') out.push('(G86 BORE - THE SPINDLE STOPS AT THE BOTTOM, THEN RAPID OUT)');
   if (cy.mode === 'chip') out.push(`(G73 BACKS OFF SETTING 22 = ${N(cy.s22)}${u} BETWEEN PECKS - CHECK SETTING 22)`);
   if (cy.mode === 'peck') out.push(`(G83 STOPS ITS RAPID SETTING 22 = ${N(cy.s22)}${u} ABOVE THE LAST PECK${cy.s52 > 0 ? `, RETRACTS SETTING 52 = ${N(cy.s52)}${u} ABOVE R` : ''} - CHECK THE SETTINGS)`);
   return out;
@@ -15663,6 +15678,7 @@ function camAddOp(type, kind) {
     parallel: { tool: pick('ball'), stepover: 0.5, leave: 0, angle: 0, overrun: true },
     chamfer: { tool: pick('chamfer'), through: 0.3, leave: 0, faces: [] },
     waterline: { tool: pick('flat'), stepdown: 1, leave: 0, entry: 'ramp', bottom: null },
+    zrough: { tool: pick('flat'), stepover: 0.5, stepdown: 2, leaveWall: 0.5, leaveFloor: 0.5, flats: true, bottom: null },
     chain: { tool: pick('flat'), cm: 'contour', side: 'auto', depthMode: 'auto', lead: 'arc', stepdown: 2, stepover: 0.45, leave: 0, leaveWall: 0, leaveFloor: 0, through: 0.5, mode: 'peck', peck: 3, chains: [] },
     get engrave() { return engDefaults(camStock(), (C.tools.find(t => t.type === 'chamfer' && (t.cone || 90) <= 90) || camToolOfType('chamfer', 3, { cone: 60 })).n); },
   };
@@ -16199,7 +16215,7 @@ function waterlineFields(op) {
 function feedsOf(op, t) {
   const vc = Math.PI * t.d * t.rpm / 1000, fzTool = t.feed / ((t.rpm || 1) * (t.flutes || 1)), ref = toolDefaults(t.type, t.d), fzRef = ref.feed / ((ref.rpm || 1) * (ref.flutes || 1));
   const ratio = fzTool / (fzRef || 1), sd = op.stepdown || (op.type === 'chain' && op.stepdown) || 0, so = (op.stepover || 0.4) * t.d;
-  const mrr = op.type === 'pocket' || op.type === 'face' || op.type === 'clear' || (op.type === 'chain' && (op.cm === 'pocket' || (MC_CM[op.cm] && MC_CM[op.cm].mrr))) ? so * sd * t.feed / 1000 : null;
+  const mrr = op.type === 'pocket' || op.type === 'face' || op.type === 'clear' || op.type === 'zrough' || (op.type === 'chain' && (op.cm === 'pocket' || (MC_CM[op.cm] && MC_CM[op.cm].mrr))) ? so * sd * t.feed / 1000 : null;
   return { vc, fzTool, ref, fzRef, ratio, sd, so, mrr };
 }
 function feedsCard(op) {
@@ -16502,7 +16518,8 @@ function drillCycleFields(op) {
     if (cy.i > 0) h += fld(`<div class="row2">${num('opPkJ', op.peckReduce || 0, 'How much smaller each bite?', 0.1, 'min="0"')}${num('opPkK', op.peckMin || 0, 'Smallest bite allowed', 0.1, 'min="0"')}</div>`,
       'Chips pack tighter the deeper the hole gets, so each bite after the first is a little smaller. It never goes smaller than the smallest bite.');
   }
-  if (m === 'spot' || m === 'peck') h += fld(`<div class="row2"><label class="field"><span>Wait at the bottom for how long? (seconds)</span><input type="number" id="opDwell" data-cam-input="1" step="0.1" min="0" value="${+(op.dwell || 0).toFixed(3)}"></label></div>`,
+  if (m === 'fine') h += fld(`<div class="row2">${num('opShift', cy.shift, 'Shift off the wall', 0.05, 'min="0.01"')}</div>`, 'How far the boring bar moves away from the wall before it lifts out (the Q word). The direction is the machine\'s own setting.');
+  if (m === 'spot' || m === 'peck' || m === 'bored' || m === 'fine') h += fld(`<div class="row2"><label class="field"><span>Wait at the bottom for how long? (seconds)</span><input type="number" id="opDwell" data-cam-input="1" step="0.1" min="0" value="${+(op.dwell || 0).toFixed(3)}"></label></div>`,
     'A short pause at the bottom lets the point clean up the floor. 0 means no pause.');
   h += fld(`<div class="row2">${num('opRpl', cy.rpl, 'Where does the slow drilling start? (height above the part)', 0.5, 'min="0.2"')}<div class="field"><span>How much to retract after each hole?</span><div class="seg"><button data-opset="retPlane:init" class="${cy.ret === 'G98' ? 'on' : ''}" title="Lift all the way up to the safe height before moving on">All the way up</button><button data-opset="retPlane:r" class="${cy.ret === 'G99' ? 'on' : ''}" title="Lift only to the slow-drilling height before moving on">Just a little</button></div></div></div>`,
     'The machine moves fast down to the starting height, then drills slowly from there. <b>All the way up</b> lifts to the safe height between holes, which is safe over clamps. <b>Just a little</b> only lifts to the starting height, which is faster, but only use it if nothing sticks up between the holes.');
@@ -16632,12 +16649,14 @@ function camPanel() {
       ${want.length && !want.every(a => Math.abs(cone - a) <= 2 * SWARF_TOL) ? `<div class="btns">${want.filter(a => Math.abs(cone - a) > 2 * SWARF_TOL).map(a => { const m = C.tools.find(t => t.type === 'chamfer' && Math.abs((t.cone || 90) - a) <= 2 * SWARF_TOL); return m ? `<button class="btn" data-usecone="${m.n}">Use T${m.n} · ${m.cone || 90}°</button>` : `<button class="btn" data-addcone="${a}">Add a ${a}° chamfer mill</button>`; }).join('')}</div>` : ''}
       <div class="row2">${num('opThrough', op.through, 'Tip below edge', 0.05)}${num('opLeave', op.leave, 'Leave', 0.05)}</div>`;
     }
+    if (op.type === 'parallel' && typeof mcParallelFields === 'function') f += mcParallelFields(op);
     if (op.type === 'parallel') f += `<div class="row3">${num('opSoL', op.stepover, 'Stepover', 0.05)}${num('opLeave', op.leave, 'Leave', 0.05)}<div class="field"><span>Direction</span><div class="seg"><button data-opset="angle:0" class="${!op.angle ? 'on' : ''}">X</button><button data-opset="angle:90" class="${op.angle === 90 ? 'on' : ''}">Y</button></div></div></div>
       <label class="chk"><input type="checkbox" id="opOverrun" ${op.overrun ? 'checked' : ''}> Run the tool past the part edges</label>`;
     if (op.type === 'clear') f += `<div class="row2">${num('opSo', op.stepover, 'Stepover ×Ø', 0.05)}${num('opSd', op.stepdown, 'Stepdown', 0.1)}</div><div class="row2">${num('opLw', op.leaveWall || 0, 'Leave on walls', 0.01)}</div><p class="note">${(op.areas || []).length} area${(op.areas || []).length === 1 ? '' : 's'} where material was left: ${(op.areas || []).slice(0, 4).map(a => 'down to ' + fmtLs(a.z, 2)).join(', ')}${(op.areas || []).length > 4 ? '…' : ''}</p>`;
     if (op.type === 'engrave') f += engraveFields(op);
     if (op.type === 'waterline') f += waterlineFields(op);
-    { const fb = ['parallel', 'chamfer', 'contour', 'pocket'].includes(op.type) ? finishBlock(op, toolOf(op.tool)) : ''; if (fb) f += `<h3 class="sub">Surface finish</h3>${fb}`; }
+    if (op.type === 'zrough') f += zroughFields(op);
+    { const fb = ['parallel', 'chamfer', 'contour', 'pocket'].includes(op.type) && !op.rough ? finishBlock(op, toolOf(op.tool)) : ''; if (fb) f += `<h3 class="sub">Surface finish</h3>${fb}`; }
     f += feedsCard(op);
     const warn = P && P.warn.length ? P.warn.map(w => `<p class="note err-note">${w}</p>`).join('') : '';
     const info = P && P.pending ? '<p class="note"><span class="spin"></span> Computing the 3D toolpath in the background…</p>' : stats ? `<dl class="kv"><dt>Cutting</dt><dd>${fmtRun(stats.feedLen)}</dd><dt>Rapids</dt><dd>${fmtRun(stats.rapidLen)}</dd><dt>Machining time</dt><dd>${fmtTime(stats.min)}</dd>${P.info ? `<dt>Detail</dt><dd>${P.info}</dd>` : ''}</dl>` : '';
@@ -25373,7 +25392,7 @@ function camOptimizeAll() {
         feedLen += L;
         const plunge = Math.hypot(b.x - A.x, b.y - A.y) < 1e-6 && b.z < A.z;
         if (L > 0.3 && !plunge && !airEngaged(model, A, b, tool)) { b.air = true; b.f = Math.max(b.f || 0, AIR.feed); airLen += L; }
-        model.cut(A, b, tool, op.type === 'parallel');
+        model.cut(A, b, tool, op.type === 'parallel' && !op.rough);
         if (++n % 48 === 0) model.flush();
         outM.push(b);
       }

@@ -51,6 +51,8 @@
     let ae, ap;
     const fs = feedsOf(op, tool);
     if (plunge || drillish(tool)) { ae = d; ap = Math.max(0.5, op.peck || d * 0.5); }
+    else if (op.type === 'parallel' && op.rough) { ae = Math.min(d, op.stepover || d * 0.5); ap = op.stepdown || 2; }
+    else if (op.type === 'zrough') { ae = Math.min(d, (op.stepover || 0.5) * d); ap = op.stepdown || 2; }
     else if (op.type === 'parallel' || op.type === 'waterline') { ae = (op.stepover || 0.1) * d; ap = Math.min(op.stepdown || d * 0.1, d * 0.25); }
     else if (op.type === 'contour' || (op.type === 'chain' && op.cm !== 'pocket' && !(typeof MC_CM === 'object' && MC_CM[op.cm] && MC_CM[op.cm].mrr))) { ae = Math.min(d, Math.max(0.1 * d, op.stepover ? op.stepover * d : 0.3 * d)); ap = op.stepdown || d * 0.5; }
     else { ae = Math.min(d, fs.so); ap = fs.sd || Math.min(d * 0.5, 3); }
