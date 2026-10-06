@@ -29,12 +29,13 @@ What the Manufacture tab can cut compared with Mastercam's toolpath families, an
 | Drill (G81, G82, G83, G73, G85) | Done | Spot, drill, peck, chip-break, ream |
 | Rigid tap (G84) | Done | Tap matched to the drilled hole |
 | Counterbore, back spot face | Done | Counterbore tool; back-spot-face blade cycle |
-| Fine bore (G76), bore with stop (G86), back bore (G87) | Batch 2 | Needs shift/orient moves in the post; sim shows the feed moves |
+| Bore G86, bore with dwell G89, fine bore G76 | Done | Batch 2. Drill cycles in the Drill panel; G76 has a Q shift, the sim shows the shift and the rapid out. A boring bar is modeled by the reamer tool type |
+| Back bore (G87) | Partial | The back spot-face blade cycle covers the usual job; G87 with a boring bar is not separate |
 | Circle Mill / Helix Bore | Done | Hole or boss to size by helical interpolation |
 | Thread Mill | Done | Helical, with tangent arc in and out (Threads panel) |
 | Engraving | Done | Text (any font, on an arc or a wave) and image relief |
 | Chamfer / Deburr | Done | Chamfer mill follows the chain at a set break size; Conical Swarf for sloped faces |
-| Keyseat / T-slot | Batch 2 | Woodruff and T-slot cutters, straight pass from outside the stock |
+| Keyseat / T-slot | Batch 3 | Needs a side-cutter tool model (disc cutter that enters from the side); a straight pass from outside the stock |
 | Spiral / helical pocket entry | Done | Ramp and helix entries are built into Pocket, Dynamic, Area and Peel |
 | Mill-turn and 2D high-speed "Hybrid" | Browser limit | Needs a machine model with live stock; the Dynamic and Area strategies cover the common cases |
 
@@ -44,8 +45,9 @@ What the Manufacture tab can cut compared with Mastercam's toolpath families, an
 |---|---|---|
 | Surface Finish Parallel | Done | 3D Parallel (drop-cutter raster, worker, surface-finish target) |
 | Surface Finish Waterline (Constant Z) | Done | Level-by-level contours; ramp or plunge entry |
-| Surface Rough Pocket (Z-level rough) | Batch 2 | Heightfield-based level clearing with the part as the floor |
-| Surface Rough Parallel / Project / Radial / Flowline | Batch 3 | Raster rough with a stock-to-leave offset; radial about a point; flowline partial (needs a surface UV) |
+| Surface Rough Pocket (Z-level rough) | Done | Batch 2: 3D Rough Pocket. Levels from the stock top, an extra level at every flat floor, stock left on walls and floors. Steep walls come out as steps |
+| Surface Rough Parallel | Done | Batch 2: the "Rough" option on 3D Parallel cuts the drop-cutter raster level by level, only where the surface is at or below the level |
+| Surface Rough Project / Radial / Flowline | Batch 3 | Project and radial about a point; flowline partial (needs a surface UV) |
 | Surface High Speed: Dynamic OptiRough, Area Rough, Hybrid | Batch 3, approx. | 3D version of Dynamic Mill on a heightfield; true engagement control is approximated |
 | Rest Mill (3D leftover) | Batch 4 | Material left by a larger tool, from the heightfield |
 | Horizontal Area / Flat finish | Batch 4 | Flat floors only |
@@ -83,17 +85,17 @@ What the Manufacture tab can cut compared with Mastercam's toolpath families, an
 |---|---|---|
 | Tool library | Done | Metric and inch tools, catalog, feeds and speeds by material |
 | Feeds and speeds card, heat map | Done | Shared math (`feedsOf`); each new toolpath is picked up automatically |
-| Work offsets | Partial | One G54 per setup; Batch 2 adds G55 to G59 per setup and an offset per operation |
+| Work offsets | Partial | One G54 per setup; Batch 6 adds G55 to G59 per setup and an offset per operation |
 | Stock model | Partial | Stock box, simulation removal and "rest after tool Ø" exist; an in-process stock model between operations is Batch 5 |
 | Collision checks | Done | Verify checks gouge, shank, holder, rapids through stock and the vise; Batch 5 adds holders for 3D toolpaths |
 | Post processors | Partial | Haas / Fanuc flavor; Batch 6 adds Mazak, Siemens, Heidenhain, LinuxCNC and Grbl |
 
 ## Batches
 
-1. 2D high speed and area clearing: Dynamic Mill, Peel Mill, Area Mill, Corner Rest Mill, Ramp Contour.
-2. 2D and drilling completions: keyseat/T-slot, fine bore, bore with stop, back bore, work offsets G55 to G59, surface rough pocket.
-3. 3D roughing: parallel, project, radial, flowline (partial), dynamic OptiRough.
+1. Done (PR #43): Dynamic Mill, Peel Mill, Area Mill, Corner Rest Mill, Ramp Contour.
+2. Done: bore G86, bore with dwell G89, fine bore G76, 3D Rough Pocket, rough 3D Parallel.
+3. 3D roughing and side cutters: rough project, radial, dynamic OptiRough, keyseat / T-slot.
 4. 3D finishing: rest mill, horizontal, steep and shallow, scallop, pencil.
 5. 3D finishing cont.: spiral, radial, contour, project, morph; in-process stock model; holder checks.
-6. Multiaxis: indexed 3+2 on any toolpath; posts.
+6. Multiaxis: indexed 3+2 on any toolpath; work offsets G55 to G59; posts.
 7. Lathe and 4-axis wire.
