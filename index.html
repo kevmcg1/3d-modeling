@@ -7867,15 +7867,27 @@ SHOP.strapClamp = {
     return [K.sub(strap, K.poly('z', K.slot(-P.sl / 2 + P.sw / 2, P.sl / 2 - P.sw / 2, 0, P.sw), -P.nose - 1, P.T + 1))];
   },
 };
+// Wire-EDM style toe clamp: a flat stainless pressure plate (msmstore "wire EDM machine clamp / pressure plate"),
+// length 70 / 80 / 90 mm, thickness 8 / 12 mm, clamp hole M8 / M10. Width and toe height are not on the listing, so they are editable.
+// EDM_CLAMP is the single definition: the 3D part below, the Fixturing study (FXK.toe) and the Setup Sheet all read it.
+const EDM_CLAMP = {
+  lengths: [70, 80, 90], thicks: [8, 12], screws: { M8: { d: 8, hole: 9, head: 13, hk: 8 }, M10: { d: 10, hole: 11, head: 16, hk: 10 } },
+  width: 20, foot: 3, footLen: 12, eff: 0.38,                      // eff: the screw sits 0.12 L from the middle, so the toe sees 0.38 of the screw load
+  defaults: { L: 80, T: 8, scr: 'M8' },
+  label: (L, T, scr) => `Wire EDM clamp ${L}×${T} mm, ${scr}`,
+};
 SHOP.toeClamp = {
-  name: 'Toe clamp', grp: 'Clamps', parts: [['Clamp body', SHOP_COL.black], ['Cap screw', SHOP_COL.steel], ['Heel screw', SHOP_COL.steel]],
-  p: [['L', 'Length', 50, 'len'], ['W', 'Width', 28, 'len'], ['H', 'Height', 22, 'len'], ['toe', 'Toe slope (°)', 15, 'deg'], ['sd', 'Screw Ø', 10, 'len'], ['sl', 'Slot length', 18, 'len']],
+  name: 'Toe clamp (wire EDM pressure plate)', grp: 'Clamps', parts: [['Pressure plate', SHOP_COL.steel], ['Cap screw', SHOP_COL.black], ['Washer', SHOP_COL.steel]],
+  p: [['L', 'Length', EDM_CLAMP.defaults.L, 'sel', EDM_CLAMP.lengths.map(v => [v, v + ' mm'])], ['T', 'Thickness', EDM_CLAMP.defaults.T, 'sel', EDM_CLAMP.thicks.map(v => [v, v + ' mm'])], ['scr', 'Hole / screw', EDM_CLAMP.defaults.scr, 'sel', Object.keys(EDM_CLAMP.screws).map(k => [k, k])], ['W', 'Width', EDM_CLAMP.width, 'len'], ['foot', 'Toe foot height', EDM_CLAMP.foot, 'len']],
   build(P, K) {
-    const L2 = P.L / 2, drop = Math.min(P.H * 0.5, 14 * Math.tan(P.toe * Math.PI / 180) + 4);
-    let body = K.polyXZ([[-L2, 0], [L2 - 3, 0], [L2, drop * 0.5], [L2, P.H * 0.55], [L2 - 12, P.H], [-L2, P.H]], -P.W / 2, P.W / 2);
-    // the underside is relieved between a heel pad and a toe pad (the heel is raised 0.5 mm, the way the toe sits lower on the work), so the clamp rests on its two ends like a real one
-    body = K.sub(body, K.poly('z', K.slot(-P.sl / 2, P.sl / 2, 0, P.sd + 1.5), -1, P.H + 1), K.cyl('z', 0, 0, P.sd * 0.9, P.H - P.sd * 0.8, P.H + 1), K.cyl('z', -L2 + 6, 0, P.sd * 0.4, -1, P.H + 1), K.box(-L2 + 15, L2 - 17, -P.W / 2 - 1, P.W / 2 + 1, -1, 1.5), K.box(-L2 - 1, -L2 + 15, -P.W / 2 - 1, P.W / 2 + 1, -1, 0.5));
-    return [body, K.bolt(0, 0, P.sd, P.H - P.sd * 0.8 + 0.4, -P.H * 1.1), K.bolt(-L2 + 6, 0, P.sd * 0.8, P.H, -P.H * 0.4, 1)];
+    const L = +P.L, T = +P.T, W = +P.W, S = EDM_CLAMP.screws[P.scr] || EDM_CLAMP.screws.M8, L2 = L / 2, hx = -L2 * 0.12, ft = Math.max(0, +P.foot);
+    // plate with a ground chamfer on the top of the toe end and a foot under the toe (the heel end bears on a step block)
+    let plate = K.polyXZ([[-L2, 0], [L2, 0], [L2, T - 2], [L2 - 2, T], [-L2, T]], -W / 2, W / 2);
+    if (ft > 0) plate = K.add(plate, K.box(L2 - 12, L2, -W / 2, W / 2, -ft, 0.01));
+    plate = K.sub(plate, K.cyl('z', hx, 0, S.hole / 2, -ft - 1, T + 1));
+    const wz = T + 0.2, wt = Math.max(1.6, S.d * 0.2);
+    const washer = K.sub(K.cyl('z', hx, 0, S.d * 1.1, wz, wz + wt), K.cyl('z', hx, 0, S.hole / 2, wz - 1, wz + wt + 1));
+    return [plate, K.bolt(hx, 0, S.d, wz + wt, -T * 0.8, S.head / S.d), washer];
   },
 };
 SHOP.stepBlock = {
@@ -16724,7 +16736,7 @@ ${STRESS.conv ? `<h2>Mesh convergence</h2><table><tr><th>Bricks</th><th>Strain e
 const FX_SIZES = { '1/4-20': [6.35, 20.5], '5/16-18': [7.94, 33.8], '3/8-16': [9.525, 50], '1/2-13': [12.7, 91.5], '5/8-11': [15.875, 145.2], M8: [8, 36.6], M10: [10, 58], M12: [12, 84.3] };
 const FX_K = 0.2, FX_PROOF = 600, FX_SF_HOLD = 2, FX_SF_PART = 1.5, FX_REF = 1000, FX_CUT_REF = 100;
 const FXK = {
-  toe: { name: 'Toe clamp', eff: 0.5, pad: d => 0.75 * d, tip: 'Presses down near the edge; the heel bears on a step block' },
+  toe: { name: 'Toe clamp (wire EDM plate)', eff: EDM_CLAMP.eff, pad: () => Math.sqrt(EDM_CLAMP.footLen * EDM_CLAMP.width / Math.PI), sizes: Object.keys(EDM_CLAMP.screws), tip: 'Flat stainless pressure plate: the toe foot presses down near the edge, the heel bears on a step block' },
   strap: { name: 'Strap clamp', eff: 0.5, pad: d => 0.9 * d, tip: 'Presses down on the top face, bolt between the pad and the heel' },
   side: { name: 'Side clamp', eff: 0.9, pad: d => 1.2 * d, tip: 'Pushes the part sideways against a stop on the opposite wall' },
 };
@@ -16795,7 +16807,10 @@ function fxSurfaceAt(mesh, U, i1, i2, a, b) {
   return best;
 }
 // ── clamp forces ──
-const fxSz = f => FX_SIZES[f.size] || FX_SIZES['3/8-16'];
+const fxSz = f => FX_SIZES[FXK[f.kind] && FXK[f.kind].sizes && !FXK[f.kind].sizes.includes(f.size) ? EDM_CLAMP.defaults.scr : f.size] || FX_SIZES['3/8-16'];
+const fxSizes = kind => FXK[kind].sizes || Object.keys(FX_SIZES);
+const fxDefSize = kind => FXK[kind].sizes ? EDM_CLAMP.defaults.scr : '3/8-16';
+const fxLabel = f => f.kind === 'toe' ? EDM_CLAMP.label(f.len || EDM_CLAMP.defaults.L, f.thick || EDM_CLAMP.defaults.T, f.size) : f.name;
 const fxForce = f => (+f.torque || 0) / (FX_K * fxSz(f)[0]) * 1000 * FXK[f.kind].eff;                         // N on the work (torque in N·m)
 const fxScrewMaxT = f => 0.75 * FX_PROOF * fxSz(f)[1] * FX_K * fxSz(f)[0] / 1000;                              // N·m at 75 % of the screw's proof load
 const fxPadR = f => FXK[f.kind].pad(fxSz(f)[0]);
@@ -17033,7 +17048,7 @@ const fxCellAt = (G, i, j) => [G.E.lo[G.m0] + (i + 0.5) * G.cell, G.E.lo[G.m1] +
 // the tightness a clamp is asked to work at when counting how many are needed (60 % of its screw's limit)
 const FX_TAU_GOOD = 0.6;
 function fxMinCount(op, B, kind) {
-  const f = { kind, size: '3/8-16', torque: 0 }; f.torque = fxScrewMaxT(f) * FX_TAU_GOOD;
+  const f = { kind, size: fxDefSize(kind), torque: 0 }; f.torque = fxScrewMaxT(f) * FX_TAU_GOOD;
   const mat = stressMat(), mu = +op.mu || 0.2, Fcut = fxCutF(op), lift = +op.lift || 0, hf = 1 / Math.sqrt(1 + lift * lift), Fh = Fcut * hf, Fup = Fcut * lift * hf;
   const Fw = fxForce(f), Fpad = 0.5 * mat.sy * Math.PI * fxPadR(f) ** 2, Feach = Math.min(Fw, Fpad);
   const { len, thick } = B, short = Math.min(...len), perim = 2 * (len[0] + len[1]);
@@ -17045,7 +17060,7 @@ function fxMinCount(op, B, kind) {
   return { n: Math.min(8, Math.max(force, stab, span)), force, stab, span, Feach, Fw, Fpad, tau: FX_TAU_GOOD, size: f.size };
 }
 function fxSuggest(op, kind, existing) {
-  const B = fxBuild(op), U = B.U, E = B.E, G = fxGrid(B), cell = G.cell, mc = fxMinCount(op, B, kind), f = { kind, size: '3/8-16' }, pr = fxPadR(f);
+  const B = fxBuild(op), U = B.U, E = B.E, G = fxGrid(B), cell = G.cell, mc = fxMinCount(op, B, kind), f = { kind, size: fxDefSize(kind) }, pr = fxPadR(f);
   const cutv = op.cut || B.cutAt || [B.len[0] / 2, B.len[1] / 2], cm = [fxOff2m(E, B.lat[0], cutv[0]), fxOff2m(E, B.lat[1], cutv[1])];
   const out = { kind, mc, picks: [], note: '' };
   if (kind === 'side') {
@@ -17113,6 +17128,14 @@ function fxDraw() {
       const a = adv && adv.clamps.find(x => x.id === cs.id), st = cs.none ? 'off' : a ? a.status : 'ok';
       if (cs.none) continue;
       stem(cs.c, cs.dir, fxPadR(cs.fix), col(st));
+      if (cs.fix.kind === 'toe') {                                      // the plate itself, toe on the pad, heel pointing away from the part
+        const d = V(cs.dir).normalize(), up = d.clone().negate(), ctr = new THREE.Vector3((B.E.lo[0] + B.E.hi[0]) / 2, (B.E.lo[1] + B.E.hi[1]) / 2, (B.E.lo[2] + B.E.hi[2]) / 2);
+        const h = V(cs.c).sub(ctr); h.addScaledVector(d, -h.dot(d)); if (h.lengthSq() < 1e-9) h.set(1, 0, 0).addScaledVector(d, -d.x); h.normalize();
+        const L = cs.fix.len || EDM_CLAMP.defaults.L, T = cs.fix.thick || EDM_CLAMP.defaults.T, W = EDM_CLAMP.width, ft = EDM_CLAMP.foot;
+        const pl = new THREE.Mesh(new THREE.BoxGeometry(L, T, W), mat(col(st), 0.85));
+        pl.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(h, up, new THREE.Vector3().crossVectors(h, up)));
+        pl.position.copy(V(cs.c)).addScaledVector(h, L / 2 - EDM_CLAMP.footLen / 2).addScaledVector(up, ft + T / 2); g.add(pl);
+      }
       const d = V(cs.dir).normalize(); g.add(new THREE.ArrowHelper(d, V(cs.c).addScaledVector(d, -18), 16, col(st), 6, 4));
     } else if (cs.jaw) {
       const a = adv && adv.clamps.find(x => x.id === 'jaw'), d = V(cs.dir).normalize(), col0 = col(a ? a.status : 'ok'), ax = [0, 1, 2].reduce((m, i) => Math.abs(cs.dir[i]) > Math.abs(cs.dir[m]) ? i : m, 0);
@@ -17181,9 +17204,11 @@ function fxFixCard(f, op, B) {
     : `<div class="row2"><label class="field"><span>${lat[0].letter} (${uName()})</span><input type="number" step="any" value="${uval(at.v[0])}" data-fx-fw="${f.id}:v0"></label>
        <label class="field"><span>${lat[1].letter} (${uName()})</span><input type="number" step="any" value="${uval(at.v[1])}" data-fx-fw="${f.id}:v1"></label></div>`;
   return `<div class="fx-card ${FX.place && FX.place.id === f.id ? 'sel' : ''}" data-fx-card="${f.id}">
-    <div class="fx-h"><label class="chk"><input type="checkbox" data-fx-use="${f.id}" ${used ? 'checked' : ''}> <b>${f.name}</b></label><span id="fx-chip-${f.id}">${used ? fxChip(adv) : ''}</span></div>
-    <div class="row2"><label class="field"><span>Screw</span><select data-fx-fw="${f.id}:size">${fxOptions(Object.keys(FX_SIZES).map(k => [k, k]), f.size)}</select></label>
+    <div class="fx-h"><label class="chk"><input type="checkbox" data-fx-use="${f.id}" ${used ? 'checked' : ''}> <b>${fxLabel(f)}</b></label><span id="fx-chip-${f.id}">${used ? fxChip(adv) : ''}</span></div>
+    <div class="row2"><label class="field"><span>Screw</span><select data-fx-fw="${f.id}:size">${fxOptions(fxSizes(f.kind).map(k => [k, k]), fxSizes(f.kind).includes(f.size) ? f.size : fxDefSize(f.kind))}</select></label>
       <label class="field"><span>Tightness (${tu.n})</span><input type="number" min="0" step="any" value="${+(f.torque / tu.k).toFixed(2)}" data-fx-t="${f.id}" data-live="1"></label></div>
+    ${f.kind === 'toe' ? `<div class="row2"><label class="field"><span>Length (mm)</span><select data-fx-fw="${f.id}:len">${fxOptions(EDM_CLAMP.lengths.map(v => [v, v]), f.len || EDM_CLAMP.defaults.L)}</select></label>
+      <label class="field"><span>Thickness (mm)</span><select data-fx-fw="${f.id}:thick">${fxOptions(EDM_CLAMP.thicks.map(v => [v, v]), f.thick || EDM_CLAMP.defaults.T)}</select></label></div>` : ''}
     ${pos}
     <p class="note">${stressNum(fxForce(f) / stressU().f, 3)} ${stressU().fn} on the work · screw limit ${fxFmtT(fxScrewMaxT(f))}</p>
     <div class="btns"><button class="btn" data-fx-place="${f.id}">${FX.place && FX.place.id === f.id ? 'Click the part…' : 'Place on part'}</button><button class="btn" data-fx-rm="${f.id}">Remove</button></div></div>`;
@@ -17306,7 +17331,8 @@ function fxPositions(op) {
 }
 function fxNewFix(kind, pick) {
   const p = fxProj(), op = fxOp(), n = p.fix.filter(f => f.kind === kind).length + 1;
-  const f = { id: fxId(), kind, name: FXK[kind].name + ' ' + n, size: '3/8-16', torque: 0, at: {} };
+  const f = { id: fxId(), kind, name: FXK[kind].name + ' ' + n, size: fxDefSize(kind), torque: 0, at: {} };
+  if (kind === 'toe') Object.assign(f, { len: EDM_CLAMP.defaults.L, thick: EDM_CLAMP.defaults.T });
   f.torque = +(fxScrewMaxT(f) * 0.5).toFixed(2); p.fix.push(f);
   if (pick) f.at[op.id] = pick; else fxAt(f, op);
   op.use.push(f.id);
@@ -17386,7 +17412,7 @@ function bindFx() {
   on('[data-fx-use]', 'change', el => { const id = el.dataset.fxUse, f = p.fix.find(q => q.id === id); if (el.checked) { if (!op.use.includes(id)) op.use.push(id); if (f) fxPlaceDefault(f, op); } else op.use = op.use.filter(u => u !== id); st(); });
   on('[data-fx-fw]', 'change', el => {
     const [id, k] = el.dataset.fxFw.split(':'), f = p.fix.find(q => q.id === id); if (!f) return; const at = fxAt(f, op);
-    if (k === 'size') f.size = el.value; else if (k === 'wall') at.wall = el.value;
+    if (k === 'size') f.size = el.value; else if (k === 'len' || k === 'thick') f[k] = +el.value; else if (k === 'wall') at.wall = el.value;
     else { const v = num(el); if (v === null) return; const mm = fromU(v); if (k === 'u') at.u = mm; else at.v[k === 'v0' ? 0 : 1] = mm; }
     st();
   });
@@ -32709,18 +32735,19 @@ function studyAutoApply(tries) {
     studyApply(studyCases()[doc.stressCase || 0]); refreshPanel(); rebuildHighlights(); requestDraw();
   } catch (e) { if (tries < 24) setTimeout(() => studyAutoApply(tries + 1), 250); }
 }
-// a toe clamp: the cap screw pulls the strap down on its seat; the toe pad rests on the work (free to slide), the heel pad on its screw
-function studyClampCases(id, d, g = { L: 50, W: 28, H: 22 }) {
+// a wire-EDM toe clamp (see EDM_CLAMP): the cap screw pulls the plate down on its seat; the toe foot rests on the work (free to slide), the heel bears on its step block
+function studyClampCases(id, d, g = { L: 80, T: 12, W: EDM_CLAMP.width, hole: 11, foot: EDM_CLAMP.foot }) {
   const S = (t, o) => ({ feat: id, part: 0, t, ...o });
-  const cons = [{ kind: 'frictionless', sel: S('P', { n: [0, 0, -1], at: [15, 0, 0] }) }, { kind: 'fixed', sel: S('P', { n: [0, 0, -1], at: [-18, 0, 0.5] }) }];
-  const seat = S('P', { n: [0, 0, 1], at: [0, 0, 14] }), nose = S('P', { n: [1, 0, 0], at: [25, 0, 8] });
+  const L2 = g.L / 2, hx = -L2 * 0.12, ft = g.foot, xt = L2 - EDM_CLAMP.footLen / 2 - hx, xh = hx - (-L2 + 8);
+  const cons = [{ kind: 'frictionless', sel: S('P', { n: [0, 0, -1], at: [L2 - EDM_CLAMP.footLen / 2, 0, -ft] }) }, { kind: 'fixed', sel: S('P', { n: [0, 0, -1], at: [-L2 + 8, 0, 0] }) }];
+  const seat = S('P', { n: [0, 0, 1], at: [hx, 0, g.T] }), nose = S('P', { n: [1, 0, 0], at: [L2, 0, g.T / 2] });
   const pre = (T, extra) => ({ kind: 'force', mag: T / (0.2 * d / 1000), dir: 'z-', sel: seat, ...extra });
   const nm = (T, s) => `${s}, ${(T / (0.2 * d / 1000) / 1000).toFixed(0)} kN (${T} N·m on the M${d})`;
-  // hand check: the strap is a beam between the pads; the critical section is under the counterbore, where the slot leaves two webs
-  const xt = g.L / 2 - 9.2, xh = g.L / 2 - 7.5, bw = g.W - (d + 1.5), hw = g.H - 0.8 * d;
+  // hand check: the plate is a beam between the pads; the critical section is at the screw hole
+  const bw = g.W - g.hole, hw = g.T;
   const hand = T => { const P = T / (0.2 * d / 1000), M = P * xh / (xt + xh) * xt; return 6 * M / (bw * hw * hw); };
-  const nomT = T => `Hand check: the strap is a beam between the pads (toe ${xt.toFixed(0)} mm and heel ${xh.toFixed(0)} mm from the screw); the section under the counterbore is two webs ${bw.toFixed(1)} mm wide in all and ${hw.toFixed(0)} mm deep, so σ = 6 M ÷ (b h²) = ${hand(T).toFixed(0)} MPa.`;
-  const note = (T, more) => `Preload ${(T / (0.2 * d / 1000)).toFixed(0)} N = torque ÷ (K × d), K 0.2. The cap screw bears on the counterbore seat; the toe pad is frictionless (rests on the work), the heel pad is fixed (its screw).${more || ''}`;
+  const nomT = T => `Hand check: the plate is a beam between the pads (toe foot ${xt.toFixed(0)} mm and heel ${xh.toFixed(0)} mm from the screw); the section at the hole is ${bw.toFixed(0)} mm wide and ${hw.toFixed(0)} mm deep, so σ = 6 M ÷ (b h²) = ${hand(T).toFixed(0)} MPa.`;
+  const note = (T, more) => `Preload ${(T / (0.2 * d / 1000)).toFixed(0)} N = torque ÷ (K × d), K 0.2. The cap screw bears on the top face; the toe foot is frictionless (rests on the work), the heel is fixed (its step block).${more || ''}`;
   return [
     { name: nm(10, 'Light clamping'), note: note(10), nom: nomT(10), nomVM: hand(10), cons, loads: [pre(10)] },
     { name: nm(30, 'Normal clamping'), note: note(30), nom: nomT(30), nomVM: hand(30), cons, loads: [pre(30)] },
@@ -32754,9 +32781,9 @@ function studyScrewCases(id, d, L, tl, p) {
       nom: `Hand check on the thread's stress diameter: σ ${m(15000 / As)} MPa, τ ${m(tt(15000, ds))} MPa, von Mises √(σ² + 3τ²) = ${m(Math.hypot(15000 / As, Math.sqrt(3) * tt(15000, ds)))} MPa.` },
   ];
 }
-SAMPLES.push({ axes: 'model', name: 'Toe clamp: stress study', desc: 'An M10 toe clamp with four clamping setups ready: preload from 10 to 50 N·m, and with a cutting load. Open Stress, then Compare alloys.', make() {
+SAMPLES.push({ axes: 'model', name: 'Toe clamp: stress study', desc: 'An M10 wire-EDM toe clamp (80 × 12 mm plate) with four clamping setups ready: preload from 10 to 50 N·m, and with a cutting load. Open Stress, then Compare alloys.', make() {
   const k = sampleKit(), id = k.nid();
-  k.features.push({ id, type: 'shop', name: 'ToeClamp1', ...FEATS.shop.init(), ...shopDefaults('toeClamp'), kind: 'toeClamp', cx: 0, cy: 0 });
+  k.features.push({ id, type: 'shop', name: 'ToeClamp1', ...FEATS.shop.init(), ...shopDefaults('toeClamp'), scr: 'M10', T: 12, kind: 'toeClamp', cx: 0, cy: 0 });
   const d = k.doc(); d.stressKind = 'clamp'; d.stressCases = studyClampCases(id, 10); d.stressCase = 1; d.openStress = true; d.stress = { mat: 'steel1018' };
   return d;
 } });
@@ -32768,7 +32795,7 @@ fxSample('Pocketed plate: held right', 'Three toe clamps at the right tightness 
 fxSample('Pocketed plate: too loose', 'One light toe clamp against a heavy roughing cut. The chip says too loose or cannot hold: add clamps or tighten, and watch the color map change.', samplePocketPlate,
   { name: 'Loose clamps', ops: [{ name: 'Op 10: heavy rough', op: { up: 'top', sup: 'parallels', cutPreset: 'heavy', ang: 0 }, clamps: [{ kind: 'toe', n: 1, tau: 0.06 }] }] });
 fxSample('Pocketed plate: over-tightened', 'The plate flipped onto its thin underside with the clamps cranked well past what the web can take. The color map runs hot under the pads and the chips turn red: back them off to the advised tightness.', samplePocketPlate,
-  { name: 'Over-tight', ops: [{ name: 'Op 20: flip, finish the underside', op: { up: 'bottom', sup: 'parallels', cutPreset: 'light', ang: 90 }, clamps: [{ kind: 'toe', size: '5/8-11', tau: 0.9 }] }] });
+  { name: 'Over-tight', ops: [{ name: 'Op 20: flip, finish the underside', op: { up: 'bottom', sup: 'parallels', cutPreset: 'light', ang: 90 }, clamps: [{ kind: 'toe', size: 'M10', tau: 0.9 }] }] });
 fxSample('Enclosure lid: vise and side clamp', 'A thin lid in a vise with a side clamp pushing it against a stop. Move the clamp or the cut and see where the lid flexes.', sLid,
   { name: 'Lid in a vise', ops: [{ name: 'Op 10: face the lid', op: { up: 'top', sup: 'vise', cutPreset: 'light', ang: 0, vise: { T: 30 } }, clamps: [{ kind: 'side', n: 1, tau: 0.3 }] }] });
 fxSample('Slotted clamp bar: two operations', 'One project, two operations: toe clamps on the top, then flipped over onto the fixture plate with strap clamps. Switch between them in the panel.', sClampBar,
