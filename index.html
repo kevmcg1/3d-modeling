@@ -12316,13 +12316,8 @@ const OP_INFO = {
 function camDefaults() {
   return {
     stock: { side: 2, top: 1, bottom: 0 }, material: 'aluminum', origin: 'top-center', safe: 10, retract: 2,
-    tools: [
-      { n: 1, type: 'flat', d: 6, flutes: 3, rpm: 10000, feed: 900, plunge: 300 },
-      { n: 2, type: 'flat', d: 3, flutes: 2, rpm: 15000, feed: 600, plunge: 200 },
-      { n: 3, type: 'ball', d: 6, flutes: 2, rpm: 12000, feed: 1200, plunge: 300 },
-      { n: 4, type: 'drill', d: 8, flutes: 2, rpm: 1800, feed: 180, plunge: 180 },
-      { n: 5, type: 'face', d: 40, flutes: 4, rpm: 5000, feed: 1500, plunge: 400 },
-    ],
+    // an inch shop's starter crib: 1/2" and 1/4" end mills, a 1/4" ball, a 5/16" drill and a 2" face mill
+    tools: [['flat', 12.7], ['flat', 6.35], ['ball', 6.35], ['drill', 7.9375], ['face', 50.8]].map(([type, d], i) => ({ n: i + 1, ...toolDefaults(type, d) })),
     ops: [], post: { flavor: 'fanuc', arcs: true, coolant: true, program: 1001 }, next: 1,
   };
 }
@@ -12701,6 +12696,29 @@ function silhouetteAbove(z, holes = false) {
   g.sil.set(key, res);
   return res;
 }
+// ── Sharp inside corners ───────────────────────────────────────────
+// A round tool cannot cut a square inside corner: it leaves its own radius there. The path is still made (the program runs
+// anyway), but the user is told which corners come out round and what the part really comes out as: P.show carries the outline
+// the tool will cut ('made') and the wedges of material it leaves in the corners ('left'), drawn on the part when the operation
+// is open. area = the region to clear (Clipper paths), r = the tool's radius, z = the depth they sit at.
+function cornerReport(area, r, z, P, what) {
+  if (!area.length || r < 0.05) return;
+  const opened = cOffset(cOffset(area, -r), r);
+  let left = cDiff(area, cOffset(opened, 0.003));
+  left = cOffset(cOffset(left, -0.015), 0.015).filter(q => Math.abs(cArea(q)) > 0.05 * r * r);
+  if (!left.length) return;
+  const verts = []; for (const q of area) { const u = uP(q); for (let i = 0; i < u.length; i++) verts.push({ p: u[i], a: u[(i + u.length - 1) % u.length], b: u[(i + 1) % u.length] }); }
+  const angles = [];
+  for (const q of left) {
+    const u = uP(q), c = P2(u.reduce((a, v) => a + v.x, 0) / u.length, u.reduce((a, v) => a + v.y, 0) / u.length);
+    let best = null; for (const v of verts) { const d = dst2(v.p, c); if (!best || d < best.d) best = { d, v }; }
+    if (best && best.d < r * 2) { const a = nrm2(sub2(best.v.a, best.v.p)), b = nrm2(sub2(best.v.b, best.v.p)); angles.push(Math.acos(clamp(dot2(a, b), -1, 1)) * 180 / Math.PI); }
+  }
+  const avg = angles.length ? Math.round(angles.reduce((a, b) => a + b, 0) / angles.length) : 90, n = left.length;
+  P.corners = (P.corners || 0) + n;
+  P.show = (P.show || []).concat([{ kind: 'made', z, loops: opened.map(uP) }, { kind: 'left', z, loops: left.map(uP) }]);
+  P.warn.push(`${n} sharp inside corner${n > 1 ? 's' : ''} (${avg}°) in ${what}: a machine cannot cut a square inside corner, so the Ø${fmtD(2 * r)} tool leaves its own R${fmtD(r)} there. The toolpath is made anyway; the outline it will really cut (orange) and the material left in each corner (red) are shown on the part. Use a smaller tool, or add a corner radius or relief in the design.`);
+}
 // Leads straight off a corner, so the tool never enters or leaves on a finished wall (no
 // witness mark): in along the line of one wall from well out in the air, round the loop,
 // and out along the line of the wall before that corner. Only at a sharp outside corner
@@ -12708,7 +12726,7 @@ function silhouetteAbove(z, holes = false) {
 // straight passes finish the corner by themselves, and only when both lines stay where
 // the tool center may go. Picks the corner with the longest walls either side.
 // Returns { k, pts: [F, S … E], S: F, G } or null. rr = tool radius + stock left.
-function cornerLeads(loop, rr, len, allowed) {
+function cornerLeads(loop, rr, len, allowed, avoid) {
   const n = loop.length;
   if (n < 3) return null;
   const segL = i => dst2(loop[i], loop[(i + 1) % n]), dir = i => nrm2(sub2(loop[(i + 1) % n], loop[i]));
@@ -12733,6 +12751,7 @@ function cornerLeads(loop, rr, len, allowed) {
     if (!sharp) continue;
     const F = sub2(S, mul2(tk, len)), G = add2(E, mul2(tj, len));
     if (!inPaths(F, allowed) || !inPaths(G, allowed) || segHitsPaths(F, S, allowed) || segHitsPaths(E, G, allowed)) continue;
+    if (avoid && (inPaths(F, avoid) || inPaths(G, avoid))) continue;           // never start or end the cut in the stock itself
     const score = Math.min(segL(k), segL(j));
     if (!best || score > best.score) best = { score, k, j, F, G };
   }
@@ -13190,11 +13209,12 @@ const GEN = {
     region = cUnion(region);
     if (!region.length) { P.warn.push('No outline found.'); return; }
     const inside = op.side === 'inside';
+    if (inside) cornerReport(region, r, bottom, P, op.holes ? 'the cut-outs' : 'this pocket outline');
     let loops = cOffset(region, inside ? -(r + leave) : r + leave).filter(p => cArea(p) > 0);
     if (!loops.length) { P.warn.push('The tool is too large for this boundary.'); return; }
     if (faceNote) {                                                    // a picked face: make sure the path really mills all of its edge
       P.info = faceNote;
-      const band = inside ? cDiff(region, cOffset(region, -0.3)) : cDiff(cOffset(region, 0.3), region), reach = cOffset(loops, r + 0.03), area = ps => ps.reduce((a, q) => a + Math.abs(cArea(q)), 0);   // the strip of wall on the tool's side that the path has to sweep
+      const band = inside ? cDiff(region, cOffset(region, -0.3)) : cDiff(cOffset(region, 0.3), region), reach = cOffset(cOffset(region, inside ? -r : r), r + 0.03), area = ps => ps.reduce((a, q) => a + Math.abs(cArea(q)), 0);   // the strip of wall on the tool's side that the path has to sweep
       const miss = area(cDiff(band, reach)), total = area(band);
       if (total > 0 && miss / total > 0.02) P.warn.push(`The Ø${fmtD(tool.d)} tool cannot reach ${Math.round(miss / total * 100)}% of this face's edge (too narrow there): use a smaller tool.`);
     }
@@ -13234,16 +13254,26 @@ const GEN = {
     loops.forEach((a, i) => loops.forEach((b, j) => { if (j > i && (inPaths(uP([b[0]])[0], [a]) || inPaths(uP([a[0]])[0], [b]))) par[find(j)] = find(i); }));
     const groups = new Map();
     loops.forEach((L, i) => { const g = find(i); if (!groups.has(g)) groups.set(g, []); groups.get(g).push(L); });
+    // An outside cut always enters and leaves round a corner of the part, well clear of it: the lead-in and lead-out points are at
+    // least an inch away, in the air outside the stock, so the tool is never dropped or lifted on a finished wall.
+    const outsideCut = !inside && !op.holes, leadMode = outsideCut ? 'corner' : op.lead, leadLen = outsideCut ? Math.max(LEAD_MIN, tool.d + 2) : Math.max(tool.d + 2, 5);
+    const stockKeep = outsideCut ? cOffset([cP([P2(st.x0, st.y0), P2(st.x1, st.y0), P2(st.x1, st.y1), P2(st.x0, st.y1)])], r + 0.3) : null;
+    let shortLead = 0;
     const prep = L => {
       const loop = uP(orient(L, inside));                        // climb: CW outside, CCW inside
-      const corner = op.lead === 'corner' && cornerLeads(loop, r + leave, Math.max(tool.d + 2, 5), allowed);
+      const corner = leadMode === 'corner' && cornerLeads(loop, r + leave, leadLen, allowed, stockKeep);
       if (corner) return { ...corner, full: startAt(loop, corner.k), closed: false, leadIn: z => P.feed(corner.pts[0].x, corner.pts[0].y, z), leadOut: z => P.feed(corner.G.x, corner.G.y, z) };
       const pts = rotateToLongest(loop);
       // lead in / out on the air side of the cut: a tangent quarter arc, or a straight line
       // (off a corner when there is none to use: the arc when it stays clear of the part, else the line)
-      const t = nrm2(sub2(pts[1], pts[0])), left = P2(-t.y, t.x), rho = r * 0.6 + 1, C = add2(pts[0], mul2(left, rho));
-      const arcAt = phi => sub2(C, mul2(add2(mul2(t, Math.cos(phi)), mul2(left, Math.sin(phi))), rho));
-      const arc = op.lead === 'arc' || (op.lead === 'corner' && [0, 4, 8, 12, 16].every(k => inPaths(arcAt(Math.PI / 2 * k / 8), allowed))), S = arc ? arcAt(0) : add2(pts[0], mul2(left, rho));
+      const t = nrm2(sub2(pts[1], pts[0])), left = P2(-t.y, t.x);
+      // no corner to use (a round or smooth outline): a tangent quarter arc whose ends are an inch off the part, as big as there is room for
+      let rho = outsideCut ? LEAD_MIN / Math.SQRT2 + 0.01 : r * 0.6 + 1, C = add2(pts[0], mul2(left, rho));
+      let arcAt = phi => sub2(C, mul2(add2(mul2(t, Math.cos(phi)), mul2(left, Math.sin(phi))), rho));
+      const roomFor = () => [0, 4, 8, 12, 16].every(k => inPaths(arcAt(Math.PI / 2 * k / 8), allowed)) && (!stockKeep || !inPaths(arcAt(0), stockKeep));
+      if (outsideCut) for (const f of [1.4, 1, 0.7]) { rho = LEAD_MIN / Math.SQRT2 * f + 0.01; C = add2(pts[0], mul2(left, rho)); if (roomFor()) break; }
+      const arc = op.lead === 'arc' || (leadMode === 'corner' && roomFor()), S = arc ? arcAt(0) : add2(pts[0], mul2(left, outsideCut ? LEAD_MIN : rho));
+      if (outsideCut && dst2(S, pts[0]) < LEAD_MIN - 0.5) shortLead++;
       return {
         pts, S, full: pts, closed: true,
         leadIn: z => { if (arc) for (let k = 1; k <= 8; k++) { const q = arcAt(Math.PI / 2 * k / 8); P.feed(q.x, q.y, z); } else P.feed(pts[0].x, pts[0].y, z); },
@@ -13253,6 +13283,7 @@ const GEN = {
     let started = false;
     for (const gl of groups.values()) {
       const G = gl.map(prep);
+      if (shortLead) { P.warn.push(`There is no room to lead in and out an inch away: the lead is shorter than ${fmtLs(LEAD_MIN)} on ${shortLead} pass${shortLead > 1 ? 'es' : ''}. Add stock or move the part.`); shortLead = 0; }
       zs.forEach((z, li) => {
         const cut = [];
         const zAbove = li ? zs[li - 1] : st.z1 + 0.5;
@@ -13301,7 +13332,12 @@ const GEN = {
         if (islands.length) area = cDiff(area, islands.map(h => orient(cP(h), true)));
         // roughing stays off the walls by the finishing stock; the finish pass takes it off
         const lw = op.leaveWall || 0, fs = pocketFinishStock(op), tArea = cOffset(area, -(r + lw + fs));
-        if (!tArea.length) { if (op.rough) { P.skipped = (P.skipped || 0) + 1; continue; } P.warn.push(`The tool (Ø${tool.d}) does not fit this pocket.`); continue; }
+        if (!tArea.length) {
+          // a finishing op still takes the walls of a pocket too narrow to clear inside the stock it leaves
+          if (op.finishOnly && cOffset(area, -(r + lw)).length) { pocketFinish(op, tool, st, P, area, floor, null); if (P.cur) P.rapid(P.cur[0], P.cur[1], safe); continue; }
+          if (op.rough) { P.skipped = (P.skipped || 0) + 1; continue; }
+          P.warn.push(`The tool (Ø${fmtD(tool.d)}) does not fit this pocket.`); continue;
+        }
         if (closed && !islands.length && !(op.restD > tool.d + 1e-6)) {
           const rl = isRoundLoop(rg.outer);
           if (rl.round && g12Pocket(op, tool, st, P, rl.c, rl.r, floor, safe, ret)) continue;      // a round pocket: the control's own cycle
@@ -13321,7 +13357,7 @@ const GEN = {
         // Rings as a nesting tree, cut inside-out at every depth: the tool goes down in
         // the middle, then works out ring by ring toward the walls. Between depths it
         // goes back to the middle at depth (over floor it has just cut) and down again.
-        const zs = levels(st.z1, floor, op.stepdown), linkRegion = cOffset(tArea, 0.002);
+        const zs = op.after > 0 ? levels(Math.min(st.z1, floor + op.after), floor, op.stepdown) : levels(st.z1, floor, op.stepdown), linkRegion = cOffset(tArea, 0.002);   // a finishing op starts just above the stock the roughing left
         let down = false;
         // toward the middle of the pocket from a corner, to the first spot the bigger tool cleared
         const restApproach = s0 => { const t0 = tArea[0] || [], cen = { x: t0.reduce((a, q) => a + q.X, 0) / (t0.length || 1) / CS, y: t0.reduce((a, q) => a + q.Y, 0) / (t0.length || 1) / CS }, dx = cen.x - s0.x, dy = cen.y - s0.y, L = Math.hypot(dx, dy) || 1; for (let d = 0.4; d < L; d += 0.4) { const pt = P2(s0.x + dx / L * d, s0.y + dy / L * d); if (!inPaths(pt, restArea) && inPaths(pt, tArea)) return pt; } return null; };
@@ -13370,7 +13406,7 @@ const GEN = {
     else if (P.skipped) P.info = `${P.skipped} narrow area${P.skipped > 1 ? 's' : ''} left for the smaller tool`;
     const fs = pocketFinishStock(op), fin = op.finish !== false && fs > 1e-4;
     if (P.g12) P.info = (P.info ? P.info + ' · ' : '') + `${P.g12} round pocket${P.g12 > 1 ? 's' : ''} cut with the machine's circle-pocket cycle (G12)`;
-    const how = `Center out · roughing leaves ${fmtLs(fs, 4)} on the walls${fin ? (P.finish ? `, then a finish pass (${P.finish} wall${P.finish > 1 ? 's' : ''})` : '') : ' for a finishing op'}`;
+    const how = `Center out · roughing leaves ${fmtLs((op.leaveWall || 0) + fs, 4)} on the walls${fin ? (P.finish ? `, then a finish pass (${P.finish} wall${P.finish > 1 ? 's' : ''})` : '') : ' for a finishing op'}`;
     P.info = P.info ? P.info + ' · ' + how : how;
   },
   drill(op, tool, st, part, P) {
@@ -13777,6 +13813,13 @@ function camDraw() {
     const c = tpObjects(op, P);
     if (c.feed && VIS.paths) { c.feed.material = CAMUI.op === op.id && CAMUI.view === 'op' ? tpMat.sel : tpMat.feed; camGroup.add(c.feed); }
     if (c.rapid && VIS.rapids) camGroup.add(c.rapid);
+  }
+  // the corners an open operation cannot cut square: the outline it makes (orange) and the material it leaves in them (red)
+  const open = CAMUI.view === 'op' ? opById(CAMUI.op) : null, OP = open && !open.sup && !open.hide ? toolpath(open) : null;
+  if (OP && OP.show) for (const sh of OP.show) for (const lp of sh.loops) {
+    if (lp.length < 2) continue;
+    const pts = lp.concat([lp[0]]).map(q => V3(toW(q.x, q.y, sh.z + 0.05)));
+    own(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: sh.kind === 'left' ? 0xd9443a : 0xf29b1d, depthTest: false, linewidth: 2 })));
   }
 }
 function camRefresh() { if (UIX.ws !== 'cam') return; camDraw(); refreshPanel(); refreshBrowser(); refreshTimeline(); requestDraw(); }
@@ -14891,12 +14934,12 @@ function camAddOp(type, kind) {
   const n = C.ops.filter(o => dk ? o.type === 'drill' && o.kind === kind : o.type === type).length + 1;
   const base = { id: C.next++, type, name: label + (n > 1 ? ' ' + n : '') };
   const defs = {
-    face: { tool: pick('face'), stepover: 0.7, stepdown: 1, leave: 0, pattern: 'zigzag', dir: 'auto' },
-    contour: { tool: pick('flat'), side: 'auto', stepdown: 2, leave: 0, through: 0.5, faces: [] },
-    pocket: { tool: pick('flat'), stepover: 0.45, stepdown: 1.5, leaveWall: 0, leaveFloor: 0, finishStock: isIn() ? 0.254 : 0.25, finish: true, faces: [] },
+    face: { tool: pick('face'), stepover: 0.7, stepdown: 1, leave: STOCK_LEAVE, pattern: 'zigzag', dir: 'auto' },
+    contour: { tool: pick('flat'), side: 'auto', stepdown: 2, leave: STOCK_LEAVE, lead: 'corner', through: 0.5, faces: [] },
+    pocket: { tool: pick('flat'), stepover: 0.45, stepdown: 1.5, leaveWall: STOCK_LEAVE, leaveFloor: STOCK_LEAVE, finishStock: isIn() ? 0.254 : 0.25, finish: true, faces: [] },
     drill: { tool: pick('drill'), mode: 'peck', peck: 3, through: 1, diams: [] },
-    parallel: { tool: pick('ball'), stepover: 0.5, leave: 0, angle: 0, overrun: true },
-    chamfer: { tool: pick('chamfer'), through: 0.3, leave: 0, faces: [] },
+    parallel: { tool: pick('ball'), stepover: 0.5, leave: STOCK_LEAVE, angle: 0, overrun: true },
+    chamfer: { tool: pick('chamfer'), through: 0.3, leave: STOCK_LEAVE, faces: [] },
     get engrave() { return engDefaults(camStock(), (C.tools.find(t => t.type === 'chamfer' && (t.cone || 90) <= 90) || camToolOfType('chamfer', 3, { cone: 60 })).n); },
   };
   const op = { ...base, ...defs[type] };
@@ -15195,7 +15238,8 @@ function camPanel() {
     if (op.type === 'contour' && !op.holes) f += `<div class="field"><span>Side</span><div class="seg"><button data-opset="side:auto" class="${!op.side || op.side === 'auto' ? 'on' : ''}" title="With a face picked: finds the open space around it and cuts on the right side, all the way down">Auto</button><button data-opset="side:outside" class="${op.side === 'outside' ? 'on' : ''}">Outside</button><button data-opset="side:inside" class="${op.side === 'inside' ? 'on' : ''}">Inside</button></div></div>
       <div class="field"><span>Boundary</span><div class="pick ${faces ? '' : 'empty'}"><span>${faces ? 'Chosen faces · click to add/remove' : 'Part outline · or click flat faces'}</span><span class="n">${faces || 'auto'}</span></div></div>
       <div class="row3">${num('opSd', op.stepdown, 'Stepdown', 0.1)}${num('opLeave', op.leave, 'Leave', 0.05)}${num('opThrough', op.through, 'Below bottom', 0.1)}</div>${op.side !== 'inside' ? `<div class="row2">${num('opRest', op.restD || 0, 'Rest after tool Ø (0 = off)', 1)}</div>` : ''}`;
-    if (op.type === 'contour') f += `<div class="field"><span>Lead in / out</span><div class="seg">${[['corner', 'Off a corner'], ['arc', 'Arc'], ['line', 'Line']].map(([k, l]) => `<button data-opset="lead:${k}" class="${(op.lead || 'line') === k ? 'on' : ''}" title="${k === 'corner' ? 'Straight in and out along the walls at a sharp outside corner, well clear of the part: no witness mark' : k === 'arc' ? 'A tangent quarter arc on the air side' : 'A short straight line square to the wall'}">${l}</button>`).join('')}</div></div>`;
+    if (op.type === 'contour' && op.side !== 'inside' && !op.holes) f += `<div class="field"><span>Lead in / out</span><p class="note cyc-note">An outside cut always leads in and out round a corner of the part (a smooth outline: a tangent arc), with both points at least ${fmtLs(LEAD_MIN)} away in the air, so the tool never drops or lifts on a finished wall.</p></div>`;
+    else if (op.type === 'contour') f += `<div class="field"><span>Lead in / out</span><div class="seg">${[['corner', 'Off a corner'], ['arc', 'Arc'], ['line', 'Line']].map(([k, l]) => `<button data-opset="lead:${k}" class="${(op.lead || 'line') === k ? 'on' : ''}" title="${k === 'corner' ? 'Straight in and out along the walls at a sharp outside corner, well clear of the part: no witness mark' : k === 'arc' ? 'A tangent quarter arc on the air side' : 'A short straight line square to the wall'}">${l}</button>`).join('')}</div></div>`;
     if (op.type === 'contour' && op.holes) f += `<div class="field"><span>Faces holding the cut-outs</span><div class="pick ${faces ? '' : 'empty'}"><span>${faces ? 'Click a face again to remove it' : 'Click the flat faces the openings are in'}</span><span class="n">${faces}</span></div></div>
       <div class="row3">${num('opSd', op.stepdown, 'Stepdown', 0.1)}${num('opLeave', op.leave, 'Leave', 0.05)}${num('opThrough', op.through, 'Below bottom', 0.1)}</div>`;
     if (op.type === 'pocket') f += `<div class="field"><span>Floors</span><div class="pick ${faces ? '' : 'empty'}"><span>${faces ? 'Click a face again to remove it' : 'Click flat floor faces'}</span><span class="n">${faces}</span></div></div>
@@ -18037,8 +18081,45 @@ const UP = [0, 1, 0];
 const STD_FLAT_MM = [1, 1.5, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20], STD_BALL_MM = [1, 2, 3, 4, 6, 8, 10, 12];
 // fractional-inch series (in mm), so an inch shop gets cutters it can buy: 1/32" … 1"
 const IN_SERIES = [1 / 32, 1 / 16, 3 / 32, 1 / 8, 5 / 32, 3 / 16, 1 / 4, 5 / 16, 3 / 8, 1 / 2, 5 / 8, 3 / 4, 1].map(x => +(x * 25.4).toFixed(4));
-const stdFlat = () => (isIn() ? IN_SERIES : STD_FLAT_MM), stdBall = () => (isIn() ? IN_SERIES.filter(d => d >= 1.5) : STD_BALL_MM);
-const stdChamfer = () => (isIn() ? [1 / 4, 3 / 8, 1 / 2, 5 / 8, 3 / 4, 1].map(x => +(x * 25.4).toFixed(4)) : [6, 8, 10, 12, 16, 20, 25]);
+// Tools are always chosen from the inch catalog (the sizes a shop really stocks), whatever the display units are.
+const mmOfIn = x => +(x * 25.4).toFixed(4);
+const ENDMILL_IN = [1 / 16, 1 / 8, 3 / 16, 1 / 4, 5 / 16, 3 / 8, 1 / 2, 5 / 8, 3 / 4, 1].map(mmOfIn);
+const BALLMILL_IN = [1 / 16, 1 / 8, 3 / 16, 1 / 4, 5 / 16, 3 / 8, 1 / 2].map(mmOfIn);
+const MAX_ENDMILL = mmOfIn(3 / 4);                                   // the biggest end mill the auto program picks
+const LEAD_MIN = 25.4;                                                // lead-in and lead-out points of an outside cut are at least 1" away
+const STOCK_LEAVE = mmOfIn(0.1);                                     // 0.100" left on walls and floors by default, by every milling operation
+const FACEMILL_IN = [2, 3, 4].map(mmOfIn), SPOT_IN = [1 / 4, 3 / 8, 1 / 2].map(mmOfIn);
+const stdFlat = () => ENDMILL_IN, stdBall = () => BALLMILL_IN;
+const stdChamfer = () => [1 / 4, 3 / 8, 1 / 2, 5 / 8, 3 / 4, 1].map(mmOfIn);
+// Twist drills: fractional (1/64" steps), number (#80–#1) and letter (A–Z) sizes, in inches.
+const DRILL_IN = (() => {
+  const t = [];
+  for (let n = 4; n <= 64; n++) t.push({ nm: n % 64 === 0 ? '1"' : (() => { let a = n, b = 64; while (a % 2 === 0) { a /= 2; b /= 2; } return a + '/' + b + '"'; })(), d: n / 64, k: 0 });
+  const nums = [.0135, .0145, .016, .018, .02, .021, .0225, .024, .025, .026, .028, .0292, .031, .032, .033, .035, .036, .037, .038, .039, .04, .041, .042, .043, .0465, .052, .055, .0595, .0635, .067, .07, .073, .076, .0785, .081, .082, .086, .089, .0935, .096, .098, .0995, .1015, .104, .1065, .11, .111, .113, .116, .12, .1285, .136, .1405, .144, .147, .1495, .152, .154, .157, .159, .161, .166, .1695, .173, .177, .18, .182, .185, .189, .191, .1935, .196, .199, .201, .204, .2055, .209, .213, .221, .228];
+  nums.forEach((d, i) => t.push({ nm: '#' + (80 - i), d, k: 1 }));
+  [.234, .238, .242, .246, .25, .257, .261, .266, .272, .277, .281, .29, .295, .302, .316, .323, .332, .339, .348, .358, .368, .377, .386, .397, .404, .413].forEach((d, i) => t.push({ nm: String.fromCharCode(65 + i), d, k: 2 }));
+  return t.filter(x => x.d >= 0.0625).sort((a, b) => a.d - b.d || a.k - b.k);
+})();
+// The stocked drill closest to a hole (mm): { nm, d (mm), dev (inches over the hole; + oversize), label }.
+// Fractional sizes win ties; a letter or number drill is used when it is clearly closer.
+function stdDrill(holeMm) {
+  const hole = holeMm / 25.4;
+  let best = null;
+  for (const x of DRILL_IN) { const e = Math.abs(x.d - hole) + x.k * 0.0004; if (!best || e < best.e) best = { x, e }; }
+  const x = best.x;
+  return { nm: x.nm, d: mmOfIn(x.d), dev: x.d - hole, label: x.k === 0 ? x.nm : x.k === 1 ? `${x.nm} (${x.d.toFixed(4).replace(/^0/, '')}")` : `${x.nm} (${x.d.toFixed(4).replace(/^0/, '')}")` };
+}
+// 3/4", 1-1/2", 0.261" … a tool size in mm shown the way a tool crib labels it.
+function fmtInch(mm) {
+  const v = mm / 25.4, n = Math.round(v * 64);
+  if (n > 0 && Math.abs(v - n / 64) < 0.0004) {
+    let a = n % 64, b = 64, w = Math.floor(n / 64);
+    if (!a) return w + '"';
+    while (a % 2 === 0) { a /= 2; b /= 2; }
+    return (w ? w + '-' : '') + a + '/' + b + '"';
+  }
+  return v.toFixed(4).replace(/0+$/, '').replace(/^0\./, '.') + '"';
+}
 const featOfSurf = s => {
   for (const m of s.metas || []) { try { const o = JSON.parse(m); const f = o.feat != null && byId(o.feat); if (f) return f; } catch (e) { /* not a tag */ } }
   return null;
@@ -18072,7 +18153,7 @@ function coverage(s, pts) {
   for (let i = 0; i + 1 < as.length; i++) gap = Math.max(gap, as[i + 1] - as[i]);
   return TAU - gap;
 }
-const fmtD = d => (Math.abs(d - Math.round(d)) < 0.01 ? String(Math.round(d)) : (+d.toFixed(2)).toString());
+const fmtD = d => (isIn() ? fmtInch(d) : Math.abs(d - Math.round(d)) < 0.01 ? String(Math.round(d)) : (+d.toFixed(2)).toString());
 const dirName = d => {
   const names = [[[1, 0, 0], '+X'], [[-1, 0, 0], '−X'], [[0, 1, 0], 'top'], [[0, -1, 0], 'underside'], [[0, 0, 1], 'front'], [[0, 0, -1], 'back']];
   for (const [v, n] of names) if (dot3(v, d) > 0.999) return n;
@@ -18277,56 +18358,71 @@ function autoPlan(R) {
   const refOf = f => faceRef(f.mesh, f.fid, faceInfo(f.mesh, f.fid).on);        // a point on the face: rings have their centroid in the hole
   const coveredBy = test => { const o = mine.find(test); return o ? o.name : null; };
   const step = s => { s.i = plan.length; plan.push(s); return s; };
-  // 1 · facing
+  // holes grouped by the stocked drill that cuts them (several nearly equal sizes share one drill)
+  const drillGroups = hs => {
+    const m = new Map();
+    for (const h of hs) { const sd = stdDrill(h.d); if (!m.has(sd.nm)) m.set(sd.nm, { sd, hs: [], dh: [] }); const e = m.get(sd.nm); e.hs.push(h); if (!e.dh.some(x => Math.abs(x - h.d) < 0.02)) e.dh.push(+h.d.toFixed(2)); }
+    return [...m.values()].sort((a, b) => a.sd.d - b.sd.d);
+  };
+  const drillNote = (sd, dh) => (Math.abs(sd.dev) > 0.0015 ? ` The nearest stocked drill to the ${dh.map(x => fmtInch(x)).join(' / ')} hole (${sd.dev > 0 ? '+' : '−'}${Math.abs(sd.dev).toFixed(4)}").` : '');
+  // 1 · facing: a roughing pass that leaves 0.100", then a finishing pass at the part's top
   if (R.st.z1 - R.part.z1 > 1e-3) {
-    const lib = C.tools.filter(t => t.type === 'face').sort((a, b) => b.d - a.d)[0];
-    const tool = lib ? { n: lib.n, t: lib, isNew: false } : pick('face', isIn() ? 50.8 : 50, true);
-    step({ key: 'face', type: 'face', title: 'Face the top', why: `Take ${fmtLs(R.st.z1 - R.part.z1)} off the stock down to the top of the part.`, tool, faces: R.groups.get('top') ? R.groups.get('top').faces : [],
-      op: { stepover: 0.7, stepdown: Math.min(2, R.st.z1 - R.part.z1), leave: 0 }, covered: coveredBy(o => o.type === 'face') });
+    const lib = C.tools.filter(t => t.type === 'face').sort((a, b) => b.d - a.d)[0], cut = R.st.z1 - R.part.z1, span = Math.min(R.st.x1 - R.st.x0, R.st.y1 - R.st.y0);
+    const tool = lib ? { n: lib.n, t: lib, isNew: false } : pick('face', FACEMILL_IN.find(d => d >= 0.6 * span) || FACEMILL_IN[FACEMILL_IN.length - 1], true);
+    const faces = R.groups.get('top') ? R.groups.get('top').faces : [], cov = coveredBy(o => o.type === 'face');
+    if (cut > STOCK_LEAVE + 0.2) {
+      step({ key: 'face', type: 'face', title: 'Face the top', why: `Take ${fmtLs(cut - STOCK_LEAVE)} off the stock, leaving ${fmtLs(STOCK_LEAVE)} on the part's top for the finish pass.`, tool, faces,
+        op: { stepover: 0.7, stepdown: Math.min(2, cut - STOCK_LEAVE), leave: STOCK_LEAVE }, covered: cov });
+      step({ key: 'facefin', type: 'face', title: 'Finish-face the top', why: `The last ${fmtLs(STOCK_LEAVE)}, down to the top of the part.`, tool, faces,
+        op: { stepover: 0.7, stepdown: STOCK_LEAVE, leave: 0 }, covered: cov });
+    } else step({ key: 'face', type: 'face', title: 'Face the top', why: `Take ${fmtLs(cut)} off the stock down to the top of the part.`, tool, faces, op: { stepover: 0.7, stepdown: Math.min(2, cut), leave: 0 }, covered: cov });
   }
-  // 2 · pockets and steps (roughing to the floors)
+  // The biggest inch end mill that does the job is the ONE end mill for the whole part: the pockets, the outline and the cut-outs
+  // are all cut with it (so it is loaded once). Its size is limited by the narrowest pocket and by the tightest inside corner
+  // radius (the tool's radius cannot be bigger than the corner it cuts).
+  const mills = [...ENDMILL_IN].sort((a, b) => b - a);
+  let mainD = null, restBigD = null;
   if (R.floors.length) {
-    const maxByCorner = isFinite(R.minCornerR) ? 2 * R.minCornerR * 0.95 : 20;
-    const fits = d => {
-      const r = d / 2, rect = [cP([P2(R.st.x0, R.st.y0), P2(R.st.x1, R.st.y0), P2(R.st.x1, R.st.y1), P2(R.st.x0, R.st.y1)])];
+    const maxByCorner = isFinite(R.minCornerR) ? 2 * R.minCornerR * 0.95 : MAX_ENDMILL;
+    const stockRect = [cP([P2(R.st.x0, R.st.y0), P2(R.st.x1, R.st.y0), P2(R.st.x1, R.st.y1), P2(R.st.x0, R.st.y1)])];
+    const fitsAll = (d, any) => {
+      const r = d / 2;
       for (const f of R.floors) {
         const all = faceRegion(f.mesh, f.fid); if (!all) continue;
         for (const rg of all.parts) {
           if (!floorPartMachinable(rg, f.z)) continue;
-          let area = loopRises(rg.outer, f.z, true) ? [orient(cP(rg.outer), true)] : cDiff(cOffset(rect, r + 1), silhouetteAbove(f.z));
+          let area = loopRises(rg.outer, f.z, true) ? [orient(cP(rg.outer), true)] : cDiff(cOffset(stockRect, r + 1), silhouetteAbove(f.z));
           const isl = rg.holes.filter(h => loopRises(h, f.z, false));
           if (isl.length) area = cDiff(area, isl.map(h => orient(cP(h), true)));
-          if (!cOffset(area, -(r + 0.3)).length) return false;
+          const ok = cOffset(area, -(r + 0.3)).length > 0;
+          if (any ? ok : !ok) return any;
         }
       }
-      return true;
+      return !any;
     };
-    // any size in the library or the standard range; the largest that does the job
-    const sizes = [...new Set([...stdFlat(), ...C.tools.filter(t => t.type === 'flat').map(t => t.d)])].sort((a, b) => b - a);
-    const fitsAny = d => {
-      const r = d / 2, rect = [cP([P2(R.st.x0, R.st.y0), P2(R.st.x1, R.st.y0), P2(R.st.x1, R.st.y1), P2(R.st.x0, R.st.y1)])];
-      for (const f of R.floors) { const all = faceRegion(f.mesh, f.fid); if (!all) continue; for (const rg of all.parts) { if (!floorPartMachinable(rg, f.z)) continue; let area = loopRises(rg.outer, f.z, true) ? [orient(cP(rg.outer), true)] : cDiff(cOffset(rect, r + 1), silhouetteAbove(f.z)); const isl = rg.holes.filter(h => loopRises(h, f.z, false)); if (isl.length) area = cDiff(area, isl.map(h => orient(cP(h), true))); if (cOffset(area, -(r + 0.3)).length) return true; } }
-      return false;
-    };
-    const dSmall = sizes.find(d => d <= maxByCorner && fits(d)) || 1;
-    const dBig = sizes.find(d => d <= 20 && d > dSmall && fitsAny(d)) || dSmall;
+    mainD = mills.find(d => d <= Math.min(maxByCorner, MAX_ENDMILL) && fitsAll(d, false)) || mills[mills.length - 1];
+    const dBig = mills.find(d => d <= MAX_ENDMILL && d > mainD && fitsAll(d, true)) || mainD;
+    // a second, bigger tool only when the one that fits everything is small (under 1/4") and the big one is at least twice as fast
+    if (mainD < mmOfIn(1 / 4) - 1e-6 && dBig >= 2 * mainD - 1e-6) restBigD = dBig;
     const floorFids = new Set(R.floors.map(f => f.fid));
     const cov = mine.find(o => o.type === 'pocket' && R.floors.every(fl => (o.faces || []).some(r => { const x = findFace(visibleBodies(), r); return x && x.fid === fl.fid; })));
     const deep = Math.max(...R.floors.map(f => R.part.z1 - f.z));
-    const pop = (d, extra) => ({ entry: 'ramp', microlift: 0.25, faces: R.floors.map(refOf), stepover: 0.45, stepdown: +Math.max(0.5, Math.min(d * 0.5, 3)).toFixed(2), leaveWall: 0, leaveFloor: 0, ...extra });
+    const pop = (d, extra) => ({ entry: 'ramp', microlift: 0.25, faces: R.floors.map(refOf), stepover: 0.45, stepdown: +Math.max(0.5, Math.min(d * 0.5, 3)).toFixed(2), leaveWall: STOCK_LEAVE, leaveFloor: STOCK_LEAVE, finish: false, finishStock: 0, rough: true, ...extra });
     const faces = R.floors.map(f => ({ mesh: f.mesh, fid: f.fid })), nf = `${R.floors.length} floor${R.floors.length > 1 ? 's' : ''}`;
-    if (dBig >= dSmall * 1.4) {
-      const big = pick('flat', dBig, true), small = pick('flat', dSmall, true);
-      step({ key: 'pocket', type: 'pocket', entry: 'ramp', title: `Rough pocket ${nf} (Ø${fmtD(dBig)})`, why: `The biggest end mill that fits clears the bulk down to every floor (deepest ${fmtLs(deep)}) — far fewer passes than the small one.`,
-        tool: big, faces, op: pop(dBig, { rough: true }), covered: cov ? cov.name : null, _fids: floorFids });
-      step({ key: 'pocketrest', type: 'pocket', entry: 'ramp', title: `Rest-machine corners (Ø${fmtD(dSmall)})`, why: `Only where the Ø${fmtD(dBig)} could not reach: inside corners${isFinite(R.minCornerR) ? ` (tightest R${fmtLs(R.minCornerR)})` : ''} and narrow gaps. The smallest tool the part needs.`,
-        tool: small, faces, op: pop(dSmall, { restD: dBig }), covered: cov ? cov.name : null, _fids: floorFids });
+    const smallR = isFinite(R.minCornerR) ? ` The tightest inside corner is R${fmtLs(R.minCornerR)}, so the tool can be no bigger than Ø${fmtD(maxByCorner)}.` : '';
+    const mainT = pick('flat', mainD, true);
+    if (restBigD) {
+      const big = pick('flat', restBigD, true);
+      step({ key: 'pocket', type: 'pocket', entry: 'ramp', title: `Rough pocket ${nf} (Ø${fmtD(restBigD)})`, why: `The biggest end mill that fits clears the bulk down to every floor (deepest ${fmtLs(deep)}), leaving ${fmtLs(STOCK_LEAVE)} on the walls and floors.`,
+        tool: big, faces, op: pop(restBigD, { rough: true }), covered: cov ? cov.name : null, _fids: floorFids });
+      step({ key: 'pocketrest', type: 'pocket', entry: 'ramp', title: `Rest-machine corners (Ø${fmtD(mainD)})`, why: `Only where the Ø${fmtD(restBigD)} could not reach: narrow gaps and tight corners.${smallR}`,
+        tool: mainT, faces, op: pop(mainD, { restD: restBigD }), covered: cov ? cov.name : null, _fids: floorFids });
     } else {
-      // sizes too close to be worth two tools: the one that fits every floor and corner
-      const tool = pick('flat', dSmall, true);
-      step({ key: 'pocket', type: 'pocket', entry: 'ramp', title: `Pocket ${nf}`, why: `Clear down to every flat floor (deepest ${fmtLs(deep)}), leaving walls and islands, with the biggest end mill that fits them all.${isFinite(R.minCornerR) ? ` The tightest inside corner is R${fmtLs(R.minCornerR)}.` : ''}`,
-        tool, faces, op: pop(dSmall), covered: cov ? cov.name : null, _fids: floorFids });
+      step({ key: 'pocket', type: 'pocket', entry: 'ramp', title: `Rough pocket ${nf} (Ø${fmtD(mainD)})`, why: `Clear down to every flat floor (deepest ${fmtLs(deep)}) with the biggest end mill that fits them all, leaving ${fmtLs(STOCK_LEAVE)} on the walls and floors.${smallR}`,
+        tool: mainT, faces, op: pop(mainD, {}), covered: cov ? cov.name : null, _fids: floorFids });
     }
+    step({ key: 'pocketfin', type: 'pocket', entry: 'ramp', title: `Finish pocket walls and floors (Ø${fmtD(mainD)})`, why: `The same Ø${fmtD(mainD)} tool takes the last ${fmtLs(STOCK_LEAVE)} off the floors and walls, at full size.`,
+      tool: mainT, faces, op: pop(mainD, { finishOnly: true, rough: false, after: STOCK_LEAVE, leaveWall: 0, leaveFloor: 0, finish: true, finishStock: STOCK_LEAVE }), covered: cov ? cov.name : null, _fids: floorFids });
   }
   // 2b · dovetail grooves open at the top: an end mill clears the straight slot, then a dovetail cutter with the groove's own
   // flank angle takes the undercut walls (a flat tool cannot reach them, and they do not need a robot)
@@ -18358,16 +18454,16 @@ function autoPlan(R) {
   for (const t of R.threads) if (!t.external) for (const h of topHoles) { const w = sub3(h.s.p, t.p); if (len3(sub3(w, mul3(t.dir, dot3(w, t.dir)))) < 0.05 && Math.abs(dot3(h.s.dir, t.dir)) > 0.999) tapped.add(h); }
   if (topHoles.length) {
     const diams = [...new Set(topHoles.map(h => +h.d.toFixed(2)))].sort((a, b) => a - b);
-    const spotRaw = Math.min(12, Math.max(6, Math.max(...diams) + 2)), spotD = isIn() ? [6.35, 9.525, 12.7].find(x => x >= spotRaw - 0.01) || 12.7 : spotRaw;
+    const spotRaw = Math.min(12, Math.max(6, Math.max(...diams) + 2)), spotD = SPOT_IN.find(x => x >= spotRaw - 0.01) || SPOT_IN[SPOT_IN.length - 1];
     const spot = C.tools.filter(t => t.type === 'spot').sort((a, b) => b.d - a.d)[0];
     const stool = spot ? { n: spot.n, t: spot, isNew: false } : pick('spot', spotD, true);
     step({ key: 'spot', type: 'drill', title: `Spot drill ${topHoles.length} hole${topHoles.length > 1 ? 's' : ''}`, why: 'A short 90° spot keeps the drills from wandering; it stays inside the smallest hole, so no chamfer is added.', tool: stool, faces: topHoles.flatMap(h => h.faces),
       op: { mode: 'drill', diams, depth: +Math.max(0.3, Math.min(...diams) / 2 - 0.2).toFixed(2), through: 0, peck: 1 }, covered: coveredBy(o => o.type === 'drill' && toolOf(o.tool).type === 'spot') });
-    for (const d of diams) {
-      const hs = topHoles.filter(h => Math.abs(h.d - d) < 0.02), deep = Math.max(...hs.map(h => h.depth));
-      const tool = pick('drill', d, true);
-      step({ key: 'drill' + d, type: 'drill', title: `Drill ${fmtDia(d)} × ${hs.length}`, why: `${hs.filter(h => h.through).length ? 'Through' : 'Blind'}, up to ${fmtLs(deep)} deep${deep > 3 * d ? ' — deep, so peck drilling' : ''}.${hs.some(h => tapped.has(h)) ? ' Tap drill for the thread.' : ''}`, tool, faces: hs.flatMap(h => h.faces),
-        op: { mode: deep > 3 * d ? 'peck' : 'drill', diams: [d], peck: +Math.max(1, d).toFixed(1), through: 1 }, covered: coveredBy(o => o.type === 'drill' && toolOf(o.tool).type === 'drill' && (o.diams || []).some(x => Math.abs(x - d) < 0.02)) });
+    for (const { sd, hs, dh } of drillGroups(topHoles)) {
+      const deep = Math.max(...hs.map(h => h.depth));
+      const tool = pick('drill', sd.d, true);
+      step({ key: 'drill' + sd.nm, type: 'drill', title: `Drill ${sd.label} × ${hs.length}`, why: `${hs.filter(h => h.through).length ? 'Through' : 'Blind'}, up to ${fmtLs(deep)} deep${deep > 3 * sd.d ? ' — deep, so peck drilling' : ''}.${hs.some(h => tapped.has(h)) ? ' Tap drill for the thread.' : ''}${drillNote(sd, dh)}`, tool, faces: hs.flatMap(h => h.faces),
+        op: { mode: deep > 3 * sd.d ? 'peck' : 'drill', diams: dh, peck: +Math.max(1, sd.d).toFixed(1), through: 1 }, covered: coveredBy(o => o.type === 'drill' && toolOf(o.tool).type === 'drill' && (o.diams || []).some(x => dh.some(y => Math.abs(x - y) < 0.02))) });
     }
     for (const t of R.threads.filter(t => !t.external && t.vertical)) {
       const hs = topHoles.filter(h => tapped.has(h) && Math.abs(h.d - (t.nominal - 1.0825 * t.pitch)) < 0.3);
@@ -18379,28 +18475,38 @@ function autoPlan(R) {
   }
   // 4 · through cut-outs (sockets, slots, big round holes)
   if (R.cutoutFaces.length) {
-    // largest library end mill that fits every opening
+    // the part's one end mill when it fits every opening, else the biggest inch end mill that does
     const fit = d => R.cutoutFaces.every(f => { const rg = faceRegion(f.mesh, f.fid); return rg && rg.holes.filter(isCutout).every(h => cOffset([orient(cP(h), true)], -d / 2).length); });
-    const lib = C.tools.filter(t => t.type === 'flat' && fit(t.d)).sort((a, b) => b.d - a.d)[0];
-    const tl = lib ? { n: lib.n, t: lib, isNew: false } : pick('flat', [...stdFlat()].reverse().find(fit) || 1, true);
-    step({ key: 'cutout', type: 'contour', title: 'Contour the through cut-outs', why: `${R.groups.get('cutout').n} opening${R.groups.get('cutout').n > 1 ? 's' : ''} cut from the inside, down through the part.${R.groups.get('sharp') ? ' Sharp inside corners keep the tool radius.' : ''}`,
-      tool: tl, faces: R.cutoutFaces, op: { entry: 'ramp', lead: 'corner', holes: true, faces: R.cutoutFaces.map(refOf), side: 'inside', stepdown: +Math.max(0.5, Math.min(tl.t.d * 0.5, 3)).toFixed(2), leave: 0, through: 0.5 }, covered: coveredBy(o => o.type === 'contour' && o.holes) });
+    const dC = (mainD && fit(mainD)) ? mainD : mills.find(d => d <= MAX_ENDMILL && fit(d)) || mills[mills.length - 1];
+    if (!mainD) mainD = dC;
+    const tl = pick('flat', dC, true), grp = R.groups.get('cutout'), plural = grp.n > 1 ? 's' : '';
+    const cov = coveredBy(o => o.type === 'contour' && o.holes);
+    const cut = (extra) => ({ entry: 'ramp', lead: 'corner', holes: true, faces: R.cutoutFaces.map(refOf), side: 'inside', stepdown: +Math.max(0.5, Math.min(dC * 0.5, 3)).toFixed(2), leave: STOCK_LEAVE, through: 0.5, ...extra });
+    step({ key: 'cutout', type: 'contour', title: `Rough the through cut-outs (Ø${fmtD(dC)})`, why: `${grp.n} opening${plural} cut from the inside, down through the part, leaving ${fmtLs(STOCK_LEAVE)} on the walls.${R.groups.get('sharp') ? ' Sharp inside corners keep the tool radius.' : ''}`,
+      tool: tl, faces: R.cutoutFaces, op: cut({}), covered: cov });
+    step({ key: 'cutoutfin', type: 'contour', title: `Finish the through cut-outs (Ø${fmtD(dC)})`, why: `One more pass at full size, taking the last ${fmtLs(STOCK_LEAVE)} off the walls with the same tool.`,
+      tool: tl, faces: R.cutoutFaces, op: cut({ leave: 0, stepdown: +Math.max(1, Math.min(dC * 2, 12)).toFixed(2) }), covered: cov });
   }
   // 5 · outside profile before the 3D finish: the finishing tool then only meets the part
   if (R.st.x1 - R.part.x1 > 1e-3 || R.part.x0 - R.st.x0 > 1e-3) {
-    // the biggest end mill for the outline; a small one after it only where the outline turns in tighter than that
+    // the part's one end mill for the outline; a small one after it only where the outline turns in tighter than that
     const outline = silhouetteAbove(R.part.z0 - 1), span = Math.min(R.part.x1 - R.part.x0, R.part.y1 - R.part.y0);
-    const sizes = [...new Set([...stdFlat(), ...C.tools.filter(t => t.type === 'flat').map(t => t.d)])].sort((a, b) => b - a);
-    const dBig = sizes.find(d => d <= 20 && d <= Math.max(4, span / 2)) || 6;
+    const dBig = mainD || mills.find(d => d <= MAX_ENDMILL && d <= Math.max(4, span / 2)) || mills[mills.length - 1];
     const leftBy = d => { const cl = cOffset(cOffset(outline, d / 2), -d / 2), lf = cDiff(cl, cOffset(outline, 0.01)); return cOffset(cOffset(lf, -0.35), 0.35).filter(p => Math.abs(cArea(p)) > 1e-3); };
     const needRest = outline.length && leftBy(dBig).length;
-    const dSmall = needRest ? (sizes.find(d => d < dBig && !leftBy(d).length) || sizes[sizes.length - 1]) : dBig;
-    const cop = (d, extra) => ({ lead: 'corner', side: 'outside', stepdown: +Math.max(1, Math.min(d * 0.5, 3)).toFixed(2), leave: 0, through: 0.5, faces: [], ...extra });
-    const tool = pick('flat', dBig, true), wallF = R.groups.get('wall') ? R.groups.get('wall').faces : [];
-    step({ key: 'contour', type: 'contour', title: `Contour the outside profile (Ø${fmtD(dBig)})`, why: `Cut around the part outline through the stock with the biggest end mill that suits it, before the 3D finish, so the ball mill never meets raw stock.`, tool, faces: wallF,
-      op: cop(dBig), covered: coveredBy(o => o.type === 'contour' && !o.holes && o.side !== 'inside') });
+    const dSmall = needRest ? (mills.find(d => d < dBig && !leftBy(d).length) || mills[mills.length - 1]) : dBig;
+    const cop = (d, extra) => ({ lead: 'corner', side: 'outside', stepdown: +Math.max(1, Math.min(d * 0.5, 3)).toFixed(2), leave: STOCK_LEAVE, through: 0.5, faces: [], ...extra });
+    const fin = d => ({ leave: 0, stepdown: +Math.max(1, Math.min(d * 2, 12)).toFixed(2) });
+    const tool = pick('flat', dBig, true), wallF = R.groups.get('wall') ? R.groups.get('wall').faces : [], cov = coveredBy(o => o.type === 'contour' && !o.holes && o.side !== 'inside');
+    const same = mainD && Math.abs(mainD - dBig) < 1e-6 ? ' — the same end mill as the pockets' : '';
+    step({ key: 'contour', type: 'contour', title: `Rough the outside profile (Ø${fmtD(dBig)})`, why: `Cut around the part outline through the stock with the biggest end mill that suits it${same}, leaving ${fmtLs(STOCK_LEAVE)} on the walls, before the 3D finish, so the ball mill never meets raw stock.`, tool, faces: wallF,
+      op: cop(dBig), covered: cov });
     if (needRest && dSmall < dBig) step({ key: 'contourrest', type: 'contour', title: `Rest-machine the outline (Ø${fmtD(dSmall)})`, why: `Only the inside corners and notches of the outline the Ø${fmtD(dBig)} could not reach.`, tool: pick('flat', dSmall, true), faces: wallF,
       op: cop(dSmall, { restD: dBig }), covered: null });
+    step({ key: 'contourfin', type: 'contour', title: `Finish the outside profile (Ø${fmtD(dBig)})`, why: `One pass round the outline at full size with the same tool, taking off the last ${fmtLs(STOCK_LEAVE)}.`, tool, faces: wallF,
+      op: cop(dBig, fin(dBig)), covered: cov });
+    if (needRest && dSmall < dBig) step({ key: 'contourfinrest', type: 'contour', title: `Finish the outline's notches (Ø${fmtD(dSmall)})`, why: `The last ${fmtLs(STOCK_LEAVE)} where the Ø${fmtD(dBig)} could not reach.`, tool: pick('flat', dSmall, true), faces: wallF,
+      op: cop(dSmall, { ...fin(dSmall), restD: dBig }), covered: null });
   }
   // 5b · holes on the other sides: the part turned (4-axis) or tilted (5-axis, 3+2) to
   // face each direction in turn, then spotted, drilled and tapped like the top ones
@@ -18420,14 +18526,14 @@ function autoPlan(R) {
     const spotHs = g.hs.filter(x => !onFloorOf(x, g.hs));
     if (spotHs.length) {
       const sd = [...new Set(spotHs.map(x => +x.d.toFixed(2)))].sort((a, b) => a - b);
-      const stool = spotLib ? { n: spotLib.n, t: spotLib, isNew: false } : pick('spot', Math.min(12, Math.max(6, Math.max(...diams) + 2)), true);
+      const stool = spotLib ? { n: spotLib.n, t: spotLib, isNew: false } : pick('spot', SPOT_IN.find(x => x >= Math.min(12, Math.max(6, Math.max(...diams) + 2)) - 0.01) || SPOT_IN[SPOT_IN.length - 1], true);
       sstep(0, { key: 'spot|' + from, type: 'drill', title: `Spot drill ${spotHs.length} hole${plural(spotHs.length)} from ${from}`, why: `Tool along the holes from ${from}, with ${how}. A short spot keeps the drills straight.`, tool: stool, faces: spotHs.flatMap(x => x.faces),
         op: { mode: 'drill', diams: sd, depth: +Math.max(0.3, Math.min(...sd) / 2 - 0.2).toFixed(2), through: 0, peck: 1, axis: ax, pts: spotHs.map(holePt) }, covered: null });
     }
-    for (const d of diams) {
-      const hs = g.hs.filter(x => Math.abs(x.d - d) < 0.02), deep = Math.max(...hs.map(x => x.depth)), tool = pick('drill', d, true);
-      sstep(1 + d, { key: `drill${d}|${from}`, type: 'drill', title: `Drill ${fmtDia(d)} × ${hs.length} from ${from}`, why: `${hs.every(x => x.through) ? 'Through' : hs.some(x => x.through) ? 'Through and blind' : 'Blind'}, up to ${fmtLs(deep)} deep, with ${how}.${deep > 3 * d ? ' Deep, so peck drilling.' : ''}`, tool, faces: hs.flatMap(x => x.faces),
-        op: { mode: deep > 3 * d ? 'peck' : 'drill', diams: [d], peck: +Math.max(1, d).toFixed(1), through: 1, axis: ax, pts: hs.map(holePt) }, covered: null });
+    for (const { sd, hs, dh } of drillGroups(g.hs)) {
+      const deep = Math.max(...hs.map(x => x.depth)), tool = pick('drill', sd.d, true);
+      sstep(1 + sd.d, { key: `drill${sd.nm}|${from}`, type: 'drill', title: `Drill ${sd.label} × ${hs.length} from ${from}`, why: `${hs.every(x => x.through) ? 'Through' : hs.some(x => x.through) ? 'Through and blind' : 'Blind'}, up to ${fmtLs(deep)} deep, with ${how}.${deep > 3 * sd.d ? ' Deep, so peck drilling.' : ''}${drillNote(sd, dh)}`, tool, faces: hs.flatMap(x => x.faces),
+        op: { mode: deep > 3 * sd.d ? 'peck' : 'drill', diams: dh, peck: +Math.max(1, sd.d).toFixed(1), through: 1, axis: ax, pts: hs.map(holePt) }, covered: null });
     }
     for (const t of R.threads.filter(t => !t.external && Math.abs(dot3(nrm3(t.dir), g.dir)) > 0.999)) {
       const hs = g.hs.filter(x => len3(crs3(sub3(x.s.p, t.p), nrm3(t.dir))) < 0.05 && Math.abs(x.d - (t.nominal - 1.0825 * t.pitch)) < 0.3);
@@ -18457,9 +18563,9 @@ function autoPlan(R) {
   }
   const ffAll = ['fillet', 'chamfer', 'incline', 'other'].flatMap(k => R.groups.get(k) ? R.groups.get(k).faces : []).filter(f => !cfs.some(c => c.fid === f.fid && c.mesh === f.mesh));
   if (ffAll.length) {
-    const maxD = isFinite(R.minConcave3D) ? 2 * R.minConcave3D * 0.95 : 6;
-    const lib = C.tools.filter(t => t.type === 'ball' && t.d <= maxD).sort((a, b) => b.d - a.d)[0];
-    const tool = lib ? { n: lib.n, t: lib, isNew: false } : pick('ball', [...stdBall()].reverse().find(d => d <= maxD) || 1, true);
+    const maxD = isFinite(R.minConcave3D) ? 2 * R.minConcave3D * 0.95 : BALLMILL_IN[3] + 0.01;
+    const lib = C.tools.filter(t => t.type === 'ball' && t.d <= maxD && BALLMILL_IN.some(x => Math.abs(x - t.d) < 0.02)).sort((a, b) => b.d - a.d)[0];
+    const tool = lib ? { n: lib.n, t: lib, isNew: false } : pick('ball', [...BALLMILL_IN].reverse().find(d => d <= maxD) || BALLMILL_IN[0], true);
     const so = +Math.min(0.5, 2 * Math.sqrt(2 * (tool.t.d / 2) * 0.004)).toFixed(3);
     const ff = ffAll;
     step({ key: 'parallel', type: 'parallel', title: '3D finish fillets and slopes', why: `Ball end mill${isFinite(R.minConcave3D) ? ` no larger than the tightest inside fillet (R${fmtLs(R.minConcave3D)})` : ''}, ${fmtLs(so, 4)} stepover for a ~0.0002" (4 µm) scallop.`, tool, faces: ff,
@@ -26420,12 +26526,18 @@ function simCodeUpdate() {
     SCODE.cur = ln;
     const now = document.getElementById('scNow');
     if (now) now.innerHTML = ln >= 0 ? `<b>Line ${ln + 1}:</b> ${gcEsc(gcSay(SCODE.lines[ln]) || '—')}` : 'Not running a line yet';
-    if (SCODE.follow && ln >= 0) {
-      const list = document.getElementById('scList'), H = SCODE.rowH, y = ln * H;
-      if (list && (y < list.scrollTop + H * 2 || y > list.scrollTop + list.clientHeight - H * 3)) { SCODE.auto = true; list.scrollTop = Math.max(0, y - list.clientHeight / 2); }
-    }
+    if (SCODE.follow && ln >= 0) simCodeCenter(ln);
     simCodeRender(true);
   }
+}
+// Follow mode: the running line stays in the middle of the list, which scrolls by itself to keep it there
+// (near the first or last lines the list cannot scroll any further, so the line sits as close to the middle as it can).
+function simCodeCenter(ln) {
+  const list = document.getElementById('scList'); if (!list) return;
+  const H = SCODE.rowH, want = Math.max(0, Math.min(ln * H + H / 2 - list.clientHeight / 2, list.scrollHeight - list.clientHeight)), was = list.scrollTop;
+  if (Math.abs(was - want) < 0.5) return;
+  SCODE.auto = true; list.scrollTop = want;
+  if (list.scrollTop === was) SCODE.auto = false;                 // it did not move, so no scroll event will clear the flag
 }
 function simCodeToggle(open = !SCODE.open) {
   if (!SIM.on) return;
@@ -26472,7 +26584,7 @@ function simCodeStep(dir) {
     if (a === 'next') simCodeStep(1);
   });
   document.getElementById('simbar').addEventListener('click', e => { if (e.target.closest('[data-sb="code"]')) simCodeToggle(); });
-  window.addEventListener('resize', () => simCodeRender(true));
+  window.addEventListener('resize', () => { if (SCODE.open && SCODE.follow && SCODE.cur >= 0) simCodeCenter(SCODE.cur); simCodeRender(true); });
 })();
 const simPanelUpdateC = simPanelUpdate;
 simPanelUpdate = function () { simPanelUpdateC(); simCodeUpdate(); };
