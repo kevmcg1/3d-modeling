@@ -13057,7 +13057,7 @@ function pocketFinish(op, tool, st, P, area, floor, restArea) {
     // the air side is on the left of every loop (outer walls counterclockwise, islands clockwise)
     let rho = clamp(0.5 * r, fs + 0.3, 4), arc = null;
     for (let k = 0; k < 4 && !arc; k++, rho *= 0.6) {
-      const C = add2(p0, mul2(left, rho)), at = phi => sub2(C, mul2(add2(mul2(t, Math.cos(phi)), mul2(left, Math.sin(phi))), rho));
+      const rh = rho, C = add2(p0, mul2(left, rh)), at = phi => sub2(C, mul2(add2(mul2(t, Math.cos(phi)), mul2(left, Math.sin(phi))), rh));   // (rh: this try's radius; rho shrinks again as the loop ends, which must not change an arc already chosen)
       if ([0, 1, 2, 3, 4, 5, 6, 7, 8].every(k8 => { const q = at(Math.PI * k8 / 8); return inPaths(q, allowed); }) && inPaths(at(0), cleared) && inPaths(at(Math.PI), cleared)) arc = at;
     }
     // no room for the arc: straight in from just clear of the finishing stock (or down on the wall line, slowly)
@@ -13273,7 +13273,10 @@ const GEN = {
       let arcAt = phi => sub2(C, mul2(add2(mul2(t, Math.cos(phi)), mul2(left, Math.sin(phi))), rho));
       const roomFor = () => [0, 4, 8, 12, 16].every(k => inPaths(arcAt(Math.PI / 2 * k / 8), allowed)) && (!stockKeep || !inPaths(arcAt(0), stockKeep));
       if (outsideCut) for (const f of [1.4, 1, 0.7]) { rho = LEAD_MIN / Math.SQRT2 * f + 0.01; C = add2(pts[0], mul2(left, rho)); if (roomFor()) break; }
-      const arc = op.lead === 'arc' || (leadMode === 'corner' && roomFor()), S = arc ? arcAt(0) : add2(pts[0], mul2(left, outsideCut ? LEAD_MIN : rho));
+      const arc = op.lead === 'arc' || (leadMode === 'corner' && roomFor());
+      let rl = outsideCut ? LEAD_MIN : rho;
+      if (!arc && !outsideCut) for (let n = 0; n < 6 && !inPaths(add2(pts[0], mul2(left, rl)), allowed); n++) rl *= 0.5;      // a straight lead stays where the tool may go (a tool nearly as big as its opening)
+      const S = arc ? arcAt(0) : add2(pts[0], mul2(left, rl));
       if (outsideCut && dst2(S, pts[0]) < LEAD_MIN - 0.5) shortLead++;
       return {
         pts, S, full: pts, closed: true,
@@ -13806,6 +13809,7 @@ function camDraw() {
   }
   if (SIM.on) { if (SIM.mesh && VIS.stock) camGroup.add(SIM.mesh); if (SIM.tool) simFixed.add(SIM.tool); }
   if (VIS.vise !== false) holdDraw(own);
+  if (typeof fixDraw === 'function') fixDraw(own);
   const FX = fixtureParts();
   if (FX.rot) { camGroup.add(FX.rot); simFixed.add(FX.fixed); }
   if (!VIS.paths && !VIS.rapids) return;
@@ -18110,7 +18114,9 @@ const DRILL_IN = (() => {
 function stdDrill(holeMm) {
   const hole = holeMm / 25.4;
   let best = null;
-  for (const x of DRILL_IN) { const e = Math.abs(x.d - hole) + x.k * 0.0004; if (!best || e < best.e) best = { x, e }; }
+  // a drill may run at most 0.006" over the hole (a hole a few thousandths oversize is normal for a twist drill); else the next one under
+  for (const x of DRILL_IN) { if (x.d - hole > 0.006) continue; const e = Math.abs(x.d - hole) + x.k * 0.0004; if (!best || e < best.e) best = { x, e }; }
+  if (!best) best = { x: DRILL_IN[0] };
   const x = best.x;
   return { nm: x.nm, d: mmOfIn(x.d), dev: x.d - hole, label: x.k === 0 ? x.nm : x.k === 1 ? `${x.nm} (${x.d.toFixed(4).replace(/^0/, '')}")` : `${x.nm} (${x.d.toFixed(4).replace(/^0/, '')}")` };
 }
@@ -18481,16 +18487,21 @@ function autoPlan(R) {
   // 4 · through cut-outs (sockets, slots, big round holes)
   if (R.cutoutFaces.length) {
     // the part's one end mill when it fits every opening, else the biggest inch end mill that does
-    const fit = d => R.cutoutFaces.every(f => { const rg = faceRegion(f.mesh, f.fid); return rg && rg.holes.filter(isCutout).every(h => cOffset([orient(cP(h), true)], -d / 2).length); });
+    const fit = d => R.cutoutFaces.every(f => { const rg = faceRegion(f.mesh, f.fid); return rg && rg.holes.filter(isCutout).every(h => cOffset([orient(cP(h), true)], -(d / 2 + 0.6)).length); });   // (with a little to spare: a tool that only just fits rubs the wall)
     const dC = (mainD && fit(mainD)) ? mainD : mills.find(d => d <= MAX_ENDMILL && fit(d)) || mills[mills.length - 1];
     if (!mainD) mainD = dC;
     const tl = pick('flat', dC, true), grp = R.groups.get('cutout'), plural = grp.n > 1 ? 's' : '';
     const cov = coveredBy(o => o.type === 'contour' && o.holes);
+    const fitLeave = R.cutoutFaces.every(f => { const rg = faceRegion(f.mesh, f.fid); return rg && rg.holes.filter(isCutout).every(h => cOffset([orient(cP(h), true)], -(dC / 2 + STOCK_LEAVE)).length); });
     const cut = (extra) => ({ entry: 'ramp', lead: 'corner', holes: true, faces: R.cutoutFaces.map(refOf), side: 'inside', stepdown: +Math.max(0.5, Math.min(dC * 0.5, 3)).toFixed(2), leave: STOCK_LEAVE, through: 0.5, ...extra });
+    if (!fitLeave) step({ key: 'cutout', type: 'contour', title: `Contour the through cut-outs (Ø${fmtD(dC)})`, why: `${grp.n} opening${plural} cut from the inside, down through the part, in one pass at full size: they are too narrow to leave ${fmtLs(STOCK_LEAVE)} for a finish pass.${R.groups.get('sharp') ? ' Sharp inside corners keep the tool radius.' : ''}`,
+      tool: tl, faces: R.cutoutFaces, op: cut({ leave: 0, stepdown: +Math.max(0.5, Math.min(dC * 0.5, 3)).toFixed(2) }), covered: cov });
+    else {
     step({ key: 'cutout', type: 'contour', title: `Rough the through cut-outs (Ø${fmtD(dC)})`, why: `${grp.n} opening${plural} cut from the inside, down through the part, leaving ${fmtLs(STOCK_LEAVE)} on the walls.${R.groups.get('sharp') ? ' Sharp inside corners keep the tool radius.' : ''}`,
       tool: tl, faces: R.cutoutFaces, op: cut({}), covered: cov });
     step({ key: 'cutoutfin', type: 'contour', title: `Finish the through cut-outs (Ø${fmtD(dC)})`, why: `One more pass at full size, taking the last ${fmtLs(STOCK_LEAVE)} off the walls with the same tool.`,
       tool: tl, faces: R.cutoutFaces, op: cut({ leave: 0, stepdown: +Math.max(1, Math.min(dC * 2, 12)).toFixed(2) }), covered: cov });
+    }
   }
   // 5 · outside profile before the 3D finish: the finishing tool then only meets the part
   if (R.st.x1 - R.part.x1 > 1e-3 || R.part.x0 - R.st.x0 > 1e-3) {
@@ -18663,7 +18674,7 @@ function autoPanel() {
     row('g:' + k, dot, x.label, x.n, x.notes.length ? uniq(x.notes) : '');
   }
   const bySize = new Map();
-  for (const h of R.holes) { const k = (h.fromTop ? 'top' : dirName(h.entry)) + '|' + fmtD(h.d); bySize.set(k, (bySize.get(k) || []).concat([h])); }
+  for (const h of R.holes) { const k = (h.fromTop ? 'top' : dirName(h.entry)) + '|' + +h.d.toFixed(2); bySize.set(k, (bySize.get(k) || []).concat([h])); }
   for (const [k, hs] of bySize) { const [from, d] = k.split('|'); row('h:' + k, hs[0].fromTop ? '' : 'bad', `Holes ${fmtDia(+d)}`, hs.length, `${hs.every(h => h.through) ? 'through' : hs.some(h => h.through) ? 'through & blind' : 'blind ' + fmtLs(Math.max(...hs.map(h => h.depth))) + ' deep'} · from ${from}`); }
   R.threads.forEach((t, i) => row('t:' + i, t.external ? 'warn' : '', 'Thread ' + t.label, 1, t.vertical ? 'vertical' : 'at an angle'));
   const ra = R.axes > 3 && roundAxis(), holdR = ra ? ` It is round: chuck it on the rotary along its Ø${fmtD(2 * ra.r)} centerline (tailstock at the far end) and index it to each side.` : '';
@@ -18691,7 +18702,7 @@ function autoHL(key) {
   const R = AUTO.res; if (!R || !key) return null;
   const [k, v] = [key.slice(0, 1), key.slice(2)];
   if (k === 'g') { const g = R.groups.get(v); return g && { faces: g.faces, chains: g.chains }; }
-  if (k === 'h') { const [from, d] = v.split('|'); return { faces: R.holes.filter(h => (h.fromTop ? 'top' : dirName(h.entry)) === from && fmtD(h.d) === d).flatMap(h => h.faces), chains: [] }; }
+  if (k === 'h') { const [from, d] = v.split('|'); return { faces: R.holes.filter(h => (h.fromTop ? 'top' : dirName(h.entry)) === from && String(+h.d.toFixed(2)) === d).flatMap(h => h.faces), chains: [] }; }
   if (k === 't') { const t = R.threads[+v]; return t && { faces: t.faces, chains: [] }; }
   if (k === 's') { const s = R.plan[+v]; return s && { faces: s.faces || [], chains: s.chains || [] }; }
   return null;
@@ -18864,7 +18875,8 @@ async function verifyProgram(onProgress) {
         let allowed;
         if (pointed(tool))
           // a pointed tool: the part may come up inside the cone, as high as the cone allows
-          allowed = Math.max(...[0.25, 0.5, 0.75, 1].map(fr => { const rr = Math.max(0.05, R * fr - tolZ), ch = coneHeight(tool, R * fr); return dc(x, y, rr, false, z + tolZ + ch) - ch; }));
+          allowed = Math.max(...[0.25, 0.5, 0.75, 1].map(fr => { const rr = Math.max(0.05, R * fr - tolZ - (tool.type === 'drill' ? 0.08 : 0)), ch = coneHeight(tool, R * fr);   // (a twist drill may run up to 0.006" over its hole)
+          return dc(x, y, rr, false, z + tolZ + ch) - ch; }));
         else {
           const gk = tool.n + ':' + Math.round(x * 1000) + ':' + Math.round(y * 1000);
           allowed = X.gouge.get(gk);
@@ -18957,7 +18969,7 @@ function camRegionPoint(rg) {
 }
 function measurePart(res) {
   const { model, part } = res, rows = [], tol = 0.03;
-  const row = (name, nominal, measured, kind = 'len', pts) => rows.push({ name, nominal, measured, dev: measured - nominal, ok: Math.abs(measured - nominal) <= tol, kind, pts });   // pts: the two points the distance is measured between, on the machined part
+  const row = (name, nominal, measured, kind = 'len', pts, tolx) => rows.push({ name, nominal, measured, dev: measured - nominal, ok: Math.abs(measured - nominal) <= (tolx || tol), kind, pts });   // pts: the two points the distance is measured between, on the machined part
   // overall size: the widest extent over every layer of the part's height, of the
   // stock still joined to the part (a loose slug cut free is not part of it)
   let bb = [Infinity, Infinity, -Infinity, -Infinity];
@@ -18986,7 +18998,7 @@ function measurePart(res) {
     for (const p of model.P[k]) if (cArea(p) < 0 && ClipperLib.Clipper.PointInPolygon(pt, p)) { const a = -cArea(p); if (!best || a < best.a) best = { a, p }; }
     const P1 = mm => (isIn() ? `${fmt(mm / 25.4, 3)}"` : fmt(mm, 2));         // one unit only: these labels sit in a narrow table
     const name = `Hole Ø${P1(h.d)} at X${P1(h.x - camOrigin()[0])} Y${P1(h.y - camOrigin()[1])}`;
-    if (best) { const mr = best.p.reduce((s, q) => s + Math.hypot(q.X / CS - h.x, q.Y / CS - h.y), 0) / best.p.length; row(name + ' · diameter', h.d, 2 * mr, 'len', [[h.x - mr, h.y, zh], [h.x + mr, h.y, zh]]); }
+    if (best) { const mr = best.p.reduce((s, q) => s + Math.hypot(q.X / CS - h.x, q.Y / CS - h.y), 0) / best.p.length; row(name + ' · diameter', h.d, 2 * mr, 'len', [[h.x - mr, h.y, zh], [h.x + mr, h.y, zh]], Math.max(tol, Math.abs(stdDrill(h.d).dev) * 25.4 + 0.012)); }   // (a stocked twist drill is a few thousandths off the modeled size)
     else rows.push({ name: name + ' · diameter', nominal: h.d, measured: NaN, ok: false, note: 'not cut' });
     const through = holeThrough(h, part);
     // depth on the hole's floor: the highest point found just inside its wall (the middle may hold a smaller hole)
@@ -27001,7 +27013,7 @@ function jawSource() {
   return { T: G.T, top: { n: [0, 0, 1], d: z1 } };
 }
 // The held face: its normal (out of the part) and plane (n·p = d).
-function jawFace(src) { const f = jawPrm().face; return f && f.n ? f : src.top; }
+function jawFace(src, p) { const f = (p || jawPrm()).face; return f && f.n ? f : src.top; }
 // Coplanar triangles of the face, and its area.
 function jawFaceTris(src, f) {
   const out = []; let area = 0;
@@ -27009,10 +27021,10 @@ function jawFaceTris(src, f) {
   return { tris: out, area };
 }
 // Everything that follows from the settings: the part in the jaw frame and the jaws.
-function jawBuild() {
-  const src = jawSource();
+function jawBuild(pp, srcIn) {
+  const src = srcIn || jawSource();
   if (!src) return null;
-  const p = jawPrm(), f = jawFace(src);
+  const p = pp || jawPrm(), f = jawFace(src, p);
   // turn the held face down, spin it in the jaws, center it
   const R1 = jawRotTo(nrm3(f.n), [0, 0, -1]), a = (p.spin || 0) * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
   const R = jawMM([[ca, -sa, 0], [sa, ca, 0], [0, 0, 1]], R1);
@@ -27063,8 +27075,23 @@ function jawCavities(g, levels) {
   }
   return out;
 }
-// The jaws: slab heights, the pocket at each, and each jaw's material.
+// The slab heights and the pocket (the part's outline, offset by the clearance) at each: the jaws' and the fixture's cavity.
 function jawSolve(g) {
+  const { L, cav, pocket } = jawPockets(g), p = g.p, H = g.H;
+  const jaws = [-1, 1].map(side => {
+    const yIn = side * g.gap / 2, yOut = side * (g.gap / 2 + g.W);
+    const st = { x0: -g.L / 2, x1: g.L / 2, y0: Math.min(yIn, yOut), y1: Math.max(yIn, yOut), z0: 0, z1: H };
+    const rect = [cP([P2(st.x0, st.y0), P2(st.x1, st.y0), P2(st.x1, st.y1), P2(st.x0, st.y1)])];
+    const m = new StockModel(st, L);
+    m.P = pocket.map(pk => (pk.length ? cDiff(rect, pk) : rect.map(q => q.map(v => ({ X: v.X, Y: v.Y })))));
+    // each slab inside the one below (the pocket only ever widens going up)
+    for (let i = 1; i < m.n; i++) m.P[i] = cBool(ClipperLib.ClipType.ctIntersection, m.P[i], m.P[i - 1]);
+    m.dirty = new Set(m.P.keys());
+    return { side, st, model: m, name: side < 0 ? 'Front jaw (moving)' : 'Back jaw (fixed)' };
+  });
+  return { L, cav, pocket, jaws };
+}
+function jawPockets(g) {
   const p = g.p, H = g.H, qz = z => Math.round(z * 1000) / 1000;
   const lv = new Set([0, H]);
   if (g.lo > 0 && g.lo < H) lv.add(qz(g.lo));
@@ -27078,7 +27105,7 @@ function jawSolve(g) {
       if (T.n[2] > -0.999) { const a = Math.max(0, Math.min(...zs)), b = Math.min(H, Math.max(...zs)); if (b > a + 1e-3) sl.push([a, b]); }
     }
     if (sl.length) {
-      const step = clamp(g.depth / 60, 0.08, 0.6);
+      const step = p.slabStep || clamp(g.depth / 60, 0.08, 0.6);
       sl.sort((a, b) => a[0] - b[0]);
       let cur = null;
       for (const s of sl) { if (cur && s[0] <= cur[1]) cur[1] = Math.max(cur[1], s[1]); else { if (cur) for (let z = cur[0] + step; z < cur[1]; z += step) lv.add(qz(z)); cur = s.slice(); } }
@@ -27087,25 +27114,15 @@ function jawSolve(g) {
   }
   let L = [...lv].sort((a, b) => a - b), keep = [L[0]];
   for (const z of L.slice(1)) if (z - keep[keep.length - 1] > 0.004) keep.push(z);
-  if (keep.length > 240) { const every = Math.ceil(keep.length / 200); keep = keep.filter((z, i) => i % every === 0 || i === keep.length - 1 || Math.abs(z - g.lo) < 1e-6); }
+  const maxSlabs = p.maxSlabs || 240;
+  if (keep.length > maxSlabs) { const every = Math.ceil(keep.length / (maxSlabs - 40)); keep = keep.filter((z, i) => i % every === 0 || i === keep.length - 1 || Math.abs(z - g.lo) < 1e-6); }
   L = keep;
   // the pocket at each slab: the outline at the slab's top (on a slope the step clears the part)
   const tops = L.slice(1), full = p.mode === 'projected' ? jawCavities(g, [H])[0] : null;
   const cav = p.mode === 'projected' ? tops.map(Z => (Z > g.lo + 1e-6 ? full : [])) : jawCavities(g, tops);
   const off = p.offset || 0;
   const pocket = cav.map(c => (c.length && Math.abs(off) > 1e-6 ? cOffset(c, off) : c));
-  const jaws = [-1, 1].map(side => {
-    const yIn = side * g.gap / 2, yOut = side * (g.gap / 2 + g.W);
-    const st = { x0: -g.L / 2, x1: g.L / 2, y0: Math.min(yIn, yOut), y1: Math.max(yIn, yOut), z0: 0, z1: H };
-    const rect = [cP([P2(st.x0, st.y0), P2(st.x1, st.y0), P2(st.x1, st.y1), P2(st.x0, st.y1)])];
-    const m = new StockModel(st, L);
-    m.P = pocket.map(pk => (pk.length ? cDiff(rect, pk) : rect.map(q => q.map(v => ({ X: v.X, Y: v.Y })))));
-    // each slab inside the one below (the pocket only ever widens going up)
-    for (let i = 1; i < m.n; i++) m.P[i] = cBool(ClipperLib.ClipType.ctIntersection, m.P[i], m.P[i - 1]);
-    m.dirty = new Set(m.P.keys());
-    return { side, st, model: m, name: side < 0 ? 'Front jaw (moving)' : 'Back jaw (fixed)' };
-  });
-  return { L, cav, pocket, jaws };
+  return { L, cav, pocket };
 }
 // ── Checking the fit: the part, turned over and dropped in, against the jaws as built ──
 // Every vertex, edge midpoint and face center of the part is tested against the jaw
@@ -27691,7 +27708,7 @@ const camToolbarJ = camToolbar;
 camToolbar = function () {
   let h = camToolbarJ();
   if (typeof isWire === 'function' && isWire()) return h;
-  const P = rbPanel('Fixture', [['jaws', 'Soft Jaws', '', 'softjaws', JAW.on]], 1, 'data-cam');
+  const P = rbPanel('Fixture', [['jaws', 'Soft Jaws', '', 'softjaws', JAW.on], ['fixture', 'Fixture Maker', '', 'fixture', typeof FIXM !== 'undefined' && FIXM.on]], 1, 'data-cam');
   const i = h.indexOf('<section class="rb-panel" aria-label="Actions"');
   return i >= 0 ? h.slice(0, i) + P + h.slice(i) : h + P;
 };
@@ -27706,6 +27723,241 @@ const refreshPanelJ = refreshPanel;
 refreshPanel = function () { if (JAW.on && UIX.ws === 'cam' && CAMUI.view !== 'jaws') jawClose(); refreshPanelJ(); };
 const jumpToJ = jumpTo;
 jumpTo = function (k) { jumpToJ(k); if (JAW.on) { JAW.fit = null; jawRefresh(); refreshPanel(); } };
+</script>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  Manufacture → Fixture Maker. Pick any object, any side of it and how deep, and it makes the mold: a block with a cavity
+//  that is the part's own negative below that depth, so the part can be turned over and set in it (to be held for its second
+//  operation). The held side goes down on the cavity's floor; "Follow the part" steps the cavity with the part at every height,
+//  "Projected plane" cuts the outline straight down so it always drops in. A clearance (0.005" to start with) is added all
+//  round so it drops in without a fight. It is previewed beside the part with the part turned over inside it, and either saved
+//  as an .stl or added to the model as its own body (hidden at first, so the part's program is left alone), which you can then
+//  machine: "Machine the fixture" shows it alone in Manufacture for Auto Program.
+//  Built on the Soft Jaws engine (the same slabs and pocket outlines), here for a single block.
+// ═══════════════════════════════════════════════════════════════════
+const FIXM = { on: false, busy: false, again: false, res: null, err: null, src: null, srcKey: '', pick: false, timer: null };
+const FIX_DEF = () => ({ body: null, face: null, depth: null, clear: mmOfIn(0.005), wall: mmOfIn(0.5), floor: mmOfIn(0.375), mode: 'follow', spin: 0, detail: 'normal' });
+const FIX_DETAIL = { fine: [0.25, 160, 'Fine'], normal: [0.6, 90, 'Normal'], coarse: [1.5, 45, 'Coarse'] };
+function fixPrm() {
+  const C = cam();
+  if (!C.fixture) C.fixture = FIX_DEF();
+  else for (const [k, v] of Object.entries(FIX_DEF())) if (!(k in C.fixture)) C.fixture[k] = v;
+  return C.fixture;
+}
+const FIX_FACES = [['Top', [0, 0, 1]], ['Bottom', [0, 0, -1]], ['Front', [0, -1, 0]], ['Back', [0, 1, 0]], ['Left', [-1, 0, 0]], ['Right', [1, 0, 0]]];
+// The triangles of the chosen body (or all visible bodies), exact, in the machine frame.
+async function fixSource(bodyId) {
+  const key = camModelKey() + '|' + bodyId;
+  if (FIXM.src && FIXM.srcKey === key) return FIXM.src;
+  const save = doc.hidden, hid = { ...(save || {}) };
+  if (bodyId != null) { for (const b of MODEL.bodies) hid[b.id] = b.id !== bodyId; }
+  doc.hidden = hid;
+  let arr;
+  try { arr = await Kernel.camMesh(CAM_TOL); } finally { doc.hidden = save; }
+  const T = camTriangles(arr);
+  if (!T.length) throw new Error('There is nothing to make a fixture for.');
+  let z1 = -Infinity; for (const t of T) z1 = Math.max(z1, t.a[2], t.b[2], t.c[2]);
+  FIXM.src = { T, top: { n: [0, 0, 1], d: z1 } }; FIXM.srcKey = key;
+  return FIXM.src;
+}
+// Clipper paths (outers counterclockwise, holes clockwise) into outlines with their holes, then triangles.
+function fixTriangulate(paths, z, up, V, T) {
+  const outers = paths.filter(q => ClipperLib.Clipper.Area(q) > 0).map(q => ({ q, holes: [], a: ClipperLib.Clipper.Area(q) })).sort((a, b) => a.a - b.a);
+  for (const h of paths.filter(q => ClipperLib.Clipper.Area(q) < 0)) { const o = outers.find(o => ClipperLib.Clipper.PointInPolygon(h[0], o.q) !== 0); if (o) o.holes.push(h); }
+  const v2 = q => q.map(c => new THREE.Vector2(c.X / CS, c.Y / CS));
+  for (const o of outers) {
+    const contour = v2(o.q), holes = o.holes.map(v2), all = contour.concat(...holes);
+    let tris; try { tris = THREE.ShapeUtils.triangulateShape(contour.slice(), holes.map(h => h.slice())); } catch (e) { continue; }
+    const base = V.length;
+    for (const p of all) V.push([p.x, p.y, z]);
+    for (const t of tris) {
+      const a = all[t[0]], b = all[t[1]], c = all[t[2]], ccw = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x) > 0;
+      if (ccw === up) T.push(base + t[0], base + t[1], base + t[2]); else T.push(base + t[0], base + t[2], base + t[1]);
+    }
+  }
+}
+// The block as stacked slabs (the pocket in each, nested), turned into a closed triangle mesh.
+function fixSlabsMesh(L, P) {
+  const V = [], T = [], n = P.length;
+  for (let i = 0; i < n; i++) for (const path of P[i]) for (let k = 0; k < path.length; k++) {
+    const a = path[k], b = path[(k + 1) % path.length];
+    if (a.X === b.X && a.Y === b.Y) continue;
+    const ax = a.X / CS, ay = a.Y / CS, bx = b.X / CS, by = b.Y / CS, z0 = L[i], z1 = L[i + 1], j = V.length;
+    V.push([ax, ay, z0], [bx, by, z0], [bx, by, z1], [ax, ay, z1]);
+    T.push(j, j + 1, j + 2, j, j + 2, j + 3);                                  // material on the left of the edge, so this faces out
+  }
+  fixTriangulate(P[0], L[0], false, V, T);
+  for (let i = 0; i < n; i++) fixTriangulate(i === n - 1 ? P[i] : cDiff(P[i], P[i + 1]), L[i + 1], true, V, T);
+  return { V, T };
+}
+function fixBuild(src, prm) {
+  const dt = FIX_DETAIL[prm.detail] || FIX_DETAIL.normal, tmp = () => ({ face: prm.face, spin: prm.spin || 0, depth: prm.depth > 0 ? prm.depth : null, mode: prm.mode, offset: prm.clear || 0, gap: 0, L: 1, W: 1, H: null, slabStep: dt[0], maxSlabs: dt[1] });
+  const g0 = jawBuild(tmp(), src);
+  const hang = Math.max(0, g0.face - g0.lo);                                      // part below the held face (an angled face)
+  const p = tmp(); p.H = g0.depth + hang + prm.floor;
+  const g = jawBuild(p, src), sol = jawPockets(g);
+  const bx = g.ex / 2 + prm.wall + (prm.clear || 0), by = g.ey / 2 + prm.wall + (prm.clear || 0);
+  const rect = [cP([P2(-bx, -by), P2(bx, -by), P2(bx, by), P2(-bx, by)])], P = [];
+  sol.pocket.forEach((pk, i) => { let q = pk.length ? cDiff(rect, pk) : rect.map(r => r.map(v => ({ X: v.X, Y: v.Y }))); if (i) q = cBool(ClipperLib.ClipType.ctIntersection, q, P[i - 1]); P.push(q); });
+  const mesh = fixSlabsMesh(sol.L, P), part = camPart();
+  const place = [part.x1 + 30 + bx, (part.y0 + part.y1) / 2, part.z0];
+  // the part, turned over and set in the cavity
+  return { g, L: sol.L, mesh, partTris: g.tris, place, bx, by, H: g.H, depth: g.depth, height: g.height, slabs: sol.L.length - 1, hang, tris: mesh.T.length / 3 };
+}
+async function fixRefresh() {
+  if (!FIXM.on) return;
+  if (FIXM.busy) { FIXM.again = true; return; }
+  FIXM.busy = true; FIXM.err = null;
+  try {
+    const prm = fixPrm(), src = await fixSource(prm.body);
+    FIXM.res = fixBuild(src, prm);
+  } catch (e) { console.error(e); FIXM.err = e.message || String(e); FIXM.res = null; }
+  FIXM.busy = false;
+  if (FIXM.again) { FIXM.again = false; fixRefresh(); return; }
+  if (CAMUI.view === 'fixture') camRefresh();
+}
+const fixRefreshSoon = () => { clearTimeout(FIXM.timer); FIXM.timer = setTimeout(fixRefresh, 140); };
+function fixOpen() {
+  if (SIM.on) simStop();
+  if (JAW.on) jawClose();
+  if (!camPart()) { toast('Model or open a part first.'); return; }
+  FIXM.on = true; FIXM.pick = false; CAMUI.view = 'fixture'; fixRefresh(); camRefresh();
+}
+function fixClose() { FIXM.on = false; FIXM.pick = false; FIXM.res = null; if (CAMUI.view === 'fixture') CAMUI.view = 'overview'; camRefresh(); }
+// ── Preview beside the part ──
+function fixDraw(own) {
+  if (!FIXM.on || !FIXM.res) return;
+  const r = FIXM.res, o = r.place;
+  const geo = (V, T, off) => {
+    const a = new Float32Array(T.length * 3);
+    for (let i = 0; i < T.length; i++) { const q = V[T[i]], w = toW(q[0] + off[0], q[1] + off[1], q[2] + off[2]); a[i * 3] = w[0]; a[i * 3 + 1] = w[1]; a[i * 3 + 2] = w[2]; }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(a, 3)); g.computeVertexNormals(); return g;
+  };
+  const fg = geo(r.mesh.V, r.mesh.T, o);
+  own(new THREE.Mesh(fg, new THREE.MeshStandardMaterial({ color: 0xc9a24a, metalness: 0.4, roughness: 0.5, side: THREE.DoubleSide, flatShading: true })));
+  own(new THREE.LineSegments(new THREE.EdgesGeometry(fg, 30), new THREE.LineBasicMaterial({ color: 0x3a2f12 })));
+  const pt = r.partTris, V = [], T = [];
+  for (const t of pt) { const k = V.length; V.push(t.a, t.b, t.c); T.push(k, k + 1, k + 2); }
+  own(new THREE.Mesh(geo(V, T, o), new THREE.MeshStandardMaterial({ color: 0x2f7be8, metalness: 0.2, roughness: 0.5, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false })));
+}
+// ── Saving and adding to the model ──
+function fixSTL() {
+  const { V, T } = FIXM.res.mesh, o = FIXM.res.place, buf = new ArrayBuffer(84 + (T.length / 3) * 50), dv = new DataView(buf);
+  new Uint8Array(buf).set(new TextEncoder().encode('Datum fixture · millimeters · Z up').subarray(0, 80));
+  dv.setUint32(80, T.length / 3, true);
+  let p = 84;
+  for (let t = 0; t < T.length; t += 3) {
+    const a = add3(V[T[t]], o), b = add3(V[T[t + 1]], o), c = add3(V[T[t + 2]], o), n = nrm3(crs3(sub3(b, a), sub3(c, a)));
+    [n, a, b, c].forEach((v, j) => { for (let k = 0; k < 3; k++) dv.setFloat32(p + j * 12 + k * 4, v[k], true); });
+    p += 50;
+  }
+  return buf;
+}
+const fixLabel = () => { const prm = fixPrm(), g = FIXM.res && FIXM.res.g; const n = g ? g.f.n : [0, 0, 1], nm = (FIX_FACES.find(([, v]) => dot3(v, n) > 0.999) || ['angled face'])[0].toLowerCase(); return `Fixture - ${nm} side, ${fmtInch(FIXM.res ? FIXM.res.depth : 0)} deep`; };
+function fixSaveSTL() { if (!FIXM.res) return; download(fixLabel().replace(/[^\w.-]+/g, '-').toLowerCase() + '.stl', new Blob([fixSTL()], { type: 'model/stl' })); toast('Saved the fixture (.stl)'); }
+async function fixAdd() {
+  if (!FIXM.res || FIXM.busy) return;
+  const label = fixLabel();
+  try {
+    setBusy(true);
+    const rec = await ImportWorker.run(label + '.stl', 'stl', fixSTL(), () => {});
+    await MeshStore.put(rec);
+    const before = snap(), f = { id: newId(), type: 'import', name: featName('import'), file: label + '.stl', mesh: rec.id, units: 'mm', up: 'Z', center: false, move: [0, 0, 0], op: 'new' };
+    insertFeature(f);
+    doc.hidden = doc.hidden || {}; doc.hidden[f.id] = true;                    // out of the part's own program until you machine it
+    record('Fixture maker: ' + label, before);
+    modelChanged(true);
+    toast('Fixture added to the model as a hidden body. “Machine the fixture” programs it.');
+    FIXM.added = f.id;
+  } catch (e) { console.error(e); toast(e.message || 'Could not add the fixture.'); }
+  finally { setBusy(false); camRefresh(); }
+}
+// Show the fixture alone in Manufacture (hiding the other bodies), or put things back.
+function fixMachine(on) {
+  const id = FIXM.added; if (id == null || !MODEL.bodies.some(b => b.id === id)) { toast('Add the fixture to the model first.'); return; }
+  const before = snap();
+  doc.hidden = doc.hidden || {};
+  for (const b of MODEL.bodies) doc.hidden[b.id] = on ? b.id !== id : b.id === id;
+  record(on ? 'Machine the fixture' : 'Machine the part', before);
+  saveLocal(); regen(); FIXM.machining = on; fixClose(); camModelChanged(); refreshUI(); setTimeout(() => fitAll(), 400);
+}
+// ── Panel ──
+function fixPanel() {
+  const p = fixPrm(), r = FIXM.res, g = r && r.g, U = uName();
+  const n = g ? g.f.n : null, cur = n ? (FIX_FACES.find(([, v]) => dot3(v, n) > 0.999) || [null])[0] : null;
+  const lenIn = (id, v, lab, st) => `<label class="field"><span>${lab} (${U})</span><input type="number" id="${id}" step="${st || (isIn() ? 0.005 : 0.1)}" min="0" value="${uval(v, 4)}"></label>`;
+  const names = bodyNames(), vis = visibleBodies().concat(MODEL.bodies.filter(b => !b.hole && doc.hidden && doc.hidden[b.id] && b.id !== FIXM.added));
+  const body = `<div class="field"><span>Object</span><select id="fxBody"><option value="">All visible bodies</option>${vis.map(b => `<option value="${b.id}" ${p.body === b.id ? 'selected' : ''}>${xmlEsc(names[b.id] || 'Body')}</option>`).join('')}</select></div>`;
+  const sides = `<div class="field"><span>Side to nest (the side that goes down into the fixture)</span><div class="seg jaw-faces">${FIX_FACES.map(([l, v]) => `<button data-fxface="${v.join(',')}" class="${cur === l && !p.faceDir ? 'on' : ''}">${l}</button>`).join('')}</div><div class="btns"><button class="btn ${FIXM.pick || cur == null ? 'primary' : ''}" data-fxpick="1" title="Click any flat face of the part in the view">Pick a face in the view${cur == null && !FIXM.pick ? ' (angled face chosen)' : ''}</button></div>${FIXM.pick ? '<small class="hint">Click a flat face of the part in the view…</small>' : ''}</div>`;
+  const depth = g ? `<div class="field"><span>Depth — how far into the fixture, from that side (${U})</span><div class="jaw-row"><input type="range" class="jaw-rng" id="fxDepthR" min="0" max="${+toU(r.height).toFixed(4)}" step="${isIn() ? 0.005 : 0.1}" value="${+toU(r.depth).toFixed(4)}"><input type="number" id="fxDepth" step="${isIn() ? 0.01 : 0.1}" min="0.01" value="${uval(r.depth)}"></div>
+    <small class="hint"><b>${Math.round(100 * r.depth / Math.max(1e-6, r.height))}%</b> of the part's ${fmtLs(r.height)} sits in the fixture; the rest (${fmtLs(Math.max(0, r.height - r.depth))}) stands above it.</small></div>` : '';
+  const shape = `<div class="field"><span>Cavity shape</span><div class="seg"><button data-fxmode="follow" class="${p.mode !== 'projected' ? 'on' : ''}">Follow the part</button><button data-fxmode="projected" class="${p.mode === 'projected' ? 'on' : ''}">Projected plane</button></div>
+    <small class="hint">${p.mode === 'projected' ? 'The part’s outline is projected square to that side and cut straight down to a flat floor: one simple pocket that always drops in.' : 'The cavity steps with the part at every height (steps, bosses, chamfers): the exact mold of the part.'}</small></div>`;
+  const stat = r ? `<dl class="kv"><dt>Block</dt><dd>${fmtLs(2 * r.bx)} × ${fmtLs(2 * r.by)} × ${fmtLs(r.H)}</dd><dt>Under the part</dt><dd>${fmtLs(p.floor)} of floor</dd><dt>Cavity</dt><dd>${r.slabs} level${r.slabs === 1 ? '' : 's'}, ${r.tris.toLocaleString()} triangles</dd></dl>` : '';
+  const warn = FIXM.err ? `<p class="note err-note">${xmlEsc(FIXM.err)}</p>` : '';
+  return `<div class="pn-head"><h2>Fixture Maker</h2><span class="tag">nest / mold</span></div><div class="pn-body jaw-panel">
+    <p class="note">Makes the mold of the part below a depth you choose: turn the part over and set it in the fixture to hold it for its next operation. The preview sits to the right of the part with the part turned over in it (blue): press Fit to see it.</p>
+    ${body}${sides}${depth}${shape}
+    <div class="field"><span>Detail of stepped slopes and curves</span><div class="seg">${Object.entries(FIX_DETAIL).map(([k, v]) => `<button data-fxdetail="${k}" class="${(p.detail || 'normal') === k ? 'on' : ''}">${v[2]}</button>`).join('')}</div></div>
+    <div class="row3">${lenIn('fxClear', p.clear, 'Clearance', isIn() ? 0.001 : 0.02)}${lenIn('fxWall', p.wall, 'Wall', isIn() ? 0.05 : 1)}${lenIn('fxFloor', p.floor, 'Floor', isIn() ? 0.05 : 1)}</div>
+    <small class="hint">Clearance opens the cavity all round so the part drops in freely (0.005" is a light slip fit; negative = a press fit). Wall is the rim round the cavity; floor is the thickness under the part.</small>
+    ${stat}${warn}${FIXM.busy ? '<p class="note"><span class="spin"></span> Building the fixture…</p>' : ''}
+    <div class="btns"><button class="btn primary" data-fxdo="add" ${r && !FIXM.busy ? '' : 'disabled'}>Add to the model</button><button class="btn" data-fxdo="stl" ${r ? '' : 'disabled'}>Save .stl</button></div>
+    ${FIXM.added != null ? `<div class="btns"><button class="btn" data-fxdo="machine">${FIXM.machining ? 'Machine the part again' : 'Machine the fixture'}</button></div>` : ''}
+    <div class="btns"><button class="btn primary" data-fxdo="close">Done</button></div></div>`;
+}
+function bindFixPanel() {
+  const p = fixPrm(), set = (fn, label) => { const before = snap(); fn(); record(label, before); FIXM.res = FIXM.res; fixRefresh(); refreshPanel(); };
+  const live = (id, fn) => { const el = document.getElementById(id); if (!el) return; el.addEventListener('input', () => { const v = parseFloat(el.value); if (!isFinite(v)) return; fn(fromU(v)); fixRefreshSoon(); }); el.addEventListener('change', () => { const v = parseFloat(el.value); if (isFinite(v)) set(() => fn(fromU(v)), 'Fixture maker'); }); };
+  live('fxDepthR', v => { p.depth = Math.max(0.1, v); }); live('fxDepth', v => { p.depth = Math.max(0.1, v); });
+  live('fxClear', v => { p.clear = v; }); live('fxWall', v => { p.wall = Math.max(1, v); }); live('fxFloor', v => { p.floor = Math.max(1, v); });
+  const body = document.getElementById('fxBody'); if (body) body.addEventListener('change', () => set(() => { p.body = body.value === '' ? null : +body.value; p.face = null; p.depth = null; FIXM.src = null; }, 'Fixture object'));
+  panel.querySelectorAll('[data-fxface]').forEach(b => b.addEventListener('click', () => set(() => {
+    const n = b.dataset.fxface.split(',').map(Number); let d = -Infinity;
+    const src = FIXM.src; if (src) for (const T of src.T) for (const v of [T.a, T.b, T.c]) d = Math.max(d, dot3(n, v));
+    p.face = { n, d }; p.depth = null; FIXM.pick = false;
+  }, 'Fixture side')));
+  panel.querySelectorAll('[data-fxdetail]').forEach(b => b.addEventListener('click', () => set(() => { p.detail = b.dataset.fxdetail; }, 'Fixture detail')));
+  panel.querySelectorAll('[data-fxmode]').forEach(b => b.addEventListener('click', () => set(() => { p.mode = b.dataset.fxmode; }, 'Fixture cavity shape')));
+  panel.querySelectorAll('[data-fxpick]').forEach(b => b.addEventListener('click', () => { FIXM.pick = !FIXM.pick; refreshPanel(); }));
+  panel.querySelectorAll('[data-fxdo]').forEach(b => b.addEventListener('click', () => {
+    const a = b.dataset.fxdo;
+    if (a === 'add') fixAdd(); if (a === 'stl') fixSaveSTL(); if (a === 'machine') fixMachine(!FIXM.machining); if (a === 'close') fixClose();
+  }));
+}
+// picking a face on the part itself
+const camMoveF = camMove;
+camMove = function (x, y) {
+  if (FIXM.on && FIXM.pick) { const h = pick3D(x, y, { faces: true }), ok = h && h.kind === 'face' && Surf.list[h.fid].t === 'P'; setHover3D(ok ? h : null); ov.className = ok ? 'pointer' : 'default'; return; }
+  camMoveF(x, y);
+};
+const camClickF = camClick;
+camClick = function (x, y) {
+  if (FIXM.on && FIXM.pick) {
+    const h = pick3D(x, y, { faces: true });
+    if (!h || h.kind !== 'face' || Surf.list[h.fid].t !== 'P') { toast('Pick a flat face.'); return; }
+    const s = Surf.list[h.fid], before = snap(), p = fixPrm();
+    p.face = { n: [s.n[0], -s.n[2], s.n[1]], d: s.d }; p.depth = null; FIXM.pick = false;
+    record('Fixture side', before); setHover3D(null); fixRefresh(); refreshPanel(); return;
+  }
+  camClickF(x, y);
+};
+const camPanelF = camPanel;
+camPanel = function () { if (CAMUI.view === 'fixture' && FIXM.on) return fixPanel(); return camPanelF(); };
+const bindCamPanelF = bindCamPanel;
+bindCamPanel = function () { if (CAMUI.view === 'fixture' && FIXM.on) { bindFixPanel(); return; } bindCamPanelF(); };
+const camActionF = camAction;
+camAction = function (a) {
+  if (a === 'fixture') { if (FIXM.on) fixClose(); else fixOpen(); return; }
+  if (FIXM.on && a !== 'fixture') { FIXM.on = false; FIXM.pick = false; if (CAMUI.view === 'fixture') CAMUI.view = 'overview'; }
+  camActionF(a);
+};
+const setWorkspaceF = setWorkspace;
+setWorkspace = function (ws) { if (FIXM.on && ws !== 'cam') { FIXM.on = false; FIXM.pick = false; } setWorkspaceF(ws); };
+const camModelChangedF = camModelChanged;
+camModelChanged = function () { camModelChangedF(); if (FIXM.on) { FIXM.src = null; fixRefreshSoon(); } };
+if (!IC.fixture) IC.fixture = '<path d="M2.5 16.5h15"/><path d="M3.5 16.5v-9h13v9"/><path d="M6.5 7.5v4.5h7V7.5" opacity=".75"/><rect x="8" y="3" width="4" height="5.5" rx=".8" opacity=".55"/>';
 </script>
 
 <script>
@@ -33566,13 +33818,16 @@ function vfCoverage(res) {
   const model = res.model; model.flush();
   const faces = new Map(), bad = [];
   let pass = 0, total = 0;
+  // with the part held by stock under it in the vise, its underside is for the second setup (flip and face it): not part of this check
+  const held = holdActive() && cam().stock.bottom > 1e-3, part0 = camPart();
   for (const b of visibleBodies()) {
     const mesh = bodyMesh(b), byFace = new Map();
     for (let t = 0; t < mesh.triF.length; t++) { const f = mesh.triF[t]; if (!byFace.has(f)) byFace.set(f, []); byFace.get(f).push(t); }
     for (const [fid, tris] of byFace) {
       const s = Surf.list[fid]; if (!s || faceInfo(mesh, fid).area < 0.05) continue;
+      if (held && s.t === 'P' && s.n[1] < -0.999 && Math.abs(s.d / s.n[1] - part0.z0) < 1e-3) continue;
       const pts = vfSamples(mesh, tris, 28); if (!pts.length) continue;
-      const exact = s.t === 'P' || s.t === 'C', delta = exact ? 0.05 : 0.15;
+      const exact = s.t === 'P' || s.t === 'C', delta = (exact ? 0.05 : 0.15) + (s.t === 'C' && s.sg < 0 ? Math.abs(stdDrill(2 * s.r).dev) * 25.4 / 2 : 0);   // (a hole is as big as its stocked drill, a few thousandths over or under the model)
       let ok = 0;
       for (const p of pts) {
         let q = p;
