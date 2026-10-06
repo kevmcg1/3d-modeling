@@ -14,6 +14,8 @@ What the Manufacture tab can cut compared with Mastercam's toolpath families, an
 
 **How a new toolpath is built.** 2D chain toolpaths are extra modes of the Chain operation (`MC_CM` in `index.html`, defined in `cam-mc.js`), so every one of them has Manual chain/click selection for free. Each mode can also read `op.faces`, so Auto Detect can offer it for the faces it finds. Every move goes through the shared `Path` object, so simulation, G-code, Verify and the heat map (`feedsOf` / `moveLoad`) see it with no extra work. Each mode ships a before/after pair for the hover tip card (`TIP_ART` / `TIP_TXT`).
 
+**How a toolpath reaches the Manual flow.** The Manual flow (`cam-flow.js`, press **N** in Manufacture) reads its list of toolpaths from `OP_INFO`, `DRILL_KINDS` and `MC_CM` every time the picker opens, so a new `MC_CM` mode appears in the picker, the guided steps (geometry, tool, parameters), the parameter tabs and the hover tip with no change to `cam-flow.js`. Give the mode a `group` (`2D`, `3D`, `Drilling` or other), a `name`, the cutter types in `tools`, a `fields(op)` panel and, for a good hover card, `TIP_ART` / `TIP_TXT` under `mc:<key>`. Panel fields are sorted into the Tool, Cut, Depths, Lead in/out, Linking and Feeds & speeds tabs by their input ids (`DEPTH`, `LEAD`, `LINK` in `cam-flow.js`); anything else lands on Cut.
+
 ## 2D
 
 | Mastercam toolpath | Status | Notes |
