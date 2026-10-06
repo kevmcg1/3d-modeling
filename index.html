@@ -8775,6 +8775,55 @@ function evalFixture(f, ctx) {
 FEATX.fixture = evalFixture;
 </script>
 
+<script data-kernel>
+// ═══════════════════════════════════════════════════════════════════
+//  Construction planes beyond Offset Plane: Midplane, Plane at Angle and
+//  Plane Through Three Points. They are 'plane' features with a `cp` tag
+//  (so the tree, picking, sketching on them and visibility all work as for
+//  any plane); a plain offset plane has no `cp` and is evaluated as before.
+// ═══════════════════════════════════════════════════════════════════
+function cpFrame(n, o) {
+  n = nrm3(n);
+  const u = nrm3(crs3(n, Math.abs(n[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0]));
+  return { o, u, v: crs3(n, u), n };
+}
+function evalPlaneFeature(f, ctx) {
+  if (!f.cp) {                                                  // Offset Plane (unchanged)
+    const b = resolvePlane(f.ref, f.base, ctx);
+    ctx.planes[f.id] = { o: add3(b.o, mul3(b.n, f.off)), u: b.u, v: b.v, n: b.n };
+    return;
+  }
+  if (f.cp === 'midplane') {
+    const A = resolveMirrorPlane(f.p1, ctx), B = resolveMirrorPlane(f.p2, ctx), s = dot3(A.n, B.n);
+    if (Math.abs(s) < 0.9999) throw new Error('The two planes have to be parallel');
+    const wB = s > 0 ? B.w : -B.w;
+    ctx.planes[f.id] = cpFrame(A.n, mul3(A.n, (A.w + wB) / 2));
+    return;
+  }
+  if (f.cp === 'planeang') {
+    const ax = resolveAxis(f.axis, ctx), d = nrm3(ax.dir);
+    let n0;
+    if (f.ref) n0 = resolveMirrorPlane(f.ref, ctx).n;
+    else n0 = crs3(d, Math.abs(d[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0]);
+    n0 = sub3(n0, mul3(d, dot3(n0, d)));
+    if (len3(n0) < 1e-6) throw new Error('The axis points straight out of the reference plane: pick a plane the axis lies in');
+    const n = nrm3(XF.vec(XF.rot([0, 0, 0], d, (+f.angle || 0) * Math.PI / 180), nrm3(n0)));
+    ctx.planes[f.id] = { o: ax.p, u: d, v: crs3(n, d), n };
+    return;
+  }
+  if (f.cp === 'plane3') {
+    const P = f.pts || [];
+    if (P.length < 3) throw new Error('Pick three points');
+    const n = crs3(sub3(P[1], P[0]), sub3(P[2], P[0]));
+    if (len3(n) < 1e-9) throw new Error('The three points are in a line');
+    ctx.planes[f.id] = cpFrame(n, mul3(add3(add3(P[0], P[1]), P[2]), 1 / 3));
+    return;
+  }
+  throw new Error('Unknown plane type');
+}
+FEATX.plane = evalPlaneFeature;
+</script>
+
 <script type="text/plain" id="worker-main">
 // ═══════════════════════════════════════════════════════════════════
 //  Worker side: rebuilds the model (booleans, fillets, threads) off the
@@ -9314,6 +9363,7 @@ function rebuildPlanes() {
   }
   for (const f of doc.features) if (f.type === 'plane' && (f.vis !== false || pick)) {
     const pl = planeOf(f);
+    if (!pl) continue;                                             // a plane whose references broke has nothing to draw
     const m = planeQuad(pl, size * 0.9, { k: 'feat', feat: f.id });
     m.userData.plane = pl;
     planeGroup.add(m);
@@ -11673,7 +11723,7 @@ function editFeature(f) {
   if (f.sup) { toast(`${f.name} is hidden. Show it first to edit it.`); return; }
   if (f.type === 'sketch') { if (S.sk === f) return; if (S.sk) finishSketch(); enterSketch(f); }
   else if (f.type === 'extrude') { if (S.sk) finishSketch(); cmdExtrude(f); }
-  else if (f.type === 'plane') cmdOffsetPlane(f);
+  else if (f.type === 'plane') { if (f.cp && FEATS[f.cp]) { if (S.sk) finishSketch(); cmdFeat(f.cp, f); } else cmdOffsetPlane(f); }
   else if (f.type === 'fillet' || f.type === 'chamfer') cmdEdge(f.type, f);
   else if (f.type === 'thread') cmdThread(f);
   else if (f.type === 'import') cmdImport(f);
@@ -36142,5 +36192,7 @@ function gsPick(i) {
   };
 })();
 </script>
+<!-- Fusion-style modeling (construction planes, Inspect tools): own file, loaded last so it can extend the toolbar, panels and help cards -->
+<script src="fusion-tools.js"></script>
 </body>
 </html>
