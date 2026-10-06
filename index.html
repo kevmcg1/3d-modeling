@@ -10793,13 +10793,13 @@ function refreshToolbar() {
   renderVis();
 }
 // ── In-view display toggles and the mouse legend ───────────────────
-const VIS = { part: true, stock: true, paths: true, rapids: true, sketches: true, simPart: false };
+const VIS = { part: true, stock: true, vise: true, paths: true, rapids: true, sketches: true, simPart: false };
 try { Object.assign(VIS, JSON.parse(localStorage.getItem('datum.vis') || '{}')); } catch (e) { /* defaults */ }
 const visOn = k => k === 'planes' ? doc.originVis !== false : k === 'part' && typeof SIM !== 'undefined' && SIM.on ? VIS.simPart : VIS[k];
 function renderVis() {
   const el = document.getElementById('visGroup');
   const sim = typeof SIM !== 'undefined' && SIM.on;
-  const items = UIX.ws === 'cam' ? [['part', sim ? 'Part (ghost)' : 'Part'], ['stock', sim ? 'Stock' : 'Stock box'], ['paths', 'Toolpaths'], ['rapids', 'Rapids']] : [['part', 'Bodies'], ['sketches', 'Sketches'], ['planes', 'Origin planes']];
+  const items = UIX.ws === 'cam' ? [['part', sim ? 'Part (ghost)' : 'Part'], ['stock', sim ? 'Stock' : 'Stock box'], ['vise', 'Vise & parallels'], ['paths', 'Toolpaths'], ['rapids', 'Rapids']] : [['part', 'Bodies'], ['sketches', 'Sketches'], ['planes', 'Origin planes']];
   el.innerHTML = '<div class="vt-h">Show</div>' + items.map(([k, l]) => `<button data-vis="${k}" class="${visOn(k) ? 'on' : ''}"><i></i>${l}</button>`).join('');
   renderMouseLegend();
 }
@@ -13206,6 +13206,7 @@ const GEN = {
       for (const f of horizFaces()) { const rg = faceRegion(f.mesh, f.fid); if (rg) region.push(orient(cP(rg.outer), true)); }
       bottom = part.z0 - (op.through == null ? 0.5 : op.through);
     }
+    if (op.minZ != null) bottom = Math.max(bottom, op.minZ);           // stopped above the vise by the collision guard
     region = cUnion(region);
     if (!region.length) { P.warn.push('No outline found.'); return; }
     const inside = op.side === 'inside';
@@ -13321,7 +13322,7 @@ const GEN = {
       if (!all) { P.warn.push('Could not read a floor face.'); continue; }
       for (const rg of all.parts) {
         if (!floorPartMachinable(rg, f.z)) continue;
-        const floor = f.z + (op.leaveFloor || 0);
+        const floor = Math.max(f.z + (op.leaveFloor || 0), op.minZ != null ? op.minZ : -Infinity);
         const closed = loopRises(rg.outer, f.z, true);
         if (!closed) { const k = Math.round(f.z * 1000); if (openDone.has(k)) continue; openDone.add(k); }   // an open level is cleared once, whatever faces share it
         // A closed pocket is cleared inside its walls. An open floor (a step, the
@@ -13435,6 +13436,7 @@ const GEN = {
       let bottom = through ? h.bot - (op.through == null ? 1 : op.through) - tip : h.bot;
       if (tap && !through) bottom = h.bot + 2 * pitch;          // leave room for the tap's lead
       if (op.depth > 0) bottom = Math.max(bottom, h.top - op.depth);           // depth into the hole, from its top
+      if (op.minZ != null) bottom = Math.max(bottom, op.minZ);                 // stopped above the vise or parallels by the collision guard
       P.holes.push({ x: h.x, y: h.y, z: bottom, r: R, q: cy.q, mi: P.m.length });
       // G98 goes back to the start height between holes; G99 stays at the R plane
       if (!P.cur || cy.ret !== 'G99') P.rapid(h.x, h.y, safe);
@@ -13653,7 +13655,7 @@ function toolpath(op) {
   const st = camStock(), part = camPart();
   if (!st) return null;
   const tool = toolOf(op.tool);
-  const key = camEpoch + '|' + JSON.stringify(op) + JSON.stringify(tool) + JSON.stringify(cam().stock) + cam().safe + '|' + cam().retract;
+  const key = camEpoch + '|' + JSON.stringify(op) + JSON.stringify(tool) + JSON.stringify(cam().stock) + cam().safe + '|' + cam().retract + '|' + JSON.stringify(cam().hold || 0);
   let c = TP.get(op.id);
   if (c && c.key === key && c.path) return c.path;
   let res = null;
@@ -13803,6 +13805,7 @@ function camDraw() {
     own(new THREE.Line(new THREE.BufferGeometry().setFromPoints([V3(O), V3(e)]), new THREE.LineBasicMaterial({ color: c, depthTest: false })));
   }
   if (SIM.on) { if (SIM.mesh && VIS.stock) camGroup.add(SIM.mesh); if (SIM.tool) simFixed.add(SIM.tool); }
+  if (VIS.vise !== false) holdDraw(own);
   const FX = fixtureParts();
   if (FX.rot) { camGroup.add(FX.rot); simFixed.add(FX.fixed); }
   if (!VIS.paths && !VIS.rapids) return;
@@ -15197,6 +15200,7 @@ function camPanel() {
       <dl class="kv"><dt>Stock size</dt><dd>${[st.x1 - st.x0, st.y1 - st.y0, st.z1 - st.z0].map(x => fmtLs(x)).join(' × ')}</dd></dl>
       <div class="field"><span>Material</span><div class="seg">${Object.entries(MATERIALS).map(([k, m]) => `<button data-mat="${k}" class="${(C.material || 'aluminum') === k ? 'on' : ''}">${m.short}</button>`).join('')}</div></div>
       <p class="note">${matOf().name}. Changing it re-derives the speeds and feeds of every tool.</p>
+      ${holdPanel()}
       <div class="field"><span>Work origin (G54)</span><select id="camOrigin">${opts}</select></div>
       <dl class="kv"><dt>Origin in model (X, Y, Z)</dt><dd>${o.map(x => fmtLs(x)).join(', ')}</dd></dl>
       <div class="row2">${num('camSafe', C.safe, 'How high to travel above the part?', 1, 'min="1"')}${num('camRet', C.retract, 'How high to lift between cuts?', 0.5, 'min="0.5"')}</div>
@@ -15346,6 +15350,7 @@ function bindCamPanel() {
   setN('camSafe', setup(v => { C.safe = Math.max(1, v); }, 'Clearance height'));
   setN('camRet', setup(v => { C.retract = Math.max(0.5, v); }, 'Retract height'));
   setN('postProg', setup(v => { C.post.program = Math.round(v); }, 'Program number'));
+  if (CAMUI.view === 'setup') holdBind(panel);
   const org = document.getElementById('camOrigin');
   if (org) org.addEventListener('change', setup(() => { const v = org.value; C.origin = /^\d+$/.test(v) ? +v : v; }, 'Work origin'));
   const ck = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('change', () => fn(el.checked)); };
@@ -18319,7 +18324,7 @@ function autoDetect() {
     const external = t.ext > 0, d = external ? 2 * t.rmax : 2 * t.rmin + 1.0825 * t.pitch;
     const iso = ISO_PITCH.find(r => Math.abs(r[0] - d) < 0.6);
     const vertical = Math.abs(t.dir[1]) > 0.999;
-    return { ...t, external, nominal: iso ? iso[0] : +d.toFixed(2), label: `${iso ? 'M' + iso[0] : 'Ø' + fmtD(d)}×${+t.pitch.toFixed(2)} ${external ? 'external' : 'internal'}`, vertical };
+    return { ...t, external, nominal: iso ? iso[0] : +d.toFixed(2), label: `${iso ? 'M' + iso[0] + '×' + +t.pitch.toFixed(2) : 'Ø' + fmtD(d) + ' × ' + +t.pitch.toFixed(2) + ' mm pitch'} ${external ? 'external' : 'internal'}`, vertical };
   });
   // machine axes needed
   const dirs = [];
@@ -18593,11 +18598,13 @@ const stepOn = s => AUTO.on[s.key] !== undefined ? AUTO.on[s.key] : s.def;
 
 // ── Applying the plan ──────────────────────────────────────────────
 function autoApply(quiet) {
-  const R = autoResult(), C = cam();
+  const before0 = snap();
+  let R = autoResult(), C = cam();
   if (!R) return;
+  if (holdEnsureStock()) { camEpoch++; AUTO.key = ''; R = autoResult(); }       // the jaws grip stock below the part
   const steps = R.plan.filter(s => s.type !== 'manual' && stepOn(s));
   if (!steps.length) { toast('Nothing is ticked.'); return; }
-  const before = snap(), run = (C.autoRun || 0) + 1;
+  const before = before0, run = (C.autoRun || 0) + 1;
   C.autoRun = run;
   const added = new Map();
   for (const s of steps) if (s.tool.isNew && !added.has(s.tool.n)) {
@@ -18716,10 +18723,11 @@ const ISSUE_INFO = {
   gouge: { name: 'Gouges into the part', fix: 'leave stock on that operation' },
   holder: { name: 'Holder collisions', fix: 'longer stick-out' },
   shank: { name: 'Shank rubbing', fix: 'longer stick-out' },
+  fixture: { name: 'Vise / parallel collisions', fix: 'stop above the fixture' },
   rapid: { name: 'Rapids through stock', fix: 'safe-height links' },
   plunge: { name: 'Plunges into solid', fix: 'ramp entry' },
 };
-const verifyKey = () => camEpoch + '|' + JSON.stringify(cam().ops.filter(o => !o.sup)) + JSON.stringify(cam().tools) + JSON.stringify(cam().stock) + cam().safe + '|' + cam().retract;
+const verifyKey = () => camEpoch + '|' + JSON.stringify(cam().ops.filter(o => !o.sup)) + JSON.stringify(cam().tools) + JSON.stringify(cam().stock) + cam().safe + '|' + cam().retract + '|' + JSON.stringify(cam().hold || 0);
 function verifyCached() { return VERIFY.key === verifyKey() && VERIFY.res ? VERIFY.res.issues : []; }
 // Wait until every toolpath (3D ones are computed in the worker) is ready.
 async function waitToolpaths(maxMs = 90000) {
@@ -18814,12 +18822,14 @@ async function verifyProgram(onProgress) {
     return v;
   };
   const tinfo = t => { let v = info.get(t); if (!v) { const p = toolParams(t); v = { p, stick: toolStick(t), hs: holderSpec(p.shankDia || p.dia), loc: p.loc || p.dia * 2, rs: (p.shankDia || p.dia) / 2 }; info.set(t, v); } return v; };
+  const FXB = holdBoxes();                                          // the vise jaws, bed and parallels
   let lastOp = null, since = 0, t0 = performance.now();
   const prev0 = i => { const p = segs[i - 1]; return p && p.tool; };
   for (let i = 0; i < segs.length; i++) {
     const sg = segs[i], tool = sg.tool; X = ctxOf(sg.ax); const a = X.loc(sg.a), b = X.loc(sg.b), R = tool.d / 2, ti = tinfo(tool);
     if (sg.op !== lastOp) { model.flush(); lastOp = sg.op; since = 0; }
     const L = Math.hypot(b.x - a.x, b.y - a.y), zlo = Math.min(a.z, b.z);
+    if (FXB.length && !sg.ax && !tool.up) { const hit = holdSegHit(FXB, a, b, tool, ti); if (hit) add('fixture', sg, (a.x + b.x) / 2, (a.y + b.y) / 2, zlo, { box: hit.name }); }
     if (sg.r) {
       if (sg.ax) continue;                                          // tilted ops travel outside the stock box
       // A rapid must not pass through stock anywhere along the tool's body. Straight
@@ -18894,6 +18904,11 @@ function autoFix(issues) {
     if (!op) continue;
     const tool = toolOf(op.tool), types = new Set(list.map(x => x.type));
     if (types.has('plunge') && (op.type === 'pocket' || op.type === 'contour') && op.entry !== 'ramp') { op.entry = 'ramp'; changes.push(`${op.name}: ramp in along the path instead of plunging`); }
+    if (types.has('fixture')) {
+      const hp = holdPrm(), hit = list.find(x => x.type === 'fixture');
+      if (!hp.auto) { hp.auto = true; changes.push('Parallels: back to automatic placement, clear of the holes'); }
+      else if (!op._fixture) { op._fixture = true; changes.push(`${op.name}: T${tool.n} still reaches the ${hit.box} — check the workholding (Setup)`); }
+    }
     if (types.has('rapid')) {
       if (!op.safeLinks) { op.safeLinks = true; changes.push(`${op.name}: links moved up to the retract plane`); }
       else if (!C._retractBumped) { C.retract += 2; C._retractBumped = true; changes.push(`Retract plane raised to ${fmtLs(C.retract)} above the stock`); }
@@ -26364,7 +26379,7 @@ camToolbar = function () {
     + (wire ? '' : P('Automate', [['autoprog', 'Auto Program', '', 'autoprog', v === 'report'], ['auto', 'Auto Detect', '', 'auto', v === 'auto'], ['verify', 'Verify', '', 'verify']], 1))
     + (wire ? P('Wire EDM', [op('wire')], 1) : P('2D', D2.map(op), 2) + P('Drilling', drilling, 5) + P('3D', D3.map(op), 1) + P('Other', other.map(op), 1))
     + P('Actions', [['sim', 'Simulate', '', 'camsim', v === 'sim'], ['post', 'Post G-code', '', 'campost', v === 'post'], ['ws:sheet', 'Setup Sheet', '', 'blueprint']], 1)
-    + P('Inspect', [['measure', 'Measure', 'M', 'measure', CMD && CMD.type === 'measure']], 1);
+    + P('Inspect', [['measure', 'Measure', 'M', 'measure', CMD && CMD.type === 'measure'], ['inspect', 'Inspection Sheet', '', 'insp']], 1);
 };
 const camActionRb0 = camAction;
 camAction = function (a) {
@@ -26592,6 +26607,353 @@ const simStartC = simStart;
 simStart = function () { simStartC(); if (SCODE.want && SIM.on) simCodeToggle(true); };
 const simStopC = simStop;
 simStop = function () { simStopC(); const b = document.getElementById('simcode'); if (b) b.hidden = true; const c = document.getElementById('sbCode'); if (c) c.classList.remove('on'); SCODE.open = false; document.body.classList.remove('sim-code'); };   // SCODE.want: it opens again with the next run
+</script>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  Workholding: the vise and its parallels. The stock stands in a machine vise, its bottom held between the jaws and resting
+//  on two parallel bars (Setup → Workholding). They are drawn in the view and in the simulation, and every move of every
+//  operation is checked against them — the jaws, the vise bed and the parallels — for the cutting body, the shank and the
+//  holder (Verify: "Vise / parallel collisions"). The cutting operations also prevent the collision themselves: a cut that
+//  would run into the fixture stops just above it and says so. The parallels are placed automatically where nothing is
+//  cut through underneath (clear of holes and cut-outs), and Auto Program adds the bottom stock the jaws grip.
+//
+//  Frame: the jaws clamp along Y (fixed jaw at the back, moving jaw at the front), X runs along the jaws, Z is up.
+// ═══════════════════════════════════════════════════════════════════
+const HOLD_DEF = () => ({ on: true, grip: mmOfIn(0.25), jawLen: mmOfIn(6), jawT: mmOfIn(1.5), parH: mmOfIn(0.5), parT: mmOfIn(0.25), auto: true, par: [] });
+function holdPrm() {
+  const C = cam();
+  if (!C.hold) C.hold = HOLD_DEF();
+  else for (const [k, v] of Object.entries(HOLD_DEF())) if (!(k in C.hold)) C.hold[k] = v;
+  return C.hold;
+}
+for (const id of ['hdGrip', 'hdParH', 'hdParT', 'hdJawL', 'hdJawT', 'hdP1', 'hdP2']) CAM_LEN.add(id);
+const HOLD_CLEAR = 0.1;                                                    // a cut stops this far above the fixture
+// Is there a vise in this setup? Not when the part is turned on a rotary or trunnion, and not on a wire EDM.
+const holdActive = () => {
+  try { return !!camStock() && holdPrm().on && !camSetup() && !(typeof isWire === 'function' && isWire()); } catch (e) { return false; }
+};
+const HOLD = { key: null, boxes: [], bars: [], conflict: false };
+const holdRect = (x0, y0, x1, y1) => [cP([P2(x0, y0), P2(x1, y0), P2(x1, y1), P2(x0, y1)])];
+// Where the stock's bottom stands above the vise jaws' top, and the bed under the parallels.
+function holdLevels(st, h) {
+  const jawTop = Math.min(st.z0 + h.grip, st.z0 + 0.6 * (st.z1 - st.z0)), bed = st.z0 - h.parH;
+  return { jawTop, bed };
+}
+// Two bars along X under the stock: as far apart as there is solid part above (inside its outline, clear of every hole and
+// cut-out, so nothing is ever cut through into them). A hand-placed pair (centers across Y) is used when Auto is off.
+function holdBars(st, h) {
+  const part = camPart(), t = h.parT, cx = (st.x0 + st.x1) / 2;
+  const inset = mmOfIn(0.5);
+  let xa = part.x0 + inset, xb = part.x1 - inset;
+  if (xb - xa < 10) { xa = st.x0; xb = st.x1; }
+  xa = Math.max(xa, cx - h.jawLen / 2); xb = Math.min(xb, cx + h.jawLen / 2);
+  if (!(h.parH > 1e-6)) return { bars: [], conflict: false };
+  if (!h.auto && h.par && h.par.length) return { bars: h.par.map(y => ({ x0: xa, x1: xb, y0: y - t / 2, y1: y + t / 2 })), conflict: false };
+  const solid = silhouetteAbove(part.z0 - 1, true), inner = solid.length ? cOffset(solid, -1.5) : [];
+  const y0 = part.y0 + inset, y1 = part.y1 - inset - t, ok = [];
+  for (let y = y0; y <= y1 + 1e-6; y += 3.175) {
+    const rect = holdRect(xa, y, xb, y + t);
+    if (!inner.length || !cDiff(rect, inner).some(q => Math.abs(cArea(q)) > 0.01)) ok.push(y);
+  }
+  if (ok.length >= 2 && ok[ok.length - 1] - ok[0] >= 2 * t) return { bars: [ok[0], ok[ok.length - 1]].map(y => ({ x0: xa, x1: xb, y0: y, y1: y + t })), conflict: false };
+  if (ok.length) return { bars: [{ x0: xa, x1: xb, y0: ok[Math.floor(ok.length / 2)], y1: ok[Math.floor(ok.length / 2)] + t }], conflict: false };
+  const cy = (part.y0 + part.y1) / 2, sp = (part.y1 - part.y0) / 4;                // nowhere clear: the middle, and the check will say so
+  return { bars: [cy - sp, cy + sp].map(y => ({ x0: xa, x1: xb, y0: y - t / 2, y1: y + t / 2 })), conflict: true };
+}
+// The solid pieces of the fixture, each with its footprint as Clipper paths.
+function holdBoxes() {
+  if (!holdActive()) return [];
+  const st = camStock(), h = holdPrm(), key = camEpoch + '|' + JSON.stringify([st, h]);
+  if (HOLD.key === key) return HOLD.boxes;
+  const cx = (st.x0 + st.x1) / 2, x0 = cx - h.jawLen / 2, x1 = cx + h.jawLen / 2, { jawTop, bed } = holdLevels(st, h), boxes = [];
+  const add = (name, kind, a, b, c, d, z0, z1) => boxes.push({ name, kind, x0: a, y0: b, x1: c, y1: d, z0, z1, paths: holdRect(a, b, c, d) });
+  add('moving jaw', 'jaw', x0, st.y0 - h.jawT, x1, st.y0, bed, jawTop);
+  add('fixed jaw', 'jaw', x0, st.y1, x1, st.y1 + h.jawT, bed, jawTop);
+  add('vise bed', 'bed', x0 - 10, st.y0 - h.jawT - 20, x1 + 10, st.y1 + h.jawT + 20, bed - 40, bed);
+  const { bars, conflict } = holdBars(st, h);
+  bars.forEach((b, i) => add('parallel ' + (i + 1), 'parallel', b.x0, b.y0, b.x1, b.y1, bed, st.z0));
+  Object.assign(HOLD, { key, boxes, bars, conflict });
+  return boxes;
+}
+// Does the tool, moving a → b, run into a piece of the fixture? Its cutting body is checked at the height of each piece, and
+// the shank and holder (ti = { rs, stick, hs } as Verify keeps them) when they come down that far.
+function holdSegHit(boxes, a, b, tool, ti) {
+  const zlo = Math.min(a.z, b.z);
+  for (const bx of boxes) {
+    if (zlo >= bx.z1 - 1e-6) continue;                                     // the tool hangs up from its tip: all of it is above this piece
+    const h0 = Math.max(0, bx.z0 - zlo), h1 = bx.z1 - zlo;
+    let rr = Math.max(cutRadius(tool, h0), cutRadius(tool, h1));
+    if (ti) { if (ti.rs > rr && h1 > ti.loc) rr = ti.rs; if (zlo + ti.stick < bx.z1) rr = Math.max(rr, ti.hs.rNut); }
+    rr -= 0.05;
+    if (rr > 0.02 && segNearPaths(a, b, bx.paths, rr)) return bx;
+  }
+  return null;
+}
+// The highest piece of fixture the cutting moves of a finished path run into (null when none).
+function holdPathLimit(P, tool) {
+  const fx = holdBoxes(); if (!fx.length) return null;
+  let best = null;
+  for (let i = 1; i < P.m.length; i++) {
+    const b = P.m[i]; if (b.r) continue;
+    const bx = holdSegHit(fx, P.m[i - 1], b, tool, null);
+    if (bx && (!best || bx.z1 > best.z1)) best = bx;
+  }
+  return best;
+}
+// Collision prevention for the cutting operations: if a path would reach the fixture, make it again with the cut stopped just
+// above it (op.minZ, honored by the contour, pocket and drill generators), and say so.
+function holdGuard(name) {
+  const gen = GEN[name];
+  GEN[name] = function (op, tool, st, part, P, res) {
+    gen.call(this, op, tool, st, part, P, res);
+    if (op.minZ != null || !holdActive()) return;
+    const hit = holdPathLimit(P, tool);
+    if (!hit) return;
+    for (const k of Object.keys(P)) if (k !== 'op' && k !== 'tool') delete P[k];
+    P.m = []; P.warn = []; P.cur = null;
+    const minZ = hit.z1 + HOLD_CLEAR;
+    gen.call(this, { ...op, minZ }, tool, st, part, P, res);
+    const left = holdPathLimit(P, tool);
+    P.warn.unshift(`The Ø${fmtD(tool.d)} tool would hit the ${hit.name} below ${fmtLs(hit.z1 - st.z0)} above the bottom of the stock, so this cut stops ${fmtLs(HOLD_CLEAR, 3)} above it: about ${fmtLs(Math.max(0, hit.z1 + HOLD_CLEAR - (op.type === 'drill' ? part.z0 : part.z0)))} of the part's bottom is left uncut. Hold less of the stock (Setup → Workholding), add bottom stock for the jaws to grip, or finish it in a second setup.`
+      + (left ? ` It still reaches the ${left.name} on its lead-in or lead-out.` : ''));
+    P.holdStopped = minZ;
+  };
+}
+// Auto Program grips sacrificial stock below the part: bottom stock at least as deep as the jaws hold, plus a little clearance.
+function holdEnsureStock() {
+  if (!holdActive()) return false;
+  const C = cam(), h = holdPrm(), need = h.grip + 1.6;
+  if (C.stock.bottom >= need - 1e-6) return false;
+  C.stock.bottom = +need.toFixed(3);
+  toast(`Added ${fmtLs(need, 3)} of stock under the part for the vise jaws to hold. Flip it afterwards to face the underside.`);
+  return true;
+}
+// What to tell the user about the setup.
+function holdNotes() {
+  const C = cam(), h = holdPrm(), st = camStock(), out = [];
+  if (!h.on) return [['', 'The vise is off: nothing is checked against the jaws or parallels.']];
+  if (camSetup()) return [['', 'The part is turned on a rotary or trunnion in this program, so there is no vise to check.']];
+  const need = h.grip + 1.6;
+  if (C.stock.bottom < need - 1e-6) out.push(['warn', `The stock is only ${fmtLs(C.stock.bottom, 3)} deeper than the part, but the jaws hold the bottom ${fmtLs(h.grip, 3)}: an outline cut through the bottom would hit them. Auto Program adds the stock; or set Bottom to ${fmtLs(need, 3)} or more.`]);
+  if (st.z1 - st.z0 < h.grip * 2) out.push(['warn', 'The stock is thin for this grip: most of it sits inside the jaws.']);
+  holdBoxes();
+  if (HOLD.conflict) out.push(['bad', 'There is no spot under the part clear of its holes and cut-outs for the parallels: they are set at the middle, and drills that break through will hit them. Set them by hand, or hold the part on the other side.']);
+  else out.push(['ok', `${HOLD.bars.length} parallel${HOLD.bars.length === 1 ? '' : 's'} ${HOLD.bars.map(b => `at Y ${fmtLs((b.y0 + b.y1) / 2, 3)}`).join(' and ')}, under solid material only.`]);
+  return out;
+}
+// ── Drawing ──
+const HOLD_COL = { jaw: 0x7d8895, bed: 0x39414b, parallel: 0xd8a23a };
+function holdDraw(own) {
+  const fx = holdBoxes();
+  for (const b of fx) {
+    const w0 = toW(b.x0, b.y0, b.z0), w1 = toW(b.x1, b.y1, b.z1);
+    const size = [Math.abs(w1[0] - w0[0]), Math.abs(w1[1] - w0[1]), Math.abs(w1[2] - w0[2])];
+    const g = new THREE.BoxGeometry(...size), m = own(new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: HOLD_COL[b.kind], metalness: 0.45, roughness: 0.5, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 })));
+    m.position.set((w0[0] + w1[0]) / 2, (w0[1] + w1[1]) / 2, (w0[2] + w1[2]) / 2);
+    m.userData.fixture = b.name;
+    const e = own(new THREE.LineSegments(new THREE.EdgesGeometry(g), new THREE.LineBasicMaterial({ color: 0x20262d })));
+    e.position.copy(m.position);
+  }
+}
+// ── Setup panel ──
+function holdPanel() {
+  const h = holdPrm(), C = cam(), U = uName();
+  holdBoxes();
+  const notes = holdNotes().map(([k, t]) => `<p class="note${k === 'bad' || k === 'warn' ? ' err-note' : ''}">${t}</p>`).join('');
+  const bars = HOLD.bars;
+  return `<h3 class="sub">Workholding</h3>
+    <label class="chk"><input type="checkbox" id="hdOn" ${h.on ? 'checked' : ''}> Hold the stock in a vise, on parallels (drawn, checked, and cut around)</label>
+    ${h.on ? `<div class="row3">${num('hdGrip', h.grip, 'Jaws hold', 0.05, 'min="0.5"')}${num('hdParH', h.parH, 'Parallels high', 0.05, 'min="0"')}${num('hdParT', h.parT, 'Parallels thick', 0.05, 'min="1"')}</div>
+    <div class="row2">${num('hdJawL', h.jawLen, 'Jaw length', 0.25, 'min="20"')}${num('hdJawT', h.jawT, 'Jaw thickness', 0.1, 'min="5"')}</div>
+    <div class="field"><span>Parallels</span><div class="seg"><button data-hdmode="auto" class="${h.auto ? 'on' : ''}">Automatic</button><button data-hdmode="manual" class="${h.auto ? '' : 'on'}">Place by hand</button></div></div>
+    ${h.auto ? '' : `<div class="row2">${num('hdP1', h.par[0] != null ? h.par[0] : bars[0] ? (bars[0].y0 + bars[0].y1) / 2 : 0, 'Front bar Y', 0.1)}${num('hdP2', h.par[1] != null ? h.par[1] : bars[1] ? (bars[1].y0 + bars[1].y1) / 2 : 0, 'Back bar Y', 0.1)}</div>`}` : ''}
+    ${notes}`;
+}
+function holdBind(root) {
+  const h = holdPrm(), setup = (fn, label) => { const before = snap(); fn(); record(label, before); camRefresh(); };
+  const on = root.querySelector('#hdOn'); if (on) on.addEventListener('change', () => setup(() => { h.on = on.checked; }, 'Vise ' + (on.checked ? 'on' : 'off')));
+  const n = (id, fn, label) => { const el = root.querySelector('#' + id); if (el) el.addEventListener('change', () => { const v = parseFloat(el.value); if (isFinite(v)) setup(() => fn(fromU(v)), label); }); };
+  n('hdGrip', v => { h.grip = Math.max(0.5, v); }, 'Jaws hold'); n('hdParH', v => { h.parH = Math.max(0, v); }, 'Parallels height'); n('hdParT', v => { h.parT = Math.max(1, v); }, 'Parallels thickness');
+  n('hdJawL', v => { h.jawLen = Math.max(20, v); }, 'Jaw length'); n('hdJawT', v => { h.jawT = Math.max(5, v); }, 'Jaw thickness');
+  n('hdP1', v => { h.par = [v, h.par[1] != null ? h.par[1] : v + 25.4]; }, 'Parallel position'); n('hdP2', v => { h.par = [h.par[0] != null ? h.par[0] : v - 25.4, v]; }, 'Parallel position');
+  root.querySelectorAll('[data-hdmode]').forEach(b => b.addEventListener('click', () => setup(() => {
+    h.auto = b.dataset.hdmode === 'auto';
+    if (!h.auto && !(h.par && h.par.length)) { holdBoxes(); h.par = HOLD.bars.map(q => +((q.y0 + q.y1) / 2).toFixed(3)); }
+  }, 'Parallels ' + b.dataset.hdmode)));
+}
+for (const k of ['contour', 'pocket', 'drill']) holdGuard(k);
+</script>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  Inspection sheet (Manufacture → Inspect). Built from the part and its program: every characteristic worth checking (size,
+//  holes and their depth and position, threads, pocket depths and widths, radii, chamfers, flatness, surface finish, edges), each with
+//  a tolerance you can change, the gage or instrument that can really check it (resolution at least one tenth of the tolerance
+//  band, the 10:1 rule), and how often to check it: tight tolerances every part, looser ones every 5th or 10th part, the
+//  loosest on the first article only. A summary lists the gages and instruments to have ready. Always in inches.
+// ═══════════════════════════════════════════════════════════════════
+const INSP_GEN = 0.005;                                                  // general tolerance, ± inch, unless a feature says otherwise
+const inspPrm = () => { const C = cam(); if (!C.insp) C.insp = { def: INSP_GEN, tol: {}, freq: {} }; C.insp.tol = C.insp.tol || {}; C.insp.freq = C.insp.freq || {}; if (!(C.insp.def > 0)) C.insp.def = INSP_GEN; return C.insp; };
+const inIn = mm => mm / 25.4;
+const in4 = mm => inIn(mm).toFixed(4) + '"';
+const INSP_FREQ = { every: 'Every part', five: 'First article + every 5th', ten: 'First article + every 10th', first: 'First article only' };
+// The instruments: resolution in the unit of the characteristic (inches, degrees or µin), best choice first for each kind.
+const inspMic = mm => { const k = Math.max(1, Math.ceil(inIn(mm) - 1e-6)); return k <= 6 ? `Outside micrometer ${k - 1}–${k}"` : 'Large-range micrometer / caliper 0–12"'; };
+function inspGage(c) {
+  const need = c.sym === false ? c.tol / 10 : 2 * c.tol / 10, size = c.size || 0;
+  const G = (name, res, extra) => ({ name, res, ...(extra || {}) });
+  let list;
+  switch (c.kind) {
+    case 'size': list = [G('Digital caliper 0–6"', 0.0005), G(inspMic(size), 0.0001), G('Digital micrometer, ' + inspMic(size).replace('Outside micrometer ', ''), 0.00005), G('CMM', 0.00005)]; break;
+    case 'inside': list = [G('Digital caliper 0–6" (inside jaws)', 0.0005), G('Telescoping gage + micrometer', 0.0002), G('CMM', 0.00005)]; break;
+    case 'hole': list = [G('Pin gages, go / no-go (class ZZ)', 0.0001), G('Dial bore gage', 0.0001), G('Air gage / CMM', 0.00002)]; break;
+    case 'depth': list = [G('Depth caliper / caliper depth rod', 0.0005), G('Depth micrometer', 0.0001), G('Height gage on a surface plate', 0.0001)]; break;
+    case 'pos': list = [G('Height gage + surface plate (0.0005")', 0.0005), G('Optical comparator', 0.0002), G('CMM', 0.00005)]; break;
+    case 'thread': list = [c.external ? G('Thread ring gage, go / no-go (6g)', 0.0001) : G('Thread plug gage, go / no-go (6H)', 0.0001)]; break;
+    case 'radius': list = [G('Radius gage set', 0.002), G('Optical comparator', 0.0005)]; break;
+    case 'angle': list = [G('Chamfer / bevel gage', 1), G('Digital bevel protractor', 0.1), G('Sine bar + height gage', 0.01)]; break;
+    case 'flat': list = [G('Dial indicator (0.0005") on a granite surface plate', 0.0005), G('Test indicator (0.0001") on a granite surface plate', 0.0001)]; break;
+    case 'finish': return c.tol >= 63 ? { gage: 'Surface roughness comparator plates', res: 32, fine: false } : { gage: 'Portable surface profilometer', res: 1, fine: false };
+    case 'groove': list = [G('Dovetail pins + outside micrometer', 0.0002), G('Optical comparator', 0.0005)]; break;
+    default: list = [G('10× loupe, visual comparison', 0)];
+  }
+  const g = list.find(x => x.res <= need + 1e-9) || list[list.length - 1];
+  return { gage: g.name, res: g.res, fine: need > 0 && !list.some(x => x.res <= need + 1e-9) };
+}
+// How often: by the tightness of the tolerance (the whole band, in inches); fits and gages-only characteristics lean toward every part.
+function inspFreq(c) {
+  if (c.kind === 'thread' || c.kind === 'visual') return 'every';
+  if (c.kind === 'angle') return c.tol <= 0.5 ? 'five' : 'ten';
+  if (c.kind === 'finish') return 'ten';
+  const band = c.sym === false ? c.tol : 2 * c.tol;
+  return band <= 0.002 ? 'every' : band <= 0.006 ? 'five' : band <= 0.02 ? 'ten' : 'first';
+}
+function inspChars() {
+  const part = camPart(); if (!part) return null;
+  const R = autoResult(), I = inspPrm(), out = [];
+  const add = o => { o.key = o.key; o.def = o.tol; if (I.tol[o.key] != null) o.tol = I.tol[o.key]; o.freq = I.freq[o.key] || inspFreq(o); Object.assign(o, inspGage(o)); o.n = out.length + 1; out.push(o); };
+  const dims = [['L', 'Overall length (X)', part.x1 - part.x0], ['W', 'Overall width (Y)', part.y1 - part.y0], ['T', 'Overall thickness (Z)', part.z1 - part.z0]];
+  for (const [key, name, v] of dims) add({ key, grp: 'Overall size', name, nom: in4(v), tol: I.def, unit: 'in', kind: 'size', size: v, qty: 1 });
+  if (R) {
+    // holes: grouped by the drill that cuts them
+    const hg = new Map();
+    for (const h of R.holes) { const sd = stdDrill(h.d); if (!hg.has(sd.nm)) hg.set(sd.nm, { sd, hs: [] }); hg.get(sd.nm).hs.push(h); }
+    for (const { sd, hs } of [...hg.values()].sort((a, b) => a.sd.d - b.sd.d)) {
+      const d = hs.reduce((a, h) => a + h.d, 0) / hs.length, deep = Math.max(...hs.map(h => h.depth));
+      add({ key: 'h|' + sd.nm, grp: 'Holes', name: `Ø${in4(d)} hole × ${hs.length}`, nom: in4(d), tol: 0.003, unit: 'in', kind: 'hole', size: d, qty: hs.length, note: `drilled with ${sd.label}` });
+      if (hs.some(h => !h.through)) add({ key: 'hd|' + sd.nm, grp: 'Holes', name: `Ø${in4(d)} hole depth`, nom: in4(deep), tol: 0.010, unit: 'in', kind: 'depth', size: deep, qty: hs.filter(h => !h.through).length, note: 'blind' });
+    }
+    if (R.holes.length) add({ key: 'hp', grp: 'Holes', name: `Hole locations, all ${R.holes.length} holes (to the datum)`, nom: 'to print', tol: I.def, unit: 'in', kind: 'pos', qty: R.holes.length });
+    for (const t of R.threads) add({ key: 't|' + t.key, grp: 'Threads', name: `${t.label} thread`, nom: t.label, tol: 0, unit: 'class', kind: 'thread', external: t.external, qty: 1, note: t.external ? 'class 6g' : 'class 6H', fixed: true });
+    // pockets and steps: depth of each level, and the width and length of the closed pockets
+    const depths = new Map();
+    for (const f of R.floors) { const k = Math.round((part.z1 - f.z) * 100); depths.set(k, (depths.get(k) || { d: part.z1 - f.z, n: 0 })); depths.get(k).n++; }
+    for (const [k, v] of [...depths].sort((a, b) => a[0] - b[0])) add({ key: 'pd|' + k, grp: 'Pockets and steps', name: 'Depth of a floor', nom: in4(v.d), tol: I.def, unit: 'in', kind: 'depth', size: v.d, qty: v.n });
+    let pi = 0;
+    for (const f of R.floors) {
+      const all = faceRegion(f.mesh, f.fid); if (!all || pi >= 6) continue;
+      for (const rg of all.parts) if (loopRises(rg.outer, f.z, true) && pi < 6) {
+        const xs = rg.outer.map(p => p.x), ys = rg.outer.map(p => p.y), w = Math.max(...xs) - Math.min(...xs), l = Math.max(...ys) - Math.min(...ys);
+        if (isRoundLoop(rg.outer).round) { pi++; add({ key: `pw|${pi}`, grp: 'Pockets and steps', name: `Round pocket ${pi} diameter`, nom: in4(w), tol: I.def, unit: 'in', kind: 'inside', size: w, qty: 1 }); }
+        else { pi++; add({ key: `pw|${pi}`, grp: 'Pockets and steps', name: `Pocket ${pi} width × length`, nom: `${in4(Math.min(w, l))} × ${in4(Math.max(w, l))}`, tol: I.def, unit: 'in', kind: 'inside', size: Math.min(w, l), qty: 1 }); }
+      }
+    }
+    const g = k => R.groups.get(k), uniq = a => [...new Set(a)].join(', ');
+    if (g('corner')) add({ key: 'rc', grp: 'Radii and edges', name: 'Inside corner radii', nom: uniq(g('corner').notes), tol: 0.010, unit: 'in', kind: 'radius', qty: g('corner').n, note: 'max, to clear a mating part' });
+    for (const k of ['round', 'fillet']) if (g(k)) add({ key: 'r|' + k, grp: 'Radii and edges', name: k === 'round' ? 'Outside corner radii' : 'Fillets', nom: uniq(g(k).notes.slice(0, 4)), tol: 0.010, unit: 'in', kind: 'radius', qty: g(k).n });
+    if (g('chamfer')) add({ key: 'ch', grp: 'Radii and edges', name: 'Chamfers (angle)', nom: '45°', tol: 1, unit: 'deg', kind: 'angle', qty: g('chamfer').n });
+    (R.dovetails || []).forEach((dv, i) => add({ key: 'dt|' + i, grp: 'Dovetails', name: `Dovetail groove ${i + 1} width over pins`, nom: `${Math.round(dv.ang)}° walls`, tol: 0.002, unit: 'in', kind: 'groove', qty: 1 }));
+  }
+  const ra = Math.min(...cam().ops.filter(o => o.ra > 0).map(o => o.ra), 3.2), raIn = ra === 3.2 ? 125 : Math.round(ra * 39.37);
+  add({ key: 'fl', grp: 'Form and finish', name: 'Flatness of the top face', nom: 'flat', tol: 0.002, unit: 'in', kind: 'flat', sym: false, qty: 1, note: 'within' });
+  add({ key: 'ra', grp: 'Form and finish', name: 'Surface finish of machined faces', nom: `Ra ${raIn} µin (${+ra.toFixed(2)} µm)`, tol: raIn, unit: 'µin', kind: 'finish', sym: false, qty: 1, note: 'max' });
+  add({ key: 'vis', grp: 'Form and finish', name: 'Burrs and sharp edges (break 0.005–0.015"), tool marks, damage', nom: 'visual', tol: 0, unit: 'visual', kind: 'visual', qty: 1, fixed: true });
+  return out;
+}
+const inspTolText = c => c.fixed ? (c.note || '') : c.unit === 'deg' ? `± ${c.tol}°` : c.unit === 'µin' ? `≤ ${c.tol} µin` : c.sym === false ? `${c.tol.toFixed(4)}" total` : `± ${c.tol.toFixed(4)}"`;
+const inspRange = c => {
+  if (c.fixed || c.unit !== 'in' || c.sym === false) return '';
+  const m = c.nom && /^[\d.]+"$/.test(c.nom) ? parseFloat(c.nom) : null;
+  return m == null ? '' : `${(m - c.tol).toFixed(4)}" – ${(m + c.tol).toFixed(4)}"`;
+};
+const inspResText = c => (c.res >= 1 ? (c.unit === 'deg' ? `${c.res}°` : `${c.res} µin`) : c.res > 0 && c.res < 1 && c.unit === 'deg' ? `${c.res}°` : c.res ? `${c.res.toString().replace(/^0\./, '.')}"` : '—');
+function inspHTML(printable) {
+  const C = cam(), I = inspPrm(), chars = inspChars();
+  if (!chars) return '<p>There is no part to inspect.</p>';
+  const part = (doc.features.find(f => f.type === 'import') || {}).file;
+  const name = (part ? part.replace(/\.[^.]+$/, '') : 'Part').toUpperCase(), M = matOf().name;
+  const sel = (c) => printable ? INSP_FREQ[c.freq] : `<select data-ifreq="${xmlEsc(c.key)}">${Object.entries(INSP_FREQ).map(([k, l]) => `<option value="${k}" ${c.freq === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+  const tolCell = c => c.fixed || printable ? inspTolText(c) : `${c.unit === 'deg' ? '± ' : c.sym === false ? '' : '± '}<input type="number" data-itol="${xmlEsc(c.key)}" step="${c.unit === 'deg' ? 0.5 : c.unit === 'µin' ? 8 : 0.0005}" min="0" value="${c.tol}"> ${c.unit === 'deg' ? '°' : c.unit === 'µin' ? 'µin' : c.sym === false ? '" total' : '"'}`;
+  let grp = '', rows = '';
+  for (const c of chars) {
+    if (c.grp !== grp) { grp = c.grp; rows += `<tr class="g"><td colspan="9">${grp}</td></tr>`; }
+    rows += `<tr><td class="n">${c.n}</td><td><b>${xmlEsc(c.name)}</b>${c.qty > 1 ? ` <i>(${c.qty} places)</i>` : ''}${c.note ? `<small>${xmlEsc(c.note)}</small>` : ''}</td><td>${xmlEsc(c.nom)}</td><td class="t">${tolCell(c)}${inspRange(c) ? `<small>${inspRange(c)}</small>` : ''}</td>
+      <td>${xmlEsc(c.gage)}${c.fine ? '<small class="w">finer than a shop gage reads: send to the lab / CMM</small>' : ''}</td><td class="r">${inspResText(c)}</td><td>${sel(c)}</td><td class="box"></td><td class="box"></td></tr>`;
+  }
+  // the gages and instruments to have ready
+  const gm = new Map();
+  for (const c of chars) { if (!gm.has(c.gage)) gm.set(c.gage, { name: c.gage, res: c.res, unit: c.unit, ns: [], every: false }); const e = gm.get(c.gage); e.ns.push(c.n); if (c.freq === 'every') e.every = true; }
+  const gages = [...gm.values()].sort((a, b) => a.ns[0] - b.ns[0]).map(e => `<tr><td><b>${xmlEsc(e.name)}</b></td><td class="r">${inspResText({ res: e.res, unit: e.unit })}</td><td>${e.ns.map(n => '#' + n).join(', ')}</td><td>${e.every ? 'at the machine, every part' : 'inspection bench'}</td><td class="box"></td><td class="box"></td></tr>`).join('');
+  const gen = I.def;
+  return `<div class="ip-head"><div><h1>Inspection Plan</h1><div class="ip-sub">${xmlEsc(name)} · ${xmlEsc(M)} · program O${String(C.post.program || 1001).padStart(4, '0')} · ${new Date().toLocaleDateString()}</div></div>
+    <div class="ip-box"><span>Inspector</span><span>Date</span><span>Lot / serial</span><span>Rev</span></div></div>
+    <p class="ip-note"><b>Unless otherwise stated:</b> all dimensions in inches, general tolerance ± ${gen.toFixed(3)}"${printable ? '' : ` <input type="number" id="ipDef" step="0.001" min="0.0005" value="${gen}" title="General tolerance, ±"> `}; break all sharp edges 0.005–0.015"; machined surfaces Ra 125 µin or better. The instrument for each line resolves at least one tenth of that line's tolerance band (the 10:1 rule); instruments in calibration only.</p>
+    <table class="ip-t"><thead><tr><th>#</th><th>Characteristic</th><th>Nominal</th><th>Tolerance</th><th>Gage / instrument</th><th>Reads</th><th>How often</th><th>Result 1</th><th>Result 2</th></tr></thead><tbody>${rows}</tbody></table>
+    <h2>Gages and instruments to have ready</h2>
+    <table class="ip-t g"><thead><tr><th>Gage / instrument</th><th>Reads</th><th>Checks</th><th>Where</th><th>Gage ID</th><th>Cal. due</th></tr></thead><tbody>${gages}</tbody></table>
+    <p class="ip-note">First article: inspect every line before running the lot. Re-inspect after any tool change, offset change or program edit. Record out-of-tolerance readings and stop the run until the cause is found.</p>`;
+}
+const INSP_CSS = `#inspwin { position: fixed; inset: 0; z-index: 60; background: rgba(20,24,30,.55); display: flex; flex-direction: column; align-items: center; overflow: auto; padding: 14px; }
+#inspwin[hidden] { display: none; }
+#inspwin .ip-bar { width: min(1100px, 100%); display: flex; gap: 8px; justify-content: flex-end; padding-bottom: 8px; position: sticky; top: 0; }
+#inspwin .ip-bar button { font: 600 12px var(--font); padding: 7px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,.4); background: #fff; color: #222; cursor: pointer; }
+#inspwin .ip-bar button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+#inspwin .ip-page { width: min(1100px, 100%); background: #fff; color: #1b1f24; padding: 26px 30px 30px; border-radius: 6px; box-shadow: 0 8px 40px rgba(0,0,0,.35); font: 12px/1.4 var(--font); }
+.ip-page h1 { font-size: 22px; margin: 0; } .ip-page h2 { font-size: 14px; margin: 22px 0 8px; }
+.ip-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; border-bottom: 2px solid #1b1f24; padding-bottom: 10px; }
+.ip-sub { color: #555; margin-top: 3px; } .ip-box { display: grid; grid-template-columns: repeat(2, 130px); gap: 4px 6px; } .ip-box span { border-bottom: 1px solid #1b1f24; font-size: 10px; color: #555; padding-top: 14px; }
+.ip-note { color: #333; margin: 10px 0; }
+.ip-t { width: 100%; border-collapse: collapse; margin-top: 8px; } .ip-t th { background: #eef0f3; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; padding: 5px 6px; border: 1px solid #b9c0c8; }
+.ip-t td { border: 1px solid #c9ced4; padding: 5px 6px; vertical-align: top; } .ip-t td.n { width: 24px; text-align: center; font-weight: 700; } .ip-t td.r { white-space: nowrap; } .ip-t td.t { white-space: nowrap; }
+.ip-t td.box { width: 70px; } .ip-t tr.g td { background: #f6f7f9; font-weight: 700; font-size: 11px; color: #333; }
+.ip-t small { display: block; color: #666; font-size: 10px; } .ip-t small.w { color: #b3541e; } .ip-t i { color: #666; font-style: normal; }
+.ip-page input[type=number] { width: 78px; font: 12px var(--font); padding: 2px 4px; border: 1px solid #aab; border-radius: 4px; } .ip-page select { font: 11px var(--font); max-width: 200px; }
+@media print { body > *:not(#inspwin) { display: none !important; } #inspwin { position: static; background: none; padding: 0; display: block; } #inspwin .ip-bar { display: none; } #inspwin .ip-page { box-shadow: none; width: 100%; padding: 0; } }`;
+function openInspection() {
+  if (!camPart()) { toast('Model or open a part first.'); return; }
+  let w = document.getElementById('inspwin');
+  if (!w) {
+    const st = document.createElement('style'); st.textContent = INSP_CSS; document.head.appendChild(st);
+    w = document.createElement('div'); w.id = 'inspwin'; w.hidden = true;
+    w.innerHTML = '<div class="ip-bar"><button data-ip="csv">Save .csv</button><button data-ip="html">Save .html</button><button data-ip="print" class="primary">Print / PDF</button><button data-ip="close">Close</button></div><div class="ip-page" id="ipPage"></div>';
+    document.body.appendChild(w);
+    w.addEventListener('click', e => {
+      const b = e.target.closest('[data-ip]'); if (!b) return;
+      const a = b.dataset.ip;
+      if (a === 'close') w.hidden = true;
+      if (a === 'print') window.print();
+      if (a === 'csv') inspCSV();
+      if (a === 'html') download('inspection-plan.html', new Blob([`<!doctype html><meta charset="utf-8"><title>Inspection Plan</title><style>body{margin:16px}${INSP_CSS.replace(/#inspwin[^{]*\{[^}]*\}/g, '').replace(/@media print[\s\S]*$/, '')}.ip-page{font:12px/1.4 sans-serif;color:#1b1f24}</style><div class="ip-page">${inspHTML(true)}</div>`], { type: 'text/html' }));
+    });
+    w.addEventListener('change', e => {
+      const t = e.target, I = inspPrm(), before = snap();
+      if (t.dataset.itol) { const v = parseFloat(t.value); if (isFinite(v) && v >= 0) { I.tol[t.dataset.itol] = v; record('Inspection tolerance', before); inspRender(); } }
+      else if (t.dataset.ifreq) { I.freq[t.dataset.ifreq] = t.value; record('Inspection frequency', before); inspRender(); }
+      else if (t.id === 'ipDef') { const v = parseFloat(t.value); if (v > 0) { I.def = v; record('General tolerance', before); inspRender(); } }
+    });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && !w.hidden) w.hidden = true; });
+  }
+  w.hidden = false; inspRender();
+}
+function inspRender() { const p = document.getElementById('ipPage'); if (p) p.innerHTML = inspHTML(false); }
+function inspCSV() {
+  const rows = (inspChars() || []).map(c => [c.n, c.grp, c.name, c.qty, c.nom, inspTolText(c), c.gage, inspResText(c), INSP_FREQ[c.freq]]);
+  const esc = v => '"' + String(v).replace(/"/g, '""') + '"';
+  download('inspection-plan.csv', new Blob([[['#', 'Group', 'Characteristic', 'Places', 'Nominal', 'Tolerance', 'Gage / instrument', 'Reads', 'How often'], ...rows].map(r => r.map(esc).join(',')).join('\n')], { type: 'text/csv' }));
+  toast('Saved the inspection plan (.csv)');
+}
+if (!IC.insp) IC.insp = '<rect x="4" y="2.5" width="12" height="15" rx="1.5"/><path d="M7 7h6M7 10h6M7 13h3"/><path d="M12.5 14.5l1.2 1.2 2.3-2.6" opacity=".9"/>';
 </script>
 
 <script>
@@ -27320,6 +27682,7 @@ const bindCamPanelJ = bindCamPanel;
 bindCamPanel = function () { if (CAMUI.view === 'jaws' && JAW.on) { bindJawPanel(); return; } bindCamPanelJ(); };
 const camActionJ = camAction;
 camAction = function (a) {
+  if (a === 'inspect') { openInspection(); return; }
   if (a === 'jaws') { if (JAW.on) { jawClose(); camRefresh(); } else jawOpen(); return; }
   if (JAW.on) jawClose();
   camActionJ(a);
