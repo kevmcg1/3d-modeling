@@ -213,6 +213,7 @@ kbd { display:inline-block; min-width:18px; padding:0 5px; border:1px solid var(
   <div id="status"><span id="stXY">X — Y —</span><span id="stSnap"></span><span class="msg" id="stMsg"></span><span class="spacer"></span><span id="stInfo"></span></div>
 </div>
 <div id="toast"></div><div id="dlgBack"><div id="dlg"></div></div>
+<script src="tip-anim.js"></script>
 <script>
 'use strict';
 /* ════════ Basics ════════
@@ -2633,7 +2634,7 @@ function initTips() {
   const card = document.createElement('div'); card.id = 'tipcard'; card.hidden = true; document.body.appendChild(card);
   let el = null, t1 = 0, t2 = 0, lx = 0, ly = 0;
   document.addEventListener('pointermove', e => { lx = e.clientX; ly = e.clientY; }, true);
-  const hide = () => { clearTimeout(t1); clearTimeout(t2); card.classList.remove('in', 'more'); card.hidden = true; el = null; };
+  const hide = () => { clearTimeout(t1); clearTimeout(t2); TipAnim.stop(); card.classList.remove('in', 'more'); card.hidden = true; el = null; };
   const place = () => {
     if (!el || !el.isConnected) return; const r = el.getBoundingClientRect(), w = card.offsetWidth, h = card.offsetHeight;
     let x = r.left + r.width / 2 - w / 2, y = r.bottom + 8; if (y + h > innerHeight - 8) y = Math.max(8, r.top - h - 8);
@@ -2642,10 +2643,10 @@ function initTips() {
   const show = () => {
     if (el && !el.isConnected) { const n = document.elementFromPoint(lx, ly); el = n && n.closest ? n.closest('button, .rb, [data-tip]') : null; }   // the panel was redrawn under the pointer
     if (!el || !el.isConnected) return; const k = tipKeyOf(el), i = tipInfo(k); if (!i) return;
-    const pics = i.art ? '<div class="tip-pics"><figure>' + i.art[0]() + '<figcaption>Before</figcaption></figure><span class="tip-arr">→</span><figure>' + i.art[1]() + '<figcaption>After</figcaption></figure></div>' : '';
+    const pics = i.art ? TipAnim.pics(i.art[0](), i.art[1]()) : '';
     const steps = i.steps && i.steps.length ? '<div class="tip-more"><div class="tip-step">How to use it</div><ol>' + i.steps.map(s => typeof s === 'string' ? '<li>' + esc(s) + '</li>' : '<li><b>' + esc(s[0]) + '.</b> ' + esc(s[1]) + '</li>').join('') + '</ol></div>' : '';
     card.innerHTML = '<div class="tip-head"><b>' + esc(i.name) + '</b>' + (i.key ? '<span class="kbd">' + esc(i.key) + '</span>' : '') + '</div>' + (i.what ? '<p class="tip-what">' + esc(i.what) + '</p>' : '') + pics + steps;
-    card.hidden = false; place(); requestAnimationFrame(() => card.classList.add('in'));
+    card.hidden = false; place(); TipAnim.start(card); requestAnimationFrame(() => card.classList.add('in'));
     if (steps) t2 = setTimeout(() => { card.classList.add('more'); requestAnimationFrame(place); setTimeout(place, 260); }, 1400);
   };
   document.addEventListener('pointerover', e => {
