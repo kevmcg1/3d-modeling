@@ -14576,7 +14576,7 @@ function simProgram() {
     if (!P || P.pending) continue;
     for (let i = 1; i < P.m.length; i++) {
       const a = P.m[i - 1], b = P.m[i], L = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z), dt = L / (b.r ? RAPID : b.f) + (b.dw || 0) / 60;
-      out.push({ a, b, r: b.r, tool: b.tool || P.tool, t0: t, t1: t + dt, op: op.id, mi: i, fin: op.type === 'parallel' && !op.rough, ax: opAxis(op), slug: b.slug, stop: b.stop });
+      out.push({ a, b, r: b.r, tool: b.tool || P.tool, t0: t, t1: t + dt, op: op.id, mi: i, fin: mcFin(op), ax: opAxis(op), slug: b.slug, stop: b.stop });
       t += dt;
     }
   }
@@ -15678,6 +15678,7 @@ function camAddOp(type, kind) {
     parallel: { tool: pick('ball'), stepover: 0.5, leave: 0, angle: 0, overrun: true },
     chamfer: { tool: pick('chamfer'), through: 0.3, leave: 0, faces: [] },
     waterline: { tool: pick('flat'), stepdown: 1, leave: 0, entry: 'ramp', bottom: null },
+    surf: { tool: pick('ball'), strategy: 'radial', stepover: 0.5, leave: 0, overrun: true },
     zrough: { tool: pick('flat'), stepover: 0.5, stepdown: 2, leaveWall: 0.5, leaveFloor: 0.5, flats: true, bottom: null },
     chain: { tool: pick('flat'), cm: 'contour', side: 'auto', depthMode: 'auto', lead: 'arc', stepdown: 2, stepover: 0.45, leave: 0, leaveWall: 0, leaveFloor: 0, through: 0.5, mode: 'peck', peck: 3, chains: [] },
     get engrave() { return engDefaults(camStock(), (C.tools.find(t => t.type === 'chamfer' && (t.cone || 90) <= 90) || camToolOfType('chamfer', 3, { cone: 60 })).n); },
@@ -15858,6 +15859,7 @@ function offsetOpen(pts, d, s) {
 }
 // Extra toolpath modes of the Chain operation (Mastercam-style), filled in by cam-mc.js
 const MC_CM = {};
+const mcFin = op => typeof window.mcFinish3d === 'function' ? window.mcFinish3d(op) : op.type === 'parallel' && !op.rough;   // moves that follow the surface itself: no gouge check, no stock removal model
 GEN.chain = function (op, tool, st, part, P) {
   const chains = (op.chains || []).filter(c => c.pts && c.pts.length > 1);
   const cm = op.cm || 'contour';
@@ -16656,6 +16658,7 @@ function camPanel() {
     if (op.type === 'engrave') f += engraveFields(op);
     if (op.type === 'waterline') f += waterlineFields(op);
     if (op.type === 'zrough') f += zroughFields(op);
+    if (op.type === 'surf') f += surfFields(op);
     { const fb = ['parallel', 'chamfer', 'contour', 'pocket'].includes(op.type) && !op.rough ? finishBlock(op, toolOf(op.tool)) : ''; if (fb) f += `<h3 class="sub">Surface finish</h3>${fb}`; }
     f += feedsCard(op);
     const warn = P && P.warn.length ? P.warn.map(w => `<p class="note err-note">${w}</p>`).join('') : '';
@@ -25392,7 +25395,7 @@ function camOptimizeAll() {
         feedLen += L;
         const plunge = Math.hypot(b.x - A.x, b.y - A.y) < 1e-6 && b.z < A.z;
         if (L > 0.3 && !plunge && !airEngaged(model, A, b, tool)) { b.air = true; b.f = Math.max(b.f || 0, AIR.feed); airLen += L; }
-        model.cut(A, b, tool, op.type === 'parallel' && !op.rough);
+        model.cut(A, b, tool, mcFin(op));
         if (++n % 48 === 0) model.flush();
         outM.push(b);
       }

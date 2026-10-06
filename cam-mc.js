@@ -5,7 +5,7 @@
 // on the Contour mode, see chainContour).
 (function () {
   const seg = (k, items, cur) => `<div class="seg">${items.map(([v, l, t]) => `<button data-opset="${k}:${v}" class="${cur === v ? 'on' : ''}" ${t ? `data-tip="${t}"` : ''}>${l}</button>`).join('')}</div>`;
-  ['opMcPeelW', 'opMcAp', 'opMcRestD', 'opShift'].forEach(k => CAM_LEN.add(k));
+  ['opMcPeelW', 'opMcAp', 'opMcRestD', 'opShift', 'opMcCx', 'opMcCy'].forEach(k => CAM_LEN.add(k));
 
   // ── Where the material is: closed chains (nested ones are islands) or, from Auto Detect, the floors of the picked faces ──
   // Returns [{ area (Clipper paths, outer ccw and islands cw), floor }].
@@ -360,6 +360,148 @@
   window.mcParallelRough = parallelRough;
   window.mcParallelFields = op => `<label class="chk"><input type="checkbox" id="opMcRough" ${op.rough ? 'checked' : ''}> Rough: cut in levels, leaving stock</label>${op.rough ? `<div class="row2">${num('opSd', op.stepdown || 2, 'Stepdown', 0.1)}</div>` : ''}`;
 
+  // ── 3D surface finishing: a path in plan view, then the height of the tool above each point from the drop-cutter ──
+  // (the same drop-cutter the 3D Parallel worker uses, run on the page's own copy of the part)
+  function dropper(tool, leave, zmin) {
+    const g = camGeom(), G = g.fineG || g.G, R = tool.d / 2, ball = tool.type === 'ball';
+    if (!G.mcStamp || G.mcStamp.length !== G.T.length) G.mcStamp = new Int32Array(G.T.length);
+    G.q = G.q || 0;
+    return (x, y) => { G.q++; return Math.max(dropCutter(G, x, y, R, ball, G.mcStamp), zmin) + leave; };
+  }
+  // A polyline with its heights: sampled every `step`, then split wherever the true cutter height leaves the straight move by more than tol.
+  function dropPoly(pts, closed, drop, step, tol) {
+    const seq = resamplePoly(closed ? [...pts, pts[0]] : pts, false, step), out = [], c = seq.map(p => [p.x, p.y, drop(p.x, p.y)]);
+    out.push(c[0]);
+    const refine = (p, q, d) => { const m = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2], zm = drop(m[0], m[1]); if (d < 7 && Math.abs(zm - (p[2] + q[2]) / 2) > tol) { const mid = [m[0], m[1], zm]; refine(p, mid, d + 1); out.push(mid); refine(mid, q, d + 1); } };
+    for (let i = 1; i < c.length; i++) { refine(c[i - 1], c[i], 0); out.push(c[i]); }
+    return out;
+  }
+  // Cut each 3D polyline: lift clear, move over, go down onto the surface and follow it.
+  function emitSurface(P, st, paths, tool) {
+    const safe = st.z1 + cam().safe, ret = st.z1 + cam().retract;
+    let n = 0;
+    for (const q of paths) {
+      if (q.length < 2) continue;
+      const a = q[0];
+      if (!P.cur) P.rapid(a[0], a[1], safe); else P.rapid(P.cur[0], P.cur[1], ret);
+      P.rapid(a[0], a[1], ret); P.rapid(a[0], a[1], Math.min(ret, a[2] + 1)); P.plunge(a[0], a[1], a[2]);
+      for (let i = 1; i < q.length; i++) P.feed(q[i][0], q[i][1], q[i][2]);
+      n++;
+    }
+    if (P.cur) P.rapid(P.cur[0], P.cur[1], safe);
+    return n;
+  }
+  const surfStep = tool => Math.max(0.1, Math.min(0.5, tool.d / 6));
+  // part's plan box, grown by the tool radius when it may run past the edges
+  const planBox = (op, part, r) => { const o = op.overrun === false ? 0 : r; return [part.x0 - o, part.y0 - o, part.x1 + o, part.y1 + o]; };
+  const clipBox = (p, b) => p.x >= b[0] - 1e-9 && p.x <= b[2] + 1e-9 && p.y >= b[1] - 1e-9 && p.y <= b[3] + 1e-9;
+  // runs of consecutive points that stay inside the box
+  const runsIn = (pts, b) => { const out = []; let cur = []; for (const p of pts) { if (clipBox(p, b)) cur.push(p); else { if (cur.length > 1) out.push(cur); cur = []; } } if (cur.length > 1) out.push(cur); return out; };
+
+  function surfRadial(op, tool, st, part, P, drop, step, tol) {
+    const r = tool.d / 2, so = Math.max(0.05, op.stepover || 0.5), b = planBox(op, part, r), cx = op.cx != null ? op.cx : (part.x0 + part.x1) / 2, cy = op.cy != null ? op.cy : (part.y0 + part.y1) / 2;
+    const Rm = Math.max(...[[b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]]].map(c => Math.hypot(c[0] - cx, c[1] - cy))), n = Math.max(8, Math.ceil(TAU * Rm / so)), paths = [];
+    for (let k = 0; k < n; k++) {
+      const a = TAU * k / n, ray = []; const m = Math.max(2, Math.ceil(Rm / step));
+      for (let i = 0; i <= m; i++) ray.push(P2(cx + Math.cos(a) * Rm * i / m, cy + Math.sin(a) * Rm * i / m));
+      for (const run of runsIn(ray, b)) { const q = dropPoly(run, false, drop, step, tol); paths.push(k % 2 ? q.reverse() : q); }
+    }
+    P.info = `${paths.length} spokes about (${fmtLs(cx)}, ${fmtLs(cy)}), ${fmtLs(so)} apart at the rim`;
+    return paths;
+  }
+  function surfSpiral(op, tool, st, part, P, drop, step, tol) {
+    const r = tool.d / 2, so = Math.max(0.05, op.stepover || 0.5), b = planBox(op, part, r), cx = op.cx != null ? op.cx : (part.x0 + part.x1) / 2, cy = op.cy != null ? op.cy : (part.y0 + part.y1) / 2;
+    const Rm = Math.max(...[[b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]]].map(c => Math.hypot(c[0] - cx, c[1] - cy))), pts = [];
+    for (let th = 0; ; ) { const rr = so * th / TAU; if (rr > Rm) break; pts.push(P2(cx + rr * Math.cos(th), cy + rr * Math.sin(th))); th += step / Math.max(rr, step); if (pts.length > 400000) break; }
+    const paths = runsIn(pts, b).map(run => dropPoly(run, false, drop, step, tol));
+    P.info = `spiral about (${fmtLs(cx)}, ${fmtLs(cy)}), ${fmtLs(so)} per turn`;
+    return paths;
+  }
+  // Scallop: rings of the part's outline stepping inward by the stepover, each followed over the surface. Spacing is the stepover in plan view,
+  // so it is true on flat and gentle areas and wider on steep walls (use Waterline there).
+  function surfScallop(op, tool, st, part, P, drop, step, tol) {
+    const so = Math.max(0.05, op.stepover || 0.5), sil = silhouetteAbove(part.z0 + 0.01, false), paths = [];
+    if (!sil.length) { P.warn.push('No part outline to follow.'); return paths; }
+    for (let k = 0; k < 2000; k++) {
+      const rings = (k ? cOffset(sil, -so * k) : sil).filter(q => q.length >= 3 && Math.abs(cArea(q)) > 1e-3);
+      if (!rings.length) break;
+      for (const q of rings) paths.push(dropPoly(uP(q), true, drop, step, tol));
+    }
+    P.info = `${paths.length} rings from the part outline inward, ${fmtLs(so)} apart in plan view`;
+    return paths;
+  }
+  // Pencil: along the inside corners where two faces meet at more than the minimum angle, with the ball resting in the crease.
+  function pencilEdges(minDeg) {
+    const g = camGeom(), T = (g.fineG || g.G).T, key = v => Math.round(v[0] * 1000) + ',' + Math.round(v[1] * 1000) + ',' + Math.round(v[2] * 1000), em = new Map(), cosMin = Math.cos(minDeg * Math.PI / 180);
+    T.forEach((t, ti) => { const vs = [t.a, t.b, t.c]; for (let e = 0; e < 3; e++) { const p = vs[e], q = vs[(e + 1) % 3], k1 = key(p), k2 = key(q), k = k1 < k2 ? k1 + '|' + k2 : k2 + '|' + k1; const r = vs[(e + 2) % 3]; (em.get(k) || em.set(k, []).get(k)).push({ ti, p, q, r }); } });
+    const segs = [];
+    for (const l of em.values()) {
+      if (l.length !== 2) continue;
+      const [A, B] = l, n1 = T[A.ti].n, n2 = T[B.ti].n;
+      if (!(n1[2] > -0.1 && n2[2] > -0.1)) continue;
+      if (dot3(n1, n2) > cosMin) continue;                                                    // too flat a join
+      if (dot3(n1, sub3(B.r, A.p)) <= 1e-4 * (1 + Math.abs(B.r[2]))) continue;               // the far corner of the neighbor is not above this face: a ridge, not a crease
+      segs.push([A.p, A.q]);
+    }
+    return segs;
+  }
+  function surfPencil(op, tool, st, part, P, drop, step, tol) {
+    if (tool.type !== 'ball') P.warn.push('Pencil uses a ball mill: it is the ball that rests in the corner.');
+    const segs = pencilEdges(clamp(op.minAngle || 25, 5, 85)), end = new Map(), key = v => Math.round(v[0] * 500) + ',' + Math.round(v[1] * 500) + ',' + Math.round(v[2] * 500);
+    segs.forEach((sg, i) => { for (const v of sg) (end.get(key(v)) || end.set(key(v), []).get(key(v))).push(i); });
+    const used = new Set(), paths = [];
+    for (let i = 0; i < segs.length; i++) {
+      if (used.has(i)) continue;
+      used.add(i);
+      let line = [segs[i][0], segs[i][1]];
+      for (const dir of [1, 0]) {
+        for (let guard = 0; guard < 20000; guard++) {
+          const tip = dir ? line[line.length - 1] : line[0], nx = (end.get(key(tip)) || []).find(j => !used.has(j));
+          if (nx == null) break;
+          used.add(nx);
+          const [a, b] = segs[nx], far = key(a) === key(tip) ? b : a;
+          if (dir) line.push(far); else line.unshift(far);
+        }
+      }
+      const pl = line.map(v => P2(v[0], v[1]));
+      let L = 0; for (let k = 1; k < pl.length; k++) L += dst2(pl[k - 1], pl[k]);
+      if (L < Math.max(1, tool.d * 0.5)) continue;
+      paths.push(dropPoly(pl, false, drop, step, tol));
+    }
+    if (!paths.length) P.warn.push('No inside corners sharper than the minimum angle.');
+    else P.info = `${paths.length} corner run${paths.length > 1 ? 's' : ''}, the ball resting in each crease`;
+    return paths;
+  }
+  const SURF = { radial: surfRadial, spiral: surfSpiral, scallop: surfScallop, pencil: surfPencil };
+  GEN.surf = function (op, tool, st, part, P) {
+    const strat = SURF[op.strategy] ? op.strategy : 'radial', drop = dropper(tool, op.leave || 0, part.z0), step = surfStep(tool);
+    const paths = SURF[strat](op, tool, st, part, P, drop, step, 0.02) || [];
+    if (!emitSurface(P, st, paths, tool) && !P.warn.length) P.warn.push('Nothing to cut.');
+  };
+  OP_INFO.surf = { name: '3D Finish', icon: 'camparallel', tip: 'Finishes curved surfaces with a ball mill, following the surface exactly: radial spokes, a spiral, rings from the outline inward (scallop), or a pencil pass along the inside corners.' };
+  const SURF_NAMES = { radial: 'Radial', spiral: 'Spiral', scallop: 'Scallop', pencil: 'Pencil' };
+  window.surfFields = op => {
+    const st = SURF[op.strategy] ? op.strategy : 'radial', part = camPart() || { x0: 0, x1: 0, y0: 0, y1: 0 }, round = st === 'radial' || st === 'spiral';
+    return `<div class="field"><span>Strategy</span><div class="seg" style="flex-wrap:wrap">${Object.entries(SURF_NAMES).map(([k, n]) => `<button data-opset="strategy:${k}" data-tipkey="mc:${k}" class="${st === k ? 'on' : ''}">${n}</button>`).join('')}</div></div>
+      <div class="row2">${st === 'pencil' ? num('opMcMinAng', op.minAngle || 25, 'Smallest corner °', 5) : num('opSoL', op.stepover || 0.5, 'Stepover', 0.05)}${num('opLeave', op.leave || 0, 'Leave', 0.05)}</div>
+      ${round ? `<div class="row2">${num('opMcCx', op.cx != null ? op.cx : (part.x0 + part.x1) / 2, 'Center X', 1)}${num('opMcCy', op.cy != null ? op.cy : (part.y0 + part.y1) / 2, 'Center Y', 1)}</div>` : ''}
+      <label class="chk"><input type="checkbox" id="opMcOverrun" ${op.overrun !== false ? 'checked' : ''}> Run the tool past the part edges</label>
+      <p class="note">${{ radial: 'Spokes from the center, each followed over the surface. Good for round parts.', spiral: 'One continuous spiral out from the center: no lifts. Good for round parts.', scallop: 'Rings from the part outline inward, a stepover apart in plan view; true on flat and gentle areas.', pencil: 'Follows the inside corners where faces meet at the angle or more, with the ball resting in the crease.' }[st]}</p>`;
+  };
+
+  // Project (3D contour): a chain followed over the part's surface by the tool tip.
+  function genProject(op, tool, st, part, P, chains) {
+    const drop = dropper(tool, op.leave || 0, part.z0), step = surfStep(tool), paths = [];
+    for (const c of chains) { const pts = chainTravel(c); if (pts.length > 1) paths.push(dropPoly(pts, !!c.closed, drop, step, 0.02)); }
+    const n = emitSurface(P, st, paths, tool);
+    if (n) P.info = `${n} chain${n > 1 ? 's' : ''} projected onto the surface${tool.type === 'ball' ? '' : ' (a ball mill follows a curve most closely)'}`;
+  }
+  const projectFields = op => `<div class="row2">${num('opLeave', op.leave || 0, 'Leave', 0.05)}</div><p class="note">The chain is followed over the part's surface: the tool tip rests on it all along the way.</p>`;
+  window.mcFinish3d = op => (op.type === 'parallel' && !op.rough) || op.type === 'surf' || (op.type === 'chain' && op.cm === 'project');
+  MC_CM.project = { name: 'Project (3D contour)', group: '3D', tools: ['ball'], gen: genProject, fields: projectFields,
+    tip: 'Follows a chain over the part\'s surface with the tool tip. Click an edge or a chain, then pick a ball mill.',
+    defaults: () => ({ leave: 0 }) };
+
   // ── Hover tip cards: a before and an after picture for each mode (tip-anim.js morphs one into the other) ──
   if (typeof TipArt === 'object' && typeof TIP_ART === 'object' && typeof TIP_TXT === 'object') {
     const { C, P, poly, line, box } = TipArt, iso = f => () => { TipArt.at(60, 48, 1.55); return f(); };
@@ -372,9 +514,21 @@
       'mc:peel': [iso(() => blk() + box(-6, -4, 12, 12, 8, 5)), iso(() => blk() + box(-6, -4, 12, 12, 8, 5) + [0, 1, 2].map(k => rect(8 + 2.6 * (2 - k) + 0, 6 + 2.6 * (2 - k), 12.3, k === 2 ? C.warn : C.acc, 1.2)).join(''))],
       'mc:area': [iso(() => blk() + pocket(10, 7)), iso(() => blk() + pocket(10, 7) + [-5.5, -2.75, 0, 2.75, 5.5].map((y, i) => line(i % 2 ? [P(8.6, y, 12.3), P(-8.6, y, 12.3)] : [P(-8.6, y, 12.3), P(8.6, y, 12.3)], C.acc, 1.2)).join('') + rect(8.6, 6.4, 12.3, C.warn, 1))],
       'add:zrough': [iso(() => box(-16, -12, 0, 32, 24, 14, 's') + box(-6, -4, 0, 12, 8, 8, 'a')), iso(() => box(-16, -12, 0, 32, 24, 5) + box(-16, -12, 5, 32, 24, 3).replace(/fill="[^"]+"/g, 'fill="rgba(47,123,232,.15)"') + box(-6, -4, 0, 12, 8, 8, 'a') + [0, 1].map(k => rect(14 - 3 * k, 10 - 3 * k, 8.3, C.acc, 1.1)).join('') + rect(14, 10, 12.3, C.warn, 0.8))],
+      'add:surf': [iso(() => box(-16, -12, 0, 32, 24, 6) + ell(0, 0, 6, 11, C.top)), iso(() => box(-16, -12, 0, 32, 24, 6) + ell(0, 0, 6, 11, C.top) + [0, 1, 2, 3, 4, 5].map(k => { const a = k * Math.PI / 3; return line([P(0, 0, 17), P(Math.cos(a) * 15, Math.sin(a) * 15, 7)], C.acc, 1.1); }).join(''))],
+      'mc:radial': [iso(() => box(-16, -12, 0, 32, 24, 6) + ell(0, 0, 6, 11, C.top)), iso(() => box(-16, -12, 0, 32, 24, 6) + ell(0, 0, 6, 11, C.top) + [0, 1, 2, 3, 4, 5, 6, 7].map(k => { const a = k * Math.PI / 4; return line([P(0, 0, 17), P(Math.cos(a) * 14, Math.sin(a) * 14, 7)], C.acc, 1.1); }).join(''))],
+      'mc:spiral': [iso(() => box(-16, -12, 0, 32, 24, 6) + ell(0, 0, 6, 11, C.top)), iso(() => { let pts = []; for (let t = 0; t < 4 * Math.PI; t += 0.3) { const r = 1 + t * 1.05; pts.push(P(Math.cos(t) * r, Math.sin(t) * r, 7 + Math.max(0, 10 - r * 0.9))); } return box(-16, -12, 0, 32, 24, 6) + ell(0, 0, 6, 11, C.top) + line(pts, C.acc, 1.2); })],
+      'mc:scallop': [iso(() => box(-16, -12, 0, 32, 24, 6) + ell(0, 0, 6, 11, C.top)), iso(() => box(-16, -12, 0, 32, 24, 6) + ell(0, 0, 6, 11, C.top) + [11, 8, 5, 2].map(r => ell(0, 0, 6 + Math.sqrt(Math.max(0, 121 - r * r)) * 0.9, r, 'none', C.acc, 1.1)).join(''))],
+      'mc:pencil': [iso(() => box(-16, -12, 0, 32, 24, 6) + box(-6, -4, 6, 12, 8, 6, 'a')), iso(() => box(-16, -12, 0, 32, 24, 6) + box(-6, -4, 6, 12, 8, 6, 'a') + line([P(-6.4, -4.4, 6.3), P(6.4, -4.4, 6.3), P(6.4, 4.4, 6.3), P(-6.4, 4.4, 6.3), P(-6.4, -4.4, 6.3)], C.warn, 2))],
+      'mc:project': [iso(() => box(-16, -12, 0, 32, 24, 6) + ell(0, 0, 6, 11, C.top) + line([P(-12, -9, 6.2), P(12, -9, 6.2), P(12, 9, 6.2), P(-12, 9, 6.2), P(-12, -9, 6.2)], '#9aa6b4', 1.2, 'stroke-dasharray="3 2"')), iso(() => { let pts = []; for (let t = 0; t <= 1; t += 0.05) { const x = -12 + 24 * t, h = 6 + Math.sqrt(Math.max(0, 121 - x * x * 0.9)) * 0.5; pts.push(P(x, -3, h)); } return box(-16, -12, 0, 32, 24, 6) + ell(0, 0, 6, 11, C.top) + line(pts, C.acc, 1.8); })],
       'mc:rest': [iso(() => blk() + pocket(10, 7) + rect(7.4, 4.4, 12.3, '#9aa6b4', 1) + oct(7.4, 4.4, 2.6, 12.3).replace(C.acc, '#9aa6b4')), iso(() => blk() + pocket(10, 7) + [[1, 1], [-1, 1], [1, -1], [-1, -1]].map(([a, b]) => line([P(a * 9.2, b * 4.4, 12.3), P(a * 9.2, b * 6.2, 12.3), P(a * 7.4, b * 6.2, 12.3)], C.warn, 2.2)).join(''))],
     });
     Object.assign(TIP_TXT, {
+      'add:surf': ['Finish curved surfaces with a ball mill, following the surface exactly.', ['Pick the ball mill.', 'Pick radial, spiral, scallop or pencil.', 'Set the stepover and what to leave.']],
+      'mc:radial': ['Spokes from a center point, each followed over the surface. Good for round parts.', ['Set the center (the middle of the part by default).', 'Set the stepover at the rim.']],
+      'mc:spiral': ['One unbroken spiral from the center out, with no lifts between passes.', ['Set the center.', 'Set the stepover per turn.']],
+      'mc:scallop': ['Rings from the part outline inward, an even stepover apart in plan view.', ['Set the stepover.', 'Use Waterline on steep walls.']],
+      'mc:pencil': ['Clean up the inside corners: the ball rests in the crease and runs along it.', ['Pick a ball mill.', 'Set the smallest corner angle to follow.']],
+      'mc:project': ['Follow a chain over the part\'s surface with the tool tip.', ['Click an edge, or double-click for the whole chain.', 'Pick a ball mill and what to leave.']],
       'add:zrough': ['Rough the whole part from the stock in levels, from the middle of every area out, leaving stock for finishing.', ['Pick the roughing end mill.', 'Set the stepover and the stepdown.', 'Set how much to leave on walls and floors.']],
       'mc:dynamic': ['Rough an area fast: deep cuts with a light side bite, rounded corners, and a raised feed for the thin chip.', ['Click a closed chain (the pocket outline), with any islands.', 'Set the radial bite and the depth per level.', 'Leave stock on the walls for a Contour or Pocket finish.']],
       'mc:peel': ['Take a band of stock off along a chain in full-depth passes, working in toward the wall.', ['Click the chain along the wall.', 'Pick the stock side and how wide a band to peel.', 'Set the side bite and the depth per level.']],
@@ -390,7 +544,7 @@
     setN('opShift', set('shift', 0.01)); setN('opMcAp', set('stepdown', 0.1)); setN('opMcPeelW', set('peelW', 0.1)); setN('opMcCorner', set('corner', 0));
     setN('opMcAngle', v => camEdit(op, 'angle', ((v % 180) + 180) % 180)); setN('opMcRestD', set('restD', 0)); setN('opMcRamp', v => camEdit(op, 'rampAngle', clamp(v, 0.5, 30)));
     const ck = (id, k) => { const el = document.getElementById(id); if (el) el.addEventListener('change', () => camEdit(op, k, el.checked)); };
-    ck('opMcFlats', 'flats');
+    ck('opMcFlats', 'flats'); ck('opMcOverrun', 'overrun'); setN('opMcCx', v => camEdit(op, 'cx', v)); setN('opMcCy', v => camEdit(op, 'cy', v)); setN('opMcMinAng', v => camEdit(op, 'minAngle', clamp(v, 5, 85)));
     const rg = document.getElementById('opMcRough');
     if (rg) rg.addEventListener('change', () => {
       const before = snap(), t = toolOf(op.tool); op.rough = rg.checked;
