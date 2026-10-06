@@ -10697,7 +10697,7 @@ function solidMove(x, y) {
 function solidClick(x, y, ev) {
   const h = hover3D;
   if (CMD && CMD_HANDLERS[CMD.type]) { CMD_HANDLERS[CMD.type].click(x, y, ev); return; }
-  if (UIX.ws === 'cam') { camClick(x, y); return; }
+  if (UIX.ws === 'cam') { camClick(x, y, ev); return; }
   if (!CMD) {
     const add = ev.shiftKey || ev.ctrlKey || ev.metaKey;
     if (!h || h.kind !== 'edge') { if (!add) selEdges.length = 0; }
@@ -10830,6 +10830,7 @@ function drawEdgesAndPoints() {
     og.font = '500 11px Inter, system-ui, sans-serif'; og.fillStyle = COL.ink; og.fillText(f.name, s.x + 7, s.y - 6);
   }
   if (S.sk) return;
+  chainOverlay();
   if (UIX.ws === 'cam' && CAMUI.view === 'auto' && AUTO.hl) for (const ch of AUTO.hl.chains || []) strokeChain(ch, COL.snap, 3.6);
   for (const e of selEdges) strokeChain(e.ch, COL.accent, 3.4);
   if (CMD && CMD.type === 'edge' && CMD.chains) for (const ch of CMD.chains) strokeChain(ch, COL.accent, 3.4);
@@ -11025,6 +11026,7 @@ const IC = {
   camsetup: '<rect x="3" y="8" width="14" height="8" rx="1"/><path d="M6 8V5h8v3"/><path d="M10 11v2M9 12h2" opacity=".6"/>',
   camtools: '<path d="M8 2h4v6l-1 2v8H9v-8L8 8z"/><path d="M8 5h4M8 7h4" opacity=".5"/>',
   camface: '<path d="M2 14h16" /><path d="M3 11h14" stroke-dasharray="2 1.5"/><rect x="7" y="3" width="6" height="6" rx="1"/>',
+  camchain: '<path d="M3 14l4-8 5 6 5-8"/><circle cx="3" cy="14" r="1.6"/><circle cx="17" cy="4" r="1.6"/>',
   camcontour: '<rect x="5" y="6" width="10" height="8" rx="1.5"/><path d="M2.5 4.5h15v11h-15z" stroke-dasharray="2 1.6"/>',
   campocket: '<rect x="3" y="4" width="14" height="12" rx="1.5"/><path d="M6 7h8v6H6zM8.5 9.5h3v1h-3z" opacity=".7"/>',
   camdrill: '<path d="M10 2v11l-2 2 2 3 2-3-2-2"/><path d="M5 17h10" opacity=".5"/>',
@@ -11855,7 +11857,7 @@ function updateHint() {
   const k = s => `<span class="kbd">${s}</span>`;
   if (CMD && CMD.type === 'stress') h = stressSetup().fxOn ? `<b>Fixturing study:</b> ${FX.place ? 'click the part where it goes.' : 'change a tightness or move a clamp and the colors follow; hover the part to read a value.'} ${k('Esc')} to finish.` : STRESS.result ? `<b>Stress:</b> hover the part to read the value at that spot, click to pin a probe. ${k('Esc')} to finish.` : `<b>Stress analysis:</b> click faces to hold fixed or to load (choose the target in the panel), then run the analysis. ${k('Esc')} to finish.`;
   else if (CMD && CMD.type === 'measure') h = `<b>Measure:</b> click two points — they lock onto endpoints, midpoints, centers, quadrants, perpendiculars and more (switch any off in the Snap bar). ${k('Esc')} to finish.`;
-  else if (UIX.ws === 'cam') { const op = CAMUI.view === 'op' && opById(CAMUI.op); h = op && (op.type === 'pocket' || op.type === 'contour') ? `<b>${op.name}:</b> click flat faces to ${op.type === 'pocket' ? 'set the floors' : 'set the boundary'}.` : op && op.type === 'drill' ? `<b>${op.name}:</b> click holes to add or remove their diameter.` : CAMUI.view === 'sim' ? '<b>Simulation:</b> orbit freely while it runs. Orange is stock still to cut, red is a gouge.' : '<b>Manufacture:</b> set up stock and tools, add operations, simulate, then post G-code.'; }
+  else if (UIX.ws === 'cam') { const op = CAMUI.view === 'op' && opById(CAMUI.op); h = op && op.type === 'chain' ? `<b>${op.name}:</b> click an edge to select it, double-click for the whole chain, Shift-click to add more.` : op && (op.type === 'pocket' || op.type === 'contour') ? `<b>${op.name}:</b> click flat faces to ${op.type === 'pocket' ? 'set the floors' : 'set the boundary'}.` : op && op.type === 'drill' ? `<b>${op.name}:</b> click holes to add or remove their diameter.` : CAMUI.view === 'sim' ? '<b>Simulation:</b> orbit freely while it runs. Orange is stock still to cut, red is a gouge.' : '<b>Manufacture:</b> set up stock and tools, add operations, simulate, then post G-code.'; }
   else if (CMD && CMD.type === 'pickPlane') h = `<b>Create sketch:</b> click a plane or flat face. ${k('Esc')} cancels.`;
   else if (CMD && CMD.type === 'extrude') h = `<b>Extrude:</b> click profiles to add or remove them, drag the arrow, then ${k('Enter')} for OK.`;
   else if (CMD && CMD.type === 'offset') h = `<b>Offset plane:</b> click a plane or flat face, set the distance.`;
@@ -15034,7 +15036,7 @@ function postGcode() {
     const m0 = rel(P.m[0]);
     L.push(`G0 X${N(m0[0])} Y${N(m0[1])}`); st.g = 'G0'; st.x = N(m0[0]); st.y = N(m0[1]);
     if (!grbl) { L.push(`G43 H${t.n} Z${N(m0[2])}`); st.z = N(m0[2]); } else move('G0', null, null, m0[2]);
-    if (op.type === 'drill' && P.holes && !grbl && fr) {
+    if (isDrillOp(op) && P.holes && !grbl && fr) {
       // canned cycles in the turned / tilted frame: every point of a hole shares its X Y there
       const lc = v => fr.loc([v[0] - o[0], v[1] - o[1], v[2] - o[2]]), cy = P.cycle || drillSpec(op, t);
       L.push(...cycleNotes(cy, P, N));
@@ -15044,7 +15046,7 @@ function postGcode() {
       endFrame();
       continue;
     }
-    if (op.type === 'drill' && P.holes && !grbl) {
+    if (isDrillOp(op) && P.holes && !grbl) {
       const hs = P.holes, first = hs[0], rr = N(Math.max(...hs.map(h => h.r)) - o[2]), cy = P.cycle || drillSpec(op, t);
       L.push(...cycleNotes(cy, P, N));
       const holeEnd = k => (hs[k + 1] ? hs[k + 1].mi : P.m.length) - 1;       // a hole's line covers every move of its cycle
@@ -15282,6 +15284,7 @@ function camAddOp(type, kind) {
     drill: { tool: pick('drill'), mode: 'peck', peck: 3, through: 1, diams: [] },
     parallel: { tool: pick('ball'), stepover: 0.5, leave: 0, angle: 0, overrun: true },
     chamfer: { tool: pick('chamfer'), through: 0.3, leave: 0, faces: [] },
+    chain: { tool: pick('flat'), cm: 'contour', side: 'auto', depthMode: 'auto', lead: 'arc', stepdown: 2, stepover: 0.45, leave: 0, leaveWall: 0, leaveFloor: 0, through: 0.5, mode: 'peck', peck: 3, chains: [] },
     get engrave() { return engDefaults(camStock(), (C.tools.find(t => t.type === 'chamfer' && (t.cone || 90) <= 90) || camToolOfType('chamfer', 3, { cone: 60 })).n); },
   };
   const op = { ...base, ...defs[type] };
@@ -15320,6 +15323,7 @@ function camToggleFace(op, h) {
 }
 function camMove(x, y) {
   const op = CAMUI.view === 'op' && opById(CAMUI.op);
+  if (op && op.type === 'chain') { chainMove(op, x, y); return; }
   if (op && op.type === 'chamfer') {
     const h = pick3D(x, y, { faces: true }), ok = h && h.kind === 'face' && !!chamferEdge(h.mesh, h.fid, 'any');
     setHover3D(ok ? h : null); ov.className = ok ? 'pointer' : 'default'; return;
@@ -15336,9 +15340,10 @@ function camMove(x, y) {
   }
   setHover3D(null); ov.className = 'default';
 }
-function camClick(x, y) {
+function camClick(x, y, ev) {
   const op = CAMUI.view === 'op' && opById(CAMUI.op);
   if (!op) return;
+  if (op.type === 'chain') { chainClick(op, x, y, ev); return; }
   const h = pick3D(x, y, { faces: true });
   if (!h || h.kind !== 'face') return;
   if (op.type === 'pocket' || op.type === 'contour' || op.type === 'chamfer') camToggleFace(op, h);
@@ -15348,6 +15353,401 @@ function camClick(x, y) {
     if (i >= 0) ds.splice(i, 1); else ds.push(d);
     camEdit(op, 'diams', ds);
   }
+}
+// ═══════════════════════════════════════════════════════════════════
+//  Chain toolpaths (Manufacture → Chain): click an edge in the model, or double-click / use Chain mode to take the whole
+//  connected run of edges, the way Mastercam chains geometry. A chain has a direction, a start point and is open or closed.
+//  A contour, a pocket or a drill cycle is then cut from the chosen chains instead of from detected features.
+//  op.chains = [{ id, z, closed, pts: [[x, y]…] in machine XY (no repeated end point), eks (edge keys), rev, start, joined }]
+// ═══════════════════════════════════════════════════════════════════
+OP_INFO.chain = { name: 'Chain', icon: 'camchain', tip: 'Cuts from the edges you click, like Mastercam chaining. Click an edge for that one edge, double-click (or switch to Chain mode) for the whole connected run, Shift-click to add more. Then choose a contour, a pocket or drills. The arrow shows the direction the tool travels, the dot is where it starts.' };
+const CHAIN_Z_TOL = 1e-3;
+const chainKey = p => Math.round(p[0] * 1000) + ',' + Math.round(p[1] * 1000) + ',' + Math.round(p[2] * 1000);
+const chainFlat = ch => { const z = ch.pts[0][1]; return ch.pts.every(p => Math.abs(p[1] - z) < CHAIN_Z_TOL); };
+const chainEdgeKey = ch => chainKey(ch.mid);
+// Machine-frame polygon of a stored chain in travel order (start point and direction applied).
+function chainTravel(c) {
+  let p = c.pts.map(q => P2(q[0], q[1]));
+  if (c.closed && c.start) { const s = ((c.start % p.length) + p.length) % p.length; p = startAt(p, s); }
+  if (c.rev) p = c.closed ? [p[0], ...p.slice(1).reverse()] : p.slice().reverse();
+  return p;
+}
+// Grow a run of connected, level edges out of one edge: at every vertex take the one that continues most smoothly.
+// whole = false gives just that one edge. Returns { z, closed, pts, eks } or null when the edge is not level.
+function buildChain(mesh, seed, whole) {
+  if (!chainFlat(seed)) return null;
+  const z = seed.pts[0][1], pt = p => P2(p[0], -p[2]);
+  const flat = edgeChains(mesh).filter(c => chainFlat(c) && Math.abs(c.pts[0][1] - z) < CHAIN_Z_TOL);
+  let seq = seed.pts.map(p => p), eks = [chainEdgeKey(seed)], closed = !!seed.closed;
+  const k0 = chainKey(seq[0]);
+  if (closed && chainKey(seq[seq.length - 1]) === k0) seq.pop();
+  if (whole && !closed) {
+    const used = new Set([seed]);
+    const grow = () => {
+      for (let guard = 0; guard < 5000; guard++) {
+        const tip = seq[seq.length - 1], tk = chainKey(tip);
+        const cands = [];
+        for (const c of flat) {
+          if (used.has(c)) continue;
+          const a = chainKey(c.pts[0]), b = chainKey(c.pts[c.pts.length - 1]);
+          if (a === tk) cands.push({ c, fwd: true }); else if (b === tk) cands.push({ c, fwd: false });
+        }
+        if (!cands.length) return false;
+        const prev = seq.length > 1 ? seq[seq.length - 2] : null, dIn = prev ? nrm2(sub2(pt(tip), pt(prev))) : null;
+        let best = null;
+        for (const q of cands) {
+          const pts = q.fwd ? q.c.pts : q.c.pts.slice().reverse();
+          const nx = pts.find(p => dst2(pt(p), pt(tip)) > 1e-6), turn = dIn && nx ? Math.abs(Math.atan2(dIn.x * nrm2(sub2(pt(nx), pt(tip))).y - dIn.y * nrm2(sub2(pt(nx), pt(tip))).x, dIn.x * nrm2(sub2(pt(nx), pt(tip))).x + dIn.y * nrm2(sub2(pt(nx), pt(tip))).y)) : 0;
+          if (!best || turn < best.turn) best = { ...q, pts, turn };
+        }
+        used.add(best.c); eks.push(chainEdgeKey(best.c));
+        seq = seq.concat(best.pts.slice(1));
+        if (chainKey(seq[seq.length - 1]) === chainKey(seq[0])) { seq.pop(); return true; }
+      }
+      return false;
+    };
+    closed = grow();
+    if (!closed) {                                                       // open at that end: grow the other end too
+      seq.reverse();
+      closed = grow();
+      if (!closed) seq.reverse();
+    }
+  }
+  // drop repeated points (shared vertices between edges)
+  const out = [];
+  for (const p of seq) { const q = [+p[0].toFixed(4), +(-p[2]).toFixed(4)]; const l = out[out.length - 1]; if (!l || Math.hypot(l[0] - q[0], l[1] - q[1]) > 1e-5) out.push(q); }
+  if (closed && out.length > 1 && Math.hypot(out[0][0] - out[out.length - 1][0], out[0][1] - out[out.length - 1][1]) < 1e-5) out.pop();
+  if (out.length < 2) return null;
+  return { z: +z.toFixed(4), closed, pts: out, eks };
+}
+const chainLength = c => { const p = chainTravel(c); let L = 0; for (let i = 1; i < p.length; i++) L += dst2(p[i - 1], p[i]); if (c.closed) L += dst2(p[p.length - 1], p[0]); return L; };
+// Which side of a chain the tool belongs on, from the part: the side where the part is lower (open space, or the floor
+// of a recess) is where a cutter can stand. Returns { side: 'left' | 'right', air: tool side is lower than the chain }.
+function chainAutoSide(c, pts) {
+  const n = pts.length, N = c.closed ? n : n - 1, samples = Math.min(16, N);
+  let l = 0, r = 0;
+  for (let k = 0; k < samples; k++) {
+    const i = Math.min(N - 1, Math.floor((k + 0.5) * N / samples)), a = pts[i], b = pts[(i + 1) % n], t = nrm2(sub2(b, a));
+    const m = lerp2(a, b, 0.5), nl = P2(-t.y, t.x), tl = partTopAt(m.x + nl.x * 0.6, m.y + nl.y * 0.6), tr = partTopAt(m.x - nl.x * 0.6, m.y - nl.y * 0.6);
+    if (tl < tr - 0.01) l++; else if (tr < tl - 0.01) r++;
+  }
+  if (l !== r) return { side: l > r ? 'left' : 'right', air: true };
+  if (c.closed) return { side: cArea(cP(pts)) > 0 ? 'right' : 'left', air: true };       // no difference found: outside a closed loop
+  return { side: 'right', air: false };
+}
+// The highest ground just to one side of a chain: where the cutter has to stop when it works down that side
+// (-Infinity: open air all the way down, so it can go through the part).
+function chainSideFloor(c, pts, side) {
+  const n = pts.length, N = c.closed ? n : n - 1, samples = Math.min(16, N), s = side === 'left' ? 1 : -1;
+  let hi = -Infinity;
+  for (let k = 0; k < samples; k++) {
+    const i = Math.min(N - 1, Math.floor((k + 0.5) * N / samples)), a = pts[i], b = pts[(i + 1) % n], t = nrm2(sub2(b, a)), m = lerp2(a, b, 0.5);
+    hi = Math.max(hi, partTopAt(m.x - t.y * s * 0.6, m.y + t.x * s * 0.6));
+  }
+  return hi;
+}
+// One side of an open polyline at distance d (left: +1, right: −1): mitered at gentle turns, rounded on sharp outside turns.
+function offsetOpen(pts, d, s) {
+  const out = [], n = pts.length, nl = i => { const t = nrm2(sub2(pts[i + 1], pts[i])); return P2(-t.y * s, t.x * s); };
+  out.push(add2(pts[0], mul2(nl(0), d)));
+  for (let i = 1; i < n - 1; i++) {
+    const n1 = nl(i - 1), n2 = nl(i), dot = n1.x * n2.x + n1.y * n2.y, cr = n1.x * n2.y - n1.y * n2.x;
+    if (cr * s < -1e-9 && dot < 0.97 || dot < -0.5) {                                    // outer corner: go round it
+      const a1 = Math.atan2(n1.y, n1.x); let da = Math.atan2(n2.y, n2.x) - a1; while (da > Math.PI) da -= TAU; while (da < -Math.PI) da += TAU;
+      const steps = Math.max(1, Math.ceil(Math.abs(da) / 0.2));
+      for (let k = 0; k <= steps; k++) out.push(P2(pts[i].x + Math.cos(a1 + da * k / steps) * d, pts[i].y + Math.sin(a1 + da * k / steps) * d));
+    } else out.push(add2(pts[i], mul2(add2(n1, n2), d / (1 + dot))));
+  }
+  out.push(add2(pts[n - 1], mul2(nl(n - 2), d)));
+  return out;
+}
+GEN.chain = function (op, tool, st, part, P) {
+  const chains = (op.chains || []).filter(c => c.pts && c.pts.length > 1);
+  const cm = op.cm || 'contour';
+  if (!chains.length) { P.warn.push(cm === 'drill' ? 'Click circles (hole edges) in the model to drill them.' : 'Click an edge in the model, or double-click it to take the whole chain.'); return; }
+  if (cm === 'drill') return chainDrill(op, tool, st, part, P, chains);
+  if (cm === 'pocket') return chainPocket(op, tool, st, part, P, chains);
+  chainContour(op, tool, st, part, P, chains);
+};
+function chainContour(op, tool, st, part, P, chains) {
+  const r = tool.d / 2, leave = op.leave || 0, off = r + leave, safe = st.z1 + cam().safe, ret = st.z1 + cam().retract, rho = r * 0.6 + 1;
+  let started = false, notes = [];
+  for (const c of chains) {
+    const pts = chainTravel(c);
+    if (pts.length < 2) continue;
+    const auto = chainAutoSide(c, pts);
+    let side = op.side && op.side !== 'auto' ? op.side : auto.side;
+    const toolSide = side === 'on' ? auto.side : side;
+    const bottom = (() => {
+      const dm = op.depthMode || 'auto';
+      if (dm === 'below') return c.z - (op.depth || 0);
+      if (dm === 'chain') return c.z;
+      if (dm === 'through') return part.z0 - (op.through == null ? 0.5 : op.through);
+      const fl = chainSideFloor(c, pts, toolSide);
+      return Math.min(c.z, fl === -Infinity ? part.z0 - (op.through == null ? 0.5 : op.through) : fl);
+    })();
+    let paths = [];                                       // each: { pts (travel order), closed }
+    if (c.closed) {
+      const ccw = cArea(cP(pts)) > 0;
+      if (side === 'on') paths.push({ pts, closed: true });
+      else {
+        const inside = (side === 'left') === ccw, base = ccw ? cP(pts) : cP(pts.slice().reverse());
+        for (const q of cOffset([base], inside ? -off : off)) {
+          if (cArea(q) <= 1e-4) continue;
+          let u = uP(q); if (!ccw) u = u.reverse();
+          let bi = 0; u.forEach((p, i) => { if (dst2(p, pts[0]) < dst2(u[bi], pts[0])) bi = i; });
+          paths.push({ pts: startAt(u, bi), closed: true });
+        }
+        if (!paths.length) { P.warn.push(`The Ø${fmtTool(tool.d)} tool is too large for ${op.chains.length > 1 ? 'one of these chains' : 'this chain'}.`); continue; }
+      }
+    } else {
+      paths.push({ pts: side === 'on' ? pts : offsetOpen(pts, off, side === 'left' ? 1 : -1), closed: false });
+    }
+    const zs = levels(st.z1, bottom, op.stepdown || 2);
+    for (const path of paths) {
+      const L = path.pts, n = L.length;
+      if (n < 2) continue;
+      const t0 = nrm2(sub2(L[1], L[0])), nside = P2(-t0.y * (toolSide === 'left' ? 1 : -1), t0.x * (toolSide === 'left' ? 1 : -1));
+      const useArc = op.lead !== 'none';
+      const arcIn = k => { const C = add2(L[0], mul2(nside, rho)), phi = Math.PI / 2 * k / 8; return sub2(C, mul2(add2(mul2(t0, Math.cos(phi)), mul2(nside, Math.sin(phi))), rho)); };
+      const eEnd = path.closed ? L[0] : L[n - 1], tE = path.closed ? t0 : nrm2(sub2(L[n - 1], L[n - 2])), nE = path.closed ? nside : P2(-tE.y * (toolSide === 'left' ? 1 : -1), tE.x * (toolSide === 'left' ? 1 : -1));
+      const arcOut = k => { const C = add2(eEnd, mul2(nE, rho)), phi = Math.PI / 2 * k / 8; return sub2(C, mul2(add2(mul2(tE, Math.cos(phi)), mul2(nE, Math.sin(phi))), rho)); };
+      const S = useArc ? arcIn(0) : L[0];
+      zs.forEach((z, li) => {
+        const zAbove = Math.min(ret, (li ? zs[li - 1] : st.z1) + 1);
+        if (!started) { P.rapid(S.x, S.y, safe); started = true; } else P.rapid(P.cur[0], P.cur[1], ret);
+        P.rapid(S.x, S.y, ret); P.rapid(S.x, S.y, zAbove); P.plunge(S.x, S.y, z);
+        if (useArc) for (let k = 1; k <= 8; k++) { const q = arcIn(k); P.feed(q.x, q.y, z); } else P.feed(L[0].x, L[0].y, z);
+        for (let i = 1; i < n; i++) P.feed(L[i].x, L[i].y, z);
+        if (path.closed) P.feed(L[0].x, L[0].y, z);
+        if (useArc) for (let k = 9; k <= 16; k++) { const q = arcOut(k); P.feed(q.x, q.y, z); }
+      });
+    }
+    notes.push(`${c.closed ? 'closed' : 'open'} chain, tool ${side === 'on' ? 'on the line' : side === 'left' ? 'left' : 'right'} of travel, ${fmtLs(st.z1 - bottom)} below the stock top`);
+  }
+  if (P.cur) P.rapid(P.cur[0], P.cur[1], safe);
+  if (notes.length) P.info = notes.length === 1 ? notes[0] : `${notes.length} chains`;
+}
+function chainPocket(op, tool, st, part, P, chains) {
+  const r = tool.d / 2, so = Math.max(0.05, op.stepover || 0.45) * tool.d, lw = op.leaveWall || 0, fs = op.finish === false ? 0 : (op.finishStock == null ? (isIn() ? 0.254 : 0.25) : op.finishStock);
+  const safe = st.z1 + cam().safe, ret = st.z1 + cam().retract;
+  const closed = chains.filter(c => c.closed && c.pts.length >= 3), openN = chains.length - closed.length;
+  if (openN) P.warn.push(`${openN} open chain${openN > 1 ? 's' : ''} skipped: a pocket needs a closed chain (use Close chain to join the ends).`);
+  if (!closed.length) { if (!openN) P.warn.push('Pick a closed chain for the pocket.'); return; }
+  // nesting: a chain inside an odd number of others is an island, the rest are pocket outlines
+  const polys = closed.map(c => ({ c, p: chainTravel(c) }));
+  polys.forEach(a => { a.cp = cP(a.p); a.area = Math.abs(cArea(a.cp)); });
+  polys.forEach(a => { a.depth = polys.filter(b => b !== a && inPaths(a.p[0], [b.area && cArea(b.cp) < 0 ? b.cp.slice().reverse() : b.cp])).length; });
+  const outers = polys.filter(a => a.depth % 2 === 0), islands = polys.filter(a => a.depth % 2 === 1);
+  let started = false, total = 0;
+  for (const o of outers) {
+    const mine = islands.filter(i => inPaths(i.p[0], [cArea(o.cp) < 0 ? o.cp.slice().reverse() : o.cp]) && !outers.some(o2 => o2 !== o && o2.area < o.area && o2.area > i.area && inPaths(i.p[0], [o2.cp])));
+    const orient2 = (cp, ccw) => (cArea(cp) > 0) === ccw ? cp : cp.slice().reverse();
+    const area = [orient2(o.cp, true), ...mine.map(i => orient2(i.cp, false))];
+    const floor = (op.depthMode === 'below' ? o.c.z - (op.depth || 0) : o.c.z) + (op.leaveFloor || 0);
+    const tArea = cOffset(area, -(r + lw + fs));
+    if (!tArea.length) { P.warn.push(`The Ø${fmtTool(tool.d)} tool does not fit this pocket.`); continue; }
+    const rings = [];
+    for (let k = 0; k < 400; k++) { const cur = k ? cOffset(tArea, -so * k) : tArea; if (!cur.length) break; rings.push(ClipperLib.Clipper.CleanPolygons(cur, 0.005 * CS).filter(p => p.length >= 3 && Math.abs(cArea(p)) > 1e-4)); }
+    const items = [];
+    rings.forEach((rg, k) => rg.forEach(q => items.push({ k, pts: uP(q) })));
+    const link = cOffset(tArea, 0.002), zs = levels(st.z1, floor, op.stepdown || 1.5);
+    const run = (loops, z, zFrom, ramp) => {
+      const left = loops.slice(); let first = true;
+      while (left.length) {
+        // next: the innermost loop the tool can reach straight from where it is, else the innermost of all
+        let bi = -1;
+        if (!first) for (let i = 0; i < left.length; i++) if (!segHitsPaths(P2(P.cur[0], P.cur[1]), left[i].pts[0], link) && (bi < 0 || left[i].k > left[bi].k)) bi = i;
+        const goDown = bi < 0;
+        if (goDown) { bi = 0; left.forEach((q, i) => { if (q.k > left[bi].k) bi = i; }); }
+        const L = left.splice(bi, 1)[0], s = L.pts[0];
+        if (goDown) {
+          if (!started) { P.rapid(s.x, s.y, safe); started = true; } else P.rapid(P.cur[0], P.cur[1], ret);
+          P.rapid(s.x, s.y, ret); P.rapid(s.x, s.y, Math.min(ret, zFrom + 0.5));
+          if (ramp) rampLoop(P, L.pts, zFrom, z, 3, 0.35 * r); else { P.plunge(s.x, s.y, z); for (let j = 1; j <= L.pts.length; j++) P.feed(L.pts[j % L.pts.length].x, L.pts[j % L.pts.length].y, z); }
+        } else {
+          if (Math.abs(P.cur[2] - z) > 1e-9) P.feed(P.cur[0], P.cur[1], z);
+          P.feed(s.x, s.y, z);
+          for (let j = 1; j <= L.pts.length; j++) P.feed(L.pts[j % L.pts.length].x, L.pts[j % L.pts.length].y, z);
+        }
+        first = false;
+      }
+    };
+    zs.forEach((z, li) => run(items, z, li ? zs[li - 1] : st.z1, true));
+    // finish pass: the walls to size at full depth
+    if (fs > 0) {
+      const fin = cOffset(area, -(r + lw)).filter(p => Math.abs(cArea(p)) > 1e-4).map(q => ({ k: 0, pts: uP(q) }));
+      if (fin.length) run(fin, zs[zs.length - 1], zs[zs.length - 1] + 1, false);
+    }
+    total++;
+  }
+  if (P.cur) P.rapid(P.cur[0], P.cur[1], safe);
+  if (total) P.info = `${total} pocket${total > 1 ? 's' : ''} from chains, ${fmtLs(so)} stepover`;
+}
+function chainDrill(op, tool, st, part, P, chains) {
+  const holes = [], real = camHoles(), tip = tool.type === 'drill' ? 0.3 * tool.d : 0;
+  let skipped = 0;
+  for (const c of chains) {
+    const p = chainTravel(c);
+    if (!c.closed || p.length < 3) { skipped++; continue; }
+    const cp = cP(p), A = Math.abs(cArea(cp));
+    let cx = 0, cy = 0; p.forEach(q => { cx += q.x; cy += q.y; }); cx /= p.length; cy /= p.length;
+    const d = 2 * Math.sqrt(A / Math.PI), hit = real.find(h => Math.hypot(h.x - cx, h.y - cy) < 0.25 && Math.abs(h.d - d) < 0.3);
+    holes.push(hit ? { ...hit, real: true } : { x: cx, y: cy, d, top: c.z, bot: c.z - (op.depth > 0 ? op.depth : 1.5 * tool.d), synth: true });
+  }
+  if (skipped) P.warn.push(`${skipped} open chain${skipped > 1 ? 's' : ''} skipped: drilling needs a closed circle (click the edge of a hole).`);
+  if (!holes.length) return;
+  const ordered = []; let cur = P2(st.x0, st.y0);
+  while (holes.length) { let bi = 0; holes.forEach((h, i) => { if (dst2(P2(h.x, h.y), cur) < dst2(P2(holes[bi].x, holes[bi].y), cur)) bi = i; }); const h = holes.splice(bi, 1)[0]; ordered.push(h); cur = P2(h.x, h.y); }
+  const safe = st.z1 + cam().safe, tap = tool.type === 'tap', pitch = tap ? toolParams(tool).pitch || isoPitch(tool.d) : 0;
+  if (tap) P.tap = { pitch, feed: tool.rpm * pitch };
+  const cy = drillSpec(op, tool);
+  P.cycle = cy;
+  const R = Math.max(...ordered.map(h => h.top + 2), st.z1 + cy.rpl);
+  P.holes = [];
+  for (const h of ordered) {
+    let bottom;
+    if (h.real) { const through = holeThrough(h, part); bottom = through ? h.bot - (op.through == null ? 1 : op.through) - tip : h.bot; if (tap && !through) bottom = h.bot + 2 * pitch; }
+    else bottom = h.bot;
+    if (op.depth > 0) bottom = Math.max(bottom, h.top - op.depth);
+    P.holes.push({ x: h.x, y: h.y, z: bottom, r: R, q: cy.q, mi: P.m.length });
+    if (!P.cur || cy.ret !== 'G99') P.rapid(h.x, h.y, safe);
+    if (cy.ret === 'G99' && P.cur && P.cur[2] > R + 1e-9 && P.m.length > 1) P.rapid(P.cur[0], P.cur[1], R);
+    P.rapid(h.x, h.y, R);
+    drillCycleMoves(P, cy, d => [h.x, h.y, d], R, bottom, safe, tool, tap);
+  }
+  P.rapid(P.cur[0], P.cur[1], safe);
+  P.info = `${ordered.length} hole${ordered.length > 1 ? 's' : ''} at the chosen circles`;
+}
+const isDrillOp = op => op.type === 'drill' || (op.type === 'chain' && op.cm === 'drill');
+
+// ── Picking ──
+const CHAINUI = { mode: 'single', hover: null, hoverKey: '', startFor: null };
+function chainPickAt(x, y) {
+  const e = pickEdge(x, y, visibleBodies(), 8);
+  return e && chainFlat(e.ch) ? e : null;
+}
+function chainAdd(op, e, whole, additive) {
+  const key = chainEdgeKey(e.ch), nc = buildChain(e.mesh, e.ch, whole);
+  if (!nc) return;
+  const before = snap(), cur = (op.chains || []).slice();
+  const hit = cur.findIndex(c => (c.eks || []).includes(key));
+  let list = additive ? cur : [];
+  if (additive && hit >= 0 && !whole) { list.splice(hit, 1); }
+  else {
+    if (additive && hit >= 0) list.splice(hit, 1);
+    list.push({ id: (cur.reduce((m, c) => Math.max(m, c.id || 0), 0)) + 1, rev: false, start: 0, ...nc });
+  }
+  op.chains = list;
+  record(`${op.name}: ${whole ? 'chain' : 'edge'}`, before);
+  camRefresh();
+}
+function chainClick(op, x, y, ev) {
+  if (CHAINUI.startFor != null) {                                     // choosing a start point: the chain vertex nearest the click
+    const c = (op.chains || []).find(q => q.id === CHAINUI.startFor); CHAINUI.startFor = null;
+    if (c && c.closed) {
+      let bi = -1, bd = 24;
+      c.pts.forEach((q, i) => { const s = toScreen(toW(q[0], q[1], c.z)), d = Math.hypot(s.x - x, s.y - y); if (d < bd) { bd = d; bi = i; } });
+      if (bi >= 0) { const before = snap(); c.start = bi; c.rev = !!c.rev; record(`${op.name}: start point`, before); }
+    }
+    camRefresh(); return;
+  }
+  const e = chainPickAt(x, y);
+  if (!e) { toast('Click an edge that lies flat (at one height). Sloped and vertical edges are not part of a 2.5D chain.'); return; }
+  const add = ev && (ev.shiftKey || ev.ctrlKey || ev.metaKey) || (op.cm === 'drill');
+  chainAdd(op, e, CHAINUI.mode === 'chain' && op.cm !== 'drill', add);
+}
+function chainMove(op, x, y) {
+  if (CHAINUI.startFor != null) { setHover3D(null); ov.className = 'pointer'; return; }
+  const e = chainPickAt(x, y), key = e ? chainEdgeKey(e.ch) + CHAINUI.mode : '';
+  if (key !== CHAINUI.hoverKey) {
+    CHAINUI.hoverKey = key;
+    CHAINUI.hover = e ? buildChain(e.mesh, e.ch, CHAINUI.mode === 'chain' && op.cm !== 'drill') : null;
+    requestDraw();
+  }
+  setHover3D(null);
+  ov.className = e ? 'pointer' : 'default';
+}
+// Double-click on an edge takes the whole chain it belongs to.
+ov.addEventListener('dblclick', e => {
+  if (UIX.ws !== 'cam' || CMD || S.sk) return;
+  const op = CAMUI.view === 'op' && opById(CAMUI.op);
+  if (!op || op.type !== 'chain' || op.cm === 'drill') return;
+  const { x, y } = local(e), hit = chainPickAt(x, y);
+  if (hit) { e.stopImmediatePropagation(); chainAdd(op, hit, true, e.shiftKey || e.ctrlKey || e.metaKey); }
+}, true);
+// Chains drawn on the overlay: the tool's direction (an arrow), where it starts (a dot) and, on an open chain, where it ends.
+function chainStroke(c, color, w, preview) {
+  const p = chainTravel(c), s = p.map(q => toScreen(toW(q.x, q.y, c.z)));
+  if (s.length < 2) return;
+  og.save();
+  og.strokeStyle = color; og.fillStyle = color; og.lineWidth = w; og.lineJoin = 'round'; og.lineCap = 'round';
+  if (preview) og.setLineDash([6, 4]);
+  og.beginPath(); s.forEach((q, i) => i ? og.lineTo(q.x, q.y) : og.moveTo(q.x, q.y)); if (c.closed) og.closePath(); og.stroke();
+  og.setLineDash([]);
+  const segs = c.closed ? s.length : s.length - 1;
+  let tot = 0; const lens = []; for (let i = 0; i < segs; i++) { const a = s[i], b = s[(i + 1) % s.length], l = Math.hypot(b.x - a.x, b.y - a.y); lens.push(l); tot += l; }
+  if (tot > 30) {
+    let acc = 0; const half = tot / 2;
+    for (let i = 0; i < segs; i++) {
+      if (acc + lens[i] >= half) {
+        const a = s[i], b = s[(i + 1) % s.length], f = (half - acc) / (lens[i] || 1), mx = a.x + (b.x - a.x) * f, my = a.y + (b.y - a.y) * f, ang = Math.atan2(b.y - a.y, b.x - a.x);
+        og.beginPath(); og.moveTo(mx + Math.cos(ang) * 8, my + Math.sin(ang) * 8); og.lineTo(mx + Math.cos(ang + 2.5) * 7, my + Math.sin(ang + 2.5) * 7); og.lineTo(mx + Math.cos(ang - 2.5) * 7, my + Math.sin(ang - 2.5) * 7); og.closePath(); og.fill();
+        break;
+      }
+      acc += lens[i];
+    }
+  }
+  if (!preview) {
+    og.beginPath(); og.arc(s[0].x, s[0].y, 5, 0, TAU); og.fillStyle = '#2fa84f'; og.fill(); og.strokeStyle = '#fff'; og.lineWidth = 1.5; og.stroke();
+    if (!c.closed) { const e = s[s.length - 1]; og.fillStyle = '#d64545'; og.fillRect(e.x - 4, e.y - 4, 8, 8); og.strokeStyle = '#fff'; og.strokeRect(e.x - 4, e.y - 4, 8, 8); }
+  }
+  og.restore();
+}
+function chainOverlay() {
+  if (UIX.ws !== 'cam' || CAMUI.view !== 'op') return;
+  const op = opById(CAMUI.op);
+  if (!op || op.type !== 'chain') return;
+  for (const c of op.chains || []) chainStroke(c, COL.accent, 3.4, false);
+  if (CHAINUI.hover) chainStroke(CHAINUI.hover, COL['face-hot'], 3, true);
+}
+// ── Panel ──
+function chainPanelFields(op) {
+  const cm = op.cm || 'contour', chains = op.chains || [], seg = (k, items, cur, tip) => `<div class="seg">${items.map(([v, l, t]) => `<button data-opset="${k}:${v}" class="${cur === v ? 'on' : ''}" ${t ? `title="${t}"` : ''}>${l}</button>`).join('')}</div>`;
+  let f = `<div class="field"><span>Toolpath</span>${seg('cm', [['contour', 'Contour'], ['pocket', 'Pocket'], ['drill', 'Drill']], cm)}</div>`;
+  if (cm !== 'drill') f += `<div class="field"><span>Click selects</span><div class="seg"><button data-chmode="single" class="${CHAINUI.mode === 'single' ? 'on' : ''}" title="One edge at a time. Double-click an edge for its whole chain.">One edge</button><button data-chmode="chain" class="${CHAINUI.mode === 'chain' ? 'on' : ''}" title="Every click takes the whole connected run of edges.">Whole chain</button></div></div>`;
+  const rows = chains.map((c, i) => `<li data-chrow="${c.id}"><span class="nm">Chain ${i + 1}</span><span class="sub">${c.closed ? 'closed' : 'open'} · ${fmtLs(chainLength(c))}</span>
+      <button class="mini" data-chdo="rev:${c.id}" title="Run the tool the other way round the chain">Reverse</button>${c.closed && cm !== 'drill' ? `<button class="mini ${CHAINUI.startFor === c.id ? 'on' : ''}" data-chdo="start:${c.id}" title="Then click a corner of the chain to start there">Start…</button>` : ''}${!c.closed ? `<button class="mini" data-chdo="close:${c.id}" title="Join the two ends with a straight line">Close</button>` : c.joined ? `<button class="mini" data-chdo="open:${c.id}" title="Take the joining line away again">Open</button>` : ''}<button class="mini" data-chdo="del:${c.id}" title="Remove this chain">✕</button></li>`).join('');
+  f += `<div class="field"><span>${cm === 'drill' ? 'Circles' : 'Chains'}</span><div class="pick ${chains.length ? '' : 'empty'}"><span>${chains.length ? (cm === 'drill' ? 'Click a circle again with Shift to remove it' : 'Shift-click to add more chains') : cm === 'drill' ? 'Click the edge of a hole' : 'Click an edge in the model'}</span><span class="n">${chains.length}</span></div>${rows ? `<ul class="chain-list">${rows}</ul>` : ''}</div>`;
+  if (cm === 'contour') f += `<div class="field"><span>Tool side (looking along the arrow)</span>${seg('side', [['auto', 'Auto', 'Finds the open side of the chain'], ['left', 'Left'], ['right', 'Right'], ['on', 'On line']], op.side || 'auto')}</div>
+    <div class="field"><span>Cut down to</span>${seg('depthMode', [['auto', 'Auto'], ['chain', 'The chain'], ['through', 'Through'], ['below', 'Below it']], op.depthMode || 'auto')}</div>
+    <div class="row3">${num('opSd', op.stepdown, 'Stepdown', 0.1)}${num('opLeave', op.leave, 'Leave', 0.05)}${op.depthMode === 'below' ? num('opDepth', op.depth || 0, 'Depth below chain', 0.1) : num('opThrough', op.through, 'Below bottom', 0.1)}</div>
+    <div class="field"><span>Lead in / out</span>${seg('lead', [['arc', 'Arc'], ['none', 'None']], op.lead || 'arc')}</div>`;
+  if (cm === 'pocket') f += `<div class="field"><span>Floor</span>${seg('depthMode', [['chain', 'At the chain'], ['below', 'Below it']], op.depthMode === 'below' ? 'below' : 'chain')}</div>
+    <div class="row3">${num('opSo', op.stepover, 'Stepover ×Ø', 0.05)}${num('opSd', op.stepdown, 'Stepdown', 0.1)}${op.depthMode === 'below' ? num('opDepth', op.depth || 0, 'Depth below chain', 0.1) : num('opLf', op.leaveFloor, 'Leave on floor', 0.05)}</div>
+    <div class="row2">${num('opLw', op.leaveWall, 'Leave on walls', 0.05)}${num('opFs', op.finishStock == null ? (isIn() ? 0.254 : 0.25) : op.finishStock, 'Leave for finishing', 0.05)}</div>`;
+  if (cm === 'drill') f += drillCycleFields(op) + `<div class="row2">${num('opDepth', op.depth || 0, 'Depth (0 = whole hole)', 0.1)}</div>`;
+  return f;
+}
+function chainDo(op, a) {
+  const [k, id] = a.split(':'), c = (op.chains || []).find(q => q.id === +id), before = snap();
+  if (!c) return;
+  if (k === 'rev') { c.rev = !c.rev; record(`${op.name}: reverse`, before); }
+  else if (k === 'start') { CHAINUI.startFor = CHAINUI.startFor === c.id ? null : c.id; if (CHAINUI.startFor != null) toast('Click a corner of the chain to start there.'); }
+  else if (k === 'close') { c.closed = true; c.joined = true; record(`${op.name}: close chain`, before); }
+  else if (k === 'open') { c.closed = false; c.joined = false; c.start = 0; record(`${op.name}: open chain`, before); }
+  else if (k === 'del') { op.chains = op.chains.filter(q => q !== c); record(`${op.name}: remove chain`, before); }
+  camRefresh();
+}
+function chainSetMode(op, cm) {
+  const C = cam(), before = snap(), want = cm === 'drill' ? ['drill', 'spot'] : ['flat', 'bull'];
+  op.cm = cm;
+  const cur = toolOf(op.tool);
+  if (!want.includes(cur.type)) { const t = C.tools.find(x => want.includes(x.type)); if (t) op.tool = t.n; }
+  if (cm === 'drill' && !op.mode) op.mode = 'peck';
+  if (cm !== 'drill') op.depthMode = cm === 'pocket' ? 'chain' : 'auto';
+  record(`${op.name}: ${cm}`, before);
+  camRefresh();
 }
 function camFacesHL() {
   if (UIX.ws === 'cam' && CAMUI.view === 'auto' && AUTO.hl) return AUTO.hl.faces || [];
@@ -15591,6 +15991,7 @@ function camPanel() {
       <div class="row2">${num('opSo', op.stepover, 'Stepover ×Ø', 0.05)}${num('opSd', op.stepdown, 'Stepdown', 0.1)}</div><div class="row2">${num('opFs', pocketFinishStock(op), 'Leave for finishing', 0.05, 'min="0" title="How far the roughing rings stay off the walls. The finish pass (or a later finishing op) takes this off."')}${num('opRest', op.restD || 0, 'Rest after tool Ø (0 = off)', 1)}</div>
       <label class="chk"><input type="checkbox" id="opFinish" ${op.finish !== false ? 'checked' : ''}> Finish pass: take the walls to size at full depth</label>
       <div class="row2">${num('opLw', op.leaveWall, 'Leave on walls (final)', 0.05)}${num('opLf', op.leaveFloor, 'Leave on floor', 0.05)}</div>`;
+    if (op.type === 'chain') f += chainPanelFields(op);
     if (op.type === 'drill') {
       const hl = opAxis(op) ? op.pts || [] : camHoles(), ax = opAxis(op);
       if (ax) { const pz = poseForOp(op), S = camSetup(); f += `<p class="note"><b>Indexed:</b> holes from ${dirName([ax[0], ax[2], -ax[1]])} · ${hl.length} hole${hl.length === 1 ? '' : 's'}. The part turns on the ${S ? S.name : 'rotary'} to <b>${pz ? pz.label : '—'}</b> so the spindle comes straight down (shown in the view).</p>`; }
@@ -15727,7 +16128,9 @@ function bindCamPanel() {
     for (const [id, k] of Object.entries(drillMap)) setN(id, v => camEdit(op, k, Math.max(k === 'rPlane' ? 0.2 : k === 'chipBack' ? 0.01 : 0, v)));
     setN('opDwell', v => camEdit(op, 'dwell', Math.max(0, v)));
     setN('opTapJ', v => camEdit(op, 'tapJ', clamp(Math.round(v), 1, 4)));
-    panel.querySelectorAll('[data-opset]').forEach(b => b.addEventListener('click', () => { const [k, v] = b.dataset.opset.split(':'); camEdit(op, k, k === 'angle' || k === 'passes' ? +v : v); }));
+    panel.querySelectorAll('[data-opset]').forEach(b => b.addEventListener('click', () => { const [k, v] = b.dataset.opset.split(':'); if (op.type === 'chain' && k === 'cm') chainSetMode(op, v); else camEdit(op, k, k === 'angle' || k === 'passes' ? +v : v); }));
+    panel.querySelectorAll('[data-chmode]').forEach(b => b.addEventListener('click', () => { CHAINUI.mode = b.dataset.chmode; CHAINUI.hoverKey = ''; camRefresh(); }));
+    panel.querySelectorAll('[data-chdo]').forEach(b => b.addEventListener('click', () => chainDo(op, b.dataset.chdo)));
     panel.querySelectorAll('[data-opra]').forEach(b => b.addEventListener('click', () => camSetFinish(op, +b.dataset.opra)));
     panel.querySelectorAll('[data-usecone]').forEach(b => b.addEventListener('click', () => camEdit(op, 'tool', +b.dataset.usecone)));
     panel.querySelectorAll('[data-addcone]').forEach(b => b.addEventListener('click', () => {
@@ -24304,7 +24707,7 @@ function camOptimizeAll() {
   const out = new Map(), ret = st.z1 + cam().retract, inStock = p => p.x >= st.x0 && p.x <= st.x1 && p.y >= st.y0 && p.y <= st.y1;
   ops.forEach((op, k) => {
     const P = raws[k], tool = P.tool, ax = opAxis(op), m0 = P.m;
-    const fixed = !!ax || op.type === 'drill' || !!op.safeLinks || !flatBottom(tool) && tool.type !== 'ball' && tool.type !== 'chamfer';
+    const fixed = !!ax || isDrillOp(op) || !!op.safeLinks || !flatBottom(tool) && tool.type !== 'ball' && tool.type !== 'chamfer';
     let m = m0.map(x => ({ ...x }));
     let airLen = 0, feedLen = 0, lowered = 0, n = 0;
     if (!fixed) {
@@ -29644,6 +30047,7 @@ const TIP_ART = (() => {
     verify: [iso(() => B() + line([P(-18, 0, 8), P(18, 0, 8)], C.dim, 1.6)), iso(() => B() + line([P(-18, -14, 20), P(18, -14, 20), P(18, 14, 20)], C.acc, 1.2) + txt([98, 84], '✓', C.ok, 16))],
     'add:face': [iso(() => box(-16, -12, 0, 32, 24, 14, 's') + poly([P(-16, -12, 14), P(16, -12, 14), P(16, 12, 17), P(-16, 12, 16)], C.stockT, C.stockR)), iso(() => box(-16, -12, 0, 32, 24, 14, 's') + [-8, 0, 8].map(y => line([P(-24, y, 14.2), P(24, y, 14.2)], C.acc, 1.4)).join(''))],
     'add:contour': [iso(() => box(-16, -12, 0, 32, 24, 12, 's')), iso(() => box(-13, -9, 0, 26, 18, 12) + line([P(-17, -13, 6), P(17, -13, 6), P(17, 13, 6), P(-17, 13, 6), P(-17, -13, 6)], C.acc, 1.6))],
+    'add:chain': [iso(() => box(-16, -12, 0, 32, 24, 12)), iso(() => box(-16, -12, 0, 32, 24, 12) + line([P(-16, -12, 12.3), P(16, -12, 12.3), P(16, 12, 12.3)], C.acc, 2.4) + line([P(16, 12, 12.3), P(-16, 12, 12.3), P(-16, -12, 12.3)], C.warn, 1.2, 'stroke-dasharray="3 2"'))],
     'add:pocket': [iso(() => box(-16, -12, 0, 32, 24, 12)), iso(() => box(-16, -12, 0, 32, 24, 12) + poly([P(-9, -6, 12), P(9, -6, 12), P(9, 6, 12), P(-9, 6, 12)], '#7d8896') + [0, 3, 6].map(k => line([P(-k, -k * 0.6, 12.2), P(k, -k * 0.6, 12.2), P(k, k * 0.6, 12.2), P(-k, k * 0.6, 12.2), P(-k, -k * 0.6, 12.2)], C.acc, 1.1)).join(''))],
     'add:drill': [iso(() => B()), iso(() => B() + ell(-7, 0, 14, 3.5, C.hole) + ell(7, 0, 14, 3.5, C.hole) + line([P(7, 0, 30), P(7, 0, 14)], C.cut, 1.4, 'stroke-dasharray="3 2"') + poly([P(6, 0, 36), P(8, 0, 36), P(8, 0, 22), P(7, 0, 19), P(6, 0, 22)], '#c9a24a', C.line, 0.6))],
     'add:drill:spot': [iso(() => B()), iso(() => B() + ell(-7, 0, 14, 2, C.hole) + ell(7, 0, 14, 2, C.hole) + poly([P(6, 0, 28), P(8, 0, 28), P(8, 0, 20), P(7, 0, 16), P(6, 0, 20)], '#c9a24a', C.line, 0.6))],
@@ -29730,6 +30134,7 @@ const TIP_TXT = {
   verify: ['Check every move for gouges, holder hits, rapids through stock and plunges.', ['Click it; problems are corrected where they can be and marked on the simulation track.']],
   'add:face': ['Flatten the top of the stock: one straight stroke across the part at each stepover.', ['Pick the face mill.', 'Set the stepover and depth of cut.', 'Zig-zag or one-way strokes.']],
   'add:contour': ['Cut round the part’s outline (or chosen faces).', ['Outside, inside or through cut-outs.', 'Set the depth steps and lead-in.']],
+  'add:chain': ['Cut from edges you click, like Mastercam: a contour, a pocket or drills on the chains you choose.', ['Click an edge, or double-click for the whole chain.', 'Check the arrow (direction) and the dot (start).', 'Pick contour, pocket or drill.']],
   'add:pocket': ['Clear pockets and floors: down in the middle, out ring by ring, then a finish pass on the walls.', ['Click the floor faces.', 'Set stepover, stepdown and the stock left for finishing.']],
   'add:drill': ['Drill holes with a Haas canned cycle (G81, G82, G83, G73, G85, G84).', ['Pick the hole diameters (or click holes).', 'Pick the cycle; every setting is explained in the panel.']],
   'add:drill:spot': ['Start every hole with a short spot drill so the drills do not wander.', ['Takes every hole diameter in the part.', 'Set the depth and the dwell at the bottom.']],
@@ -34366,6 +34771,11 @@ const GD = {
       gS('Check the toolpath', 'The path draws in the view as soon as it is ready.', () => !!op && toolpathReady(op)),
       gS('Simulate', 'Press <b>Simulate</b> on the operation list to watch it cut.', null, true)];
   }],
+  'op:chain': ['Chain steps', () => [
+      gS('Pick the tool', 'Choose the cutter; it changes with contour, pocket or drill.', () => true),
+      gS('Click the chain', 'Click an edge, double-click for the whole chain, Shift-click to add.', () => { try { const op = opById(CAMUI.op); return !!op && (op.chains || []).length > 0; } catch (e) { return false; } }),
+      gS('Check direction and start', 'The arrow is the way the tool travels, the green dot where it starts. Use Reverse or Start….', null, true),
+      gS('Check the toolpath', 'The path draws in the view as soon as it is ready.', () => { try { const op = opById(CAMUI.op); return !!op && toolpathReady(op); } catch (e) { return false; } })]],
   'op:wire': ['Wire contour steps', () => [
     gS('Choose what to cut', 'Openings and the outside, or openings only.'),
     gS('Set the skims', 'Each skim pass removes the last of the rough pass.', null, true),
@@ -34424,7 +34834,7 @@ function guideKey() {
   if (UIX.ws === 'sheet') return 'sheet';
   if (UIX.ws === 'cam') {
     const v = CAMUI.view;
-    if (v === 'op') { const op = opById(CAMUI.op); return op && op.type === 'wire' ? 'op:wire' : 'op'; }
+    if (v === 'op') { const op = opById(CAMUI.op); return op && op.type === 'wire' ? 'op:wire' : op && op.type === 'chain' ? 'op:chain' : 'op'; }
     return 'cam:' + v;
   }
   return doc.features.length ? 'idle' : 'start';
