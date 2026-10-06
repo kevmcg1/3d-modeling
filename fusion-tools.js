@@ -8,6 +8,11 @@
 //    Inspect:    Physical Properties · Interference · Section Analysis
 // ═══════════════════════════════════════════════════════════════════
 (() => {
+  const st = document.createElement('style');
+  st.textContent = '.insp-tbl{width:100%;border-collapse:collapse;font-size:12px;margin:2px 0 8px}.insp-tbl th{font-weight:500;color:var(--muted);text-align:left;padding:3px 0;border-bottom:1px solid var(--rule)}'
+    + '.insp-tbl td{padding:4px 0;border-bottom:1px solid var(--rule)}.insp-tbl th:last-child,.insp-tbl td:last-child{text-align:right}';
+  document.head.appendChild(st);
+
   // ── Construction planes ────────────────────────────────────────────
   Object.assign(FEAT_BASE, { midplane: 'Midplane', planeang: 'Angle Plane', plane3: '3-Point Plane' });
   const CP_SUB = { midplane: () => 'mid', planeang: f => `${+(+f.angle).toFixed(2)}°`, plane3: () => '3 pts' };

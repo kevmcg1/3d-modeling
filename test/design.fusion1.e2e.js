@@ -9,7 +9,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
 (async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox'] });
   const page = await browser.newPage({ viewport: { width: 1400, height: 850 } });
-  const errs = []; page.on('pageerror', e => errs.push(e.message));
+  const errs = []; page.on('pageerror', e => errs.push(e.message + ' @ ' + String(e.stack).split('\n').slice(1, 3).join(' | ')));
   await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
   await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' }));
   await page.goto('file://' + path.resolve(__dirname, '..', 'index.html')); await page.waitForTimeout(1500);
@@ -73,7 +73,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
     const txt = await page.evaluate(() => panel.innerText);
     assert(/Physical Properties/.test(txt), txt);
     // 20 × 10 × 5 mm = 1000 mm³ = 1 cm³ of steel (7.87 g/cm³) → 7.87 g; area 2 (200 + 100 + 50) = 700 mm² = 7 cm²
-    assert(/1\.000 cm³/.test(txt) && /7\.9 g/.test(txt), txt);
+    assert(/\(1 cm³\)/.test(txt) && /7\.9 g/.test(txt), txt);
     assert(/1\.085 in² \(7 cm²\)/.test(txt), txt);
     assert(/Center of mass X[^]*10/.test(txt), txt);
     await page.evaluate(() => { const s = panel.querySelector('[data-insp="mat"]'); s.value = '2'; s.dispatchEvent(new Event('change')); }); await page.waitForTimeout(150);

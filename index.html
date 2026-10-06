@@ -9363,6 +9363,7 @@ function rebuildPlanes() {
   }
   for (const f of doc.features) if (f.type === 'plane' && (f.vis !== false || pick)) {
     const pl = planeOf(f);
+    if (!pl) continue;                                             // a plane whose references broke has nothing to draw
     const m = planeQuad(pl, size * 0.9, { k: 'feat', feat: f.id });
     m.userData.plane = pl;
     planeGroup.add(m);
