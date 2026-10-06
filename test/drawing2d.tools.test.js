@@ -187,7 +187,7 @@ sections.push(async () => {
   const { page, t, done } = await start();
   const L = "A('line',{p1:[0,0],p2:[10,0]});";
 
-  const card = () => page.evaluate(() => { const c = document.querySelector('#tip'); return c && !c.hidden ? { pics: c.querySelectorAll('.tip-pics svg').length, title: (c.querySelector('.tip-head b') || {}).textContent, desc: (c.querySelector('.tip-what') || {}).textContent } : null; });
+  const card = () => page.evaluate(() => { const c = document.querySelector('#tip'); return c && !c.hidden ? { pics: (c.querySelectorAll('.tip-pics svg').length + 2 * c.querySelectorAll('.tip-anim').length), title: (c.querySelector('.tip-head b') || {}).textContent, desc: (c.querySelector('.tip-what') || {}).textContent } : null; });
   const hoverCard = async sel => { await page.mouse.move(5, 400); await page.waitForTimeout(30); await page.hover(sel); await page.waitForTimeout(470); return card(); };
   await t('no native title attributes anywhere', async () => { const n = await page.evaluate(() => document.querySelectorAll('[title]').length); assert.equal(n, 0); });
   const missing = [];

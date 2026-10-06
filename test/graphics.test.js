@@ -138,7 +138,7 @@ const path = require('path'), assert = require('assert');
   ok('Escape closes a dialog', await ev(() => !document.getElementById('modal').classList.contains('show')));
 
   // hover cards: every tool has name, description and Before/After; filters show a real before/after; no native tooltips
-  const hoverCard = async sel => { await page.mouse.move(5, 830); await page.hover(sel); await page.waitForTimeout(650); return ev(() => { const c = document.getElementById('tipcard'); return { show: !c.hidden && c.classList.contains('in'), name: c.querySelector('.tip-head b')?.textContent || '', what: c.querySelector('.tip-what')?.textContent || '', pics: c.querySelectorAll('.tip-pics figure').length }; }); };
+  const hoverCard = async sel => { await page.mouse.move(5, 830); await page.hover(sel); await page.waitForTimeout(650); return ev(() => { const c = document.getElementById('tipcard'); return { show: !c.hidden && c.classList.contains('in'), name: c.querySelector('.tip-head b')?.textContent || '', what: c.querySelector('.tip-what')?.textContent || '', pics: c.querySelectorAll('.tip-pics figure').length + 2 * c.querySelectorAll('.tip-anim').length }; }); };
   const badCards = []; for (const id of tools) { const c = await hoverCard('.tool[data-tool=' + id + ']'); if (!c.show || !c.name || !c.what || c.pics !== 2) badCards.push([id, c]); }
   ok('every tool shows a hover card with a description and Before/After', badCards.length === 0, badCards);
   await page.click('.mb >> text=Filter'); await page.hover('#pop .mi >> nth=0'); await page.waitForTimeout(450);
