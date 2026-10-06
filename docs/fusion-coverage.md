@@ -18,7 +18,7 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | Hole | ✅ | Simple, counterbore, countersink, tapped |
 | Thread | ✅ | Modeled threads, metric and inch |
 | Box / Cylinder / Sphere / Torus / Cone | ✅ | Primitive (PR #39) |
-| Pipe | 🔜 2 | Circular or square section along a sketch path, with wall thickness |
+| Pipe | ✅ | Round or square section along a sketch path, solid or hollow; closed paths make rings; corners are mitered (batch 2) |
 | Rib | 🔜 3 | Thin wall from an open sketch line up to the body |
 | Web | 🔜 3 | Several ribs in one go |
 | Emboss / Deboss | 🟡 | Text → "Convert to curves" → extrude cut/join works today; wrapping onto curved faces is ⛔ (needs face-parametric projection), planar-face emboss 🔜 4 |
@@ -57,16 +57,16 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | Rectangular Pattern | ✅ | |
 | Circular Pattern | ✅ | |
 | Mirror | ✅ | Bodies and features |
-| Pattern on Path | 🔜 2 | |
+| Pattern on Path | ✅ | Bodies along a sketch path: even or fixed spacing, optional turning to follow the path, join option. Feature patterns on a path are not supported (batch 2) |
 
 ## Construct
 
 | Fusion tool | Status | Notes |
 |---|---|---|
 | Offset Plane | ✅ | |
-| Midplane | 🔜 1 | |
-| Plane at Angle | 🔜 1 | |
-| Plane Through Three Points | 🔜 1 | |
+| Midplane | ✅ | Two parallel planes or flat faces (batch 1) |
+| Plane at Angle | ✅ | About any edge, cylinder axis, sketch line or world axis, from a chosen plane or face (batch 1) |
+| Plane Through Three Points | ✅ | Points snap to vertices, midpoints and centers; fixed where placed, so it does not follow later edits (batch 1) |
 | Plane Through Two Edges, Tangent Plane, Plane Along Path | 🔜 6 | |
 | Axis (cylinder, edge, two points, perpendicular to face) | 🟡 | Edges, cylinders and sketch lines already act as axes inside other tools; a standalone visible axis feature is 🔜 6 |
 | Point (vertex, edge midpoint, center) | ✅ | Point feature with snapping |
@@ -80,7 +80,9 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | Fillet, Chamfer, Trim, Extend, Offset, Mirror, Pattern, Move, Rotate, Scale, Copy / Paste | ✅ | |
 | Project / Include | ✅ | |
 | Dimension | ✅ | Driving dimensions with Update |
-| Ellipse, Slot, Conic curve | 🔜 2 | Slots and ellipses can be approximated with arcs today |
+| Slot | 🟡 | Center-to-center slot with typed length, angle and width (batch 2). Overall, center-point and arc slots 🔜 6 |
+| Ellipse | 🟡 | Center, major and minor radius, drawn as 16 arcs: within 0.3% of the true curve for axis ratios up to 3:1, so it extrudes and machines like any profile; not a true conic (batch 2) |
+| Conic curve | 🔜 3 | Alongside Spline |
 | Spline (fit point, control point) | 🔜 3 | Needs a sampled-curve entity through trim, offset and extrude |
 | Geometric constraints (coincident, tangent, parallel, perpendicular, equal, symmetric, fix) | 🔜 7 | Needs a real constraint solver; today only shared endpoints and dimensions |
 | Sketch on a plane, face or construction plane | ✅ | |
@@ -120,9 +122,9 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | Fusion tool | Status | Notes |
 |---|---|---|
 | Measure | ✅ | Two-point distance with snapping |
-| Physical Properties (mass, volume, area, center of mass, bounding box) | 🔜 1 | With material densities |
-| Interference | 🔜 1 | Pairwise body overlap with volume |
-| Section Analysis | 🔜 1 | Live clipping plane with outline and section area |
+| Physical Properties (mass, volume, area, center of mass, bounding box) | ✅ | Eleven materials with density; per-body table (batch 1) |
+| Interference | ✅ | Pairwise overlap with volume, overlaps drawn in red; no "create body from overlap" yet (batch 1) |
+| Section Analysis | ✅ | Top / Front / Side cut plane with slider, outline and cut area; no filled cap (batch 1) |
 | Zebra, Curvature Comb, Curvature Map, Draft Analysis, Accessibility | 🔜 6 | Draft and curvature come from face normals; zebra and curvature on analytic faces only |
 | Stress / fixturing study | ✅ | Beyond Fusion's basic tools |
 | Blueprint drawing | ✅ | Hands off to the 2D Drawing tab |
@@ -149,8 +151,8 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | Batch | Tools |
 |---|---|
 | 0 ✅ | Everything marked ✅ above, including PR #39 |
-| 1 | Physical Properties, Interference, Section Analysis, Midplane, Plane at Angle, Plane Through Three Points |
-| 2 | Pipe, Pattern on Path, Ellipse, Slot |
+| 1 ✅ | Physical Properties, Interference, Section Analysis, Midplane, Plane at Angle, Plane Through Three Points (PR #42) |
+| 2 ✅ | Pipe, Pattern on Path, Ellipse, Slot |
 | 3 | Rib, Web, Spline |
 | 4 | Variable and setback fillets, two-distance chamfer, Split Face, Delete Face, planar Emboss |
 | 5 | Boundary Fill, Sweep and Loft rails, mesh-only non-uniform Scale |
