@@ -1,0 +1,12 @@
+{
+  "name": "setup-sheet",
+  "version": "1.0.0",
+  "description": "Setup sheet generator for CNC jobs, with vise/lathe drawings and a workholding fixture library",
+  "scripts": {
+    "start": "node serve.js",
+    "test": "node test/fixtures.test.js && node test/e2e.js",
+    "test:unit": "node test/fixtures.test.js"
+  },
+  "devDependencies": { "playwright-core": "^1.48.0" },
+  "license": "CC0-1.0"
+}
