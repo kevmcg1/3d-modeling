@@ -8822,6 +8822,63 @@ function evalPlaneFeature(f, ctx) {
   throw new Error('Unknown plane type');
 }
 FEATX.plane = evalPlaneFeature;
+
+// ── Pipe: a round or square tube along a sketch path, solid or hollow ──
+function pipeLoops(R, shape, hand) {
+  if (shape === 'square') {
+    const pts = [P2(-R, -R), P2(R, -R), P2(R, R), P2(-R, R)];
+    if (hand < 0) pts.reverse();
+    return pts.map((a, i) => ({ k: 'L', a, b: pts[(i + 1) % 4], src: i + 1 }));
+  }
+  return [{ k: 'A', c: P2(0, 0), r: R, t0: 0, s: hand * TAU, a: P2(R, 0), b: P2(R, 0), src: 1 }];
+}
+function evalPipe(f, ctx, tol) {
+  const R = f.d / 2, t = f.hollow ? +f.wall : 0;
+  if (!(R > 0)) throw new Error('The pipe diameter has to be positive');
+  if (f.hollow && !(t > 0 && t < R)) throw new Error('The wall has to be thinner than the pipe radius');
+  const { segs } = pathSegments(f.path, ctx), P0 = segs[0].at(0), T = nrm3(segs[0].tan(0));
+  const u = nrm3(crs3(T, Math.abs(T[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0])), pp = { o: P0, u, v: crs3(T, u), n: T };
+  const sq = f.shape === 'square', plan = sweepPlan(f.path, ctx, pp, P0, 0, 1, sq ? R * Math.SQRT2 : R, tol);
+  const region = { outer: pipeLoops(R, f.shape, 1), holes: f.hollow ? [pipeLoops(R - t, f.shape, -1)] : [] };
+  finishTool(f, ctx, sweepBuild(region, pp, plan.secs, plan.kinds, plan.closed, tol, f.id));
+}
+FEATX.pipe = evalPipe;
+
+// ── Pattern on Path: copies of bodies spaced along a sketch path ──
+function evalPathPattern(f, ctx) {
+  const src = bodiesById(f.bodies, ctx);
+  if (!src.length) throw new Error('Pick bodies to copy');
+  let { segs, closed } = pathSegments(f.path, ctx);
+  if (f.flip) segs = reverseSegs(segs);
+  const L = segs.reduce((a, g) => a + g.len, 0), n = Math.max(2, Math.round(f.n));
+  const ds = f.mode === 'space' ? Math.max(1e-6, +f.s || 0) : closed ? L / n : L / (n - 1);
+  const at = s => {
+    let acc = 0;
+    for (let i = 0; i < segs.length; i++) { const g = segs[i]; if (s <= acc + g.len + 1e-9 || i === segs.length - 1) { const x = clamp(s - acc, 0, g.len); return { p: g.at(x), t: nrm3(g.tan(x)) }; } acc += g.len; }
+  };
+  const A = at(0), made = [];
+  let k = 0;
+  for (let i = 1; i < n; i++) {
+    let s = i * ds;
+    if (closed) s = mod(s, L); else if (s > L + 1e-6) break;
+    const B = at(s);
+    let M = XF.trans(sub3(B.p, A.p));
+    if (f.follow) {
+      const c = clamp(dot3(A.t, B.t), -1, 1), ax = crs3(A.t, B.t);
+      if (len3(ax) > 1e-9) M = XF.mul(XF.rot(B.p, nrm3(ax), Math.acos(c)), M);
+      else if (c < 0) M = XF.mul(XF.rot(B.p, nrm3(crs3(A.t, Math.abs(A.t[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0])), Math.PI), M);
+    }
+    k++;
+    src.forEach((b, j) => {
+      const id = f.id + (k * src.length + j) / 1000, polys = xformPolys(b.polys, M, f.id + ':' + k + ':' + j, { feat: f.id, inst: k });
+      if (f.join) combineTool({ id, op: 'join' }, ctx, polys); else { ctx.bodies = [...ctx.bodies, mkBody(id, polys)]; made.push(id); }
+    });
+  }
+  if (!k) throw new Error('The path is too short for that spacing');
+  if (f.join) made.push(...src.map(b => b.id));
+  ctx.hl[f.id] = made;
+}
+FEATX.pathpat = evalPathPattern;
 </script>
 
 <script type="text/plain" id="worker-main">

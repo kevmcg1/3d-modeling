@@ -301,7 +301,16 @@
   };
   const updateHint0 = updateHint;
   updateHint = function () {
-    if (!(CMD && CMD.type === 'inspect')) return updateHint0.apply(this, arguments);
+    if (!(CMD && CMD.type === 'inspect')) {
+      updateHint0.apply(this, arguments);
+      if (S.sk && !CMD && typeof mineTool === 'function' && mineTool(S.tool)) {
+        const n = S.pts.length, kb = s => `<span class="kbd">${s}</span>`;
+        hintEl.innerHTML = S.tool === 'slot'
+          ? `<b>Slot:</b> ${n === 0 ? 'click the first end center' : n === 1 ? `click the second end center · type ${kb('123')} for length, ${kb('Tab')} angle` : `click to set the width · or type it`}`
+          : `<b>Ellipse:</b> ${n === 0 ? 'click the center' : n === 1 ? `click the end of the major axis · type ${kb('123')} for the radius` : 'click to set the minor radius · or type it'}`;
+      }
+      return;
+    }
     const k = s => `<span class="kbd">${s}</span>`;
     hintEl.innerHTML = { props: `<b>Physical Properties:</b> pick a material to see the mass. The marker is the center of mass. ${k('Esc')} closes.`,
       interf: `<b>Interference:</b> overlaps between bodies show in red. ${k('Esc')} closes.`,
@@ -392,5 +401,201 @@
       'i:section': [iso(() => box(-16, -12, 0, 32, 24, 18), 60, 52, 1.35), iso(() => box(-16, -12, 0, 32, 24, 9) + line([P(-16, -12, 9), P(16, -12, 9), P(16, 12, 9), P(-16, 12, 9), P(-16, -12, 9)], C.warn, 2), 60, 52, 1.35)],
     });
   }
+  // ═══ Batch 2: Pipe, Pattern on Path, and the Slot and Ellipse sketch tools ═══
+  Object.assign(FEAT_BASE, { pipe: 'Pipe', pathpat: 'Path Pattern' });
+  Object.assign(FEAT_IC, { pipe: 'pipe', pathpat: 'pathpat' });
+  TOOL_FEATS.add('pipe'); BODY_MAKERS.add('pipe');
+  const featDeps1 = featDeps;
+  featDeps = function (f, ids) { featDeps1.apply(this, arguments); if ((f.type === 'pipe' || f.type === 'pathpat') && f.path) ids.add(f.path.sketch); };
+
+  // picking a path: the chain of sketch curves joined to the one clicked (as Sweep does)
+  const pathMove = (x, y) => {
+    const e = hoverSkEnt(x, y);
+    if (e) { const sk = byId(e.sketch); CMD.chainPrev = { sketch: e.sketch, ents: curveChain(sk, sk.ents.find(q => q.id === e.ent)).map(q => q.id) }; } else CMD.chainPrev = null;
+    requestDraw();
+  };
+  const pathClick = () => {
+    const h = hover3D;
+    if (!h || h.kind !== 'skent') return false;
+    const sk = byId(h.sketch), chain = curveChain(sk, sk.ents.find(q => q.id === h.ent));
+    CMD.f.path = { sketch: sk.id, ents: chain.map(e => e.id) }; CMD.chainPrev = null;
+    return true;
+  };
+  const pathDraw = () => {
+    const f = CMD.f;
+    if (f.path) strokeSkEnts(f.path.sketch, f.path.ents, COL.accent, 3.2);
+    if (CMD.step === 'path' && CMD.chainPrev) strokeSkEnts(CMD.chainPrev.sketch, CMD.chainPrev.ents, COL['face-hot'], 2.6);
+  };
+  const pathShow = (f, id) => { const sk = byId(id); return !!sk && (sk.vis !== false || (f.path && f.path.sketch === id) || CMD.step === 'path'); };
+  const pathPick = f => pf.pick('Path', f.path ? (byId(f.path.sketch) || {}).name : 'Click a sketch curve', f.path ? f.path.ents.length + ' curve' + (f.path.ents.length === 1 ? '' : 's') : '', 'path');
+
+  FEATS.pipe = {
+    label: 'Pipe', home: 'path', need: 'Pick a path.',
+    init: () => ({ path: null, d: 10, shape: 'round', hollow: false, wall: 1.5, op: opDefault() }),
+    ready: f => !!(f.path && f.path.ents.length),
+    showSketch: pathShow,
+    move(x, y) { pathMove(x, y); },
+    click() { if (pathClick()) featSync(); },
+    draw: pathDraw,
+    panel: f => pathPick(f) + pf.seg('Section', 'shape', [['round', 'Round'], ['square', 'Square']])
+      + pf.num(f.shape === 'square' ? 'Width' : 'Diameter', 'd', { len: 1, min: 0, step: isIn() ? 0.05 : 1 })
+      + pf.chk('Hollow', 'hollow') + (f.hollow ? pf.num('Wall thickness', 'wall', { len: 1, min: 0, step: isIn() ? 0.01 : 0.5 }) : '') + pf.op(f)
+      + pf.note('The pipe starts at the end of the path and follows it; corners are mitered. A closed path (a circle or loop) makes a ring.'),
+    hint: () => 'click a curve of the path (joined curves come along), then set the size',
+    sub: f => `${OP_SIGN[f.op] || ''} ${f.shape === 'square' ? '▢' : 'Ø'}${fmtLs(f.d)}${f.hollow ? ' hollow' : ''}`.trim(),
+    hideSketch: f => { const sk = f.path && byId(f.path.sketch); if (sk) sk.vis = false; },
+  };
+
+  FEATS.pathpat = bodyTool({
+    label: 'Pattern on Path', home: 'bodies', need: 'Pick the bodies and a path.',
+    init: () => ({ bodies: [], path: null, n: 5, mode: 'even', s: 20, follow: false, flip: false, join: false }),
+    ready: f => f.bodies.length > 0 && !!(f.path && f.path.ents.length),
+    showSketch: pathShow,
+    move(x, y) { if (CMD.step === 'path') pathMove(x, y); else hoverBody(x, y); },
+    click() {
+      const c = CMD;
+      if (c.step === 'path') { if (pathClick()) { if (!c.f.bodies.length) c.step = 'bodies'; featSync(); } return; }
+      const h = hover3D;
+      if (h && h.kind === 'bbody') { toggleIn(c.f.bodies, h.body); if (!c.f.path) c.step = 'path'; featSync(); }
+    },
+    bodyClick(id) { if (CMD.step === 'path') return; toggleIn(CMD.f.bodies, id); if (!CMD.f.path) CMD.step = 'path'; featSync(); },
+    draw: pathDraw,
+    panel: f => pf.pick('Bodies', f.bodies.length ? f.bodies.map(id => bodyNames()[id] || 'Body').join(', ') : 'Click bodies', f.bodies.length || '', 'bodies') + pathPick(f)
+      + pf.seg('Spacing', 'mode', [['even', 'Evenly along the path'], ['space', 'Fixed distance']])
+      + (f.mode === 'space' ? `<div class="row2">${pf.num('Count', 'n', { int: 1, min: 2 })}${pf.num('Distance', 's', { len: 1, min: 0 })}</div>` : pf.num('Count (with the original)', 'n', { int: 1, min: 2 }))
+      + pf.chk('Turn the copies to follow the path', 'follow') + pf.chk('Start from the other end', 'flip') + pf.chk('Join copies to the originals', 'join')
+      + pf.note('Copies move from where the path starts. The bodies do not have to sit on the path: they keep their offset from it.'),
+    hint: c => c.step === 'path' ? 'click a curve of the path' : 'click the bodies to copy',
+    sub: f => '× ' + f.n,
+  });
+
+  // little icons, help and the ribbon
+  Object.assign(IC, {
+    pipe: '<path d="M3 14c3 0 3-8 7-8s4 8 7 8" opacity=".55"/><path d="M3 12c3 0 3-8 7-8s4 8 7 8M3 16c3 0 3-8 7-8s4 8 7 8"/>',
+    pathpat: '<path d="M2.5 15c3-8 12-8 15 0" opacity=".5" stroke-dasharray="2 1.6"/><rect x="2.5" y="12.5" width="3" height="3" rx=".5"/><rect x="8.5" y="7.5" width="3" height="3" rx=".5"/><rect x="14.5" y="12.5" width="3" height="3" rx=".5"/>',
+    slot: '<rect x="2.5" y="6.5" width="15" height="7" rx="3.5"/><path d="M6 10h.01M14 10h.01"/>',
+    ellipse: '<ellipse cx="10" cy="10" rx="7.5" ry="4.6"/><path d="M10 10h.01"/>',
+  });
+  Object.assign(FA_MAP, { pipe: 'water', pathpat: 'route', slot: 'capsules', ellipse: 'regular/circle' });
+  Object.assign(MENU_IC, { 'f:pipe': 'pipe', 'f:pathpat': 'pathpat' });
+  TB_MENUS.create.push(['f:pipe', 'Pipe', '']);
+  TB_MENUS.pattern.push(['f:pathpat', 'Pattern on Path', '']);
+  const rbAppend = (h, title, items) => {
+    const key = `</div><div class="rb-title">${title}</div>`, i = h.indexOf(key);
+    return i < 0 ? h : h.slice(0, i) + `<div class="rb-col">${items.map(it => rbBtn('data-act', it, 'sm')).join('')}</div>` + h.slice(i);
+  };
+  const modelToolbar1 = modelToolbarHTML;
+  modelToolbarHTML = function () {
+    let h = modelToolbar1.apply(this, arguments);
+    h = rbAppend(h, 'Create', [['f:pipe', 'Pipe', '', 'pipe', cmdIs('pipe')]]);
+    return rbAppend(h, 'Pattern', [['f:pathpat', 'On Path', '', 'pathpat', cmdIs('pathpat')]]);
+  };
+  Object.assign(TIP_TXT, {
+    'f:pipe': ['A round or square tube along a sketch path, solid or hollow.', ['Click a sketch curve; joined curves come along.', 'Pick round or square, the size, and a wall if hollow.', 'Choose New body, Join or Cut, then OK.']],
+    'f:pathpat': ['Repeat bodies along a sketch path.', ['Click the bodies to copy.', 'Click the path.', 'Set the count (or a fixed distance) and OK.']],
+    slot: ['A slot: two round ends joined by straight sides.', ['Click the first end center.', 'Click the second end center (or type the length).', 'Click to set the width (or type it).']],
+    ellipse: ['An ellipse from its center and two radii.', ['Click the center.', 'Click the end of the long axis (or type the radius).', 'Click to set the short radius.']],
+  });
+  Object.assign(TOOL_HELP, {
+    slot: 'Click the two end centers, then the width. Type a length and angle, then the width.',
+    ellipse: 'Click the center, the end of the major axis, then a point for the minor radius. Drawn as exact-fit arcs, so it extrudes and machines like any other profile.',
+  });
+  if (typeof TipArt !== 'undefined' && typeof TIP_ART !== 'undefined') {
+    const { C, at, P, poly, line, box, arrow, dot, ell, cyl, sk, grid } = TipArt;
+    const iso = (f, ox = 60, oy = 48, s = 1.55) => () => { at(ox, oy, s); return f(); };
+    const k2 = f => () => grid() + f();
+    const wave = z => [P(-24, -6, z), P(-12, 8, z), P(0, -6, z), P(12, 8, z), P(24, -6, z)];
+    Object.assign(TIP_ART, {
+      'f:pipe': [iso(() => line(wave(4), C.path, 1.6, 'stroke-dasharray="3 2"'), 60, 52, 1.3), iso(() => line(wave(4), C.acc, 7) + line(wave(4), '#dfe9fb', 3.2), 60, 52, 1.3)],
+      'f:pathpat': [iso(() => line([P(-24, 6, 0), P(-8, -8, 0), P(8, -8, 0), P(24, 6, 0)], C.path, 1.4, 'stroke-dasharray="3 2"') + box(-28, 2, 0, 8, 8, 8, 'a'), 60, 52, 1.3), iso(() => line([P(-24, 6, 0), P(-8, -8, 0), P(8, -8, 0), P(24, 6, 0)], C.path, 1.4, 'stroke-dasharray="3 2"') + box(-28, 2, 0, 8, 8, 8, 'a') + box(-12, -12, 0, 8, 8, 8, 'a') + box(4, -12, 0, 8, 8, 8, 'a') + box(20, 2, 0, 8, 8, 8, 'a'), 60, 52, 1.3)],
+      slot: [k2(() => dot([36, 45]) + dot([84, 45])), k2(() => sk('M36,36 H84 A9,9 0 0 1 84,54 H36 A9,9 0 0 1 36,36 Z') + dot([36, 45], C.dim) + dot([84, 45], C.dim))],
+      ellipse: [k2(() => dot([60, 45]) + dot([88, 45])), k2(() => sk('M60,45 m-28,0 a28,17 0 1,0 56,0 a28,17 0 1,0 -56,0') + dot([60, 45], C.dim) + dot([88, 45], C.dim))],
+    });
+  }
+
+  // ── Sketch: Slot and Ellipse (made of lines and arcs, so everything downstream works on them) ──
+  const arcEnt = (c, r, a0, a1) => ({ type: 'arc', c: cp2(c), r, a0, a1 });
+  function slotEnts(c1, c2, w) {
+    const L = dst2(c1, c2), r = w / 2;
+    if (L < 1e-9 || !(r > 1e-9)) return null;
+    const th = ang2(c1, c2), nx = -Math.sin(th) * r, ny = Math.cos(th) * r;
+    return [{ type: 'line', a: P2(c1.x + nx, c1.y + ny), b: P2(c2.x + nx, c2.y + ny) }, arcEnt(c2, r, th - Math.PI / 2, th + Math.PI / 2),
+      { type: 'line', a: P2(c2.x - nx, c2.y - ny), b: P2(c1.x - nx, c1.y - ny) }, arcEnt(c1, r, th + Math.PI / 2, th + 3 * Math.PI / 2)];
+  }
+  // an ellipse as 16 arcs, each through three points of the true curve;
+  // within 0.3% of the exact curve and 0.05% of its area for axis ratios up to 3:1
+  function ellipseEnts(c, m, p) {
+    const a = dst2(c, m), th = ang2(c, m);
+    if (a < 1e-9) return null;
+    const u = nrm2(sub2(m, c)), q = sub2(p, c), b = Math.abs(u.x * q.y - u.y * q.x);
+    if (b < 1e-9) return null;
+    if (Math.abs(a - b) < 1e-9 * a) return [{ type: 'circle', c: cp2(c), r: a }];
+    const at = t => P2(c.x + a * Math.cos(t) * Math.cos(th) - b * Math.sin(t) * Math.sin(th), c.y + a * Math.cos(t) * Math.sin(th) + b * Math.sin(t) * Math.cos(th));
+    const out = [], cuts = [0, 0.25, 0.5, 0.75, 1];
+    for (let k = 0; k < 4; k++) for (let i = 0; i < 4; i++) {
+      const t0 = (k + cuts[i]) * Math.PI / 2, t1 = (k + cuts[i + 1]) * Math.PI / 2, g = arcThrough(at(t0), at((t0 + t1) / 2), at(t1));
+      if (!g) return null;
+      out.push({ type: 'arc', c: cp2(g.c), r: g.r, a0: g.a0, a1: g.a1 });
+    }
+    return out;
+  }
+  const slotWidth = p => { const c1 = S.pts[0], u = nrm2(sub2(S.pts[1], c1)), q = sub2(p, c1); return 2 * Math.abs(u.x * q.y - u.y * q.x); };
+  const mineTool = t => t === 'slot' || t === 'ellipse';
+  const sideOf = (a, b, p) => { const u = sub2(b, a), q = sub2(p, a); return (u.x * q.y - u.y * q.x) < 0 ? -1 : 1; };
+  const toolClick0 = toolClick;
+  toolClick = function (p) {
+    const t = S.tool;
+    if (!mineTool(t)) return toolClick0.apply(this, arguments);
+    if (S.pts.length < 2) { if (S.pts.length === 1 && dst2(S.pts[0], p) < 1e-9) return; S.pts.push(p); resetDim(); return; }
+    const ents = t === 'slot' ? slotEnts(S.pts[0], S.pts[1], slotWidth(p)) : ellipseEnts(S.pts[0], S.pts[1], p);
+    if (!ents) return;
+    pushUndo(t === 'slot' ? 'Slot' : 'Ellipse'); addEnts(ents); S.pts = []; resetDim();
+  };
+  const dimSpec0 = dimSpec;
+  dimSpec = function () {
+    const t = S.tool, n = S.pts.length;
+    if (!mineTool(t)) return dimSpec0.apply(this, arguments);
+    if (n === 1) return t === 'slot' ? ['Length', 'Angle°'] : ['Major radius', 'Angle°'];
+    return n === 2 ? [t === 'slot' ? 'Width' : 'Minor radius'] : null;
+  };
+  const applyDims0 = applyDims;
+  applyDims = function (p) {
+    const t = S.tool;
+    if (!mineTool(t) || !S.dim || !S.pts.length) return applyDims0.apply(this, arguments);
+    const a = S.pts[0], v0 = dimVal(0), v1 = dimVal(1);
+    if (S.pts.length === 1) {
+      const d = sub2(p, a); let L = len2(d), th = Math.atan2(d.y, d.x);
+      if (v1 !== null) { th = v1 * Math.PI / 180; L = Math.max(0, dot2(d, P2(Math.cos(th), Math.sin(th)))); }
+      if (v0 !== null) L = Math.abs(v0);
+      return add2(a, P2(Math.cos(th) * L, Math.sin(th) * L));
+    }
+    if (v0 === null) return p;
+    const u = nrm2(sub2(S.pts[1], a)), sd = sideOf(a, S.pts[1], p), h = (t === 'slot' ? Math.abs(v0) / 2 : Math.abs(v0)) * sd;
+    return add2(a, P2(-u.y * h, u.x * h));
+  };
+  const drawToolPreview0 = drawToolPreview;
+  drawToolPreview = function () {
+    drawToolPreview0.apply(this, arguments);
+    const t = S.tool, c = S.cur;
+    if (!mineTool(t) || !c || !S.pts.length) return;
+    const m = planeXf(planeOf(S.sk)), mouse = S.mouse || P2(0, 0), pv = e => strokeEnt(m, e, COL.accent, 1.6, [5, 4]);
+    const p0 = S.pts[0];
+    if (S.pts.length === 1) { pv({ type: 'line', a: p0, b: c }); label((t === 'slot' ? 'Length ' : 'R ') + fmtLs(dst2(p0, c)), mouse.x + 16, mouse.y - 12); }
+    else {
+      const ents = t === 'slot' ? slotEnts(p0, S.pts[1], slotWidth(c)) : ellipseEnts(p0, S.pts[1], c);
+      if (ents) ents.forEach(pv);
+      pv({ type: 'line', a: p0, b: S.pts[1] });
+      label(t === 'slot' ? 'Width ' + fmtLs(slotWidth(c)) : `${fmtLs(dst2(p0, S.pts[1]))} × ${fmtLs(2 * Math.abs((() => { const u = nrm2(sub2(S.pts[1], p0)), q = sub2(c, p0); return u.x * q.y - u.y * q.x; })()))}`, mouse.x + 16, mouse.y - 12);
+    }
+    og.fillStyle = COL.accent;
+    for (const p of S.pts) { const s = xfPt(m, p); og.beginPath(); og.arc(s.x, s.y, 3, 0, TAU); og.fill(); }
+  };
+  SKETCH_TOOLS[0].push(['slot', 'Slot', ''], ['ellipse', 'Ellipse', '']);
+  const sketchRibbon0 = sketchRibbonHTML;
+  sketchRibbonHTML = function () {
+    const T = (a, l, k) => [a, l, k, a, S.tool === a];
+    return rbAppend(sketchRibbon0.apply(this, arguments), 'Create', [T('slot', 'Slot', ''), T('ellipse', 'Ellipse', '')]);
+  };
+
   refreshUI();                                                    // the ribbon was drawn before this file ran
 })();
