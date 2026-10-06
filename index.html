@@ -8879,6 +8879,57 @@ function evalPathPattern(f, ctx) {
   ctx.hl[f.id] = made;
 }
 FEATX.pathpat = evalPathPattern;
+
+// ── Rib / Web: thin walls from open sketch curves, extruded square to the sketch plane ──
+// A chain of lines and arcs is sampled, thickened to a flat-ended strip (mitered at bends) and extruded; several chains make a web.
+function ribLoops(pts, closed, h) {
+  const n = pts.length, nrm = (a, b) => { const d = nrm2(sub2(b, a)); return P2(-d.y, d.x); };
+  const side = s => {
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const prev = i > 0 || closed ? nrm(pts[(i - 1 + n) % n], pts[i]) : null, next = i < n - 1 || closed ? nrm(pts[i], pts[(i + 1) % n]) : null;
+      if (prev && next) {
+        const c = dot2(prev, next), m = add2(prev, next), k = 1 + c;
+        if (k > 0.35) out.push(add2(pts[i], mul2(m, s * h / k)));                       // a mitered bend
+        else { out.push(add2(pts[i], mul2(prev, s * h)), add2(pts[i], mul2(next, s * h))); }   // a hairpin: bevel it
+      } else out.push(add2(pts[i], mul2(prev || next, s * h)));
+    }
+    return out;
+  };
+  const L = side(1), R = side(-1), seg = (a, b, i) => ({ k: 'L', a, b, src: i + 1 });
+  const loop = ps => ps.map((a, i) => seg(a, ps[(i + 1) % ps.length], i));
+  const area = ps => { let s = 0; for (let i = 0; i < ps.length; i++) { const a = ps[i], b = ps[(i + 1) % ps.length]; s += a.x * b.y - b.x * a.y; } return s / 2; };
+  const wind = (ps, ccw) => ((area(ps) > 0) === ccw ? ps : ps.slice().reverse());                // outer loops run counter-clockwise, holes clockwise
+  if (closed) { const big = Math.abs(area(L)) > Math.abs(area(R)); return { outer: loop(wind(big ? L : R, true)), holes: [loop(wind(big ? R : L, false))] }; }
+  return { outer: loop(wind(L.concat(R.reverse()), true)), holes: [] };
+}
+function evalRib(f, ctx, tol) {
+  const h = (+f.t || 0) / 2;
+  if (!(h > 0)) throw new Error('The rib thickness has to be positive');
+  if (!(f.chains && f.chains.length)) throw new Error('Pick the sketch curves for the rib');
+  let z0, z1;
+  if (f.extent === 'all') { let r = 1e3; for (const b of ctx.bodies) r = Math.max(r, Math.hypot(b.bb[3] - b.bb[0], b.bb[4] - b.bb[1], b.bb[5] - b.bb[2]) * 2 + 20); z0 = -r; z1 = r; }
+  else if (f.mode === 'sym') { const d = Math.abs(+f.dist || 0) / 2; z0 = -d; z1 = d; }
+  else { const d = +f.dist || 0; z0 = Math.min(0, d); z1 = Math.max(0, d); }
+  if (!(z1 - z0 > 1e-9)) throw new Error('The rib height has to be more than zero');
+  let tool = [];
+  for (const ch of f.chains) {
+    const sk = byId(ch.sketch);
+    if (!sk) throw new Error('A rib sketch was deleted');
+    const pl = ctx.planes[sk.id] || sk.plane, { segs, closed } = pathSegments(ch, ctx), pts = [];
+    segs.forEach((g, gi) => {
+      const m = g.k === 'L' ? 1 : Math.max(4, Math.ceil(circleN(g.r, tol) * g.len / (TAU * g.r)));
+      for (let i = gi === 0 ? 0 : 1; i <= m; i++) { const q = g.at(g.len * i / m); pts.push(P2(dot3(sub3(q, pl.o), pl.u), dot3(sub3(q, pl.o), pl.v))); }
+    });
+    if (closed && dst2(pts[0], pts[pts.length - 1]) < 1e-9) pts.pop();
+    const clean = pts.filter((p, i) => !i || dst2(p, pts[i - 1]) > 1e-9);
+    if (clean.length < 2) throw new Error('A rib curve is too short');
+    const polys = prism(ribLoops(clean, closed, h), pl, z0, z1, tol, f.id);
+    tool = tool.length ? CSG.union(tool, polys) : polys;
+  }
+  finishTool(f, ctx, tool);
+}
+FEATX.rib = evalRib;
 </script>
 
 <script type="text/plain" id="worker-main">
