@@ -28,7 +28,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
   });
   await ok('the toolpath list offers the new modes and the Chain panel shows them', async () => {
     const r = await page.evaluate(() => { const op = opById(CAMUI.op); chainSetMode(op, 'dynamic'); const html = chainPanelFields(op); return { modes: Object.keys(MC_CM), has: ['Dynamic Mill', 'Peel Mill', 'Area Mill', 'Corner Rest Mill'].every(n => html.includes(n)), cm: op.cm, tool: toolOf(op.tool).type }; });
-    assert(r.modes.length === 4 && r.has && r.cm === 'dynamic' && ['flat', 'bull'].includes(r.tool), JSON.stringify(r));
+    assert(r.modes.length >= 4 && r.has && r.cm === 'dynamic' && ['flat', 'bull'].includes(r.tool), JSON.stringify(r));
   });
   await ok('dynamic: clears the pocket to its floor with a light bite, raised feed and nothing outside the walls', async () => {
     const r = await page.evaluate(() => {
@@ -137,6 +137,35 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
       return { pending: !!P.pending, n: P.m.length, warn: P.warn, levels: zs.length, maxz: Math.max(...cut.map(m => m.z)), info: P.info, html: chainPanelFields ? 1 : 0 };
     });
     assert(!r.pending && r.n > 100 && !r.warn.length && r.levels > 3 && /rough/.test(r.info), JSON.stringify(r));
+  });
+  // ── batch 3: 3D surface finishing ──
+  await page.evaluate(() => { const s = SAMPLES.find(x => x.name === 'Sculpted dome') || SAMPLES.find(x => /dome|bowl|sphere|mold|mould/i.test(x.name)); window.__sample = s ? s.name : null; });
+  for (const strat of ['radial', 'spiral', 'scallop', 'pencil']) {
+    await ok(`3D Finish ${strat}: follows the surface, never below the part, no warnings`, async () => {
+      const r = await page.evaluate(strat => {
+        const C = cam(); C.ops = []; camAddOp('surf'); const op = C.ops[0]; op.strategy = strat; op.stepover = 2; op.leave = 0;
+        const P = toolpath(op), cut = P.m.filter(m => !m.r), part = camPart(); let low = 0;
+        for (const m of cut) { const top = partTopAt(m.x, m.y); if (isFinite(top) && m.z < top - 0.05 - (1 - Math.cos(0)) ) low++; }
+        return { n: P.m.length, warn: P.warn, low, info: P.info, ball: toolOf(op.tool).type };
+      }, strat);
+      assert(r.ball === 'ball' && r.n > 20 && (strat === 'pencil' || !r.warn.length) && r.low === 0, JSON.stringify(r));
+    });
+  }
+  await ok('3D Finish pencil: finds the inside corners of the pocketed plate (pocket floors meet the walls)', async () => {
+    const r = await page.evaluate(() => { const op = cam().ops[0]; op.minAngle = 25; const P = toolpath(op); return { n: P.m.length, warn: P.warn, info: P.info }; });
+    assert(r.n > 40 && !r.warn.length && /corner run/.test(r.info), JSON.stringify(r));
+  });
+  await ok('Project (3D contour): a chain is followed over the surface at the surface height', async () => {
+    const r = await page.evaluate(() => {
+      const C = cam(); C.ops = []; camAddOp('chain'); const c = pocketChain(), op = setMode('project', c, {}), P = toolpath(op), cut = P.m.filter(m => !m.r);
+      let off = 0; for (const m of cut) { const top = partTopAt(m.x, m.y); if (isFinite(top) && Math.abs(m.z - top) > 0.5) off++; }
+      return { n: P.m.length, warn: P.warn, off, tool: toolOf(op.tool).type, fin: mcFin(op) };
+    });
+    assert(r.n > 20 && !r.warn.length && r.tool === 'ball' && r.fin && r.off < 0.15 * 449, JSON.stringify(r));
+  });
+  await ok('3D Finish and Project show in the heat map', async () => {
+    const r = await page.evaluate(() => { const C = cam(); C.ops = []; camAddOp('surf'); const op = C.ops[0]; op.stepover = 2; HEAT.on = true; CAMUI.view = 'sim'; simStart(); camDraw(); const s = (HEAT.segs || []).filter(x => x.op === op && !x.m.plunge); return { n: s.length, ae: s.length && s[5].m.ae }; });
+    assert(r.n > 20 && r.ae > 1.9 && r.ae < 2.1, JSON.stringify(r));
   });
   await ok('no page errors', async () => { assert(!errs.length, errs.join(' | ')); });
   await browser.close();

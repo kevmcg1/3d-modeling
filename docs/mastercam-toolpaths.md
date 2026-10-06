@@ -49,15 +49,15 @@ What the Manufacture tab can cut compared with Mastercam's toolpath families, an
 | Surface Finish Waterline (Constant Z) | Done | Level-by-level contours; ramp or plunge entry |
 | Surface Rough Pocket (Z-level rough) | Done | Batch 2: 3D Rough Pocket. Levels from the stock top, an extra level at every flat floor, stock left on walls and floors. Steep walls come out as steps |
 | Surface Rough Parallel | Done | Batch 2: the "Rough" option on 3D Parallel cuts the drop-cutter raster level by level, only where the surface is at or below the level |
-| Surface Rough Project / Radial / Flowline | Batch 3 | Project and radial about a point; flowline partial (needs a surface UV) |
+| Surface Rough Project / Radial / Flowline | Batch 4 | Project and radial about a point; flowline partial (needs a surface UV) |
 | Surface High Speed: Dynamic OptiRough, Area Rough, Hybrid | Batch 3, approx. | 3D version of Dynamic Mill on a heightfield; true engagement control is approximated |
 | Rest Mill (3D leftover) | Batch 4 | Material left by a larger tool, from the heightfield |
 | Horizontal Area / Flat finish | Batch 4 | Flat floors only |
 | Steep and Shallow | Batch 4 | Waterline on steep, parallel or scallop on shallow |
-| Scallop (constant step-over) | Batch 4 | 3D offsets from the boundary |
-| Pencil / Corner | Batch 4 | Along inside edges by a drop-cutter ridge search |
-| Spiral, Radial finish | Batch 5 | Over a round region |
-| Contour / Project (curves on a surface) | Batch 5 | Chain projected onto the part by a drop-cutter |
+| Scallop (constant step-over) | Done (approx.) | Batch 3: rings of the outline inward, stepover true in plan view (wider on steep walls) |
+| Pencil / Corner | Done | Batch 3: along concave creases found from the mesh, ball resting in the crease |
+| Spiral, Radial finish | Done | Batch 3: 3D Finish, strategies Radial and Spiral about a center you set; ball mill follows the surface by drop-cutter |
+| Contour / Project (curves on a surface) | Done | Batch 3: Project (3D contour) chain mode; chain followed over the surface by the tool tip |
 | Morph between curves | Batch 5, partial | Two chains, linear blend |
 
 ## Multiaxis
@@ -96,8 +96,8 @@ What the Manufacture tab can cut compared with Mastercam's toolpath families, an
 
 1. Done (PR #43): Dynamic Mill, Peel Mill, Area Mill, Corner Rest Mill, Ramp Contour.
 2. Done: bore G86, bore with dwell G89, fine bore G76, 3D Rough Pocket, rough 3D Parallel.
-3. 3D roughing and side cutters: rough project, radial, dynamic OptiRough, keyseat / T-slot.
-4. 3D finishing: rest mill, horizontal, steep and shallow, scallop, pencil.
-5. 3D finishing cont.: spiral, radial, contour, project, morph; in-process stock model; holder checks.
+3. Done: 3D Finish (radial, spiral, scallop, pencil) and Project.
+4. 3D roughing and finishing: rough radial/project, dynamic OptiRough, rest mill, horizontal, steep and shallow, flowline, morph; keyseat / T-slot.
+5. In-process stock model; holder checks for 3D; remaining 2D items.
 6. Multiaxis: indexed 3+2 on any toolpath; work offsets G55 to G59; posts.
 7. Lathe and 4-axis wire.
