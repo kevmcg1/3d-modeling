@@ -70,11 +70,20 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
     const r = await page.evaluate(() => { const op = opById(CAMUI.op), P = toolpath(op), g = postGcode().text; return { n: (op.chains || []).length, holes: (P.holes || []).length, warn: P.warn, gcode: /G8[1-5]/.test(g) }; });
     assert(r.n === 1 && r.holes === 1 && !r.warn.length && r.gcode, JSON.stringify(r));
   });
-  await ok('sidebar has separate Manual and Auto categories', async () => {
-    const r = await page.evaluate(() => { const h = [...document.querySelectorAll('.auto-head')].map(e => e.textContent.replace(/\s+/g, ' ').trim()), man = document.querySelector('.manual-card'); return { h, manual: man ? man.querySelectorAll('[data-op]').length : -1 }; });
-    assert(r.h[0].startsWith('Manual') && r.h[1].startsWith('Auto') && r.manual === 1, JSON.stringify(r));
-    const a = await page.evaluate(() => { camAddOp('face'); const op = cam().ops[cam().ops.length - 1]; op.auto = true; camRefresh(); return [...document.querySelectorAll('.auto-card')].map(c => c.querySelectorAll('[data-op]').length); });
-    assert.deepStrictEqual(a, [1, 1], JSON.stringify(a));
+  await ok('a rail left of the right sidebar has Manual and Auto; clicking one lists its operations in the sidebar', async () => {
+    const r = await page.evaluate(() => { const rail = document.getElementById('catrail'), p = document.getElementById('panel'); return { vis: !rail.hidden, labels: [...rail.querySelectorAll('.cat-btn')].map(b => b.textContent.replace(/\s+/g, ' ').trim()), left: rail.getBoundingClientRect().right <= p.getBoundingClientRect().left + 1 }; });
+    assert(r.vis && r.left && r.labels[0].startsWith('Manual') && r.labels[1].startsWith('Auto'), JSON.stringify(r));
+    await page.click('#catrail [data-cat="manual"]'); await page.waitForTimeout(200);
+    let a = await page.evaluate(() => ({ h: document.querySelector('#panel h2').textContent, rows: document.querySelectorAll('#panel .cat-list [data-op]').length, on: document.querySelector('#catrail .cat-btn.on').dataset.cat }));
+    assert.deepStrictEqual(a, { h: 'Manual', rows: 1, on: 'manual' }, JSON.stringify(a));
+    await page.evaluate(() => { camAddOp('face'); cam().ops[cam().ops.length - 1].auto = true; CAMUI.view = 'overview'; camRefresh(); });
+    await page.click('#catrail [data-cat="auto"]'); await page.waitForTimeout(200);
+    a = await page.evaluate(() => ({ h: document.querySelector('#panel h2').textContent, rows: document.querySelectorAll('#panel .cat-list [data-op]').length }));
+    assert.deepStrictEqual(a, { h: 'Auto', rows: 1 }, JSON.stringify(a));
+    await page.click('#panel .cat-list [data-op]'); await page.waitForTimeout(200);
+    assert(await page.evaluate(() => CAMUI.view === 'op' && document.querySelector('#catrail .cat-btn.on').dataset.cat === 'auto'), 'opening an op keeps its category lit');
+    await page.evaluate(() => setWorkspace('design')); await page.waitForTimeout(200);
+    assert(await page.evaluate(() => document.getElementById('catrail').hidden), 'rail hidden outside Manufacture');
   });
   await ok('no page errors', async () => assert(!errs.length, errs.join(' | ')));
   await browser.close();
