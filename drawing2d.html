@@ -233,6 +233,7 @@ input[type=text], input[type=number], textarea { background:#fff; border:1px sol
 <div id="tip" hidden></div>
 <div id="dlg" hidden><div class="card" id="dlgCard"></div></div>
 <input type="file" id="fileIn" accept=".dxf,.json,.d2d,application/json,text/plain" hidden>
+<script src="tip-anim.js"></script>
 <script>
 'use strict';
 /* ═══ 2D geometry kernel: points are [x, y]; curves are "atoms" — a line segment or a circular arc ═══ */
@@ -3973,7 +3974,7 @@ function tipInfo(el) {
   const km = /^(.*?)\s*\(([^)]+)\)\s*$/.exec(tip), nm = km ? km[1] : tip.replace(/:.*$/, ''), kk = km && isKey(km[2]) ? km[2] : '';
   return { name: nm.charAt(0).toUpperCase() + nm.slice(1), desc: tip.includes(':') ? tip.replace(/^[^:]*:\s*/, '').replace(/^./, c => c.toUpperCase()) + '.' : (km && !kk ? km[2] : ''), steps: [], art: null, key: kk };
 }
-function tipHide() { clearTimeout(TIP.t1); clearTimeout(TIP.t2); const c = $('#tip'); if (c) { c.classList.remove('in', 'more'); c.hidden = true; } TIP.el = null; G.tipFor = null; }
+function tipHide() { TipAnim.stop(); clearTimeout(TIP.t1); clearTimeout(TIP.t2); const c = $('#tip'); if (c) { c.classList.remove('in', 'more'); c.hidden = true; } TIP.el = null; G.tipFor = null; }
 function tipPlace() {
   const c = $('#tip'), el = TIP.el; if (!el || !c) return; const r = el.getBoundingClientRect(), w = c.offsetWidth, h = c.offsetHeight;
   let x = r.left + r.width / 2 - w / 2, y = r.bottom + 10; if (y + h > innerHeight - 8) y = Math.max(8, r.top - h - 10);
@@ -3981,10 +3982,10 @@ function tipPlace() {
 }
 function tipShow() {
   const el = TIP.el; if (!el || !document.contains(el)) return; const info = tipInfo(el); if (!info) return; const c = $('#tip');
-  const pic = info.art ? `<div class="tip-pics"><figure>${info.art[0]()}<figcaption>Before</figcaption></figure><span class="tip-arr">→</span><figure>${info.art[1]()}<figcaption>After</figcaption></figure></div>` : info.icon ? `<div class="tip-plate">${ic(info.icon, 34)}</div>` : '';
+  const pic = info.art ? TipAnim.pics(info.art[0](), info.art[1]()) : info.icon ? `<div class="tip-plate">${ic(info.icon, 34)}</div>` : '';
   const steps = (info.steps || []).filter(Boolean);
   c.innerHTML = `<div class="tip-head"><b>${info.name}</b>${info.key ? `<span class="tip-cmd">${info.key}</span>` : ''}</div>${info.desc ? `<p class="tip-what">${info.desc}</p>` : ''}${pic}${steps.length ? `<div class="tip-more"><div class="tip-step">How to use it</div><ol>${steps.map(s => `<li>${s}</li>`).join('')}</ol></div><div class="tip-hold">Keep hovering for the steps</div>` : ''}`;
-  c.hidden = false; tipPlace(); requestAnimationFrame(() => c.classList.add('in'));
+  c.hidden = false; tipPlace(); TipAnim.start(c); requestAnimationFrame(() => c.classList.add('in'));
   if (steps.length) TIP.t2 = setTimeout(() => { c.classList.add('more'); requestAnimationFrame(tipPlace); setTimeout(tipPlace, 260); }, 1300);
 }
 // lift every native title into data-tip so the browser never shows its own tooltip

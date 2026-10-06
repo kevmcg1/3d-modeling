@@ -30693,7 +30693,7 @@ const TIP_TXT = {
   document.body.appendChild(card);
   let el = null, t1 = 0, t2 = 0;
   const keyOf = b => b.dataset.tipkey || b.dataset.act || b.dataset.cam || b.dataset.sheet || b.dataset.tool || '';
-  const hide = () => { clearTimeout(t1); clearTimeout(t2); card.classList.remove('in', 'more'); card.hidden = true; if (el && el.dataset.tipTitle) { el.title = el.dataset.tipTitle; delete el.dataset.tipTitle; } el = null; };
+  const hide = () => { clearTimeout(t1); clearTimeout(t2); TipAnim.stop(); card.classList.remove('in', 'more'); card.hidden = true; if (el && el.dataset.tipTitle) { el.title = el.dataset.tipTitle; delete el.dataset.tipTitle; } el = null; };
   const place = () => {
     if (!el) return;
     const r = el.getBoundingClientRect(), w = card.offsetWidth, h = card.offsetHeight;
@@ -30707,10 +30707,10 @@ const TIP_TXT = {
     const hue = (el.closest('.rb-panel') || el).style.getPropertyValue('--h') || '';
     const grp = (el.closest('.rb-panel') || {}).getAttribute ? (el.closest('.rb-panel').getAttribute('aria-label') || '') : '';
     const ic = el.querySelector('svg');
-    const pic = art ? `<div class="tip-pics"><figure>${TipArt.wrap(art[0]())}<figcaption>Before</figcaption></figure><span class="tip-arr">→</span><figure>${TipArt.wrap(art[1]())}<figcaption>After</figcaption></figure></div>`
+    const pic = art ? TipAnim.pics(TipArt.wrap(art[0]()), TipArt.wrap(art[1]()))
       : ic && el.closest('#toolbar') ? `<div class="tip-plate" style="--h:${hue || 214}">${ic.outerHTML}</div>` : '';
     card.innerHTML = `<div class="tip-head"><b>${name}</b>${key ? `<span class="kbd">${key}</span>` : ''}${grp ? `<span class="tip-group">${grp}</span>` : ''}</div>${tx[0] ? `<p class="tip-what">${tx[0]}</p>` : ''}${pic}${tx[1] ? `<div class="tip-more"><div class="tip-step">How to use it</div><ol>${tx[1].map(s => `<li>${s}</li>`).join('')}</ol></div><div class="tip-hold">Keep hovering for the steps</div>` : ''}`;
-    card.hidden = false; place();
+    card.hidden = false; place(); TipAnim.start(card);
     const small = document.getElementById('tip'); if (small) small.classList.remove('show');       // the card takes over from the one-line label
     requestAnimationFrame(() => card.classList.add('in'));
     // step 2: keep holding and it grows the how-to
@@ -36132,6 +36132,7 @@ function gsPick(i) {
 }
 </script>
 <!-- 3D Print workspace: the slicer engine and its front end (own files, so the modeler stays untouched) -->
+<script src="tip-anim.js"></script>
 <script src="cam-mc.js"></script>
 <script src="heatmap.js"></script>
 <script src="slicer.js"></script>
