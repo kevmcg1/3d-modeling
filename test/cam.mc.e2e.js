@@ -1,4 +1,5 @@
-// Manufacture: Mastercam-style toolpaths, batch 1 (Dynamic Mill, Peel Mill, Area Mill, Corner Rest Mill, Ramp Contour).
+// Manufacture: Mastercam-style toolpaths, batches 1 and 2 (Dynamic Mill, Peel Mill, Area Mill, Corner Rest Mill, Ramp Contour;
+// bore cycles G86, G89, G76; 3D Rough Pocket and rough 3D Parallel).
 // Run: NODE_PATH=<dir with playwright, three@0.128, clipper-lib@6.4.2> CHROMIUM_PATH=<chrome> node test/cam.mc.e2e.js
 let chromium; try { ({ chromium } = require('playwright')); } catch (e) { console.log('skip: playwright is not installed'); process.exit(0); }
 let libs = null; try { libs = { three: require.resolve('three/build/three.min.js'), clipper: require.resolve('clipper-lib/clipper.js') }; } catch (e) { /* offline */ }
@@ -102,8 +103,43 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
     });
     assert(r.n > 100 && Math.abs(r.ae - 0.12) < 0.02 && Math.abs(r.ap - 6) < 0.01 && r.boosted > 50, JSON.stringify(r));
   });
+  // ── batch 2 ──
+  for (const [mode, g, word] of [['bore', 'G86', null], ['bored', 'G89', 'P'], ['fine', 'G76', 'Q']]) {
+    await ok(`drill cycle ${g}: ${mode} posts the canned cycle and its moves reach the bottom`, async () => {
+      const r = await page.evaluate(([mode]) => {
+        const C = cam(); C.ops = []; camAddOp('drill'); const op = C.ops[0]; op.mode = mode; op.dwell = 1; op.shift = 0.3;
+        const P = toolpath(op), t = toolOf(op.tool), cut = P.m.filter(m => !m.r), text = postGcode().text, line = text.split('\n').find(l => /G(76|86|89)\b/.test(l)) || '';
+        return { n: P.m.length, warn: P.warn, holes: (P.holes || []).length, minz: Math.min(...cut.map(m => m.z)), line, shifted: P.m.filter(m => m.r && m.x !== P.m[0].x).length };
+      }, [mode]);
+      assert(r.n > 5 && r.holes > 0 && r.line.includes(g) && (!word || r.line.includes(' ' + word)), JSON.stringify(r));
+    });
+  }
+  await ok('3D Rough Pocket: levels reach the floors, stay out of the part and keep the stock on', async () => {
+    const r = await page.evaluate(() => {
+      const C = cam(); C.ops = []; camAddOp('zrough'); const op = C.ops[0], P = toolpath(op), cut = P.m.filter(m => !m.r), part = camPart(), t = toolOf(op.tool);
+      let low = 0, below = 0; for (const m of cut) { if (m.z < partTopAt(m.x, m.y) - 0.01) low++; }
+      return { n: P.m.length, warn: P.warn, minz: Math.min(...cut.map(m => m.z)), z0: part.z0, low, info: P.info };
+    });
+    assert(r.n > 300 && !r.warn.length && r.low === 0 && Math.abs(r.minz - (r.z0 + 0.5)) < 0.05 && /flat floor/.test(r.info), JSON.stringify(r));
+  });
+  await ok('3D Rough Pocket: a flat floor gets its own level, leaving the floor stock', async () => {
+    const r = await page.evaluate(() => {
+      const op = cam().ops[0], P = toolpath(op), zs = [...new Set(P.m.filter(m => !m.r).map(m => +m.z.toFixed(2)))];
+      return { zs, has7: zs.some(z => Math.abs(z - 7.5) < 0.02), has10: zs.some(z => Math.abs(z - 10.5) < 0.02) };
+    });
+    assert(r.has7 && r.has10, JSON.stringify(r));
+  });
+  await ok('3D Parallel rough mode cuts in levels over the 3D surface and is not a finishing pass', async () => {
+    const r = await page.evaluate(async () => {
+      const C = cam(); C.ops = []; camAddOp('parallel'); const op = C.ops[0]; op.rough = true; op.stepdown = 3; op.leave = 0.5; op.stepover = toolOf(op.tool).d * 0.5;
+      let P = toolpath(op); for (let i = 0; i < 100 && P.pending; i++) { await new Promise(r => setTimeout(r, 200)); P = toolpath(op); }
+      const cut = P.m.filter(m => !m.r), zs = [...new Set(cut.map(m => +m.z.toFixed(1)))];
+      return { pending: !!P.pending, n: P.m.length, warn: P.warn, levels: zs.length, maxz: Math.max(...cut.map(m => m.z)), info: P.info, html: chainPanelFields ? 1 : 0 };
+    });
+    assert(!r.pending && r.n > 100 && !r.warn.length && r.levels > 3 && /rough/.test(r.info), JSON.stringify(r));
+  });
   await ok('no page errors', async () => { assert(!errs.length, errs.join(' | ')); });
   await browser.close();
-  console.log(fail ? `${fail} failed, ${pass} passed` : 'all CAM batch 1 checks passed');
+  console.log(fail ? `${fail} failed, ${pass} passed` : 'all CAM mc checks passed');
   process.exit(fail ? 1 : 0);
 })();
