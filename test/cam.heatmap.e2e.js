@@ -39,7 +39,9 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
   });
   await ok('toggle off restores the plain toolpath; hover shows a readout', async () => {
     await page.evaluate(() => { setWorkspace('cam'); HEAT.metric = 'load'; camDraw(); });
-    const box = await page.evaluate(() => { const r = glCanvas.getBoundingClientRect(), m = HEAT.mid, v = new THREE.Vector3(m[0], m[1], m[2]).applyMatrix4(camera.matrixWorldInverse).applyMatrix4(camera.projectionMatrix); return { x: r.left + (v.x * .5 + .5) * r.width, y: r.top + (-v.y * .5 + .5) * r.height }; });
+    // a segment whose midpoint is on the canvas and not under the playback bar or other overlays (which segments those are depends on the window size)
+    const box = await page.evaluate(() => { const r = glCanvas.getBoundingClientRect(), M = HEAT.mid; for (let i = 0; i < M.length / 3; i++) { const v = new THREE.Vector3(M[i * 3], M[i * 3 + 1], M[i * 3 + 2]).applyMatrix4(camera.matrixWorldInverse).applyMatrix4(camera.projectionMatrix); const x = r.left + (v.x * .5 + .5) * r.width, y = r.top + (-v.y * .5 + .5) * r.height; if (v.z > -1 && v.z < 1 && x > r.left + 80 && x < r.right - 80 && y > r.top + 80 && y < r.bottom - 80) { const el = document.elementFromPoint(x, y); if (el && !el.closest('#panel, #simbar, #catrail, #viewtools, #viewcube, .ribbon')) return { x, y }; } } return null; });
+    assert(box, 'no visible heat segment on the canvas');
     await page.mouse.move(box.x - 60, box.y - 60); await page.mouse.move(box.x, box.y); await page.waitForTimeout(400);
     const shown = await page.evaluate(() => document.querySelector('.heat-tip').classList.contains('in') && document.querySelector('.heat-tip').textContent);
     assert(shown && /Chip load/.test(shown), String(shown));
