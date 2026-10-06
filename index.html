@@ -8355,6 +8355,230 @@ FEATX.bmode = () => {};                // Solid / Hole acts after every feature:
 
 <script data-kernel>
 // ═══════════════════════════════════════════════════════════════════
+//  More modeling tools: primitives, push / pull, draft, align, stretch
+//  and delete body. Push / pull and draft move whole faces: every vertex
+//  slides the shortest way that keeps it on all of its faces' new
+//  positions, so neighbors stretch or shrink to follow (the same
+//  machinery as Shell). Align and stretch map finished solids.
+// ═══════════════════════════════════════════════════════════════════
+// ── Primitives: box, cylinder, cone, sphere, torus ─────────────────
+const PRIM_NAMES = { box: 'Box', cyl: 'Cylinder', cone: 'Cone', sphere: 'Sphere', torus: 'Torus' };
+function evalPrimitive(f, ctx, tol) {
+  const B = ORIGIN_PLANES[f.base || 'XZ'], n = B.n, k = f.shape || 'box';
+  const pos = (v, what) => { if (!(+v > 0)) throw new Error(what + ' must be positive'); return +v; };
+  const C = add3(planeTo3(B, P2(+f.cx || 0, +f.cy || 0)), mul3(n, +f.off || 0));
+  const pl = { o: C, u: B.u, v: B.v, n };
+  const ccw = pts => { const o = loopOf(pts, 1); if (loopArea(o) < 0) return loopOf(pts.slice().reverse(), 1); return o; };
+  let tool;
+  if (k === 'box') {
+    const w = pos(f.w, 'Width'), d = pos(f.d, 'Depth'), h = pos(f.h, 'Height'), ox = f.center === false ? 0 : -w / 2, oy = f.center === false ? 0 : -d / 2;
+    tool = prism({ outer: ccw([P2(ox, oy), P2(ox + w, oy), P2(ox + w, oy + d), P2(ox, oy + d)]), holes: [] }, pl, 0, h, tol, f.id);
+  } else if (k === 'cyl') {
+    const r = pos(f.dia, 'Diameter') / 2, h = pos(f.h, 'Height');
+    tool = prism({ outer: [circleSeg(r, 1)], holes: [] }, pl, 0, h, tol, f.id);
+  } else {
+    // turned shapes: a profile in a plane that holds the axis (x out from the axis, y along it), turned all the way round
+    const rp = { o: C, u: B.u, v: n, n: crs3(B.u, n) };
+    let outer, rMax;
+    if (k === 'cone') {
+      const r1 = pos(f.dia, 'Diameter') / 2, r2 = Math.max(0, +f.dia2 || 0) / 2, h = pos(f.h, 'Height');
+      outer = ccw(r2 > 1e-9 ? [P2(0, 0), P2(r1, 0), P2(r2, h), P2(0, h)] : [P2(0, 0), P2(r1, 0), P2(0, h)]);
+      rMax = Math.max(r1, r2);
+    } else if (k === 'sphere') {
+      const r = pos(f.dia, 'Diameter') / 2;
+      if (f.sit !== false) rp.o = add3(C, mul3(n, r));
+      outer = [{ k: 'A', c: P2(0, 0), r, t0: -Math.PI / 2, s: Math.PI, a: P2(0, -r), b: P2(0, r), src: 1 }, { k: 'L', a: P2(0, r), b: P2(0, -r), src: 2 }];
+      rMax = r;
+    } else if (k === 'torus') {
+      const R = pos(f.dia, 'Ring diameter') / 2, r = pos(f.tube, 'Tube diameter') / 2;
+      if (!(R > r + 1e-6)) throw new Error('The ring has to be wider than the tube');
+      if (f.sit !== false) rp.o = add3(C, mul3(n, r));
+      outer = [{ k: 'A', c: P2(R, 0), r, t0: 0, s: TAU, a: P2(R + r, 0), b: P2(R + r, 0), src: 1 }];
+      rMax = R + r;
+    } else throw new Error('Pick a shape');
+    tool = revolveBuild({ outer, holes: [] }, rp, { p: rp.o, dir: n }, 0, TAU, Math.max(16, circleN(rMax, tol)), true, tol, f.id);
+  }
+  finishTool(f, ctx, tool);
+}
+FEATX.primitive = evalPrimitive;
+
+// ── Move whole faces: push / pull and draft ────────────────────────
+// plan(fid) → null (the face stays), {b} (moves b along its own normal) or {n, d} (becomes the plane n·x = d).
+function moveFacesOf(body, f, plan, cap) {
+  const mesh = bodyMesh(body), VP = mesh.VP, inc = VP.map(() => []), memo = new Map();
+  for (const p of mesh.PL) for (const i of p.ids) if (!inc[i].includes(p.f)) inc[i].push(p.f);
+  const pl = fid => { if (!memo.has(fid)) memo.set(fid, plan(fid)); return memo.get(fid); };
+  const W = VP.map((v, i) => {
+    const rows = [];
+    for (const fid of inc[i]) {
+      const q = pl(fid);
+      const n = q && q.n ? q.n : Surf.normalAt(fid, v), b = q ? (q.n ? q.d - dot3(q.n, v) : q.b) : 0, r = rows.find(x => dot3(x.n, n) > 0.9995);
+      if (r) { if (Math.abs(b) > Math.abs(r.b)) r.b = b; continue; }
+      rows.push({ n, b });
+    }
+    return rows.length ? add3(v, offsetMove(rows, cap)) : v;
+  });
+  const cache = new Map();
+  const surfOf = fid => {
+    if (cache.has(fid)) return cache.get(fid);
+    const q = pl(fid), s = Surf.list[fid];
+    let r = fid;
+    if (q) {
+      if (q.n) r = Surf.plane(q.n, q.d);
+      else if (s.t === 'P' && s.patch === undefined) r = Surf.plane(s.n, s.d + q.b);
+      else if (s.t === 'C' && s.r + s.sg * q.b > 1e-6) r = Surf.cyl(s.p, s.dir, s.r + s.sg * q.b, s.sg);
+      else if (s.t === 'T' && s.prm.r + s.sg * q.b > 1e-6) r = Surf.torus(s.prm.p, s.prm.dir, s.prm.R, s.prm.r + s.sg * q.b, s.sg, s.kp[8] || 0);
+      else r = null;
+      if (r !== null && r !== fid) Surf.addMeta(r, { feat: f.id, src: (s.metas || [])[0] || fid });
+    }
+    cache.set(fid, r);
+    return r;
+  };
+  const polys = [];
+  for (const p of mesh.PL) {
+    const vs = p.ids.map(i => W[i]), sf = surfOf(p.f);
+    for (let i = 1; i + 1 < vs.length; i++) {
+      const tri = [vs[0], vs[i], vs[i + 1]];
+      if (len3(crs3(sub3(tri[1], tri[0]), sub3(tri[2], tri[0]))) < 1e-12) continue;
+      const pp = CSG.poly(tri, 0);
+      let f2 = sf;
+      if (f2 === null) { f2 = Surf.facet(pp.n, pp.w, 'mv' + f.id + ':' + p.f); Surf.addMeta(f2, { feat: f.id }); }
+      polys.push(CSG.poly(tri, f2, pp.n, pp.w));
+    }
+  }
+  let vol = 0;
+  for (const p of polys) for (let i = 1; i + 1 < p.v.length; i++) vol += dot3(p.v[0], crs3(p.v[i], p.v[i + 1]));
+  if (!(vol > 1e-9)) throw new Error('That move folds the part inside out — use a smaller distance');
+  return polys;
+}
+function pickedFaces(f, ctx) {
+  const hits = (f.faces || []).map(ref => findFace(ctx.bodies, ref));
+  if (!hits.length) throw new Error('Pick the faces first');
+  if (hits.some(h => !h)) throw new Error('A picked face no longer exists');
+  const body = hits[0].body;
+  if (hits.some(h => h.body !== body)) throw new Error('All the faces have to be on one body');
+  return { body, fids: new Set(hits.map(h => h.fid)) };
+}
+function evalPushPull(f, ctx) {
+  const d = +f.d;
+  if (!d) throw new Error('Distance is zero');
+  let body, fids;
+  if (f.whole) {
+    body = ctx.bodies.find(b => b.id === f.body);
+    if (!body) throw new Error('Pick a body');
+    fids = new Set(body.polys.map(p => p.f));
+  } else ({ body, fids } = pickedFaces(f, ctx));
+  const polys = moveFacesOf(body, f, fid => fids.has(fid) ? { b: d } : null, Math.abs(d));
+  ctx.bodies = ctx.bodies.map(b => b === body ? mkBody(b.id, polys) : b);
+  ctx.hl[f.id] = [body.id];
+}
+FEATX.pushpull = evalPushPull;
+function evalDraft(f, ctx) {
+  const a = (+f.angle || 0) * Math.PI / 180;
+  if (!a) throw new Error('The draft angle is zero');
+  if (Math.abs(a) > 80 * Math.PI / 180) throw new Error('Use a draft angle under 80°');
+  const { body, fids } = pickedFaces(f, ctx), P = resolveMirrorPlane(f.plane, ctx), m = nrm3(P.n), pull = mul3(m, f.flip ? -1 : 1);
+  const plans = new Map();
+  for (const fid of fids) {
+    const s = Surf.list[fid];
+    if (s.t !== 'P' || s.patch !== undefined) throw new Error('Only flat faces can be drafted');
+    const h = crs3(s.n, m);
+    if (len3(h) < 1e-6) throw new Error('A face parallel to the neutral plane cannot be drafted');
+    let q = sub3(pull, mul3(s.n, dot3(pull, s.n)));
+    if (len3(q) < 1e-6) throw new Error('A face that faces along the pull direction cannot be drafted');
+    q = nrm3(q);
+    const n2 = nrm3(add3(mul3(s.n, Math.cos(a)), mul3(q, Math.sin(a)))), o = solveLin([s.n, m, nrm3(h)], [s.d, P.w, 0]);
+    if (!o) throw new Error('The neutral plane does not meet a picked face');
+    plans.set(fid, { n: n2, d: dot3(n2, o) });
+  }
+  const bb = body.bb, diag = Math.hypot(bb[3] - bb[0], bb[4] - bb[1], bb[5] - bb[2]);
+  const polys = moveFacesOf(body, f, fid => plans.get(fid) || null, diag * 0.5);
+  ctx.bodies = ctx.bodies.map(b => b === body ? mkBody(b.id, polys) : b);
+  ctx.hl[f.id] = [body.id];
+}
+FEATX.draft = evalDraft;
+
+// ── Align: move one body so a face of it meets a face of another ───
+function evalAlign(f, ctx) {
+  const A = f.fa && findFace(ctx.bodies, f.fa), B = f.fb && findFace(ctx.bodies, f.fb);
+  if (!A || !B) throw new Error('Pick the face to move, then the face it should meet');
+  if (A.body === B.body) throw new Error('Pick faces on two different bodies');
+  const sa = Surf.list[A.fid], sb = Surf.list[B.fid], ia = faceInfo(A.mesh, A.fid), ib = faceInfo(B.mesh, B.fid);
+  const gap = +f.gap || 0, spin = (+f.spin || 0) * Math.PI / 180, plane = sa.t === 'P' && sb.t === 'P', round = sa.t === 'C' && sb.t === 'C';
+  if (!plane && !round) throw new Error('Pick two flat faces or two round faces');
+  const na = plane ? sa.n : sa.dir, nb = plane ? sb.n : sb.dir, want = plane ? (f.flush ? nb : neg3(nb)) : (f.flush ? neg3(nb) : nb);
+  const R0 = XF.turn(na, want), c = ia.center;
+  const M1 = { R: R0.R, t: sub3(c, XF.vec(R0, c)) };
+  const a1 = c;                                              // the pivot stays where it is
+  let T;
+  if (plane) T = f.center ? add3(sub3(ib.center, a1), mul3(nb, gap)) : mul3(nb, dot3(nb, sub3(ib.on, a1)) + gap);
+  else { const d = sub3(ib.center, a1); T = add3(sub3(d, mul3(nb, f.center ? 0 : dot3(nb, d))), mul3(nb, gap)); }
+  let M = XF.mul(XF.trans(T), M1);
+  if (spin) M = XF.mul(XF.rot(add3(a1, T), nb, spin), M);
+  const id = A.body.id;
+  ctx.bodies = ctx.bodies.map(b => b === A.body ? mkBody(id, xformPolys(b.polys, M, f.id + ':' + id, { feat: f.id })) : b);
+  ctx.hl[f.id] = [id];
+}
+FEATX.align = evalAlign;
+
+// ── Stretch: scale a body by a different factor along each axis ────
+function evalStretch(f, ctx) {
+  const src = bodiesById(f.bodies, ctx);
+  if (!src.length) throw new Error('Pick bodies to stretch');
+  const sc = [+f.sx || 1, +f.sz || 1, +f.sy || 1];                     // the page's X right, Z up (y here), Y back (−z here)
+  if (sc.some(v => !(v > 0))) throw new Error('Scale factors must be positive');
+  const pivot = f.pivot === 'origin' ? [0, 0, 0] : bbCenter(src), eq = (a, b) => Math.abs(a - b) < 1e-9;
+  const Ap = v => [pivot[0] + (v[0] - pivot[0]) * sc[0], pivot[1] + (v[1] - pivot[1]) * sc[1], pivot[2] + (v[2] - pivot[2]) * sc[2]];
+  const Nm = n => nrm3([n[0] / sc[0], n[1] / sc[1], n[2] / sc[2]]);   // normals follow the inverse transpose
+  const uniform = eq(sc[0], sc[1]) && eq(sc[1], sc[2]), ids = [];
+  const exact = new Map();
+  const exactSurf = fid => {
+    if (exact.has(fid)) return exact.get(fid);
+    const s = Surf.list[fid];
+    let r = null;
+    if (s.t === 'P' && s.patch === undefined) { const n = Nm(s.n); r = Surf.plane(n, dot3(n, Ap(mul3(s.n, s.d)))); }
+    else if (s.t === 'C') {
+      const k = [0, 1, 2].find(i => eq(Math.abs(s.dir[i]), 1));
+      if (k !== undefined) { const o = [0, 1, 2].filter(i => i !== k); if (eq(sc[o[0]], sc[o[1]])) r = Surf.cyl(Ap(s.p), s.dir, s.r * sc[o[0]], s.sg); }
+    }
+    if (r !== null) Surf.addMeta(r, { feat: f.id, src: (s.metas || [])[0] || fid });
+    exact.set(fid, r);
+    return r;
+  };
+  ctx.bodies = ctx.bodies.map(b => {
+    if (!src.includes(b)) return b;
+    ids.push(b.id);
+    if (uniform) return mkBody(b.id, xformPolys(b.polys, XF.scale(pivot, sc[0]), f.id + ':' + b.id, { feat: f.id }));
+    const out = [], groups = new Map();
+    for (const p of b.polys) {
+      const vs = p.v.map(Ap), ex = exactSurf(p.f);
+      if (ex !== null) { out.push(CSG.poly(vs, ex)); continue; }
+      let g = groups.get(p.f); if (!g) groups.set(p.f, g = { P: [], N: [], tris: [], cell: 0 });
+      g.tris.push(vs);
+      p.v.forEach((v, i) => { const q = vs[i], n = Nm(Surf.normalAt(p.f, v)); g.P.push(q[0], q[1], q[2]); g.N.push(n[0], n[1], n[2]); g.cell = Math.max(g.cell, dist3(q, vs[(i + 1) % vs.length])); });
+    }
+    for (const [fid, g] of groups) {
+      const sid = Surf.free(Float64Array.from(g.P), Float32Array.from(g.N), Math.max(g.cell, 1e-6), [f.id, b.id, fid, g.P.length]);
+      Surf.addMeta(sid, { feat: f.id, face: fid });
+      for (const vs of g.tris) out.push(CSG.poly(vs, sid));
+    }
+    return mkBody(b.id, out);
+  });
+  ctx.hl[f.id] = ids;
+}
+FEATX.stretch = evalStretch;
+
+// ── Delete body ────────────────────────────────────────────────────
+function evalDeleteBody(f, ctx) {
+  const gone = bodiesById(f.bodies, ctx);
+  if (!gone.length) throw new Error('Pick the bodies to delete');
+  ctx.bodies = ctx.bodies.filter(b => !gone.includes(b));
+}
+FEATX.delbody = evalDeleteBody;
+</script>
+
+<script data-kernel>
+// ═══════════════════════════════════════════════════════════════════
 //  CAM kernel (runs in the worker): drop-cutter for 3D finishing.
 //  CAM frame: X = world x, Y = −world z, Z = world y (spindle axis up).
 // ═══════════════════════════════════════════════════════════════════
@@ -15331,6 +15555,7 @@ function camAddOp(type, kind) {
     drill: { tool: pick('drill'), mode: 'peck', peck: 3, through: 1, diams: [] },
     parallel: { tool: pick('ball'), stepover: 0.5, leave: 0, angle: 0, overrun: true },
     chamfer: { tool: pick('chamfer'), through: 0.3, leave: 0, faces: [] },
+    waterline: { tool: pick('flat'), stepdown: 1, leave: 0, entry: 'ramp', bottom: null },
     chain: { tool: pick('flat'), cm: 'contour', side: 'auto', depthMode: 'auto', lead: 'arc', stepdown: 2, stepover: 0.45, leave: 0, leaveWall: 0, leaveFloor: 0, through: 0.5, mode: 'peck', peck: 3, chains: [] },
     get engrave() { return engDefaults(camStock(), (C.tools.find(t => t.type === 'chamfer' && (t.cone || 90) <= 90) || camToolOfType('chamfer', 3, { cone: 60 })).n); },
   };
@@ -15511,9 +15736,12 @@ function offsetOpen(pts, d, s) {
 GEN.chain = function (op, tool, st, part, P) {
   const chains = (op.chains || []).filter(c => c.pts && c.pts.length > 1);
   const cm = op.cm || 'contour';
-  if (!chains.length) { P.warn.push(cm === 'drill' ? 'Click circles (hole edges) in the model to drill them.' : 'Click an edge in the model, or double-click it to take the whole chain.'); return; }
+  if (!chains.length) { P.warn.push(cm === 'drill' ? 'Click circles (hole edges) in the model to drill them.' : cm === 'circle' ? 'Click circles (the edge of a hole or a boss) in the model to mill them.' : 'Click an edge in the model, or double-click it to take the whole chain.'); return; }
   if (cm === 'drill') return chainDrill(op, tool, st, part, P, chains);
   if (cm === 'pocket') return chainPocket(op, tool, st, part, P, chains);
+  if (cm === 'slot') return chainSlot(op, tool, st, part, P, chains);
+  if (cm === 'circle') return chainCircle(op, tool, st, part, P, chains);
+  if (cm === 'deburr') return chainDeburr(op, tool, st, part, P, chains);
   chainContour(op, tool, st, part, P, chains);
 };
 function chainContour(op, tool, st, part, P, chains) {
@@ -15526,6 +15754,7 @@ function chainContour(op, tool, st, part, P, chains) {
     let side = op.side && op.side !== 'auto' ? op.side : auto.side;
     const toolSide = side === 'on' ? auto.side : side;
     const bottom = (() => {
+      if (op._delta != null) return c.z + op._delta;               // an edge break: a fixed depth below the edge
       const dm = op.depthMode || 'auto';
       if (dm === 'below') return c.z - (op.depth || 0);
       if (dm === 'chain') return c.z;
@@ -15550,7 +15779,7 @@ function chainContour(op, tool, st, part, P, chains) {
     } else {
       paths.push({ pts: side === 'on' ? pts : offsetOpen(pts, off, side === 'left' ? 1 : -1), closed: false });
     }
-    const zs = levels(st.z1, bottom, op.stepdown || 2);
+    const zs = op._single ? [bottom] : levels(st.z1, bottom, op.stepdown || 2), tabZ = !op._single && op.tabs > 0 ? bottom + Math.max(0.2, op.tabH || 1.5) : -Infinity;
     for (const path of paths) {
       const L = path.pts, n = L.length;
       if (n < 2) continue;
@@ -15565,12 +15794,12 @@ function chainContour(op, tool, st, part, P, chains) {
         if (!started) { P.rapid(S.x, S.y, safe); started = true; } else P.rapid(P.cur[0], P.cur[1], ret);
         P.rapid(S.x, S.y, ret); P.rapid(S.x, S.y, zAbove); P.plunge(S.x, S.y, z);
         if (useArc) for (let k = 1; k <= 8; k++) { const q = arcIn(k); P.feed(q.x, q.y, z); } else P.feed(L[0].x, L[0].y, z);
-        for (let i = 1; i < n; i++) P.feed(L[i].x, L[i].y, z);
-        if (path.closed) P.feed(L[0].x, L[0].y, z);
+        if (z < tabZ - 1e-6) chainTabbed(P, path.closed ? [...L, L[0]] : L, z, tabZ, op.tabs, Math.max(0.5, op.tabW || 4), path.closed, tool);
+        else { for (let i = 1; i < n; i++) P.feed(L[i].x, L[i].y, z); if (path.closed) P.feed(L[0].x, L[0].y, z); }
         if (useArc) for (let k = 9; k <= 16; k++) { const q = arcOut(k); P.feed(q.x, q.y, z); }
       });
     }
-    notes.push(`${c.closed ? 'closed' : 'open'} chain, tool ${side === 'on' ? 'on the line' : side === 'left' ? 'left' : 'right'} of travel, ${fmtLs(st.z1 - bottom)} below the stock top`);
+    notes.push(`${c.closed ? 'closed' : 'open'} chain, tool ${side === 'on' ? 'on the line' : side === 'left' ? 'left' : 'right'} of travel, ${fmtLs(st.z1 - bottom)} below the stock top${tabZ > -Infinity ? `, ${op.tabs} tab${op.tabs > 1 ? 's' : ''}` : ''}`);
   }
   if (P.cur) P.rapid(P.cur[0], P.cur[1], safe);
   if (notes.length) P.info = notes.length === 1 ? notes[0] : `${notes.length} chains`;
@@ -15666,6 +15895,209 @@ function chainDrill(op, tool, st, part, P, chains) {
   P.rapid(P.cur[0], P.cur[1], safe);
   P.info = `${ordered.length} hole${ordered.length > 1 ? 's' : ''} at the chosen circles`;
 }
+// ── More chain operations: tabs, slot (trochoidal), circle (helical) and edge-break (deburr) ──
+// Walks a polyline at z, lifting to tabZ over `n` evenly spaced windows w long so the cut piece stays attached.
+function chainTabbed(P, pts, z, tabZ, n, w, closed, tool) {
+  const segL = [], cum = [0];
+  for (let i = 0; i + 1 < pts.length; i++) { segL.push(dst2(pts[i], pts[i + 1])); cum.push(cum[i] + segL[i]); }
+  const total = cum[cum.length - 1], wins = [];
+  if (!(total > 0)) return;
+  w = Math.min(w, total / (2 * n));
+  for (let k = 0; k < n; k++) { const c = closed ? (k + 0.5) * total / n : (k + 1) * total / (n + 1); wins.push([c - w / 2, c + w / 2]); }
+  const inTab = s => wins.some(([a, b]) => s > a && s < b);
+  let zc = P.cur ? P.cur[2] : z;
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const cuts = [cum[i], cum[i + 1]];
+    for (const [a, b] of wins) { if (a > cum[i] && a < cum[i + 1]) cuts.push(a); if (b > cum[i] && b < cum[i + 1]) cuts.push(b); }
+    cuts.sort((p, q) => p - q);
+    for (let j = 0; j + 1 < cuts.length; j++) {
+      const t0 = (cuts[j] - cum[i]) / (segL[i] || 1), t1 = (cuts[j + 1] - cum[i]) / (segL[i] || 1), a = lerp2(pts[i], pts[i + 1], t0), b = lerp2(pts[i], pts[i + 1], t1);
+      const zz = inTab((cuts[j] + cuts[j + 1]) / 2) ? Math.max(z, tabZ) : z;
+      if (Math.abs(zz - zc) > 1e-9) { P.feed(a.x, a.y, zz, zz < zc ? tool.plunge : undefined); zc = zz; }
+      P.feed(b.x, b.y, zz);
+    }
+  }
+  if (Math.abs(z - zc) > 1e-9) { const e = pts[pts.length - 1]; P.feed(e.x, e.y, z, tool.plunge); }
+}
+// A polyline resampled so no segment is longer than step.
+function resamplePoly(pts, closed, step) {
+  const out = [pts[0]], n = closed ? pts.length : pts.length - 1;
+  for (let i = 0; i < n; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length], k = Math.max(1, Math.ceil(dst2(a, b) / step));
+    for (let j = 1; j <= k; j++) out.push(lerp2(a, b, j / k));
+  }
+  return out;
+}
+// Slot: the chain is the centerline. A slot as wide as the tool is one pass per level, ramping down along the path;
+// a wider one is cleared with trochoidal loops, which keep the cutter lightly loaded however deep the slot is.
+function chainSlot(op, tool, st, part, P, chains) {
+  const d = tool.d, W = Math.max(d, op.slotW || d), troch = W > d + 0.01, a = (W - d) / 2, safe = st.z1 + cam().safe, ret = st.z1 + cam().retract;
+  const adv = Math.max(0.05, (op.trochStep || 0.2) * d), depth = op.depth > 0 ? op.depth : Math.min(3, Math.max(1, d * 0.5)), sd = Math.max(0.1, op.stepdown || Math.min(2, d * 0.5));
+  const ang = Math.tan(clamp(op.rampAngle || 3, 0.5, 30) * Math.PI / 180);
+  let did = 0;
+  for (const c of chains) {
+    const base = chainTravel(c);
+    if (base.length < 2) continue;
+    const pts = resamplePoly(c.closed ? [...base, base[0]] : base, false, troch ? Math.min(0.5, adv / 2) : 1), zFloor = c.z - depth, zs = levels(Math.min(st.z1, c.z), zFloor, sd);
+    const cum = [0]; for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + dst2(pts[i - 1], pts[i]));
+    const total = cum[cum.length - 1];
+    if (total < 1e-6) continue;
+    const at = s => { s = clamp(s, 0, total); let i = 1; while (i < pts.length - 1 && cum[i] < s) i++; const f = (s - cum[i - 1]) / ((cum[i] - cum[i - 1]) || 1), t = nrm2(sub2(pts[i], pts[i - 1])); return { p: lerp2(pts[i - 1], pts[i], f), t, n: P2(-t.y, t.x) }; };
+    let fwd = true, zPrev = Math.min(st.z1, c.z) + 0.5;
+    zs.forEach((z, li) => {
+      const drop = Math.max(0, zPrev - z), L = troch ? total + 2 * a : total, rampLen = Math.min(L, Math.max(1e-6, drop / ang));
+      const pathAt = s => { const q = fwd ? s : L - s; return troch ? at(q - a) : at(q); };
+      const zAt = s => (s < rampLen ? zPrev - drop * s / rampLen : z);
+      const s0 = pathAt(0).p;
+      const here = li > 0 && P.cur && Math.hypot(P.cur[0] - s0.x, P.cur[1] - s0.y) < 1e-6;          // the last level ended where this one starts
+      if (!here) {
+        if (!P.cur) P.rapid(s0.x, s0.y, safe); else P.rapid(P.cur[0], P.cur[1], ret);
+        P.rapid(s0.x, s0.y, ret); P.rapid(s0.x, s0.y, Math.min(ret, zPrev + 0.5)); P.plunge(s0.x, s0.y, zPrev);
+      }
+      if (!troch) {
+        let acc = 0;
+        for (let i = 1; i < pts.length; i++) {
+          acc += dst2(pts[i - 1], pts[i]);
+          const q = fwd ? pts[i] : pts[pts.length - 1 - i];
+          P.feed(q.x, q.y, zAt(acc));
+        }
+      } else {
+        const steps = 24, nLoops = Math.ceil(L / adv), sg = fwd ? 1 : -1;
+        for (let k = 0; k < nLoops; k++) for (let j = 1; j <= steps; j++) {
+          const th = TAU * (k + j / steps), s = Math.min(L, adv * (k + j / steps)), ctr = pathAt(s);
+          // loops in the frame of the path: along it with cos, across it with sin, drifting forward with s
+          P.feed(ctr.p.x + ctr.t.x * a * Math.cos(th) * sg + ctr.n.x * a * Math.sin(th), ctr.p.y + ctr.t.y * a * Math.cos(th) * sg + ctr.n.y * a * Math.sin(th), zAt(s));
+        }
+        const e = pathAt(L).p; P.feed(e.x, e.y, z);
+      }
+      fwd = !fwd; zPrev = z;
+    });
+    if (P.cur) P.rapid(P.cur[0], P.cur[1], safe);
+    did++;
+  }
+  P.info = did ? `${did} slot${did > 1 ? 's' : ''}, ${troch ? `${fmtLs(W)} wide with trochoidal loops (${fmtLs(a)} radius)` : `${fmtLs(W)} wide, ramping ${op.rampAngle || 3}°`}, ${fmtLs(depth)} deep` : '';
+}
+// Circle: a hole bored (or a boss turned) to its true size with a helix, so one end mill makes any diameter bigger than itself.
+function chainCircle(op, tool, st, part, P, chains) {
+  const r = tool.d / 2, boss = op.side === 'out', safe = st.z1 + cam().safe, real = camHoles(), found = [];
+  let skipped = 0, tooBig = 0;
+  for (const c of chains) {
+    const p = chainTravel(c);
+    if (!c.closed || p.length < 3) { skipped++; continue; }
+    const A = Math.abs(cArea(cP(p))); let cx = 0, cy = 0; p.forEach(q => { cx += q.x; cy += q.y; }); cx /= p.length; cy /= p.length;
+    const D = 2 * Math.sqrt(A / Math.PI), hit = !boss && real.find(h => Math.hypot(h.x - cx, h.y - cy) < 0.25 && Math.abs(h.d - D) < 0.3);
+    let bottom;
+    if (op.depth > 0) bottom = c.z - op.depth;
+    else if (hit) bottom = holeThrough(hit, part) ? hit.bot - (op.through == null ? 0.5 : op.through) : hit.bot;
+    else if (boss) { const fl = chainSideFloor(c, p, cArea(cP(p)) > 0 ? 'right' : 'left'); bottom = Math.min(c.z, fl === -Infinity ? part.z0 - 0.5 : fl); }
+    else bottom = c.z - Math.max(1, tool.d);
+    found.push({ x: cx, y: cy, D, top: c.z, bottom });
+  }
+  if (skipped) P.warn.push(`${skipped} open chain${skipped > 1 ? 's' : ''} skipped: a circle mill needs a closed circle.`);
+  const todo = found.filter(h => { const rp = boss ? h.D / 2 + r + (op.leave || 0) : h.D / 2 - r - (op.leave || 0); if (!boss && rp < 0.05) { tooBig++; return false; } return true; });
+  if (tooBig) P.warn.push(`${tooBig} hole${tooBig > 1 ? 's are' : ' is'} no bigger than the ${fmtToolD(tool.d)} tool: drill ${tooBig > 1 ? 'them' : 'it'} instead.`);
+  const order = []; let cur = P2(st.x0, st.y0);
+  while (todo.length) { let bi = 0; todo.forEach((h, i) => { if (dst2(P2(h.x, h.y), cur) < dst2(P2(todo[bi].x, todo[bi].y), cur)) bi = i; }); const h = todo.splice(bi, 1)[0]; order.push(h); cur = P2(h.x, h.y); }
+  const pitch = Math.max(0.1, op.pitch || Math.min(2, tool.d * 0.3)), steps = 36, dir = boss ? -1 : 1;
+  for (const h of order) {
+    const rp = boss ? h.D / 2 + r + (op.leave || 0) : h.D / 2 - r - (op.leave || 0), top = Math.min(st.z1, h.top), turns = Math.max(1, Math.ceil((top - h.bottom) / pitch));
+    if (!boss && rp < 0.3) { P.rapid(h.x, h.y, safe); P.rapid(h.x, h.y, top + 1); P.plunge(h.x, h.y, h.bottom); P.rapid(h.x, h.y, safe); continue; }
+    const x = a => h.x + rp * Math.cos(a), y = a => h.y + rp * Math.sin(a), ext = boss ? 2 + r : 0;
+    P.rapid(h.x + rp + ext, h.y, safe); P.rapid(h.x + rp + ext, h.y, top + 1);
+    P.feed(h.x + rp, h.y, top + 0.5, tool.plunge); P.feed(x(0), y(0), top, tool.plunge);
+    for (let k = 1; k <= turns * steps; k++) P.feed(x(dir * TAU * k / steps), y(dir * TAU * k / steps), top - (top - h.bottom) * k / (turns * steps));
+    for (let k = 1; k <= steps; k++) P.feed(x(dir * TAU * k / steps), y(dir * TAU * k / steps), h.bottom);        // a full round at the floor takes the helix's slope off
+    if (boss) P.feed(h.x + rp + ext, h.y, h.bottom); else P.feed(h.x, h.y, h.bottom);
+    P.rapid(P.cur[0], P.cur[1], safe);
+  }
+  P.info = order.length ? `${order.length} ${boss ? 'boss' : 'hole'}${order.length > 1 ? 's' : ''} milled by helical interpolation, ${fmtLs(pitch)} per turn` : '';
+}
+// Deburr: a chamfer mill follows the chain a little below it so its cone leaves a w × w break on the edge.
+function chainDeburr(op, tool, st, part, P, chains) {
+  if (tool.type !== 'chamfer') P.warn.push('Pick a chamfer mill: its cone is what breaks the edge.');
+  const half = Math.max(5, Math.min(80, (tool.cone || 90) / 2)) * Math.PI / 180, w = Math.max(0.05, op.chSize || 0.5), v = w / Math.tan(half), clr = Math.max(0.05, op.tipBelow == null ? 0.3 : op.tipBelow);
+  const rTip = Math.max(0, (tool.tipD || 0) / 2), s = rTip + clr * Math.tan(half), rTop = rTip + (v + clr) * Math.tan(half);
+  if (rTop > tool.d / 2 + 1e-6) P.warn.push(`A ${fmtLs(w)} break is bigger than this ${fmtToolD(tool.d)} chamfer mill's cone can cut: use a larger mill or a smaller break.`);
+  chainContour({ ...op, leave: s - tool.d / 2, depthMode: 'chain', _delta: -(v + clr), _single: true, tabs: 0, lead: op.lead || 'arc' }, tool, st, part, P, chains);
+  P.info = `${fmtLs(w)} × ${fmtLs(v)} break (${tool.cone || 90}° cone), tool tip ${fmtLs(v + clr)} below the edge`;
+}
+// Fields for the new chain modes and tabs
+function chainxFields(op, cm) {
+  const seg = (k, items, cur) => `<div class="seg">${items.map(([v, l, t]) => `<button data-opset="${k}:${v}" class="${cur === v ? 'on' : ''}" ${t ? `data-tip="${t}"` : ''}>${l}</button>`).join('')}</div>`;
+  const t = toolOf(op.tool), wide = (op.slotW || 0) > t.d + 0.01;
+  if (cm === 'contour') return `<h3 class="sub">Holding tabs</h3><div class="row3">${num('opTabs', op.tabs || 0, 'Tabs (0 = off)', 1, 'min="0" max="12"')}${num('opTabW', op.tabW || 4, 'Width', 0.5)}${num('opTabH', op.tabH || 1.5, 'Height', 0.25)}</div>
+    <p class="note">${op.tabs > 0 ? 'The last passes lift over each tab so the part stays held in the stock. Snap them off and file the stubs.' : 'Tabs leave small bridges at the bottom of a through cut so the part cannot move when it is free.'}</p>`;
+  if (cm === 'slot') return `<div class="row3">${num('opSlotW', op.slotW || t.d, 'Slot width', 0.5)}${num('opSd', op.stepdown || 2, 'Stepdown', 0.1)}${num('opDepth', op.depth > 0 ? op.depth : Math.min(3, Math.max(1, t.d * 0.5)), 'Depth below chain', 0.1)}</div>
+    <div class="row2">${num('opRamp', op.rampAngle || 3, 'Ramp angle °', 1)}${wide ? num('opTroch', op.trochStep || 0.2, 'Advance per loop ×Ø', 0.05) : ''}</div>
+    <p class="note">${wide ? 'Wider than the tool: trochoidal loops keep the cut light, and the slot ends are rounded to half the slot width.' : 'As wide as the tool. Set a wider slot to cut it with trochoidal loops.'}</p>`;
+  if (cm === 'circle') return `<div class="field"><span>Mill</span>${seg('side', [['in', 'Hole (inside)'], ['out', 'Boss (outside)']], op.side === 'out' ? 'out' : 'in')}</div>
+    <div class="row3">${num('opPitch', op.pitch || Math.min(2, t.d * 0.3), 'Depth per turn', 0.1)}${num('opLeave', op.leave || 0, 'Leave', 0.05)}${num('opDepth', op.depth || 0, 'Depth (0 = whole hole)', 0.1)}</div>
+    <p class="note">The tool spirals down one turn at a time, then goes once round at the floor. A hole must be bigger than the tool.</p>`;
+  if (cm === 'deburr') return `<div class="field"><span>Tool side (looking along the arrow)</span>${seg('side', [['auto', 'Auto', 'Finds the open side of the edge'], ['left', 'Left'], ['right', 'Right']], op.side || 'auto')}</div>
+    <div class="row3">${num('opChSize', op.chSize || 0.5, 'Break size', 0.05)}${num('opTipBelow', op.tipBelow == null ? 0.3 : op.tipBelow, 'Tip clearance', 0.05)}</div>
+    <p class="note">${t.type === 'chamfer' ? `The break is that wide on the face and ${+((op.chSize || 0.5) / Math.tan(Math.max(5, Math.min(80, (t.cone || 90) / 2)) * Math.PI / 180)).toFixed(2)} mm down the wall.` : 'Pick a chamfer mill: its cone is what breaks the edge.'}</p>`;
+  return '';
+}
+function camxBind(op, setN) {
+  const set = (k, lo) => v => camEdit(op, k, Math.max(lo, v));
+  setN('opTabs', v => camEdit(op, 'tabs', clamp(Math.round(v), 0, 12))); setN('opTabW', set('tabW', 0.5)); setN('opTabH', set('tabH', 0.2));
+  setN('opSlotW', set('slotW', 0.1)); setN('opRamp', v => camEdit(op, 'rampAngle', clamp(v, 0.5, 30))); setN('opTroch', set('trochStep', 0.02));
+  setN('opPitch', set('pitch', 0.05)); setN('opChSize', set('chSize', 0.02)); setN('opTipBelow', set('tipBelow', 0));
+}
+// ── Waterline: level-by-level contours around the part's outline at every height (steep walls, bosses, fillet-free finishing) ──
+OP_INFO.waterline = { name: 'Waterline', icon: 'camcontour', tip: 'Goes round the part at one height after another, from the top down, so every steep wall and boss is finished by a tool that stays at a constant depth. Best after roughing; a ball or bull-nose mill gives a smoother wall than a flat one.' };
+GEN.waterline = function (op, tool, st, part, P) {
+  const r = tool.d / 2, leave = op.leave || 0, safe = st.z1 + cam().safe, ret = st.z1 + cam().retract, bottom = op.bottom != null && op.bottom > -1e8 ? op.bottom : part.z0;
+  const step = Math.max(0.05, op.stepdown || 1), zs = levels(part.z1, bottom, step).filter(z => z < part.z1 - 1e-6);
+  if (!zs.length) { P.warn.push('The part is too shallow for a waterline.'); return; }
+  let rings = 0, started = false, skipped = 0;
+  for (const z of zs) {
+    const sil = silhouetteAbove(z - 1e-3, true);
+    if (!sil.length) continue;
+    const loops = cOffset(sil, r + leave).filter(q => q.length >= 3 && Math.abs(cArea(q)) > 1e-4);
+    if (!loops.length) { skipped++; continue; }
+    const zUp = Math.min(ret, z + step + 0.5);
+    for (const q of loops) {
+      let pts = uP(q); const here = P.cur ? P2(P.cur[0], P.cur[1]) : null;
+      if (here) pts = startAt(pts, nearestIdx(pts, here));
+      const s = pts[0];
+      if (!started) { P.rapid(s.x, s.y, safe); started = true; } else P.rapid(P.cur[0], P.cur[1], ret);
+      P.rapid(s.x, s.y, ret); P.rapid(s.x, s.y, zUp);
+      if (op.entry === 'plunge') { P.plunge(s.x, s.y, z); for (let i = 1; i < pts.length; i++) P.feed(pts[i].x, pts[i].y, z); P.feed(s.x, s.y, z); }
+      else rampLoop(P, pts, zUp, z, 3, Math.min(0.35 * r, 0.5 * tool.d));
+      rings++;
+    }
+  }
+  if (P.cur) P.rapid(P.cur[0], P.cur[1], safe);
+  if (!rings) P.warn.push('Nothing to cut: the part has no outline at these heights.');
+  if (skipped) P.warn.push(`${skipped} level${skipped > 1 ? 's are' : ' is'} narrower than the ${fmtToolD(tool.d)} tool.`);
+  P.info = `${rings} contour${rings === 1 ? '' : 's'} over ${zs.length} levels, ${fmtLs(step)} apart${tool.type === 'ball' ? '' : ' (flat tool: use a ball mill for smoother steep walls)'}`;
+};
+function waterlineFields(op) {
+  const seg = (k, items, cur) => `<div class="seg">${items.map(([v, l, t]) => `<button data-opset="${k}:${v}" class="${cur === v ? 'on' : ''}" ${t ? `data-tip="${t}"` : ''}>${l}</button>`).join('')}</div>`;
+  return `<div class="row3">${num('opSd', op.stepdown || 1, 'Level step', 0.1)}${num('opLeave', op.leave || 0, 'Leave', 0.05)}${num('opWlBot', op.bottom != null && op.bottom > -1e8 ? op.bottom : (camPart() || { z0: 0 }).z0, 'Down to Z', 0.5)}</div>
+    <div class="field"><span>Entry</span>${seg('entry', [['ramp', 'Ramp', 'Spirals down along the contour at a shallow angle'], ['plunge', 'Plunge', 'Straight down at the start of each contour']], op.entry === 'plunge' ? 'plunge' : 'ramp')}</div>`;
+}
+// ── Feeds and speeds: what the tool in this operation is actually doing, against what the material wants ──
+// the numbers behind the card and the heat map: surface speed, chip load against the material's recommendation, removal rate
+function feedsOf(op, t) {
+  const vc = Math.PI * t.d * t.rpm / 1000, fzTool = t.feed / ((t.rpm || 1) * (t.flutes || 1)), ref = toolDefaults(t.type, t.d), fzRef = ref.feed / ((ref.rpm || 1) * (ref.flutes || 1));
+  const ratio = fzTool / (fzRef || 1), sd = op.stepdown || (op.type === 'chain' && op.stepdown) || 0, so = (op.stepover || 0.4) * t.d;
+  const mrr = op.type === 'pocket' || op.type === 'face' || op.type === 'clear' || (op.type === 'chain' && op.cm === 'pocket') ? so * sd * t.feed / 1000 : null;
+  return { vc, fzTool, ref, fzRef, ratio, sd, so, mrr };
+}
+function feedsCard(op) {
+  const t = toolOf(op.tool);
+  if (!t || t.wire) return '';
+  const M = matOf(), { vc, fzTool, ref, ratio, mrr } = feedsOf(op, t);
+  const flag = ratio < 0.5 ? 'Chip load is low: the tool will rub and wear. ' : ratio > 1.6 ? 'Chip load is high: expect chatter or a broken tool. ' : '';
+  const rows = [['Surface speed', `${vc.toFixed(0)} m/min (${(vc * 3.281).toFixed(0)} SFM)`], ['Spindle', `${Math.round(t.rpm)} rpm`], ['Chip load', `${fzTool.toFixed(3)} mm/tooth × ${t.flutes}`], ['Feed', `${uval(t.feed, 1)} ${uRate()}`]];
+  if (mrr) rows.push(['Material removal', `${mrr.toFixed(1)} cm³/min`]);
+  return `<h3 class="sub">Feeds &amp; speeds</h3><dl class="kv">${rows.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('')}</dl>
+    <p class="note ${flag ? 'err-note' : ''}">${flag}${Math.abs(ratio - 1) < 0.08 ? `Matches the ${M.short.toLowerCase()} recommendation.` : `That is ${Math.round(ratio * 100)}% of the ${M.short.toLowerCase()} chip load.`}</p>
+    ${Math.abs(ratio - 1) >= 0.08 || Math.abs(t.rpm - ref.rpm) > 60 ? `<div class="btns"><button class="btn" data-fsreset="${t.n}">Use ${M.short.toLowerCase()} recommendation (${ref.rpm} rpm, ${uval(ref.feed, 1)} ${uRate()})</button></div>` : ''}`;
+}
+const chainIsCircle = op => op.cm === 'drill' || op.cm === 'circle';   // modes where each click takes one circle
 const isDrillOp = op => op.type === 'drill' || (op.type === 'chain' && op.cm === 'drill');
 
 // ── Picking ──
@@ -15701,15 +16133,15 @@ function chainClick(op, x, y, ev) {
   }
   const e = chainPickAt(x, y);
   if (!e) { toast('Click an edge that lies flat (at one height). Sloped and vertical edges are not part of a 2.5D chain.'); return; }
-  const add = ev && (ev.shiftKey || ev.ctrlKey || ev.metaKey) || (op.cm === 'drill');
-  chainAdd(op, e, CHAINUI.mode === 'chain' && op.cm !== 'drill', add);
+  const add = ev && (ev.shiftKey || ev.ctrlKey || ev.metaKey) || chainIsCircle(op);
+  chainAdd(op, e, CHAINUI.mode === 'chain' && !chainIsCircle(op), add);
 }
 function chainMove(op, x, y) {
   if (CHAINUI.startFor != null) { setHover3D(null); ov.className = 'pointer'; return; }
   const e = chainPickAt(x, y), key = e ? chainEdgeKey(e.ch) + CHAINUI.mode : '';
   if (key !== CHAINUI.hoverKey) {
     CHAINUI.hoverKey = key;
-    CHAINUI.hover = e ? buildChain(e.mesh, e.ch, CHAINUI.mode === 'chain' && op.cm !== 'drill') : null;
+    CHAINUI.hover = e ? buildChain(e.mesh, e.ch, CHAINUI.mode === 'chain' && !chainIsCircle(op)) : null;
     requestDraw();
   }
   setHover3D(null);
@@ -15719,7 +16151,7 @@ function chainMove(op, x, y) {
 ov.addEventListener('dblclick', e => {
   if (UIX.ws !== 'cam' || CMD || S.sk) return;
   const op = CAMUI.view === 'op' && opById(CAMUI.op);
-  if (!op || op.type !== 'chain' || op.cm === 'drill') return;
+  if (!op || op.type !== 'chain' || chainIsCircle(op)) return;
   const { x, y } = local(e), hit = chainPickAt(x, y);
   if (hit) { e.stopImmediatePropagation(); chainAdd(op, hit, true, e.shiftKey || e.ctrlKey || e.metaKey); }
 }, true);
@@ -15760,16 +16192,17 @@ function chainOverlay() {
 }
 // ── Panel ──
 function chainPanelFields(op) {
-  const cm = op.cm || 'contour', chains = op.chains || [], seg = (k, items, cur, tip) => `<div class="seg">${items.map(([v, l, t]) => `<button data-opset="${k}:${v}" class="${cur === v ? 'on' : ''}" ${t ? `title="${t}"` : ''}>${l}</button>`).join('')}</div>`;
-  let f = `<div class="field"><span>Toolpath</span>${seg('cm', [['contour', 'Contour'], ['pocket', 'Pocket'], ['drill', 'Drill']], cm)}</div>`;
-  if (cm !== 'drill') f += `<div class="field"><span>Click selects</span><div class="seg"><button data-chmode="single" class="${CHAINUI.mode === 'single' ? 'on' : ''}" title="One edge at a time. Double-click an edge for its whole chain.">One edge</button><button data-chmode="chain" class="${CHAINUI.mode === 'chain' ? 'on' : ''}" title="Every click takes the whole connected run of edges.">Whole chain</button></div></div>`;
+  const cm = op.cm || 'contour', chains = op.chains || [], seg = (k, items, cur, tip) => `<div class="seg" ${items.length > 4 ? 'style="flex-wrap:wrap"' : ''}>${items.map(([v, l, t]) => `<button data-opset="${k}:${v}" class="${cur === v ? 'on' : ''}" ${t ? `title="${t}"` : ''}>${l}</button>`).join('')}</div>`;
+  let f = `<div class="field"><span>Toolpath</span>${seg('cm', [['contour', 'Contour'], ['pocket', 'Pocket'], ['slot', 'Slot', 'Mills a slot along the chain; wider than the tool it is cleared with trochoidal loops'], ['circle', 'Circle', 'Helical interpolation: mills a hole or a boss to size with a spiral'], ['deburr', 'Deburr', 'Breaks the edge with a chamfer mill'], ['drill', 'Drill']], cm)}</div>`;
+  if (!chainIsCircle(op)) f += `<div class="field"><span>Click selects</span><div class="seg"><button data-chmode="single" class="${CHAINUI.mode === 'single' ? 'on' : ''}" title="One edge at a time. Double-click an edge for its whole chain.">One edge</button><button data-chmode="chain" class="${CHAINUI.mode === 'chain' ? 'on' : ''}" title="Every click takes the whole connected run of edges.">Whole chain</button></div></div>`;
   const rows = chains.map((c, i) => `<li data-chrow="${c.id}"><span class="nm">Chain ${i + 1}</span><span class="sub">${c.closed ? 'closed' : 'open'} · ${fmtLs(chainLength(c))}</span>
-      <button class="mini" data-chdo="rev:${c.id}" title="Run the tool the other way round the chain">Reverse</button>${c.closed && cm !== 'drill' ? `<button class="mini ${CHAINUI.startFor === c.id ? 'on' : ''}" data-chdo="start:${c.id}" title="Then click a corner of the chain to start there">Start…</button>` : ''}${!c.closed ? `<button class="mini" data-chdo="close:${c.id}" title="Join the two ends with a straight line">Close</button>` : c.joined ? `<button class="mini" data-chdo="open:${c.id}" title="Take the joining line away again">Open</button>` : ''}<button class="mini" data-chdo="del:${c.id}" title="Remove this chain">✕</button></li>`).join('');
-  f += `<div class="field"><span>${cm === 'drill' ? 'Circles' : 'Chains'}</span><div class="pick ${chains.length ? '' : 'empty'}"><span>${chains.length ? (cm === 'drill' ? 'Click a circle again with Shift to remove it' : 'Shift-click to add more chains') : cm === 'drill' ? 'Click the edge of a hole' : 'Click an edge in the model'}</span><span class="n">${chains.length}</span></div>${rows ? `<ul class="chain-list">${rows}</ul>` : ''}</div>`;
+      <button class="mini" data-chdo="rev:${c.id}" title="Run the tool the other way round the chain">Reverse</button>${c.closed && !chainIsCircle(op) ? `<button class="mini ${CHAINUI.startFor === c.id ? 'on' : ''}" data-chdo="start:${c.id}" title="Then click a corner of the chain to start there">Start…</button>` : ''}${!c.closed ? `<button class="mini" data-chdo="close:${c.id}" title="Join the two ends with a straight line">Close</button>` : c.joined ? `<button class="mini" data-chdo="open:${c.id}" title="Take the joining line away again">Open</button>` : ''}<button class="mini" data-chdo="del:${c.id}" title="Remove this chain">✕</button></li>`).join('');
+  f += `<div class="field"><span>${chainIsCircle(op) ? 'Circles' : 'Chains'}</span><div class="pick ${chains.length ? '' : 'empty'}"><span>${chains.length ? (chainIsCircle(op) ? 'Click a circle again with Shift to remove it' : 'Shift-click to add more chains') : chainIsCircle(op) ? 'Click the edge of a hole' : 'Click an edge in the model'}</span><span class="n">${chains.length}</span></div>${rows ? `<ul class="chain-list">${rows}</ul>` : ''}</div>`;
   if (cm === 'contour') f += `<div class="field"><span>Tool side (looking along the arrow)</span>${seg('side', [['auto', 'Auto', 'Finds the open side of the chain'], ['left', 'Left'], ['right', 'Right'], ['on', 'On line']], op.side || 'auto')}</div>
     <div class="field"><span>Cut down to</span>${seg('depthMode', [['auto', 'Auto'], ['chain', 'The chain'], ['through', 'Through'], ['below', 'Below it']], op.depthMode || 'auto')}</div>
     <div class="row3">${num('opSd', op.stepdown, 'Stepdown', 0.1)}${num('opLeave', op.leave, 'Leave', 0.05)}${op.depthMode === 'below' ? num('opDepth', op.depth || 0, 'Depth below chain', 0.1) : num('opThrough', op.through, 'Below bottom', 0.1)}</div>
-    <div class="field"><span>Lead in / out</span>${seg('lead', [['arc', 'Arc'], ['none', 'None']], op.lead || 'arc')}</div>`;
+    <div class="field"><span>Lead in / out</span>${seg('lead', [['arc', 'Arc'], ['none', 'None']], op.lead || 'arc')}</div>` + chainxFields(op, 'contour');
+  if (cm === 'slot' || cm === 'circle' || cm === 'deburr') f += chainxFields(op, cm);
   if (cm === 'pocket') f += `<div class="field"><span>Floor</span>${seg('depthMode', [['chain', 'At the chain'], ['below', 'Below it']], op.depthMode === 'below' ? 'below' : 'chain')}</div>
     <div class="row3">${num('opSo', op.stepover, 'Stepover ×Ø', 0.05)}${num('opSd', op.stepdown, 'Stepdown', 0.1)}${op.depthMode === 'below' ? num('opDepth', op.depth || 0, 'Depth below chain', 0.1) : num('opLf', op.leaveFloor, 'Leave on floor', 0.05)}</div>
     <div class="row2">${num('opLw', op.leaveWall, 'Leave on walls', 0.05)}${num('opFs', op.finishStock == null ? (isIn() ? 0.254 : 0.25) : op.finishStock, 'Leave for finishing', 0.05)}</div>`;
@@ -15787,12 +16220,15 @@ function chainDo(op, a) {
   camRefresh();
 }
 function chainSetMode(op, cm) {
-  const C = cam(), before = snap(), want = cm === 'drill' ? ['drill', 'spot'] : ['flat', 'bull'];
+  const C = cam(), before = snap(), want = cm === 'drill' ? ['drill', 'spot'] : cm === 'deburr' ? ['chamfer'] : cm === 'slot' || cm === 'circle' ? ['flat', 'bull'] : ['flat', 'bull'];
   op.cm = cm;
   const cur = toolOf(op.tool);
-  if (!want.includes(cur.type)) { const t = C.tools.find(x => want.includes(x.type)); if (t) op.tool = t.n; }
+  if (!want.includes(cur.type)) { const t = C.tools.find(x => want.includes(x.type)) || (cm === 'deburr' ? camToolOfType('chamfer', stdChamfer()[3] || 12, { cone: 90 }) : null); if (t) op.tool = t.n; }
+  if (cm === 'slot' && !(op.stepdown > 0)) op.stepdown = 2;
+  if (cm === 'circle') op.side = op.side === 'out' ? 'out' : 'in'; else if (op.side === 'in' || op.side === 'out') op.side = 'auto';
   if (cm === 'drill' && !op.mode) op.mode = 'peck';
   if (cm !== 'drill') op.depthMode = cm === 'pocket' ? 'chain' : 'auto';
+  if (cm === 'slot' || cm === 'circle') op.depth = 0;
   record(`${op.name}: ${cm}`, before);
   camRefresh();
 }
@@ -15926,7 +16362,7 @@ function camOpMenu(op, x, y) {
 }
 // ── Right panel views ──────────────────────────────────────────────
 // Length fields show display units; setN converts them back to mm.
-const CAM_LEN = new Set(['stSide', 'stTop', 'stBot', 'camSafe', 'camRet', 'opSd', 'opLeave', 'opThrough', 'opLw', 'opLf', 'opPeck', 'opSoL', 'opRest', 'opFs', 'opRough', 'opPkI', 'opPkJ', 'opPkK', 'opRpl', 'opS22', 'opS52', 'opDepth', 'opBsD', 'opBsC']);
+const CAM_LEN = new Set(['stSide', 'stTop', 'stBot', 'camSafe', 'camRet', 'opSd', 'opLeave', 'opThrough', 'opLw', 'opLf', 'opPeck', 'opSoL', 'opRest', 'opFs', 'opRough', 'opPkI', 'opPkJ', 'opPkK', 'opRpl', 'opS22', 'opS52', 'opDepth', 'opBsD', 'opBsC', 'opTabW', 'opTabH', 'opSlotW', 'opPitch', 'opChSize', 'opTipBelow', 'opWlBot']);
 const num = (id, v, lab, step = 'any', extra = '') => CAM_LEN.has(id)
   ? `<label class="field"><span>${lab} (${uName()})</span><input type="number" id="${id}" data-cam-input="1" data-len="1" step="any" value="${uval(+v)}" ${extra}></label>`
   : `<label class="field"><span>${lab}</span><input type="number" id="${id}" data-cam-input="1" step="${step}" value="${+(+v).toFixed(4)}" ${extra}></label>`;
@@ -16080,7 +16516,9 @@ function camPanel() {
       <label class="chk"><input type="checkbox" id="opOverrun" ${op.overrun ? 'checked' : ''}> Run the tool past the part edges</label>`;
     if (op.type === 'clear') f += `<div class="row2">${num('opSo', op.stepover, 'Stepover ×Ø', 0.05)}${num('opSd', op.stepdown, 'Stepdown', 0.1)}</div><div class="row2">${num('opLw', op.leaveWall || 0, 'Leave on walls', 0.01)}</div><p class="note">${(op.areas || []).length} area${(op.areas || []).length === 1 ? '' : 's'} where material was left: ${(op.areas || []).slice(0, 4).map(a => 'down to ' + fmtLs(a.z, 2)).join(', ')}${(op.areas || []).length > 4 ? '…' : ''}</p>`;
     if (op.type === 'engrave') f += engraveFields(op);
+    if (op.type === 'waterline') f += waterlineFields(op);
     { const fb = ['parallel', 'chamfer', 'contour', 'pocket'].includes(op.type) ? finishBlock(op, toolOf(op.tool)) : ''; if (fb) f += `<h3 class="sub">Surface finish</h3>${fb}`; }
+    f += feedsCard(op);
     const warn = P && P.warn.length ? P.warn.map(w => `<p class="note err-note">${w}</p>`).join('') : '';
     const info = P && P.pending ? '<p class="note"><span class="spin"></span> Computing the 3D toolpath in the background…</p>' : stats ? `<dl class="kv"><dt>Cutting</dt><dd>${fmtRun(stats.feedLen)}</dd><dt>Rapids</dt><dd>${fmtRun(stats.rapidLen)}</dd><dt>Machining time</dt><dd>${fmtTime(stats.min)}</dd>${P.info ? `<dt>Detail</dt><dd>${P.info}</dd>` : ''}</dl>` : '';
     return `<div class="pn-head"><h2 id="opNameH" title="Double-click to rename">${op.name}</h2><span class="tag">${OP_INFO[op.type].name}</span></div><div class="pn-body">
@@ -16192,6 +16630,9 @@ function bindCamPanel() {
       else camEdit(op, k, val);
     });
     ck('opFinish', v => camEdit(op, 'finish', v));
+    camxBind(op, setN);
+    setN('opWlBot', v => camEdit(op, 'bottom', v));
+    panel.querySelectorAll('[data-fsreset]').forEach(b => b.addEventListener('click', () => { const t = toolOf(+b.dataset.fsreset), n = toolDefaults(t.type, t.d), before = snap(); Object.assign(t, { rpm: n.rpm, feed: n.feed, plunge: n.plunge }); record(`Reset T${t.n} feeds and speeds`, before); camRefresh(); }));
     const cyc = document.getElementById('opCycle'); if (cyc) cyc.addEventListener('change', () => camEdit(op, 'mode', cyc.value));
     const drillMap = { opPkI: 'peckFirst', opPkJ: 'peckReduce', opPkK: 'peckMin', opRpl: 'rPlane', opS22: 'chipBack', opS52: 's52', opDepth: 'depth', opBsD: 'bsfDepth', opBsC: 'bsfClear' };
     for (const [id, k] of Object.entries(drillMap)) setN(id, v => camEdit(op, k, Math.max(k === 'rPlane' ? 0.2 : k === 'chipBack' ? 0.01 : 0, v)));
@@ -20941,7 +21382,8 @@ function featDeps(f, ids, fromMeta) {
   if (f.type === 'bmode') for (const b of [f.body, ...(Array.isArray(f.to) ? f.to : [])]) ids.add(Math.floor(b));
   if (f.type === 'loft') for (const s of f.secs || []) ids.add(s.sketch);
   if (f.type === 'hole' && f.face) fromMeta(f.face.m);
-  if (f.type === 'shell') for (const r of f.faces || []) fromMeta(r.m);
+  if (f.type === 'shell' || f.type === 'pushpull' || f.type === 'draft') for (const r of f.faces || []) fromMeta(r.m);
+  if (f.type === 'align') for (const r of [f.fa, f.fb]) if (r) fromMeta(r.m);
   for (const k of ['axis', 'dir1', 'dir2', 'plane']) if (FEATS[f.type] && f[k] && typeof f[k] === 'object') ref(f[k]);
   if (f.type === 'pattern' && f.of !== 'bodies') for (const id of f.feats || []) ids.add(id);
   for (const b of [...(f.bodies || []), ...(f.tools || []), f.target, f.body]) if (typeof b === 'number') ids.add(Math.floor(b));
@@ -28000,8 +28442,9 @@ modelToolbarHTML = function () {
   const c = t => CMD && CMD.type === t, edge = k => c('edge') && CMD.f.type === k, pat = k => cmdIs('pattern') && CMD.f.kind === k;
   const f = (k, l, key) => ['f:' + k, l, key, k, cmdIs(k)];
   return rbPanel('Sketch', [['sketch', 'Create Sketch', 'K', 'sketch', c('pickPlane')]])
-    + rbPanel('Create', [['extrude', 'Extrude', 'E', 'extrude', c('extrude')], f('revolve', 'Revolve', 'R'), f('sweep', 'Sweep', 'S'), f('loft', 'Loft', 'L'), f('coil', 'Coil', ''), f('hole', 'Hole', ''), FEATS.gear ? f('gear', 'Gear', '') : null], 2)
-    + rbPanel('Modify', [['fillet3', 'Fillet', 'F', 'fillet3', edge('fillet')], ['chamfer3', 'Chamfer', 'C', 'chamfer3', edge('chamfer')], f('shell', 'Shell', ''), ['thread', 'Thread', 'T', 'thread', c('thread')], f('combine', 'Combine', ''), f('split', 'Split Body', ''), f('move', 'Move / Copy', 'G'), f('rotate', 'Rotate', ''), f('scale', 'Scale', '')], 2)
+    + rbPanel('Create', [['extrude', 'Extrude', 'E', 'extrude', c('extrude')], f('revolve', 'Revolve', 'R'), f('sweep', 'Sweep', 'S'), f('loft', 'Loft', 'L'), f('coil', 'Coil', ''), f('hole', 'Hole', ''), FEATS.gear ? f('gear', 'Gear', '') : null, FEATS.primitive ? f('primitive', 'Primitive', '') : null], 2)
+    + rbPanel('Modify', [['fillet3', 'Fillet', 'F', 'fillet3', edge('fillet')], ['chamfer3', 'Chamfer', 'C', 'chamfer3', edge('chamfer')], f('shell', 'Shell', ''), ['thread', 'Thread', 'T', 'thread', c('thread')], f('combine', 'Combine', ''), f('split', 'Split Body', ''), f('move', 'Move / Copy', 'G'), f('rotate', 'Rotate', ''), f('scale', 'Scale', ''), FEATS.stretch ? f('stretch', 'Stretch', '') : null, FEATS.delbody ? f('delbody', 'Delete Body', '') : null], 2)
+    + (FEATS.pushpull ? rbPanel('Direct', [f('pushpull', 'Push / Pull', ''), f('draft', 'Draft', ''), f('align', 'Align', '')], 1) : '')
     + rbPanel('Pattern', [['p:rect', 'Rectangular', '', 'pattern', pat('rect')], ['p:circ', 'Circular', '', 'patternc', pat('circ')], ['p:mirror', 'Mirror', '', 'mirror3', pat('mirror')]], 0)
     + rbPanel('Construct', [['plane', 'Offset Plane', 'P', 'plane', c('offset')], ['point', 'Point', 'O', 'point', c('point')]], 1)
     + rbPanel('Inspect', [['measure', 'Measure', 'M', 'measure', c('measure')], ['stress', 'Stress', '', 'stress', c('stress')], ['blueprint', 'Blueprint Drawing', '', 'blueprint']], 2)
@@ -30266,6 +30709,189 @@ const TIP_TXT = {
   document.addEventListener('keydown', hide, true);
   addEventListener('scroll', hide, true);
   addEventListener('blur', hide);
+})();
+</script>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  More modeling tools (Design tab): Primitive, Push / Pull, Draft,
+//  Align, Stretch and Delete Body. The kernel half lives next to the
+//  deform code; this half is the panels, picking, icons and help cards.
+// ═══════════════════════════════════════════════════════════════════
+Object.assign(FEAT_BASE, { primitive: 'Primitive', pushpull: 'Push Pull', draft: 'Draft', align: 'Align', stretch: 'Stretch', delbody: 'Delete' });
+Object.assign(FEAT_IC, { primitive: 'primitive', pushpull: 'pushpull', draft: 'draft', align: 'align', stretch: 'stretch', delbody: 'delbody' });
+TOOL_FEATS.add('primitive');
+Object.assign(IC, {
+  primitive: '<path d="M3 9l5-2.5L13 9v6l-5 2.5L3 15z"/><path d="M3 9l5 2.5L13 9M8 11.5v6" opacity=".55"/><circle cx="15" cy="5.5" r="2.6"/>',
+  pushpull: '<path d="M3 12.5l6 3 6-3V9.5l-6 3-6-3z"/><path d="M3 9.5l6 3 6-3" opacity=".5"/><path d="M10 11V2.5M7.3 5.2L10 2.5l2.7 2.7"/>',
+  draft: '<path d="M3 17h14M5 17L7.5 4h5L15 17"/><path d="M7.5 4l-1 5" stroke-dasharray="1.6 1.6" opacity=".5"/>',
+  align: '<path d="M3 3.5v13" /><path d="M6.5 10h7M10.8 7.2L13.6 10l-2.8 2.8"/><rect x="14.5" y="5.5" width="3" height="9" rx=".6"/>',
+  stretch: '<rect x="6.5" y="6.5" width="7" height="7" rx=".8"/><path d="M2 10h3M18 10h-3M3.7 8.2L2 10l1.7 1.8M16.3 8.2L18 10l-1.7 1.8"/>',
+  delbody: '<path d="M4 7l6-3 6 3v7l-6 3-6-3z" opacity=".5"/><path d="M7.5 8.3l5 5M12.5 8.3l-5 5"/>',
+});
+Object.assign(MENU_IC, { 'f:primitive': 'primitive', 'f:pushpull': 'pushpull', 'f:draft': 'draft', 'f:align': 'align', 'f:stretch': 'stretch', 'f:delbody': 'delbody' });
+TB_MENUS.create.push(['f:primitive', 'Primitive', '']);
+TB_MENUS.modify.push(null, ['f:pushpull', 'Push / Pull', ''], ['f:draft', 'Draft', ''], ['f:align', 'Align', ''], ['f:stretch', 'Stretch', ''], ['f:delbody', 'Delete Body', '']);
+RB_HUE.direct = 14;
+
+// ── Primitive ──────────────────────────────────────────────────────
+FEATS.primitive = {
+  label: 'Primitive', need: '',
+  title: f => PRIM_NAMES[f.shape] || 'Primitive',
+  init: () => ({ shape: 'box', w: 40, d: 30, h: 20, dia: 30, dia2: 0, tube: 6, center: true, sit: true, base: 'XZ', cx: 0, cy: 0, off: 0, op: 'new' }),
+  ready: () => true,
+  panel: f => {
+    const k = f.shape, st = isIn() ? 0.05 : 1, L = { len: 1, min: 0, step: st };
+    let h = pf.seg('Shape', 'shape', [['box', 'Box'], ['cyl', 'Cylinder'], ['cone', 'Cone']]) + pf.seg('', 'shape', [['sphere', 'Sphere'], ['torus', 'Torus']]);
+    if (k === 'box') h += `<div class="row2">${pf.num('Width', 'w', L)}${pf.num('Depth', 'd', L)}</div>${pf.num('Height', 'h', L)}${pf.chk('Centered on the point', 'center')}`;
+    else if (k === 'cyl') h += `<div class="row2">${pf.num('Diameter', 'dia', L)}${pf.num('Height', 'h', L)}</div>`;
+    else if (k === 'cone') h += `<div class="row2">${pf.num('Base Ø', 'dia', L)}${pf.num('Top Ø (0 = point)', 'dia2', L)}</div>${pf.num('Height', 'h', L)}`;
+    else if (k === 'sphere') h += pf.num('Diameter', 'dia', L) + pf.chk('Rest on the plane (else centered)', 'sit');
+    else h += `<div class="row2">${pf.num('Ring Ø', 'dia', L)}${pf.num('Tube Ø', 'tube', L)}</div>` + pf.chk('Rest on the plane (else centered)', 'sit');
+    return h + pf.seg('Base plane', 'base', [['XZ', 'Top'], ['XY', 'Front'], ['YZ', 'Side']])
+      + `<div class="row2">${pf.num('Center X', 'cx', { len: 1 })}${pf.num('Center Y', 'cy', { len: 1 })}</div>${pf.num('Offset from the plane', 'off', { len: 1 })}` + pf.op(f)
+      + pf.note('Round shapes are exact. Join, cut or intersect to add one to a part — a cylinder cut makes a hole, a sphere cut makes a dimple.');
+  },
+  hint: () => 'pick a shape and type its sizes — it updates live',
+  sub: f => { const u = v => fmtLs(+v); return `${OP_SIGN[f.op] || ''} ${f.shape === 'box' ? `${u(f.w)}×${u(f.d)}×${u(f.h)}` : f.shape === 'torus' ? 'Ø' + u(f.dia) : 'Ø' + u(f.dia)}`.trim(); },
+};
+
+// ── Push / Pull ────────────────────────────────────────────────────
+const pickFaceToggle = (f, key, h) => {
+  const i = f[key].findIndex(ref => { const r = findFace(beforeBodies(), ref); return r && r.fid === h.fid && r.body.id === h.body; });
+  if (i >= 0) f[key].splice(i, 1); else f[key].push(faceRef(h.mesh, h.fid, faceInfo(h.mesh, h.fid).on));
+};
+const hlFaces = (add, list) => { for (const ref of list) { const r = findFace(beforeBodies(), ref); if (r) add.face(r.mesh, r.fid, selMat); } };
+FEATS.pushpull = {
+  label: 'Push / Pull', before: true, need: 'Pick the faces to push or pull.',
+  init: () => ({ faces: [], d: 5, whole: false, body: null }),
+  ready: f => f.whole ? f.body != null : f.faces.length > 0,
+  start(c) { const s = sel3D; if (s && s.kind === 'face') c.f.faces = [faceRef(s.mesh, s.fid, faceInfo(s.mesh, s.fid).on)]; },
+  move(x, y) { if (CMD.f.whole) hoverBody(x, y); else hoverBeforeFace(x, y); },
+  click(x, y) {
+    const f = CMD.f;
+    if (f.whole) { const h = hover3D; if (h && h.kind === 'bbody') FEATS.pushpull.bodyClick(h.body); return; }
+    const h = pickBefore(x, y);
+    if (!h) return;
+    pickFaceToggle(f, 'faces', h); featSync();
+  },
+  bodyClick(id) { if (CMD.f.whole) { CMD.f.body = id; featSync(); } },
+  hl(add) { const f = CMD.f; if (f.whole) { if (f.body != null) add.body(f.body, selMat); } else hlFaces(add, f.faces); },
+  panel: f => pf.seg('Move', 'whole', [[false, 'Faces'], [true, 'Whole body']])
+    + (f.whole ? pf.pick('Body', f.body != null ? bodyNames()[f.body] || 'Body' : 'Click a body', '', null)
+      : pf.pick('Faces', f.faces.length ? 'Click a face again to drop it' : 'Click faces of a body', f.faces.length || '') + (f.faces.length ? '<div class="btns"><button class="btn" data-fdo="clear">Clear faces</button></div>' : ''))
+    + pf.num('Distance', 'd', { len: 1, step: isIn() ? 0.05 : 1 })
+    + pf.note(f.whole ? 'Every face moves out by the distance (a negative one shrinks the body).' : 'Positive pulls the faces out and adds material; negative pushes them in. The faces next to them stretch to follow, and round faces grow or shrink.'),
+  act: { clear() { CMD.f.faces = []; featSync(); } },
+  hint: c => c.f.whole ? 'click the body to grow or shrink' : 'click the faces to move, then type a distance',
+  sub: f => (f.d > 0 ? '+' : '') + fmtLs(f.d),
+};
+
+// ── Draft ──────────────────────────────────────────────────────────
+FEATS.draft = {
+  label: 'Draft', home: 'faces', before: true, need: 'Pick the flat faces to tilt.',
+  init: () => ({ faces: [], plane: { k: 'origin', w: 'XZ' }, angle: 3, flip: false }),
+  ready: f => f.faces.length > 0 && !!f.plane,
+  start(c) { const s = sel3D; if (s && s.kind === 'face' && Surf.list[s.fid].t === 'P') c.f.faces = [faceRef(s.mesh, s.fid, faceInfo(s.mesh, s.fid).on)]; },
+  move(x, y) { if (CMD.step === 'plane') hoverPlaneRef(x, y); else hoverBeforeFace(x, y, h => Surf.list[h.fid].t === 'P'); },
+  click(x, y) {
+    const f = CMD.f;
+    if (CMD.step === 'plane') { const p = planeRefFromHover(hover3D); if (!p) return; f.plane = p; CMD.step = 'faces'; featSync(); return; }
+    const h = pickBefore(x, y);
+    if (!h) return;
+    if (Surf.list[h.fid].t !== 'P') { toast('Only flat faces can be drafted.'); return; }
+    pickFaceToggle(f, 'faces', h); featSync();
+  },
+  hl(add) { hlFaces(add, CMD.f.faces); },
+  panel: f => pf.pick('Faces to tilt', f.faces.length ? 'Click a face again to drop it' : 'Click flat faces', f.faces.length || '', 'faces')
+    + `<div class="btns"><button class="btn" data-fdo="sides" ${f.faces.length ? '' : 'disabled'}>Add every side face</button>${f.faces.length ? '<button class="btn" data-fdo="clear">Clear</button>' : ''}</div>`
+    + pf.plane('Neutral plane (stays put)', 'plane', 'plane') + pf.num('Angle (°)', 'angle', { step: 1, min: 0 }) + pf.chk('Reverse the pull direction', 'flip')
+    + pf.note('Each face tilts about the line where it meets the neutral plane, so the part gets narrower going away from that plane (toward the pull direction). Use it to make walls release from a mold.'),
+  act: {
+    clear() { CMD.f.faces = []; featSync(); },
+    sides() {
+      const f = CMD.f, first = f.faces[0] && findFace(beforeBodies(), f.faces[0]);
+      if (!first) return;
+      let P; try { P = resolveMirrorPlane(f.plane, { bodies: beforeBodies(), planes: MODEL.planes || {} }); } catch (e) { toast('Pick a neutral plane first.'); return; }
+      const m = nrm3(P.n), have = new Set(f.faces.map(r => { const q = findFace(beforeBodies(), r); return q && q.fid; }));
+      for (const p of first.mesh.PL) {
+        const s = Surf.list[p.f];
+        if (have.has(p.f) || s.t !== 'P' || s.patch !== undefined || Math.abs(dot3(s.n, m)) > 0.02) continue;
+        have.add(p.f); f.faces.push(faceRef(first.mesh, p.f, faceInfo(first.mesh, p.f).on));
+      }
+      featSync();
+    },
+  },
+  hint: c => c.step === 'plane' ? 'click a flat face or construction plane to be the neutral plane' : 'click the flat faces to tilt',
+  sub: f => (f.flip ? '−' : '') + +(+f.angle).toFixed(2) + '°',
+};
+
+// ── Align ──────────────────────────────────────────────────────────
+FEATS.align = {
+  label: 'Align', home: 'a', before: true, need: 'Pick the face to move, then the face it should meet.',
+  init: () => ({ fa: null, fb: null, flush: false, center: false, gap: 0, spin: 0 }),
+  ready: f => !!f.fa && !!f.fb,
+  start(c) { const s = sel3D; if (s && s.kind === 'face' && 'PC'.includes(Surf.list[s.fid].t)) { c.f.fa = faceRef(s.mesh, s.fid, faceInfo(s.mesh, s.fid).on); c.step = 'b'; } },
+  move(x, y) { hoverBeforeFace(x, y, h => 'PC'.includes(Surf.list[h.fid].t)); },
+  click(x, y) {
+    const f = CMD.f, h = pickBefore(x, y);
+    if (!h) return;
+    if (!'PC'.includes(Surf.list[h.fid].t)) { toast('Pick a flat or round face.'); return; }
+    const ref = faceRef(h.mesh, h.fid, faceInfo(h.mesh, h.fid).on);
+    if (CMD.step === 'b') f.fb = ref; else { f.fa = ref; CMD.step = 'b'; }
+    featSync();
+  },
+  hl(add) { const f = CMD.f; for (const [ref, mat] of [[f.fa, selMat], [f.fb, hotMat]]) { const r = ref && findFace(beforeBodies(), ref); if (r) add.face(r.mesh, r.fid, mat); } },
+  panel: f => {
+    const name = ref => { const r = ref && findFace(beforeBodies(), ref); return r ? (bodyNames()[r.body.id] || 'Body') + (Surf.list[r.fid].t === 'C' ? ' · round face' : ' · flat face') : null; };
+    return pf.pick('Face to move', name(f.fa) || 'Click a flat or round face', f.fa ? '✓' : '', 'a') + pf.pick('Face to meet', name(f.fb) || 'Click a face on another body', f.fb ? '✓' : '', 'b')
+      + pf.seg('Flat faces', 'flush', [[false, 'Touch'], [true, 'Flush']]) + pf.chk('Center on the target face', 'center')
+      + `<div class="row2">${pf.num('Gap', 'gap', { len: 1, step: isIn() ? 0.05 : 1 })}${pf.num('Spin (°)', 'spin', { step: 15 })}</div>`
+      + pf.note('The body of the first face moves; the second stays. Flat faces touch face to face (or sit flush); two round faces share one axis — use it to drop a pin into a hole.');
+  },
+  hint: c => c.step === 'b' ? 'click the face it should meet (on another body)' : 'click the face to move',
+  sub: f => f.flush ? 'flush' : 'touch',
+};
+
+// ── Stretch, Delete Body ───────────────────────────────────────────
+FEATS.stretch = bodyTool({
+  label: 'Stretch',
+  init: () => ({ bodies: [], sx: 1.5, sy: 1, sz: 1, pivot: 'center' }),
+  panel: f => bodyPickPanel(f, 'bodies', 'Bodies')
+    + `<div class="row3">${pf.num('X (×)', 'sx', { step: 0.1, min: 0.01 })}${pf.num('Y (×)', 'sy', { step: 0.1, min: 0.01 })}${pf.num('Z (×)', 'sz', { step: 0.1, min: 0.01 })}</div>`
+    + pf.seg('About', 'pivot', [['center', 'Body center'], ['origin', 'Origin']])
+    + pf.note('Scale each direction on its own: 2 doubles that direction and 1 leaves it alone. Flat faces stay flat; round faces that are squashed become smooth freeform surfaces.'),
+  sub: f => `${+(+f.sx).toFixed(2)}·${+(+f.sy).toFixed(2)}·${+(+f.sz).toFixed(2)}`,
+});
+FEATS.delbody = bodyTool({
+  label: 'Delete Body',
+  init: () => ({ bodies: [] }),
+  panel: f => bodyPickPanel(f, 'bodies', 'Bodies to delete') + pf.note('The bodies are removed from the model from this step on. Roll the history marker back to bring them back.'),
+  sub: f => f.bodies.length > 1 ? '× ' + f.bodies.length : '',
+});
+
+// ── Help cards: what each tool does, before and after ──────────────
+Object.assign(TIP_TXT, {
+  'f:primitive': ['A ready-made box, cylinder, cone, sphere or torus from its sizes.', ['Choose the shape and type its sizes.', 'Pick the base plane and where its center goes.', 'Choose New body, Join, Cut or Intersect, then OK.']],
+  'f:pushpull': ['Push or pull faces straight in or out — or grow or shrink a whole body.', ['Click the faces to move (or choose Whole body).', 'Type a distance: positive pulls out, negative pushes in.', 'Neighboring faces stretch to follow. OK.']],
+  'f:draft': ['Tilt walls by a few degrees so a part releases from its mold.', ['Click the flat faces to tilt, or Add every side face.', 'Pick the neutral plane — the line where it meets each face stays put.', 'Set the angle, then OK.']],
+  'f:align': ['Move one body so a face of it meets a face of another.', ['Click the face on the body you want to move.', 'Click the face it should meet (flat to flat, or round to round).', 'Add a gap, a spin or centering if you need it, then OK.']],
+  'f:stretch': ['Scale a body by different amounts in X, Y and Z.', ['Pick the bodies.', 'Type a factor for each direction (1 leaves it alone).', 'OK.']],
+  'f:delbody': ['Remove whole bodies from the model.', ['Click the bodies to delete.', 'OK. Roll the history back to bring them back.']],
+});
+(() => {
+  const A = TipArt, { C, at, P, poly, line, box, ell, cyl, arrow, plane } = A;
+  const iso = (f, ox = 60, oy = 48, s = 1.55) => () => { at(ox, oy, s); return f(); };
+  const ghost = svg => svg.replace(/fill="[^"]+"/g, 'fill="none"').replace(/stroke="[^"]+"/g, 'stroke="#b8c2ce" stroke-dasharray="2 2"');
+  const frustum = (t = 'a') => poly([P(-14, 10, 0), P(14, 10, 0), P(10, 6, 16), P(-10, 6, 16)], C.accL) + poly([P(14, -10, 0), P(14, 10, 0), P(10, 6, 16), P(10, -6, 16)], C.accR) + poly([P(-10, -6, 16), P(10, -6, 16), P(10, 6, 16), P(-10, 6, 16)], C.accT);
+  Object.assign(TIP_ART, {
+    'f:primitive': [iso(() => plane(0, 28)), iso(() => box(-14, -10, 0, 22, 18, 12, 'a') + cyl(12, 6, 0, 8, 22, 'a'), 60, 52, 1.35)],
+    'f:pushpull': [iso(() => box(-15, -11, 0, 30, 22, 12) + line([P(-15, -11, 12), P(15, -11, 12), P(15, 11, 12), P(-15, 11, 12), P(-15, -11, 12)], C.warn, 2)), iso(() => box(-15, -11, 0, 30, 22, 12) + box(-15, -11, 12, 30, 22, 9, 'a') + arrow(P(0, 0, 21), P(0, 0, 32), C.acc), 60, 54, 1.35)],
+    'f:draft': [iso(() => box(-14, -10, 0, 28, 20, 16) + line([P(-14, 10, 0), P(-14, 10, 16)], C.warn, 2.4)), iso(() => frustum())],
+    'f:align': [iso(() => box(-26, -9, 0, 18, 18, 14) + box(10, -9, 0, 18, 18, 14, 'a') + arrow(P(10, 0, 20), P(-6, 0, 20), C.acc), 60, 52, 1.35), iso(() => box(-18, -9, 0, 18, 18, 14) + box(0, -9, 0, 18, 18, 14, 'a'), 60, 52, 1.35)],
+    'f:stretch': [iso(() => box(-8, -8, 0, 16, 16, 12)), iso(() => ghost(box(-8, -8, 0, 16, 16, 12)) + box(-22, -8, 0, 44, 16, 12, 'a') + arrow(P(10, 0, 14), P(24, 0, 14), C.acc), 60, 52, 1.2)],
+    'f:delbody': [iso(() => box(-26, -9, 0, 18, 18, 14) + box(8, -9, 0, 18, 18, 14, 'a'), 60, 52, 1.35), iso(() => box(-26, -9, 0, 18, 18, 14) + ghost(box(8, -9, 0, 18, 18, 14)), 60, 52, 1.35)],
+  });
 })();
 </script>
 
@@ -34814,6 +35440,7 @@ const GD = {
     gS('Press play', 'Watch the stock being removed. Chips fly off with the cut.'),
     gS('Scrub the timeline', 'Drag to any moment; use the speed slider to slow down.', null, true),
     gS('Look for problems', 'Collisions and gouges show in red.'),
+    gS('Read the heat map', 'The path is colored by feeds and speeds; red moves are overloaded. Pick the metric in the panel and hover the path.', () => !!(window.HEAT && HEAT.on), true),
     gS('End the simulation', 'Click <b>End</b> to go back to the operations.')]],
   'cam:post': ['G-code steps', () => [
     gS('Check the program', 'Every line is shown with its tool change and coordinates.'),
@@ -35485,6 +36112,7 @@ function gsPick(i) {
 </script>
 <!-- 3D Print workspace: the slicer engine and its front end (own files, so the modeler stays untouched) -->
 <script src="tip-anim.js"></script>
+<script src="heatmap.js"></script>
 <script src="slicer.js"></script>
 <script src="costing.js"></script>
 <script src="print-ui.js"></script>
