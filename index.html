@@ -15855,12 +15855,17 @@ function waterlineFields(op) {
     <div class="field"><span>Entry</span>${seg('entry', [['ramp', 'Ramp', 'Spirals down along the contour at a shallow angle'], ['plunge', 'Plunge', 'Straight down at the start of each contour']], op.entry === 'plunge' ? 'plunge' : 'ramp')}</div>`;
 }
 // ── Feeds and speeds: what the tool in this operation is actually doing, against what the material wants ──
+// the numbers behind the card and the heat map: surface speed, chip load against the material's recommendation, removal rate
+function feedsOf(op, t) {
+  const vc = Math.PI * t.d * t.rpm / 1000, fzTool = t.feed / ((t.rpm || 1) * (t.flutes || 1)), ref = toolDefaults(t.type, t.d), fzRef = ref.feed / ((ref.rpm || 1) * (ref.flutes || 1));
+  const ratio = fzTool / (fzRef || 1), sd = op.stepdown || (op.type === 'chain' && op.stepdown) || 0, so = (op.stepover || 0.4) * t.d;
+  const mrr = op.type === 'pocket' || op.type === 'face' || op.type === 'clear' || (op.type === 'chain' && op.cm === 'pocket') ? so * sd * t.feed / 1000 : null;
+  return { vc, fzTool, ref, fzRef, ratio, sd, so, mrr };
+}
 function feedsCard(op) {
   const t = toolOf(op.tool);
   if (!t || t.wire) return '';
-  const M = matOf(), vc = Math.PI * t.d * t.rpm / 1000, fzTool = t.feed / ((t.rpm || 1) * (t.flutes || 1)), ref = toolDefaults(t.type, t.d), fzRef = ref.feed / ((ref.rpm || 1) * (ref.flutes || 1));
-  const ratio = fzTool / (fzRef || 1), sd = op.stepdown || (op.type === 'chain' && op.stepdown) || 0, so = (op.stepover || 0.4) * t.d;
-  const mrr = op.type === 'pocket' || op.type === 'face' || op.type === 'clear' || (op.type === 'chain' && op.cm === 'pocket') ? so * sd * t.feed / 1000 : null;
+  const M = matOf(), { vc, fzTool, ref, ratio, mrr } = feedsOf(op, t);
   const flag = ratio < 0.5 ? 'Chip load is low: the tool will rub and wear. ' : ratio > 1.6 ? 'Chip load is high: expect chatter or a broken tool. ' : '';
   const rows = [['Surface speed', `${vc.toFixed(0)} m/min (${(vc * 3.281).toFixed(0)} SFM)`], ['Spindle', `${Math.round(t.rpm)} rpm`], ['Chip load', `${fzTool.toFixed(3)} mm/tooth × ${t.flutes}`], ['Feed', `${uval(t.feed, 1)} ${uRate()}`]];
   if (mrr) rows.push(['Material removal', `${mrr.toFixed(1)} cm³/min`]);
@@ -35026,6 +35031,7 @@ const GD = {
     gS('Press play', 'Watch the stock being removed. Chips fly off with the cut.'),
     gS('Scrub the timeline', 'Drag to any moment; use the speed slider to slow down.', null, true),
     gS('Look for problems', 'Collisions and gouges show in red.'),
+    gS('Read the heat map', 'The path is colored by feeds and speeds; red moves are overloaded. Pick the metric in the panel and hover the path.', () => !!(window.HEAT && HEAT.on), true),
     gS('End the simulation', 'Click <b>End</b> to go back to the operations.')]],
   'cam:post': ['G-code steps', () => [
     gS('Check the program', 'Every line is shown with its tool change and coordinates.'),
@@ -35696,6 +35702,7 @@ function gsPick(i) {
 }
 </script>
 <!-- 3D Print workspace: the slicer engine and its front end (own files, so the modeler stays untouched) -->
+<script src="heatmap.js"></script>
 <script src="slicer.js"></script>
 <script src="costing.js"></script>
 <script src="print-ui.js"></script>
