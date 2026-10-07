@@ -22731,19 +22731,37 @@ function simWorkerMain() {
     } catch (err) { self.postMessage({ k: 'err', seq: m.seq, error: String(err && err.stack || err) }); }
   };
 }
+// The worker's source: the page's own StockModel / cutRadius / Clipper helpers, so there is one implementation of the cutting.
+function simWorkerSrc() {
+  return [
+    'importScripts("https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js", "https://cdn.jsdelivr.net/npm/clipper-lib@6.4.2/clipper.js");',
+    `const TAU = Math.PI * 2, CS = ${CS};`,
+    'const P2 = (x, y) => ({ x, y });',
+    `const toW = ${toW.toString()};`, `const cP = ${cP.toString()};`, `const cArea = ${cArea.toString()};`,
+    cBool.toString(), cutRadius.toString(), simplifyOpen.toString(), StockModel.toString(),
+    `(${simWorkerMain.toString()})();`,
+  ].join('\n');
+}
+// A program packed for the worker: the 'init' message and the buffers it hands over.
+function simWorkerInit(st, segs, levels) {
+  const slugs = [], slugIx = new Map(), tools = [], ti = new Map(), opIx = new Map(), axes = [], axIx = new Map(), D = new Float64Array(segs.length * 8), I = new Int32Array(segs.length * 4);
+  segs.forEach((s, i) => {
+    let k = ti.get(s.tool); if (k === undefined) { k = tools.length; tools.push({ d: s.tool.d, type: s.tool.type, r: s.tool.r, cone: s.tool.cone, up: s.tool.up }); ti.set(s.tool, k); }
+    let o = opIx.get(s.op); if (o === undefined) { o = opIx.size; opIx.set(s.op, o); }
+    D.set([s.a.x, s.a.y, s.a.z, s.b.x, s.b.y, s.b.z, s.t0, s.t1], i * 8);
+    let x = -1;
+    if (s.ax) { const key = s.ax.join(','); x = axIx.get(key); if (x === undefined) { x = axes.length; axes.push(s.ax); axIx.set(key, x); } }
+    I[i * 4] = k; I[i * 4 + 1] = (s.r ? 1 : 0) | (s.fin ? 2 : 0) | (s.slug ? 4 : 0); I[i * 4 + 2] = o; I[i * 4 + 3] = x;
+    if (s.slug) { slugIx.set(i, slugs.length); slugs.push({ mode: s.slug.mode, paths: s.slug.paths }); }
+  });
+  return { msg: { k: 'init', st, levels, tools, axes, slugs, slugAt: [...slugIx], D, I }, transfer: [D.buffer, I.buffer] };
+}
 const SimWorker = {
   w: null, failed: false, busy: false, seq: 0, sentT: null, wantT: null, view: null, stats: { n: 0, ms: 0, max: 0 },
   init() {
     if (this.w || this.failed) return !!this.w;
     try {
-      const src = [
-        'importScripts("https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js", "https://cdn.jsdelivr.net/npm/clipper-lib@6.4.2/clipper.js");',
-        `const TAU = Math.PI * 2, CS = ${CS};`,
-        'const P2 = (x, y) => ({ x, y });',
-        `const toW = ${toW.toString()};`, `const cP = ${cP.toString()};`, `const cArea = ${cArea.toString()};`,
-        cBool.toString(), cutRadius.toString(), simplifyOpen.toString(), StockModel.toString(),
-        `(${simWorkerMain.toString()})();`,
-      ].join('\n');
+      const src = simWorkerSrc();
       const w = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
       w.onmessage = e => this.onMsg(e.data);
       w.onerror = e => { console.warn('[Datum] Simulation worker failed; cutting on the main thread.', e.message); this.failed = true; this.w = null; if (SIM.on && SIM.worker) { SIM.worker = false; simReset(); simApplyTo(SIM.t); } };
@@ -22754,20 +22772,12 @@ const SimWorker = {
   // Hand the program to the worker; returns false when there is no worker to use.
   start(st, segs, levels) {
     if (!this.init()) return false;
-    const slugs = [], slugIx = new Map(), tools = [], ti = new Map(), opIx = new Map(), axes = [], axIx = new Map(), D = new Float64Array(segs.length * 8), I = new Int32Array(segs.length * 4);
-    segs.forEach((s, i) => {
-      let k = ti.get(s.tool); if (k === undefined) { k = tools.length; tools.push({ d: s.tool.d, type: s.tool.type, r: s.tool.r, cone: s.tool.cone, up: s.tool.up }); ti.set(s.tool, k); }
-      let o = opIx.get(s.op); if (o === undefined) { o = opIx.size; opIx.set(s.op, o); }
-      D.set([s.a.x, s.a.y, s.a.z, s.b.x, s.b.y, s.b.z, s.t0, s.t1], i * 8);
-      let x = -1;
-      if (s.ax) { const key = s.ax.join(','); x = axIx.get(key); if (x === undefined) { x = axes.length; axes.push(s.ax); axIx.set(key, x); } }
-      I[i * 4] = k; I[i * 4 + 1] = (s.r ? 1 : 0) | (s.fin ? 2 : 0) | (s.slug ? 4 : 0); I[i * 4 + 2] = o; I[i * 4 + 3] = x;
-      if (s.slug) { slugIx.set(i, slugs.length); slugs.push({ mode: s.slug.mode, paths: s.slug.paths }); }
-    });
+    const init = simWorkerInit(st, segs, levels);
     if (this.view) this.view.dispose();
     this.view = new SimChunks();
     this.busy = true; this.sentT = 0; this.wantT = 0;
-    this.w.postMessage({ k: 'init', seq: ++this.seq, st, levels, tools, axes, slugs, slugAt: [...slugIx], D, I }, [D.buffer, I.buffer]);
+    init.msg.seq = ++this.seq;
+    this.w.postMessage(init.msg, init.transfer);
     return true;
   },
   // Ask for the stock at time t; requests made while one is running collapse into the newest.
@@ -36632,6 +36642,7 @@ function gsPick(i) {
 <script src="cam-mc.js"></script>
 <script src="cam-post.js"></script>
 <script src="cam-stock.js"></script>
+<script src="cam-preview.js"></script>
 <script src="cam-autotool.js"></script>
 <script src="cam-flow.js"></script>
 <script src="cam-chaining.js"></script>
