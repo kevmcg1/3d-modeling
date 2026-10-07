@@ -21517,7 +21517,9 @@ function measurePart(res) {
     for (const p of model.P[k]) if (cArea(p) < 0 && ClipperLib.Clipper.PointInPolygon(pt, p)) { const a = -cArea(p); if (!best || a < best.a) best = { a, p }; }
     const P1 = mm => (isIn() ? `${fmt(mm / 25.4, 3)}"` : fmt(mm, 2));         // one unit only: these labels sit in a narrow table
     const name = `Hole Ø${P1(h.d)} at X${P1(h.x - camOrigin()[0])} Y${P1(h.y - camOrigin()[1])}`;
-    if (best) { const mr = best.p.reduce((s, q) => s + Math.hypot(q.X / CS - h.x, q.Y / CS - h.y), 0) / best.p.length; row(name + ' · diameter', h.d, 2 * mr, 'len', [[h.x - mr, h.y, zh], [h.x + mr, h.y, zh]], DRILL_TOL); }
+    // a hole that breaks out of the side (its wall runs to nothing at the part edge) is no closed opening: read the cut wall round it
+    if (!best) { const near = model.P[k].flatMap(p => p.map(q => Math.hypot(q.X / CS - h.x, q.Y / CS - h.y))).filter(r => Math.abs(r - h.d / 2) < 0.5); if (near.length >= 8) best = { r: near.reduce((s, r) => s + r, 0) / near.length }; }
+    if (best) { const mr = best.r != null ? best.r : best.p.reduce((s, q) => s + Math.hypot(q.X / CS - h.x, q.Y / CS - h.y), 0) / best.p.length; row(name + ' · diameter', h.d, 2 * mr, 'len', [[h.x - mr, h.y, zh], [h.x + mr, h.y, zh]], DRILL_TOL); }
     else rows.push({ name: name + ' · diameter', nominal: h.d, measured: NaN, ok: false, note: 'not cut' });
     const through = holeThrough(h, part);
     // depth on the hole's floor: the highest point found just inside its wall (the middle may hold a smaller hole)
