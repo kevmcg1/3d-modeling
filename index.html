@@ -7970,8 +7970,8 @@ SHOP.cClamp = {
 
 // ── Vises and dovetail fixtures ──
 SHOP.vise = {
-  name: 'Machine vise', grp: 'Vises', parts: [['Base', SHOP_COL.blue], ['Fixed jaw', SHOP_COL.blue], ['Fixed jaw plate', SHOP_COL.ground], ['Moving jaw', SHOP_COL.blue], ['Moving jaw plate', SHOP_COL.ground], ['Lead screw', SHOP_COL.black], ['Handle', SHOP_COL.black]],
-  p: [['W', 'Jaw width', 6 * INCH, 'len'], ['open', 'Jaw opening now', 70, 'len'], ['maxOpen', 'Maximum opening', 6 * INCH, 'len'], ['H', 'Jaw height', 45, 'len'], ['sd', 'Screw Ø', 26, 'len'], ['hl', 'Handle length', 160, 'len']],
+  name: 'Machine vise', grp: 'Vises', parts: [['Base', SHOP_COL.blue], ['Fixed jaw', SHOP_COL.blue], ['Fixed jaw plate', SHOP_COL.ground], ['Moving jaw', SHOP_COL.blue], ['Moving jaw plate', SHOP_COL.ground], ['Lead screw', SHOP_COL.black], ['Handle', SHOP_COL.black], ['Parallels', SHOP_COL.ground]],
+  p: [['W', 'Jaw width', 6 * INCH, 'len'], ['open', 'Jaw opening now', 70, 'len'], ['maxOpen', 'Maximum opening', 6 * INCH, 'len'], ['H', 'Jaw height', 45, 'len'], ['sd', 'Screw Ø', 26, 'len'], ['hl', 'Handle length', 160, 'len'], ['par', 'Parallels on the bed', true, 'chk'], ['parH', 'Parallel height', 19.05, 'len'], ['parT', 'Parallel thickness', 6.35, 'len']],
   build(P, K) {
     const W = P.W / 2, bh = 30, jt = 40, pl = 8, x0 = -pl - jt - 20, x1 = P.maxOpen + pl + jt + 100, g = Math.min(P.open, P.maxOpen), sz = bh + 14, mj = g + pl;
     let base = K.add(K.box(x0, x1, -W, W, 0, bh), K.box(x0, x0 + 90, -W - 26, W + 26, 0, 16), K.box(x1 - 130, x1 - 40, -W - 26, W + 26, 0, 16), K.box(x1 - 60, x1 - 10, -34, 34, bh, sz + P.sd / 2 + 10));
@@ -7980,9 +7980,18 @@ SHOP.vise = {
     return [base, K.box(-pl - jt, -pl, -W, W, bh, bh + P.H), K.box(-pl, 0, -W + 6, W - 6, bh + 6, bh + P.H - 4),
       K.box(mj, mj + jt + 10, -W, W, bh, bh + P.H), K.box(g, g + pl, -W + 6, W - 6, bh + 6, bh + P.H - 4),
       K.turnX(0, sz, mj + jt + 10, [[0, 0], [P.sd / 2, 0], [P.sd / 2, hx - mj - jt - 10], [0, hx - mj - jt - 10]]),
-      K.add(K.cylY(hx, sz, 7, -P.hl / 2, P.hl / 2), K.turnY(hx, sz, P.hl / 2, [[0, 0], [11, 4], [11, 20], [0, 24]]), K.turnY(hx, sz, -P.hl / 2, [[0, 0], [11, -4], [11, -20], [0, -24]]))];
+      K.add(K.cylY(hx, sz, 7, -P.hl / 2, P.hl / 2), K.turnY(hx, sz, P.hl / 2, [[0, 0], [11, 4], [11, 20], [0, 24]]), K.turnY(hx, sz, -P.hl / 2, [[0, 0], [11, -4], [11, -20], [0, -24]])),
+      // two parallels standing on the bed between the jaw plates, along the jaw length, so a part rests on them
+      P.par && g > 2 * P.parT + 4 ? K.add(...[[pl + 2, pl + 2 + P.parT], [g - 2 - P.parT, g - 2]].map(([a, b]) => K.box(a, b, -W + 10, W - 10, bh, bh + P.parH))) : null];
   },
 };
+// Kurt vises: the same model at catalog sizes (jaw width, largest opening, jaw height), opened to about two thirds
+const KURT = [['Kurt DX4 (4 in)', 4, 5, 1.25], ['Kurt DX6 (6 in)', 6, 8, 1.75], ['Kurt D688 (6 in)', 6, 8.75, 1.75], ['Kurt DX8 (8 in)', 8, 10, 2]];
+KURT.forEach(([name, w, mo, h]) => {
+  SHOP['kurt' + name.match(/D\w?\d+/)[0]] = {
+    ...SHOP.vise, name, p: SHOP.vise.p.map(q => q[0] === 'W' ? [q[0], q[1], w * INCH, q[3]] : q[0] === 'maxOpen' ? [q[0], q[1], mo * INCH, q[3]] : q[0] === 'open' ? [q[0], q[1], Math.round(mo * INCH * 0.6), q[3]] : q[0] === 'H' ? [q[0], q[1], h * INCH, q[3]] : q),
+  };
+});
 // a dovetail groove (female) in a jaw face at x = face, running along y: width wo at the face, flaring to wb at depth dg (dir +1: the jaw lies at x < face)
 const dovetailPts = (face, dir, zc, wo, dg, ang) => { const wb = wo + 2 * dg * Math.tan(ang * Math.PI / 180); return [[face + dir * 0.01, zc - wo / 2], [face - dir * dg, zc - wb / 2], [face - dir * dg, zc + wb / 2], [face + dir * 0.01, zc + wo / 2]]; };
 SHOP.dovetailVise = {
@@ -33287,7 +33296,7 @@ SAMPLES.push({ axes: 'model', name: 'Fastener assortment', desc: 'Screws, nuts a
 } });
 SAMPLES.push({ axes: 'model', name: 'Workholding table', desc: 'A 6 in vise, 1-2-3 blocks, toe clamps and a dovetail fixture: everything in a manual room, parametric.', make() {
   const k = sampleKit();
-  [['vise', 0, 0], ['block123', -170, 10], ['toeClamp', 140, 0], ['dovetailFixture', 0, 110], ['parallels', -170, 80], ['cClamp', 170, 90]].forEach(([kd, x, y], i) => k.features.push({ id: k.nid(), type: 'shop', name: kd + (i + 1), ...FEATS.shop.init(), kind: kd, cx: x, cy: y }));
+  [['kurtDX6', 0, 0], ['block123', -170, 10], ['toeClamp', 140, 0], ['dovetailFixture', 0, 110], ['parallels', -170, 80], ['cClamp', 170, 90]].forEach(([kd, x, y], i) => k.features.push({ id: k.nid(), type: 'shop', name: kd + (i + 1), ...FEATS.shop.init(), ...shopDefaults(kd), kind: kd, cx: x, cy: y }));
   return k.doc();
 } });
 SAMPLES.push({ axes: 'model', name: 'Deform gallery', desc: 'The same bar bent, twisted, tapered and warped. Edit any deform to change its angle, axis or range.', make() {
