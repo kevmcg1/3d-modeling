@@ -16461,7 +16461,10 @@ function chainCircle(op, tool, st, part, P, chains) {
     if (op.depth > 0) bottom = c.z - op.depth;
     else if (hit) bottom = holeThrough(hit, part) ? hit.bot - (op.through == null ? 0.5 : op.through) : hit.bot;
     else if (boss) { const fl = chainSideFloor(c, p, cArea(cP(p)) > 0 ? 'right' : 'left'); bottom = Math.min(c.z, fl === -Infinity ? part.z0 - 0.5 : fl); }
-    else bottom = c.z - Math.max(1, tool.d);
+    else {      // a round recess the model has no hole for: down to the floor just inside its wall, or through
+      const fl = chainSideFloor(c, p, cArea(cP(p)) > 0 ? 'left' : 'right');
+      bottom = fl < part.z0 + 0.01 ? part.z0 - (op.through == null ? 0.5 : op.through) : fl < c.z - 0.05 ? fl : c.z - Math.max(1, tool.d);
+    }
     found.push({ x: cx, y: cy, D, top: c.z, bottom });
   }
   if (skipped) P.warn.push(`${skipped} open chain${skipped > 1 ? 's' : ''} skipped: a circle mill needs a closed circle.`);
