@@ -11290,7 +11290,7 @@ function chainScreens(mesh) {
   return out;
 }
 function pickEdge(x, y, bodies, px = 9) {
-  let best = null;
+  const hits = [];
   for (const b of bodies) {
     const mesh = bodyMesh(b);
     for (const { ch, s, bb } of chainScreens(mesh)) {
@@ -11298,12 +11298,16 @@ function pickEdge(x, y, bodies, px = 9) {
       for (let i = 0; i + 1 < ch.pts.length; i++) {
         const ax = s[i * 2], ay = s[i * 2 + 1], dx = s[i * 2 + 2] - ax, dy = s[i * 2 + 3] - ay, L2 = dx * dx + dy * dy;
         const t = L2 > 0 ? clamp(((x - ax) * dx + (y - ay) * dy) / L2, 0, 1) : 0, dd = Math.hypot(ax + dx * t - x, ay + dy * t - y);
-        if (dd < px && (!best || dd < best.d)) best = { d: dd, body: b, mesh, ch, P: lerp3(ch.pts[i], ch.pts[i + 1], t) };
+        if (dd < px) hits.push({ d: dd, body: b, mesh, ch, P: lerp3(ch.pts[i], ch.pts[i + 1], t) });
       }
     }
   }
-  if (best && viewDepth(best.P) > surfaceDepthAt(x, y) + Math.max(sceneR * 0.004, 2 / ppu())) return null;
-  return best;
+  // the nearest edge that is not hidden: seen from above, a hole's bottom edge lies under its top edge on screen, and
+  // the hidden one must not shadow the one in view
+  if (!hits.length) return null;
+  const lim = surfaceDepthAt(x, y) + Math.max(sceneR * 0.004, 2 / ppu());
+  hits.sort((a, b) => a.d - b.d || viewDepth(a.P) - viewDepth(b.P));
+  return hits.find(h => viewDepth(h.P) <= lim) || null;
 }
 function allKeyPoints(bodies) {
   const out = [];
