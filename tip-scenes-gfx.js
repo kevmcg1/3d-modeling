@@ -101,4 +101,5 @@
   A.touch(['g:add layer mask'], 161, 47, 0.45, [205, 120]);
 // the pointer travels in early, so the card is already moving when someone hovers for a moment
   A.touch(['g:undo', 'g:redo'], 120, 100, 0.4, [185, 140]); A.touch(['g:light / dark theme'], 120, 88, 0.45, [175, 135]); A.touch(['g:foreground color', 'g:background color'], 84, 64, 0.4, [180, 130]); A.touch(['g:new raster layer', 'g:new vector layer', 'g:new adjustment layer', 'g:duplicate layer', 'g:delete layer'], 120, 96, 0.4, [190, 140]);
+  A.touch(['g:opacity'], 150, 56, 0.35, [200, 130]);
 })(typeof window !== 'undefined' ? window : this);

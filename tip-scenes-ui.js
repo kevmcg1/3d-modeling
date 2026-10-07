@@ -57,4 +57,31 @@
   S('ws:design', tabsTo(0, 1, txt)); S('ws:cam', tabsTo(1, 0, txt)); S('ws:sheet', tabsTo(2, 1, txt));
 // the pointer travels in early, so the card is already moving when someone hovers for a moment
   A.touch(['btnTheme'], 120, 88, 0.45, [175, 135]);
+
+  // newer controls
+  S('btnSettings', g => {
+    g.view2d(); const k = Math.floor(g.lin(0.25, 0.85) * 2.99), a = g.seg(0.02, 0.22);
+    g.in2d(0, 0, 1, () => {
+      g.fill([[40, 22], [200, 22], [200, 158], [40, 158]], 'w', { a: 1, stroke: 'm' }); g.text(54, 40, 'Settings', 'k', 9, 'left');
+      ['Left button: Rotate', 'Wheel: Zoom', 'Keyboard: QWERTY'].forEach((t, i) => { const y = 54 + i * 28; g.fill([[52, y], [188, y], [188, y + 22], [52, y + 22]], i === k ? 'a' : 'n', { a: i === k ? 0.22 : 0.4, stroke: i === k ? 'a' : 'm' }); g.text(60, y + 15, t, 'k', 8.5, 'left'); });
+      g.cursor(lerp(190, 120, a) , lerp(150, 66 + k * 28, a) + (k && g.t > 0.22 ? 0 : 0), g.lin(0.22, 0.28) > 0 && g.lin(0.22, 0.28) < 1 ? 1 - g.lin(0.22, 0.28) : 0);
+    });
+  });
+  S('btnExportLog', g => {
+    g.view2d(); const u = g.seg(0.25, 0.8);
+    g.in2d(0, 0, 1, () => {
+      g.fill([[24, 36], [104, 36], [104, 140], [24, 140]], 'w', { a: 1, stroke: 'm' }); for (let i = 0; i < 7; i++) g.fill([[32, 46 + i * 13], [32 + 56 - (i % 3) * 14, 46 + i * 13], [32 + 56 - (i % 3) * 14, 50 + i * 13], [32, 50 + i * 13]], 'n');
+      const x = lerp(0, 100, u); g.fill([[30 + x, 70], [74 + x, 70], [74 + x, 112], [30 + x, 112]], 'a', { a: 0.25 + 0.4 * u, stroke: 'a' }); g.text(52 + x, 95, '.txt', 'a', 8); g.arrow([108, 92], [150, 92], 'a', 1.4);
+      g.fill([[160, 70], [210, 70], [210, 120], [160, 120]], 'w', { a: 1, stroke: u > 0.9 ? 'a' : 'm' }); g.text(185, 100, 'log.txt', 'k', 8);
+      g.cursor(lerp(130, 60, g.seg(0.02, 0.22)), lerp(140, 92, g.seg(0.02, 0.22)), 0);
+    });
+    g.chip('Save the session log to a file', 'a');
+  });
+  S('setorigin', g => {
+    g.view(120, 132, 2.8); g.ground(44, 32); g.box(-14, -9, 0, 28, 18, 9, 'n'); const u = g.seg(0.2, 0.7), c = [[14, 9], [-14, 9], [-14, -9], [14, -9]], tx = lerp(0, -14, u), ty = lerp(0, -9, u);
+    g.cursorAt([tx, ty, 9], g.lin(0.7, 0.78) > 0 && g.lin(0.7, 0.78) < 1 ? 1 : 0);
+    if (g.t > 0.72) { const k = g.seg(0.72, 0.9); g.arrow([-14, -9, 9], [-14 + 14 * k, -9, 9], 'r', 1.6); g.arrow([-14, -9, 9], [-14, -9 + 14 * k, 9], 'g', 1.6); g.arrow([-14, -9, 9], [-14, -9, 9 + 12 * k], 'a', 1.6); g.dot([-14, -9, 9], 'k', 3); }
+    g.chip('Click a corner: X0 Y0 Z0 goes there', 'a'); void c;
+  });
+  A.touch(['btnUndo', 'btnRedo'], 120, 100, 0.45, [185, 140]);
 })(typeof window !== 'undefined' ? window : this);
