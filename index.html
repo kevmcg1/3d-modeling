@@ -16009,7 +16009,44 @@ function chainTravel(c) {
   let p = c.pts.map(q => P2(q[0], q[1]));
   if (c.closed && c.start) { const s = ((c.start % p.length) + p.length) % p.length; p = startAt(p, s); }
   if (c.rev) p = c.closed ? [p[0], ...p.slice(1).reverse()] : p.slice().reverse();
-  return p;
+  return chainArcs(p, c.closed);
+}
+// A chain is read off the model's edges: on a round wall its points lie on the circle and its straight segments cut
+// inside it (a Ø14 boss in 22 segments is 0.07 smaller across its flats). Offset from those flats, a tool runs into the
+// real wall. Every segment whose ends lie on one circle with the points beside them gets points on the true arc,
+// until the flats are within ARC_SAG of it.
+const ARC_SAG = 0.004;
+function chainArcs(p, closed) {
+  const n = p.length;
+  if (n < 3) return p;
+  const circ = (a, b, c) => {
+    const d = 2 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
+    if (Math.abs(d) < 1e-9) return null;
+    const a2 = a.x * a.x + a.y * a.y, b2 = b.x * b.x + b.y * b.y, c2 = c.x * c.x + c.y * c.y;
+    const x = (a2 * (b.y - c.y) + b2 * (c.y - a.y) + c2 * (a.y - b.y)) / d, y = (a2 * (c.x - b.x) + b2 * (a.x - c.x) + c2 * (b.x - a.x)) / d;
+    const R = Math.hypot(a.x - x, a.y - y);
+    return R < 1e4 ? { x, y, R } : null;
+  };
+  const at = i => closed ? (i + n) % n : i;
+  const C = p.map((q, i) => (!closed && (i === 0 || i === n - 1)) ? null : circ(p[at(i - 1)], q, p[at(i + 1)]));
+  const same = (u, v) => u && v && Math.abs(u.R - v.R) < 0.01 * u.R && Math.hypot(u.x - v.x, u.y - v.y) < 0.01 * u.R;
+  const cAt = i => (closed || (i >= 0 && i < n)) ? C[at(i)] : null;
+  const out = [];
+  for (let i = 0; i < (closed ? n : n - 1); i++) {
+    const j = at(i + 1), a = p[i], b = p[j];
+    out.push(a);
+    // the segment is on an arc when four points in a row (it and a neighbour on either side) share one circle
+    const o = same(cAt(i), cAt(i - 1)) ? cAt(i) : same(cAt(j), cAt(j + 1)) ? cAt(j) : null;
+    if (!o) continue;
+    const L = Math.hypot(b.x - a.x, b.y - a.y), sag = o.R - Math.sqrt(Math.max(0, o.R * o.R - L * L / 4));
+    if (!(sag > ARC_SAG) || L > 1.9 * o.R) continue;
+    const m = Math.ceil(Math.sqrt(sag / ARC_SAG)), t0 = Math.atan2(a.y - o.y, a.x - o.x);
+    let dt = Math.atan2(b.y - o.y, b.x - o.x) - t0;
+    if (dt > Math.PI) dt -= 2 * Math.PI; else if (dt < -Math.PI) dt += 2 * Math.PI;
+    for (let k = 1; k < m; k++) out.push(P2(o.x + o.R * Math.cos(t0 + dt * k / m), o.y + o.R * Math.sin(t0 + dt * k / m)));
+  }
+  if (!closed) out.push(p[n - 1]);
+  return out;
 }
 // Grow a run of connected, level edges out of one edge: at every vertex take the one that continues most smoothly.
 // whole = false gives just that one edge. Returns { z, closed, pts, eks } or null when the edge is not level.

@@ -270,9 +270,16 @@
     return { floor: s && floor / s > 0.7, outline: s && rim / s > 0.7, island: s && isl / s > 0.7 };
   }
   const area = c => Math.abs(cArea(cP(chainTravel(c))));
+  // a circle with material just inside its edge, up to its own height, is a boss, not a hole
+  function bossOf(c, o) {
+    const rr = Math.max(o.d / 2 * 0.85, o.d / 2 - 0.5);
+    let n = 0;
+    for (let k = 0; k < 4; k++) { const a = Math.PI / 4 + k * Math.PI / 2; if (partTopAt(o.x + rr * Math.cos(a), o.y + rr * Math.sin(a)) > c.z - 0.05) n++; }
+    return n >= 3;
+  }
   const sameZ = (a, b) => Math.abs(a - b) < 0.02;
   CF.selectors = {
-    holes: () => { const seen = new Map(); for (const c of allChains()) { const o = circleOf(c); if (!o) continue; const k = Math.round(o.x * 50) + ',' + Math.round(o.y * 50) + ',' + Math.round(o.d * 50); const e = seen.get(k); if (!e || c.z > e.c.z) seen.set(k, { c, o }); } return [...seen.values()]; },
+    holes: () => { const seen = new Map(); for (const c of allChains()) { const o = circleOf(c); if (!o || bossOf(c, o)) continue; const k = Math.round(o.x * 50) + ',' + Math.round(o.y * 50) + ',' + Math.round(o.d * 50); const e = seen.get(k); if (!e || c.z > e.c.z) seen.set(k, { c, o }); } return [...seen.values()]; },
     floors: () => allChains().filter(c => !circleOf(c) && c.z < camPart().z1 - 0.01 && sides(c).floor),
     // every pocket floor, with the islands (bosses) standing on it, so the pocket clears round them instead of through them
     pockets: () => {
