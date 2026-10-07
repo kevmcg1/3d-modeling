@@ -322,9 +322,10 @@
     },
     outline: () => { const l = allChains().filter(c => sides(c).outer); l.sort((a, b) => (area(b) - area(a)) || (a.z - b.z)); const top = l[0]; return top ? [l.filter(c => area(c) > area(top) * 0.999).sort((a, b) => a.z - b.z)[0]] : []; },
   };
-  function setChains(op, list, label) {
+  function setChains(op, list, label, also) {
     if (!list.length) { toast('Nothing like that in this part.'); return; }
     const before = snap();
+    if (also) also(op);
     op.chains = list.map((c, i) => ({ id: i + 1, rev: false, start: 0, ...JSON.parse(JSON.stringify(c)) }));
     if (typeof camAutoTool === 'function') camAutoTool(op);                  // the largest tool that fits what was picked
     record(`${op.name}: ${label}`, before);
@@ -353,7 +354,7 @@
     if (what.startsWith('hole:')) { const d = +what.slice(5); setChains(op, S.holes().filter(h => Math.abs(h.o.d - d) < 0.05).map(h => h.c), `all Ø${fmtLs(d)} holes`); return; }
     if (what === 'pockets') { setChains(op, S.pockets(), 'all pockets'); return; }
     if (what === 'outline') { setChains(op, S.outline(), 'part outline'); return; }
-    if (what === 'cutouts') { setChains(op, S.cutouts(), 'all cut-outs'); return; }
+    if (what === 'cutouts') { setChains(op, S.cutouts(), 'all cut-outs', o => { o.ramp = true; }); return; }     // solid inside: spiral down the loop, no plunge
     if (what === 'samez') {
       const zs = (op.chains || []).filter(c => c.closed).map(c => c.z), pk2 = S.pockets().filter(c => zs.some(z => sameZ(z, c.z)));
       const have = (op.chains || []).slice(), add = pk2.filter(c => !have.some(h => (h.eks || []).some(k => (c.eks || []).includes(k))));
