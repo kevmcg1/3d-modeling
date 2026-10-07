@@ -76,6 +76,10 @@
     g.line(g.head(path.map(z0), f), 'a', 2); if (h > 0.05) { const poly = thick(path, 2.2); g.prism(poly, 0, h, 'a'); }
     g.cursorAt(g.along(path.map(z0), f).p.map((v, i) => i === 2 ? h : v), 0); if (h > 0.5) g.arrow([0, 0, h], [0, 0, h + 7], 'r', 1.5);
   });
+  S('f:bfill', g => {
+    bigView(g, 134, 2.7); g.box(-18, -10, 0, 36, 20, 3, 'n'); g.box(-18, -10, 15, 36, 20, 3, 'n'); g.box(-18, -10, 3, 5, 20, 12, 'n'); g.box(13, -10, 3, 5, 20, 12, 'n');
+    const k = g.seg(0.3, 0.8); if (k > 0.02) g.box(-13, -10, 3, 26 * k, 20, 12, 'a'); g.cursorAt([-13 + 26 * k, 0, 9], 0);
+  });
   S('f:combine', g => {
     bigView(g, 132, 2.9); const p = g.seg(0.2, 0.55), k = g.seg(0.6, 0.8); g.box(-14, -8, 0, 28, 16, 8, 'n');
     const z = lerp(26, 4, p); g.cyl(2, 0, z, 5, 14, k > 0.1 ? 'n' : 'a'); if (p < 1) g.arrow([2, 0, z + 16], [2, 0, z + 6], 'r', 1.5);

@@ -22,7 +22,7 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | Rib | 🟡 | Thin wall from an open or closed sketch curve, distance, symmetric or through-all, join/cut/new (batch 3). No auto-fit to the walls of the body |
 | Web | 🟡 | Same tool: pick several curves and they fuse into one web (batch 3) |
 | Emboss / Deboss | 🟡 | Text → "Convert to curves" → extrude cut/join works today; wrapping onto curved faces is ⛔ (needs face-parametric projection), planar-face emboss 🔜 4 |
-| Boundary Fill | 🔜 5 | Fill the space enclosed by bodies and planes |
+| Boundary Fill | 🟡 | Every closed space between the picked bodies, or inside one, becomes a body; optional removal of the tools. Bodies that only touch need a small overlap to seal; no cell picking and no planes as boundaries (batch 4) |
 | Thicken | ⛔ | Needs surface bodies, which this kernel does not have |
 | Gears (spur, helical, herringbone, internal, rack, bevel, worm) | ✅ | Beyond Fusion's stock tools |
 | Hardware (screws, nuts, washers) | ✅ | Parametric |
@@ -32,8 +32,8 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | Fusion tool | Status | Notes |
 |---|---|---|
 | Press Pull / Offset Face | ✅ | Push / Pull (PR #39) |
-| Fillet | 🟡 | Constant radius. Variable radius, setback, rule fillet, full round 🔜 4 |
-| Chamfer | 🟡 | Equal distance. Two-distance and distance-angle 🔜 4 |
+| Fillet | 🟡 | Constant radius, including a radius equal to a corner arc's. Variable radius, setback, rule fillet, full round 🔜 4 (they need a surface that is not a cylinder or torus: ruled and blended faces) |
+| Chamfer | 🟡 | Equal distance, two distances and distance + angle, each with a Flip to choose which face gets distance 1 (batch 4). Chamfers on edges that meet at a vertex are cut one by one |
 | Shell | ✅ | Open faces, uniform wall |
 | Draft | ✅ | Neutral plane (PR #39) |
 | Scale | 🟡 | Uniform only. Non-uniform scale breaks exact cylinders; a mesh-only fallback is 🔜 5 |
@@ -154,8 +154,8 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | 1 ✅ | Physical Properties, Interference, Section Analysis, Midplane, Plane at Angle, Plane Through Three Points (PR #42) |
 | 2 ✅ | Pipe, Pattern on Path, Ellipse, Slot |
 | 3 ✅ | Rib, Web, Spline, Overall Slot, Center Point Slot |
-| 4 | Variable and setback fillets, two-distance chamfer, Split Face, Delete Face, planar Emboss |
-| 5 | Boundary Fill, Sweep and Loft rails, mesh-only non-uniform Scale |
+| 4 | ✅ two-distance chamfer, Boundary Fill. Still open: variable and setback fillets, Split Face, Delete Face, planar Emboss |
+| 5 | Sweep and Loft rails, mesh-only non-uniform Scale |
 | 6 | Standalone axes, tangent and two-edge planes, analysis overlays, Silhouette Split, Replace Face, Insert SVG / DXF |
 | 7 | Sketch constraints and user parameters |
 | 8 | Mesh tools |

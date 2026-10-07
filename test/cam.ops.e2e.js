@@ -48,6 +48,12 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
     ['engraving', PLATE, { type: 'engrave' }],
   ]) await ok('toolpath: ' + name, () => expectOp(part, spec, { mayBeEmpty: /pencil|steep|shallow|flats/.test(name) }));
   await ok('chamfer swarf with no faces picked tells the user to pick, and posts valid G-code', async () => { const r = await expectOp('Flanged boss', { type: 'chamfer' }, { mayBeEmpty: true }); assert(/Pick the faces/.test(r.warn), r.warn); });
+  await ok('chamfer swarf with the faces Auto Program picks: the cone follows the chamfer, with moves, valid G-code and no warning that the chamfer is missed', async () => {
+    const r = await expectOp('Flanged boss', { type: 'chamfer', fromAuto: true });
+    assert(r.moves > 20, 'swarf moves: ' + r.moves + '. ' + r.warn); assert(!/Pick the faces/.test(r.warn), r.warn);
+    const z = await page.evaluate(() => { const op = cam().ops[0], m = toolpath(op).m, zs = m.filter(p => p.z < camStock().z1 - 0.01).map(p => p.z); return { n: zs.length, lo: Math.min(...zs), hi: Math.max(...zs), top: camStock().z1, bottom: camStock().z0 }; });
+    assert(z.n > 5, 'no cutting moves below the top: ' + JSON.stringify(z)); assert(z.lo >= z.bottom - 1, 'swarf goes below the stock: ' + JSON.stringify(z));
+  });
   await ok('thread mill: Auto-detect threads on the Flanged boss makes thread paths and posts helical arcs', async () => {
     const r = await page.evaluate(async () => {
       const e0 = camEpoch; loadDoc(SAMPLES.find(x => x.name === 'Flanged boss').make(), 'test'); setWorkspace('cam');

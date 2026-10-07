@@ -42,6 +42,16 @@ const close = (a, b, tol, what) => assert(Math.abs(a - b) <= tol, `${what}: ${a}
     const r = await run([{ id: 20, type: 'chamfer', name: 'Chamfer1', edges: [{ a: '@top', b: '@right', pt: [40, 15, 20] }], size: 2 }]); assert.deepStrictEqual(r.errors, {});
     close(r.bodies[0].vol, BLOCK - 60, 0.05, 'chamfer');
   });
+  await ok('chamfer: two distances 2 and 3 on a 30 long edge take d1·d2/2·L off, either way round', async () => {
+    for (const flip of [false, true]) {
+      const r = await run([{ id: 20, type: 'chamfer', name: 'Chamfer1', edges: [{ a: '@top', b: '@right', pt: [40, 15, 20] }], size: 2, cmode: 'two', size2: 3, flip }]); assert.deepStrictEqual(r.errors, {});
+      close(r.bodies[0].vol, BLOCK - 90, 0.1, 'two-distance chamfer, flip ' + flip);
+    }
+  });
+  await ok('chamfer: a distance and an angle (2 at 30° from the first face) take d·d·tan(30°)/2·L off', async () => {
+    const r = await run([{ id: 20, type: 'chamfer', name: 'Chamfer1', edges: [{ a: '@top', b: '@right', pt: [40, 15, 20] }], size: 2, cmode: 'angle', angle: 30 }]); assert.deepStrictEqual(r.errors, {});
+    close(r.bodies[0].vol, BLOCK - 2 * 2 * Math.tan(Math.PI / 6) / 2 * 30, 0.1, 'distance-angle chamfer');
+  });
   await ok('hole: simple, through, counterbore and countersink have the right volumes', async () => {
     const hole = x => ({ id: 20, type: 'hole', name: 'Hole1', face: '@top', pts: [[20, 15, 20]], kind: 'simple', d: 6, depth: 10, through: false, cbd: 11, cbdepth: 4, csd: 12, csang: 90, tip: 'flat', ...x });
     let r = await run([hole({})]); assert.deepStrictEqual(r.errors, {}); close(r.bodies[0].vol, BLOCK - Math.PI * 9 * 10, 12, 'blind');
