@@ -304,7 +304,7 @@
     },
     // the part's outside: the biggest loop with open air all round it; a step or a flange makes a loop part way up that is
     // smaller than the bottom edge, and of loops the same size (straight walls) the lowest one takes the whole wall
-    outline: () => { const l = allChains().filter(c => !circleOf(c) && sides(c).outer); l.sort((a, b) => (area(b) - area(a)) || (a.z - b.z)); const top = l[0]; return top ? [l.filter(c => area(c) > area(top) * 0.999).sort((a, b) => a.z - b.z)[0]] : []; },
+    outline: () => { const l = allChains().filter(c => sides(c).outer);                // a round part's outside is a circle too l.sort((a, b) => (area(b) - area(a)) || (a.z - b.z)); const top = l[0]; return top ? [l.filter(c => area(c) > area(top) * 0.999).sort((a, b) => a.z - b.z)[0]] : []; },
   };
   function setChains(op, list, label) {
     if (!list.length) { toast('Nothing like that in this part.'); return; }
