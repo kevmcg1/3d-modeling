@@ -70,9 +70,20 @@
     }
     return isFinite(fit) ? fit : 0;
   }
+  // a drill makes a hole its own size: the smallest picked hole is the size to drill
+  function drillSize(op) {
+    if (op.type !== 'chain' || op.cm !== 'drill') return 0;
+    const ds = (op.chains || []).map(c => { const o = circleOf(c); return o ? o.d : 0; }).filter(d => d > 0);
+    return ds.length ? Math.min(...ds) : 0;
+  }
   function recommend(op) {
     const types = compat(op), lib = cam().tools.filter(t => types.includes(t.type));
     if (!lib.length) return null;
+    const dd = drillSize(op), cur0 = lib.find(t => t.n === op.tool);
+    if (dd && !(cur0 && cur0.type !== 'drill')) {                     // drilling: the drill of the hole's size, never merely one that fits (that cuts it undersize) or the last one used
+      const t = lib.filter(x => x.type === 'drill').sort((a, b) => Math.abs(a.d - dd) - Math.abs(b.d - dd))[0];
+      if (t && Math.abs(t.d - dd) < 0.05) return { tool: t, why: `Drills the Ø${fmtLs(dd)} holes to size` };
+    }
     if (op.autoTool) {                                                // cam-autotool.js chose it from the geometry: the largest tool that fits
       const t = lib.find(x => x.n === op.tool);
       return !op.toolMan && t ? { tool: t, why: op.autoTool.reason || 'Largest tool that fits', auto: true } : null;
@@ -246,7 +257,7 @@
   // what is just inside and just outside the loop: a pocket floor has the floor level inside and a wall outside, a boss top the reverse
   function sides(c) {
     const p = chainTravel(c), n = p.length, inLeft = cArea(cP(p)) > 0;
-    let floor = 0, rim = 0, s = 0;
+    let floor = 0, rim = 0, isl = 0, s = 0;
     const N = Math.min(24, n);
     for (let k = 0; k < N; k++) {
       const i = Math.floor((k + 0.5) * n / N), a = p[i], b = p[(i + 1) % n], t = nrm2(sub2(b, a)), m = lerp2(a, b, 0.5), nl = P2(-t.y * (inLeft ? 1 : -1), t.x * (inLeft ? 1 : -1));
@@ -254,14 +265,21 @@
       s++;
       if (Math.abs(tin - c.z) < 0.05 && tout > c.z + 0.05) floor++;
       else if (Math.abs(tin - c.z) < 0.05 && tout < c.z - 0.05) rim++;
+      else if (Math.abs(tout - c.z) < 0.05 && tin > c.z + 0.05) isl++;
     }
-    return { floor: s && floor / s > 0.7, outline: s && rim / s > 0.7 };
+    return { floor: s && floor / s > 0.7, outline: s && rim / s > 0.7, island: s && isl / s > 0.7 };
   }
   const area = c => Math.abs(cArea(cP(chainTravel(c))));
   const sameZ = (a, b) => Math.abs(a - b) < 0.02;
   CF.selectors = {
     holes: () => { const seen = new Map(); for (const c of allChains()) { const o = circleOf(c); if (!o) continue; const k = Math.round(o.x * 50) + ',' + Math.round(o.y * 50) + ',' + Math.round(o.d * 50); const e = seen.get(k); if (!e || c.z > e.c.z) seen.set(k, { c, o }); } return [...seen.values()]; },
-    pockets: () => allChains().filter(c => !circleOf(c) && c.z < camPart().z1 - 0.01 && sides(c).floor),
+    floors: () => allChains().filter(c => !circleOf(c) && c.z < camPart().z1 - 0.01 && sides(c).floor),
+    // every pocket floor, with the islands (bosses) standing on it, so the pocket clears round them instead of through them
+    pockets: () => {
+      const fl = CF.selectors.floors(), inside = (c, f) => inPaths(P2(c.pts[0][0], c.pts[0][1]), [cP(chainTravel(f))]);
+      const isl = allChains().filter(c => !fl.includes(c) && fl.some(f => sameZ(f.z, c.z) && inside(c, f)) && sides(c).island);
+      return [...fl, ...isl];
+    },
     outline: () => { const l = allChains().filter(c => !circleOf(c) && sides(c).outline); l.sort((a, b) => area(b) - area(a)); return l.slice(0, 1); },
   };
   function setChains(op, list, label) {
@@ -280,7 +298,7 @@
       for (const h of S.holes()) { const k = +h.o.d.toFixed(2); by.set(k, (by.get(k) || 0) + 1); }
       [...by.entries()].sort((a, b) => a[0] - b[0]).forEach(([d, n]) => btns.push(`<button class="chip" data-cfsel="hole:${d}">All Ø${fmtLs(d)} holes <small>×${n}</small></button>`));
     } else {
-      const np = S.pockets().length;
+      const np = S.floors().length;
       if (np) btns.push(`<button class="chip" data-cfsel="pockets">All pockets <small>×${np}</small></button>`);
       if ((op.chains || []).some(c => c.closed)) btns.push('<button class="chip" data-cfsel="samez">Floors at the same depth</button>');
       if (S.outline().length) btns.push('<button class="chip" data-cfsel="outline">Part outline</button>');
@@ -446,6 +464,8 @@
   function applyTool(op) {
     const f = FLOW();
     if (!f.fresh || !f.autoTool) return;
+    const dd = drillSize(op);
+    if (dd && !cam().tools.some(t => t.type === 'drill' && Math.abs(t.d - dd) < 0.05)) camToolOfType('drill', +dd.toFixed(2));   // no drill of that size yet: add one to the library
     const r = recommend(op);
     if (r && r.tool.n !== op.tool) op.tool = r.tool.n;
     if (!f.touched) smartDefaults(op);

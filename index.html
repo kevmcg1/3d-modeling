@@ -16252,6 +16252,10 @@ function chainDrill(op, tool, st, part, P, chains) {
   }
   if (skipped) P.warn.push(`${skipped} open chain${skipped > 1 ? 's' : ''} skipped: drilling needs a closed circle (click the edge of a hole).`);
   if (!holes.length) return;
+  if (tool.type === 'drill') {                                     // a drill cuts its own size: a larger one than the hole cuts it oversize
+    const big = [...new Set(holes.filter(h => tool.d > h.d + 0.1).map(h => +h.d.toFixed(2)))];
+    if (big.length) P.warn.push(`The Ø${fmtTool(tool.d)} drill is larger than the ${big.map(d => 'Ø' + fmtTool(d)).join(', ')} hole${big.length > 1 ? 's' : ''}: it cuts ${big.length > 1 ? 'them' : 'it'} oversize. Pick the drill of the hole's size.`);
+  }
   const ordered = []; let cur = P2(st.x0, st.y0);
   while (holes.length) { let bi = 0; holes.forEach((h, i) => { if (dst2(P2(h.x, h.y), cur) < dst2(P2(holes[bi].x, holes[bi].y), cur)) bi = i; }); const h = holes.splice(bi, 1)[0]; ordered.push(h); cur = P2(h.x, h.y); }
   const safe = st.z1 + cam().safe, tap = tool.type === 'tap', pitch = tap ? toolParams(tool).pitch || isoPitch(tool.d) : 0;
