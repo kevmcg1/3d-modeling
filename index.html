@@ -14803,7 +14803,7 @@ function cornerOverlay(P) {
     const post = new THREE.Line(new THREE.BufferGeometry().setFromPoints([V3(toW(c.v.x, c.v.y, z)), V3(toW(c.v.x, c.v.y, top))]), mat); post.renderOrder = 6; post.userData.own = true; camGroup.add(post);
   }
 }
-function camRefresh() { if (UIX.ws !== 'cam') return; camDraw(); refreshPanel(); refreshBrowser(); refreshTimeline(); requestDraw(); }
+function camRefresh() { if (UIX.ws !== 'cam') return; camDraw(); refreshPanel(); refreshBrowser(); refreshTimeline(); requestDraw(); try { ToolLook.warm([...new Set(cam().ops.map(o => toolOf(o.tool)).filter(Boolean))]); } catch (e) { /* not set up yet */ } }
 
 // ── Simulation: exact polygon stock ────────────────────────────────
 // The stock is a stack of slabs, one between each pair of cutting depths.
@@ -15452,7 +15452,17 @@ const ToolLook = (() => {
     thumbs.set(key, url);
     return url;
   }
-  return { build, thumb, env: () => envFor(renderer) };
+  // build the cutter and holder geometry ahead, a tool per idle moment, so starting a simulation does not stall on it
+  let warmQ = null;
+  function warm(tools) {
+    const todo = tools.filter(t => { try { return !geoCache.has(JSON.stringify(toolParams(t))); } catch (e) { return false; } });
+    if (!todo.length || warmQ) return;
+    warmQ = todo;
+    const idle = window.requestIdleCallback || (f => setTimeout(() => f({ timeRemaining: () => 8 }), 200));
+    const next = () => idle(() => { const t = warmQ.shift(); try { const p = toolParams(t); geoms(p); if (p.category !== 'facemill') holderGeoms(p.shankDia || p.dia); envFor(renderer); } catch (e) { /* built when needed instead */ } if (warmQ.length) next(); else warmQ = null; }, { timeout: 4000 });
+    next();
+  }
+  return { build, thumb, warm, env: () => envFor(renderer) };
 })();
 // Holder envelope and how far the tool sticks out of it (tip to nut face).
 // The collision checks and the drawing both read these.
