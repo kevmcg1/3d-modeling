@@ -4,6 +4,14 @@ A pass / fail record of one QA sweep, written so that anything marked partial or
 
 Legend: PASS = checked and correct · FIXED = a bug was found, fixed and has an automated test · PARTIAL = works with the limit noted · OPEN = a known problem that is not fixed · NOT RUN = not exercised in this sweep
 
+## Second sweep (added tests)
+
+| Test | What it checks |
+|---|---|
+| `test/design.qa2.e2e.js` | Volumes of sweep, loft, coil, patterns, gear, deform, offset plane |
+| `test/ui.buttons.e2e.js` | Clicks every Design (63) and Manufacture (56) ribbon button on a fresh sample part: no exception, and the next UI refresh still works. Found and fixed a crash in the Guided Setup panel when no part was left |
+| `test/cam.ops.e2e.js` | Every toolpath type on its own: face (two patterns), contour, pocket, spot, peck, drill, counterbore, tap, 3D parallel, waterline, Z-level rough, seven 3D finish strategies, engraving, thread mill, chamfer swarf with no pick, wire operation can be added |
+
 ## How it was checked
 
 | Check | What it does | Where |
@@ -70,8 +78,9 @@ The status column is the app's own claim in `docs/fusion-coverage.md`. "Volume" 
 | Midplane, plane at angle, plane through three points | PASS | Existing tests |
 | Physical properties, interference, section analysis | PASS | Existing tests |
 | Undo, redo, save and reload | PASS | Volume test steps back and forward and round-trips the JSON |
-| Sweep, loft, coil, thread, gears, hardware, deform, mirror, circular pattern, offset plane | PARTIAL | Opens; and every sample part built from them rebuilds without error (see below). No separate volume check |
-| Fillet, chamfer on lofted parts | OPEN | The Game controller sample (DualSense) has two fillets on a loft that report "Edge no longer exists" on a rebuild. Every other sample part (158 of 159) rebuilds with no feature error |
+| Sweep, loft, coil, mirror, circular pattern, offset plane, spur gear, deform | PASS | `test/design.qa2.e2e.js`: loft prism and frustum, sweep along a straight path, coil by Pappus (circle and square), mirror and circular pattern volumes, offset-plane extrude height, gear volume against the pitch cylinder, bend / taper / twist stay one valid solid |
+| Thread (modeled), hardware (screws, nuts), other gear types | PARTIAL | Rebuild without error in every sample part; no separate volume formula |
+| Fillet larger than or equal to the convex corner radius | PARTIAL | The Game controller sample had two fillets (radius 8) on a body whose corner arcs were radius 8: the rolling ball degenerates and the fillet reports "Edge no longer exists". The sample now uses a 9 mm corner. The kernel still reports that message for a fillet that equals the corner radius; it is not a loft problem |
 | Thicken, surface tools, sheet metal, T-spline form, assemble joints | NOT RUN | Not in the app (see `fusion-coverage.md`) |
 
 **Sample parts.** All 159 sample parts rebuild from their feature history; 158 without error and positive volume, and the one exception is noted above. `test/design.qa.e2e.js` fails if that number changes.
@@ -89,10 +98,10 @@ The status column is the app's claim in `docs/mastercam-toolpaths.md`. "Auto" me
 | Slot, circle mill, area, peel, dynamic, rest, deburr, chamfer | PASS (chain modes) | Existing tests; scenario sweep ran each on three parts with no crash, no NaN and valid G-code. Several scenarios show gouge counts: those are the scenario's depth settings, not program faults (the same cuts verified clean when Auto Program made them) |
 | Drill: spot, drill, peck, chip break, ream, counterbore, back spot face | PASS | Auto, scenario. Canned cycle X, Y, Z checked against the model's holes |
 | Tap (G84), bore (G86, G89, G76), back bore (G87) | PASS | Existing tests, scenario for tap |
-| Thread mill | PARTIAL | Scenario returns an empty path with the message "No threads chosen" when no thread is picked, as designed. Run with a picked thread in the existing tests |
-| Engraving | PARTIAL | Runs; Verify reports gouge and holder counts on an engraving, because it cuts into the part by design. Not treated as a fault |
+| Thread mill | PASS | `test/cam.ops.e2e.js`: Auto-detect threads on the Flanged boss makes thread-mill paths and posts helical arcs with no G-code check problems |
+| Engraving | PASS | `test/cam.ops.e2e.js`: plans, finite moves inside the stock, valid G-code. Verify reports gouge and holder counts on an engraving because it cuts into the part by design |
 | 3D parallel, waterline, rough pocket (Z-level), radial, spiral, scallop, pencil, project | PASS | Scenario on three parts, G-code matches within 0.05 mm. Verify reports a few rapid-through-stock moves on pencil, waterline and parallel rough when run alone; the Verify and fix step lifts them (Auto Program results show none) |
-| Chamfer swarf | PARTIAL | Runs. 1 swarf end can stop short where the cone would touch (the app warns) |
+| Chamfer swarf | PARTIAL | With no face picked the app says so and posts valid G-code (`cam.ops.e2e.js`). 1 swarf end can stop short where the cone would touch (the app warns). A swarf with picked faces is not in an automated test |
 | Clean-up (rest) | PASS | Auto Program adds it; "Nothing to clean up" when nothing is left |
 | Work offsets, origin choices, units | PASS | 4 origins × in and mm on one part: G-code consistent, no deviation. Existing `cam.origin` and `cam.vise` tests |
 | Save, load, undo, redo of a program | PASS | Same G-code and operations after a file round trip |
@@ -114,7 +123,7 @@ These nine parts still fail Verify. In each case the program is what a 3-axis ma
 
 Other open items:
 
-- **Game controller sample (Design):** two fillets on a loft say "Edge no longer exists" on every rebuild. Not a CAM part. Not fixed.
+- **Fillet equal to the corner radius (Design):** see the table. The Game controller sample is fixed (all 159 sample parts now rebuild with no error), the kernel message is not.
 - **Verify on long 3D paths:** a program with more than about 100k moves takes several minutes to verify. The performance thread owns this.
 - **`autoApply` straight after loading a part:** it can use the quick display mesh and pick a different tool than Auto Program does, which waits for the exact mesh. Auto Program is the one-click path and is correct; the Auto Detect panel updates as soon as the exact mesh arrives.
 - **Engraving:** Verify reports gouges and holder hits on it by design.
