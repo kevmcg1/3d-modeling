@@ -9587,22 +9587,23 @@ function viewFromDir(d) {
 
 // ── Render loop (on demand) ────────────────────────────────────────
 let drawPending = false;
-function requestDraw() { if (!drawPending) { drawPending = true; requestAnimationFrame(frame); } }
+function requestDraw() { if (!drawPending) { drawPending = true; PERF.reqAt = performance.now(); requestAnimationFrame(frame); } }
 let booted = false;
-// Adaptive resolution: if continuous frames (orbiting, simulation) run
-// slower than ~48 fps, render at a lower pixel ratio. Never goes back up
-// in a session, so it cannot oscillate.
-const PERF = { last: 0, gaps: [], dpr: Math.min(window.devicePixelRatio || 1, 2) };
+// Adaptive resolution: if continuous frames (orbiting, zooming, simulation) run slower than ~48 fps, render at a lower
+// pixel ratio, and take pixels back when there is room. Only frames asked for right after the last one finished count
+// (a drag or an animation), so a pause between gestures is not read as a slow frame, however slow the device is.
+const PERF = { last: 0, endAt: 0, reqAt: 0, gaps: [], dpr: Math.min(window.devicePixelRatio || 1, 2) };
 function trackFrame(now) {
-  const gap = now - PERF.last;
+  const gap = now - PERF.last, cont = PERF.reqAt - PERF.endAt < 30 && PERF.reqAt >= PERF.endAt;
   PERF.last = now;
-  if (gap > 0 && gap < 120) PERF.gaps.push(gap); else return;
-  if (PERF.gaps.length < 45) return;
-  const med = PERF.gaps.sort((a, b) => a - b)[22];
+  if (gap > 0 && gap < 2000 && cont) PERF.gaps.push(gap); else return;
+  const sum = PERF.gaps.reduce((a, b) => a + b, 0);
+  if (PERF.gaps.length < 45 && !(PERF.gaps.length >= 5 && sum > 600)) return;   // a slow device decides in well under a second
+  const med = PERF.gaps.sort((a, b) => a - b)[PERF.gaps.length >> 1];
   PERF.gaps.length = 0;
-  // keep 60 fps: shed pixels when frames run long (down to 3/4 resolution on a weak GPU), take them back when there is room
+  // keep 60 fps: shed pixels when frames run long (down to half resolution on a weak GPU), take them back when there is room
   const top = Math.min(window.devicePixelRatio || 1, 2);
-  if (med > 21 && PERF.dpr > 0.75) { PERF.dpr = Math.max(0.75, PERF.dpr - (PERF.dpr > 1 ? 0.5 : 0.25)); console.info('Datum: rendering at pixel ratio', PERF.dpr, 'to keep the frame rate up'); resize(); }
+  if (med > 21 && PERF.dpr > 0.5) { PERF.dpr = Math.max(0.5, PERF.dpr - (PERF.dpr > 1 ? 0.5 : 0.25)); console.info('Datum: rendering at pixel ratio', PERF.dpr, 'to keep the frame rate up'); resize(); }
   else if (med < 13 && PERF.dpr < top && (PERF.upAt = (PERF.upAt || 0) + 1) >= 4) { PERF.upAt = 0; PERF.dpr = Math.min(top, PERF.dpr + 0.25); resize(); }
 }
 function frame(now) {
@@ -9634,6 +9635,7 @@ function frame(now) {
   renderer.setScissorTest(false);
   drawOverlay();
   update2D3D();
+  PERF.endAt = performance.now();
 }
 function resize() {
   const r = viewportEl.getBoundingClientRect();
