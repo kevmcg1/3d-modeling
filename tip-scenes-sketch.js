@@ -180,5 +180,5 @@
   A.scene('spaste', g => { board(g); const u = g.seg(0.35, 0.7), p = [lerp(-30, 14, u), lerp(-10, 0, u)]; g.fill(shape.map(q => [q[0] + p[0], q[1] + p[1]]), 'a', { a: 0.2 * u, stroke: 'a', w: 2 }); g.line(shape.map(q => [q[0] + p[0], q[1] + p[1]]), 'a', 2, { close: true, a: u }); g.chip('Ctrl V: lands at the cursor', 'a'); g.cursorAt([p[0], p[1], 0], g.lin(0.68, 0.78) > 0 && g.lin(0.68, 0.78) < 1 ? g.lin(0.68, 0.78) : 0); });
   ['btnUndo:undo', 'btnRedo:redo', 'btnFile:file', 'btnHelp:help'].forEach(s => { const [to, from] = s.split(':'); same(to, from); });
 // the pointer travels in early, so the card is already moving when someone hovers for a moment
-  A.touch(['extend', 'osnap'], 120, 92, 0.4, [185, 140]); A.touch(['undo'], 120, 150, 0.45, [185, 110]);
+  A.touch(['extend', 'osnap', 'lengthen'], 120, 92, 0.4, [185, 140]); A.touch(['undo'], 120, 150, 0.45, [185, 110]);
 })(typeof window !== 'undefined' ? window : this);
