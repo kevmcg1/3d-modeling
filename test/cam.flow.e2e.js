@@ -45,10 +45,10 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
     assert(await page.evaluate(() => CHAINUI.mode === 'chain'));
   });
 
-  await ok('select by feature: All pockets takes the floor chain, the path appears and the tool is the automatic pick, marked Recommended', async () => {
+  await ok('select by feature: All pockets takes the floor chain and its island, the path appears and the tool is the automatic pick, marked Recommended', async () => {
     await page.click('[data-cfsel="pockets"]'); await page.waitForTimeout(900);
     const r = await page.evaluate(() => { const op = opById(CAMUI.op); const P = toolpath(op); return { n: op.chains.length, closed: op.chains[0].closed, moves: P.m.length, warn: P.warn }; });
-    assert(r.n === 1 && r.closed && r.moves > 100 && !r.warn.length, JSON.stringify(r));
+    assert(r.n === 2 && r.closed && r.moves > 100 && !r.warn.length, JSON.stringify(r));        // the floor and the boss standing on it
     await page.keyboard.press('Enter'); await page.waitForTimeout(600);
     const s = await st();
     assert(s.step === 'tool', JSON.stringify(s));
@@ -107,7 +107,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
     assert(only.includes('Contour') && !only.includes('Face') && !only.includes('Spot Drill'), JSON.stringify(only));
     await page.keyboard.type('contour'); await page.keyboard.press('Enter'); await page.waitForTimeout(700);
     const s = await st();
-    assert(s.op.cm === 'contour' && s.op.chains === 1, JSON.stringify(s));
+    assert(s.op.cm === 'contour' && s.op.chains === 2, JSON.stringify(s));
     await page.keyboard.press('Escape'); await page.waitForTimeout(400);
   });
 

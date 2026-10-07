@@ -67,8 +67,12 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
     assert(e, 'no circle');
     await page.evaluate(() => { const op = opById(CAMUI.op); chainSetMode(op, 'drill'); op.chains = []; camRefresh(); });
     await page.mouse.move(e.x, e.y); await page.waitForTimeout(100); await page.mouse.click(e.x, e.y); await page.waitForTimeout(300);
-    const r = await page.evaluate(() => { const op = opById(CAMUI.op), P = toolpath(op), g = postGcode().text; return { n: (op.chains || []).length, holes: (P.holes || []).length, warn: P.warn, gcode: /G8[1-5]/.test(g) }; });
-    assert(r.n === 1 && r.holes === 1 && !r.warn.length && r.gcode, JSON.stringify(r));
+    const r = await page.evaluate(() => {
+      const op = opById(CAMUI.op), big = toolpath(op).warn.some(w => /larger than the/.test(w));       // the op's drill is bigger than this hole: it says so
+      op.tool = camToolOfType('drill', circleFit(chainTravel(op.chains[0])).d).n;                          // with the drill of the hole's size it drills clean
+      const P = toolpath(op), g = postGcode().text; return { n: (op.chains || []).length, holes: (P.holes || []).length, big, warn: P.warn, gcode: /G8[1-5]/.test(g) };
+    });
+    assert(r.n === 1 && r.holes === 1 && r.big && !r.warn.length && r.gcode, JSON.stringify(r));
   });
   await ok('a rail left of the right sidebar has Manual and Auto; clicking one lists its operations in the sidebar', async () => {
     const r = await page.evaluate(() => { const rail = document.getElementById('catrail'), p = document.getElementById('panel'); return { vis: !rail.hidden, labels: [...rail.querySelectorAll('.cat-btn')].map(b => b.textContent.replace(/\s+/g, ' ').trim()), left: rail.getBoundingClientRect().right <= p.getBoundingClientRect().left + 1 }; });

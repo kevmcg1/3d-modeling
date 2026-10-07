@@ -42,6 +42,8 @@
     return L;
   }
   CF.catalog = catalog;
+  const camAddOp0 = camAddOp;                                    // a new toolpath never inherits the flow of an earlier one: op ids start again at 1 in every part
+  camAddOp = function (...a) { CF.FLOW.id = null; return camAddOp0.apply(this, a); };
   const keyOf = op => op.type === 'chain' ? 'chain:' + (op.cm || 'contour') : op.type === 'drill' ? 'drill:' + (op.kind || 'peck') : op.type;
   const geomKind = op => op.type === 'chain' ? 'chain' : (op.type === 'pocket' || op.type === 'contour' || op.type === 'chamfer') ? 'faces' : op.type === 'drill' ? 'holes' : 'none';
   const geomCount = op => op.type === 'chain' ? (op.chains || []).length : op.type === 'drill' ? (op.diams || []).length : (op.faces || []).length;
@@ -68,9 +70,20 @@
     }
     return isFinite(fit) ? fit : 0;
   }
+  // a drill makes a hole its own size: the smallest picked hole is the size to drill
+  function drillSize(op) {
+    if (op.type !== 'chain' || op.cm !== 'drill') return 0;
+    const ds = (op.chains || []).map(c => { const o = circleOf(c); return o ? o.d : 0; }).filter(d => d > 0);
+    return ds.length ? Math.min(...ds) : 0;
+  }
   function recommend(op) {
     const types = compat(op), lib = cam().tools.filter(t => types.includes(t.type));
     if (!lib.length) return null;
+    const dd = drillSize(op), cur0 = lib.find(t => t.n === op.tool);
+    if (dd && !(cur0 && cur0.type !== 'drill')) {                     // drilling: the drill of the hole's size, never merely one that fits (that cuts it undersize) or the last one used
+      const t = lib.filter(x => x.type === 'drill').sort((a, b) => Math.abs(a.d - dd) - Math.abs(b.d - dd))[0];
+      if (t && Math.abs(t.d - dd) < 0.05) return { tool: t, why: `Drills the Ø${fmtLs(dd)} holes to size` };
+    }
     if (op.autoTool) {                                                // cam-autotool.js chose it from the geometry: the largest tool that fits
       const t = lib.find(x => x.n === op.tool);
       return !op.toolMan && t ? { tool: t, why: op.autoTool.reason || 'Largest tool that fits', auto: true } : null;
@@ -238,13 +251,16 @@
   const centroid = c => { let x = 0, y = 0; c.pts.forEach(p => { x += p[0]; y += p[1]; }); return [x / c.pts.length, y / c.pts.length]; };
   function circleOf(c) {
     if (!c.closed || c.pts.length < 8) return null;
-    const [cx, cy] = centroid(c), rs = c.pts.map(p => Math.hypot(p[0] - cx, p[1] - cy)), r = rs.reduce((a, b) => a + b, 0) / rs.length;
-    return rs.every(x => Math.abs(x - r) < 0.02 * r + 0.01) ? { x: cx, y: cy, d: 2 * r } : null;
+    const f = circleFit(c.pts.map(p => P2(p[0], p[1]))), cx = f.x, cy = f.y, rs = f.rs, r = f.d / 2;      // least squares: unevenly spaced points average off centre
+    if (!rs.every(x => Math.abs(x - r) < 0.02 * r + 0.01)) return null;
+    if (c.pts.some((p, i) => { const q = c.pts[(i + 1) % c.pts.length]; return Math.hypot(q[0] - p[0], q[1] - p[1]) > r; })) return null;   // a rounded square's corners lie on one circle too, but its sides span far more than an arc step
+    const h = camHoles().find(q => Math.hypot(q.x - cx, q.y - cy) < 0.3 && Math.abs(q.d - 2 * r) < 0.3);   // the model's own hole: its exact size, not the mesh's
+    return h ? { x: h.x, y: h.y, d: h.d } : { x: cx, y: cy, d: 2 * r };
   }
   // what is just inside and just outside the loop: a pocket floor has the floor level inside and a wall outside, a boss top the reverse
   function sides(c) {
     const p = chainTravel(c), n = p.length, inLeft = cArea(cP(p)) > 0;
-    let floor = 0, rim = 0, s = 0;
+    let floor = 0, rim = 0, isl = 0, outer = 0, open = 0, s = 0;
     const N = Math.min(24, n);
     for (let k = 0; k < N; k++) {
       const i = Math.floor((k + 0.5) * n / N), a = p[i], b = p[(i + 1) % n], t = nrm2(sub2(b, a)), m = lerp2(a, b, 0.5), nl = P2(-t.y * (inLeft ? 1 : -1), t.x * (inLeft ? 1 : -1));
@@ -252,19 +268,71 @@
       s++;
       if (Math.abs(tin - c.z) < 0.05 && tout > c.z + 0.05) floor++;
       else if (Math.abs(tin - c.z) < 0.05 && tout < c.z - 0.05) rim++;
+      else if (Math.abs(tout - c.z) < 0.05 && tin > c.z + 0.05) isl++;
+      if (tin > c.z - 0.05 && tout < c.z - 0.05) outer++;
+      if (tin < camPart().z0 + 0.01 && Math.abs(tout - c.z) < 0.05) open++;            // air all the way down inside, the top of the material outside: a through opening          // material inside, open air outside (a top rim, or the bottom edge of a wall)
     }
-    return { floor: s && floor / s > 0.7, outline: s && rim / s > 0.7 };
+    return { floor: s && floor / s > 0.7, outline: s && rim / s > 0.7, island: s && isl / s > 0.7, outer: s && outer / s > 0.7, open: s && open / s > 0.95 };   // all the way round: an opening that runs in under a bridge cannot be cut from the top
   }
   const area = c => Math.abs(cArea(cP(chainTravel(c))));
+  // a circle with material just inside it up to its height and no wall rising outside it is a boss (its top edge, or
+  // where it stands on a floor), not a hole; a counterbore's floor edge has the wall outside, a hole has no floor inside
+  function bossOf(c, o) {
+    const r = o.d / 2, ri = Math.max(r * 0.85, r - 0.5), ro = r + Math.min(0.5, r * 0.15);
+    let n = 0;
+    for (let k = 0; k < 4; k++) {
+      const a = Math.PI / 4 + k * Math.PI / 2, cs = Math.cos(a), sn = Math.sin(a);
+      if (partTopAt(o.x + ri * cs, o.y + ri * sn) > c.z - 0.05 && partTopAt(o.x + ro * cs, o.y + ro * sn) < c.z + 0.05) n++;
+    }
+    return n >= 3;
+  }
+  // material standing inside the circle higher than the floor just inside its wall: the edge of a ring groove round a solid
+  // middle (or a hub with a bore through it), not a hole; a blind hole's floor edge has the same floor all the way in
+  const ringOf = (c, o) => {
+    const r = o.d / 2, ri = Math.max(r * 0.5, r - 0.6); let base = -Infinity;
+    for (let k = 0; k < 8; k++) { const a = (k + 0.5) * Math.PI / 4; base = Math.max(base, partTopAt(o.x + ri * Math.cos(a), o.y + ri * Math.sin(a))); }
+    const lvl = Math.min(c.z, base);
+    for (const f of [0, 0.35, 0.7]) for (let k = 0; k < (f ? 8 : 1); k++) { const a = k * Math.PI / 4; if (partTopAt(o.x + f * r * Math.cos(a), o.y + f * r * Math.sin(a)) > lvl + 0.05) return true; }
+    return false;
+  };
   const sameZ = (a, b) => Math.abs(a - b) < 0.02;
   CF.selectors = {
-    holes: () => { const seen = new Map(); for (const c of allChains()) { const o = circleOf(c); if (!o) continue; const k = Math.round(o.x * 50) + ',' + Math.round(o.y * 50) + ',' + Math.round(o.d * 50); const e = seen.get(k); if (!e || c.z > e.c.z) seen.set(k, { c, o }); } return [...seen.values()]; },
-    pockets: () => allChains().filter(c => !circleOf(c) && c.z < camPart().z1 - 0.01 && sides(c).floor),
-    outline: () => { const l = allChains().filter(c => !circleOf(c) && sides(c).outline); l.sort((a, b) => area(b) - area(a)); return l.slice(0, 1); },
+    // one entry per hole (its top edge): the edges of one hole at other heights (a counterbore's floor) and sizes a
+    // hundredth apart read off the mesh are the same hole
+    holes: () => {
+      const out = [];
+      for (const c of allChains()) {
+        const o = circleOf(c); if (!o || bossOf(c, o) || ringOf(c, o)) continue;
+        const e = out.find(h => Math.hypot(h.o.x - o.x, h.o.y - o.y) < 0.1 && Math.abs(h.o.d - o.d) < 0.1);
+        if (!e) out.push({ c, o }); else if (c.z > e.c.z) { e.c = c; e.o = o; }
+      }
+      return out;
+    },
+    floors: () => allChains().filter(c => { const o = circleOf(c); return (!o || ringOf(c, o)) && c.z < camPart().z1 - 0.01 && sides(c).floor; }),   // a round floor is a hole's, unless it rings a solid middle
+    // every pocket floor, with the islands (bosses) standing on it, so the pocket clears round them instead of through them
+    pockets: () => {
+      const fl = CF.selectors.floors(), inside = (c, f) => ClipperLib.Clipper.PointInPolygon(cP([P2(c.pts[0][0], c.pts[0][1])])[0], cP(chainTravel(f))) !== 0;   // either way round
+      const isl = allChains().filter(c => !fl.includes(c) && fl.some(f => sameZ(f.z, c.z) && inside(c, f)) && sides(c).island);
+      return [...fl, ...isl];
+    },
+    // the part's outside (a round part's is a circle): the biggest loop with open air all round it; a step or a flange makes a loop part way up that is
+    // smaller than the bottom edge, and of loops the same size (straight walls) the lowest one takes the whole wall
+    // through openings that are not plain holes (a keyed bore, a slot, a window): their top edge, once each
+    cutouts: () => {
+      const out = [];
+      for (const c of allChains().filter(c => sides(c).open).sort((a, b) => b.z - a.z)) {
+        const o = circleOf(c); if (o && !bossOf(c, o)) continue;              // a round one is a hole: Drill or Circle Mill
+        const m = centroid(c), A = area(c);
+        if (!out.some(e => { const n = centroid(e); return Math.hypot(n[0] - m[0], n[1] - m[1]) < 0.5 && Math.abs(area(e) - A) < 0.05 * A; })) out.push(c);
+      }
+      return out;
+    },
+    outline: () => { const l = allChains().filter(c => sides(c).outer); l.sort((a, b) => (area(b) - area(a)) || (a.z - b.z)); const top = l[0]; return top ? [l.filter(c => area(c) > area(top) * 0.999).sort((a, b) => a.z - b.z)[0]] : []; },
   };
-  function setChains(op, list, label) {
+  function setChains(op, list, label, also) {
     if (!list.length) { toast('Nothing like that in this part.'); return; }
     const before = snap();
+    if (also) also(op);
     op.chains = list.map((c, i) => ({ id: i + 1, rev: false, start: 0, ...JSON.parse(JSON.stringify(c)) }));
     if (typeof camAutoTool === 'function') camAutoTool(op);                  // the largest tool that fits what was picked
     record(`${op.name}: ${label}`, before);
@@ -275,13 +343,14 @@
     const S = CF.selectors, circ = op.cm === 'drill' || op.cm === 'circle', btns = [];
     if (circ) {
       const by = new Map();
-      for (const h of S.holes()) { const k = +h.o.d.toFixed(2); by.set(k, (by.get(k) || 0) + 1); }
+      for (const h of S.holes()) { const k = [...by.keys()].find(d => Math.abs(d - h.o.d) < 0.05) ?? +h.o.d.toFixed(2); by.set(k, (by.get(k) || 0) + 1); }   // 6.59 and 6.60 read off the mesh are one size
       [...by.entries()].sort((a, b) => a[0] - b[0]).forEach(([d, n]) => btns.push(`<button class="chip" data-cfsel="hole:${d}">All Ø${fmtLs(d)} holes <small>×${n}</small></button>`));
     } else {
-      const np = S.pockets().length;
+      const np = S.floors().length;
       if (np) btns.push(`<button class="chip" data-cfsel="pockets">All pockets <small>×${np}</small></button>`);
       if ((op.chains || []).some(c => c.closed)) btns.push('<button class="chip" data-cfsel="samez">Floors at the same depth</button>');
       if (S.outline().length) btns.push('<button class="chip" data-cfsel="outline">Part outline</button>');
+      const nc = S.cutouts().length; if (nc) btns.push(`<button class="chip" data-cfsel="cutouts">All cut-outs <small>×${nc}</small></button>`);
     }
     if ((op.chains || []).length) btns.push('<button class="chip" data-cfsel="clear">Clear</button>');
     return btns.length ? `<div class="field cf-sel"><span>Select by feature</span><div class="chips">${btns.join('')}</div></div>` : '';
@@ -289,9 +358,10 @@
   function doSelect(op, what) {
     const S = CF.selectors;
     if (what === 'clear') { const before = snap(); op.chains = []; if (typeof camAutoTool === 'function') camAutoTool(op); record(`${op.name}: clear`, before); camRefresh(); return; }
-    if (what.startsWith('hole:')) { const d = +what.slice(5); setChains(op, S.holes().filter(h => Math.abs(h.o.d - d) < 0.02).map(h => h.c), `all Ø${fmtLs(d)} holes`); return; }
+    if (what.startsWith('hole:')) { const d = +what.slice(5); setChains(op, S.holes().filter(h => Math.abs(h.o.d - d) < 0.05).map(h => h.c), `all Ø${fmtLs(d)} holes`); return; }
     if (what === 'pockets') { setChains(op, S.pockets(), 'all pockets'); return; }
     if (what === 'outline') { setChains(op, S.outline(), 'part outline'); return; }
+    if (what === 'cutouts') { setChains(op, S.cutouts(), 'all cut-outs', o => { o.ramp = true; }); return; }     // solid inside: spiral down the loop, no plunge
     if (what === 'samez') {
       const zs = (op.chains || []).filter(c => c.closed).map(c => c.z), pk2 = S.pockets().filter(c => zs.some(z => sameZ(z, c.z)));
       const have = (op.chains || []).slice(), add = pk2.filter(c => !have.some(h => (h.eks || []).some(k => (c.eks || []).includes(k))));
@@ -356,7 +426,10 @@
     panel.classList.remove('cf-on');
     if (!op || op.type === 'wire' || !panel.querySelector('.pn-body')) return;
     const f = FLOW();
-    if (f.id !== op.id) Object.assign(CF.FLOW, { id: op.id, step: 'params', tab: 'cut', fresh: false, autoTool: false, touched: true });
+    if (f.id !== op.id) {                                       // opened from the ribbon or the list: a pocket or chain with nothing picked yet starts at its geometry
+      const needGeo = (op.type === 'pocket' || op.type === 'chain') && !geomCount(op);
+      Object.assign(CF.FLOW, { id: op.id, step: needGeo ? 'geo' : 'params', tab: 'cut', fresh: false, autoTool: false, touched: true });
+    }
     if (!STEPS(op).includes(f.step)) f.step = STEPS(op)[0];
     const body = panel.querySelector('.pn-body'), { B, foot } = arrange(body, op);
     const delBtn = foot && foot.querySelector('[data-camdo="delop"]');
@@ -441,6 +514,8 @@
   function applyTool(op) {
     const f = FLOW();
     if (!f.fresh || !f.autoTool) return;
+    const dd = drillSize(op);
+    if (dd && !cam().tools.some(t => t.type === 'drill' && Math.abs(t.d - dd) < 0.05)) camToolOfType('drill', +dd.toFixed(2));   // no drill of that size yet: add one to the library
     const r = recommend(op);
     if (r && r.tool.n !== op.tool) op.tool = r.tool.n;
     if (!f.touched) smartDefaults(op);

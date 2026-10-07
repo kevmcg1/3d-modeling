@@ -9443,8 +9443,13 @@ function setBusy(on, req, ctx) {
   el.classList.remove('working');
   if (req && ctx) el.dataset.info = ctx.bodies.length ? `${Kernel.worker ? 'worker' : 'main'} · ${(performance.now() - req.t0).toFixed(0)} ms · chord ${fmt(req.tol, 4)} mm` : '';
 }
+let appliedKey = null;
 function applyModel(ctx, req) {
   const tol = req.tol, coarse = req.coarse;
+  // the same model only tessellated finer or coarser for the zoom (both meshes full detail): what was derived from the
+  // geometry stays. Zooming in Manufacture used to rebuild every toolpath and re-run the air-move pass (2.6 fps at 4x CPU throttle).
+  const key = coarse ? null : camModelKey(), lodOnly = key !== null && key === appliedKey && shownTol > 0;
+  appliedKey = key;
   shownTol = coarse ? -1 : tol;
   MODEL = ctx; PLANES = { ...PLANES, ...ctx.planes };
   for (const m of bodyMeshes) { bodyGroup.remove(m.group); m.me.geometry.dispose(); m.group.children[1].geometry.dispose(); }
@@ -9469,7 +9474,7 @@ function applyModel(ctx, req) {
   if (typeof lookShadowUpdate === 'function') lookShadowUpdate();
   refreshUI();
   clearHover3D();
-  if (typeof camModelChanged === 'function') camModelChanged();
+  if (typeof camModelChanged === 'function' && !lodOnly) camModelChanged();
   if (firstFit) { firstFit = false; fitAll(false); }
   requestDraw();
 }
@@ -9582,22 +9587,23 @@ function viewFromDir(d) {
 
 // ── Render loop (on demand) ────────────────────────────────────────
 let drawPending = false;
-function requestDraw() { if (!drawPending) { drawPending = true; requestAnimationFrame(frame); } }
+function requestDraw() { if (!drawPending) { drawPending = true; PERF.reqAt = performance.now(); requestAnimationFrame(frame); } }
 let booted = false;
-// Adaptive resolution: if continuous frames (orbiting, simulation) run
-// slower than ~48 fps, render at a lower pixel ratio. Never goes back up
-// in a session, so it cannot oscillate.
-const PERF = { last: 0, gaps: [], dpr: Math.min(window.devicePixelRatio || 1, 2) };
+// Adaptive resolution: if continuous frames (orbiting, zooming, simulation) run slower than ~48 fps, render at a lower
+// pixel ratio, and take pixels back when there is room. Only frames asked for right after the last one finished count
+// (a drag or an animation), so a pause between gestures is not read as a slow frame, however slow the device is.
+const PERF = { last: 0, endAt: 0, reqAt: 0, gaps: [], dpr: Math.min(window.devicePixelRatio || 1, 2) };
 function trackFrame(now) {
-  const gap = now - PERF.last;
+  const gap = now - PERF.last, cont = PERF.reqAt - PERF.endAt < 30 && PERF.reqAt >= PERF.endAt;
   PERF.last = now;
-  if (gap > 0 && gap < 120) PERF.gaps.push(gap); else return;
-  if (PERF.gaps.length < 45) return;
-  const med = PERF.gaps.sort((a, b) => a - b)[22];
+  if (gap > 0 && gap < 2000 && cont) PERF.gaps.push(gap); else return;
+  const sum = PERF.gaps.reduce((a, b) => a + b, 0);
+  if (PERF.gaps.length < 45 && !(PERF.gaps.length >= 5 && sum > 600)) return;   // a slow device decides in well under a second
+  const med = PERF.gaps.sort((a, b) => a - b)[PERF.gaps.length >> 1];
   PERF.gaps.length = 0;
-  // keep 60 fps: shed pixels when frames run long (down to 3/4 resolution on a weak GPU), take them back when there is room
+  // keep 60 fps: shed pixels when frames run long (down to half resolution on a weak GPU), take them back when there is room
   const top = Math.min(window.devicePixelRatio || 1, 2);
-  if (med > 21 && PERF.dpr > 0.75) { PERF.dpr = Math.max(0.75, PERF.dpr - (PERF.dpr > 1 ? 0.5 : 0.25)); console.info('Datum: rendering at pixel ratio', PERF.dpr, 'to keep the frame rate up'); resize(); }
+  if (med > 21 && PERF.dpr > 0.5) { PERF.dpr = Math.max(0.5, PERF.dpr - (PERF.dpr > 1 ? 0.5 : 0.25)); console.info('Datum: rendering at pixel ratio', PERF.dpr, 'to keep the frame rate up'); resize(); }
   else if (med < 13 && PERF.dpr < top && (PERF.upAt = (PERF.upAt || 0) + 1) >= 4) { PERF.upAt = 0; PERF.dpr = Math.min(top, PERF.dpr + 0.25); resize(); }
 }
 function frame(now) {
@@ -9629,6 +9635,7 @@ function frame(now) {
   renderer.setScissorTest(false);
   drawOverlay();
   update2D3D();
+  PERF.endAt = performance.now();
 }
 function resize() {
   const r = viewportEl.getBoundingClientRect();
@@ -11283,7 +11290,7 @@ function chainScreens(mesh) {
   return out;
 }
 function pickEdge(x, y, bodies, px = 9) {
-  let best = null;
+  const hits = [];
   for (const b of bodies) {
     const mesh = bodyMesh(b);
     for (const { ch, s, bb } of chainScreens(mesh)) {
@@ -11291,12 +11298,16 @@ function pickEdge(x, y, bodies, px = 9) {
       for (let i = 0; i + 1 < ch.pts.length; i++) {
         const ax = s[i * 2], ay = s[i * 2 + 1], dx = s[i * 2 + 2] - ax, dy = s[i * 2 + 3] - ay, L2 = dx * dx + dy * dy;
         const t = L2 > 0 ? clamp(((x - ax) * dx + (y - ay) * dy) / L2, 0, 1) : 0, dd = Math.hypot(ax + dx * t - x, ay + dy * t - y);
-        if (dd < px && (!best || dd < best.d)) best = { d: dd, body: b, mesh, ch, P: lerp3(ch.pts[i], ch.pts[i + 1], t) };
+        if (dd < px) hits.push({ d: dd, body: b, mesh, ch, P: lerp3(ch.pts[i], ch.pts[i + 1], t) });
       }
     }
   }
-  if (best && viewDepth(best.P) > surfaceDepthAt(x, y) + Math.max(sceneR * 0.004, 2 / ppu())) return null;
-  return best;
+  // the nearest edge that is not hidden: seen from above, a hole's bottom edge lies under its top edge on screen, and
+  // the hidden one must not shadow the one in view
+  if (!hits.length) return null;
+  const lim = surfaceDepthAt(x, y) + Math.max(sceneR * 0.004, 2 / ppu());
+  hits.sort((a, b) => a.d - b.d || viewDepth(a.P) - viewDepth(b.P));
+  return hits.find(h => viewDepth(h.P) <= lim) || null;
 }
 function allKeyPoints(bodies) {
   const out = [];
@@ -11586,24 +11597,25 @@ function refreshToolbar() {
   const c = t => CMD && CMD.type === t;
   let h = '';
   if (UIX.ws === 'house') {
-    tb.innerHTML = '';
+    tb.innerHTML = ''; tb._h = null;
     document.querySelectorAll('[data-ws]').forEach(b => b.classList.toggle('on', b.dataset.ws === UIX.ws));
     return;
   }
   if (UIX.ws === 'draw') {
-    tb.innerHTML = '';
+    tb.innerHTML = ''; tb._h = null;
     document.querySelectorAll('[data-ws]').forEach(b => b.classList.toggle('on', b.dataset.ws === UIX.ws));
     return;
   }
   if (UIX.ws === 'sheet') {
-    tb.innerHTML = sheetRibbonHTML();
+    tb.innerHTML = sheetRibbonHTML(); tb._h = null;
     tb.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => b.dataset.act === 'sheetfill' ? openSetupSheet() : setWorkspace('cam')));
     document.querySelectorAll('[data-ws]').forEach(b => b.classList.toggle('on', b.dataset.ws === UIX.ws));
     return;
   }
   if (UIX.ws === 'cam') {
-    tb.innerHTML = camToolbar();
-    tb.querySelectorAll('[data-cam]').forEach(b => b.addEventListener('click', () => camAction(b.dataset.cam)));
+    // the ribbon is rebuilt only when it changed: replacing it re-runs the ribbon's fit (forced layouts) on every refresh
+    const hc = camToolbar();
+    if (tb._h !== hc) { tb._h = hc; tb.innerHTML = hc; tb.querySelectorAll('[data-cam]').forEach(b => b.addEventListener('click', () => camAction(b.dataset.cam))); }
     document.getElementById('btnUndo').disabled = hist.cur <= 0;
     document.getElementById('btnRedo').disabled = hist.cur >= hist.states.length - 1;
     document.querySelectorAll('[data-ws]').forEach(b => b.classList.toggle('on', b.dataset.ws === UIX.ws));
@@ -11615,9 +11627,11 @@ function refreshToolbar() {
   } else {
     h += modelToolbarHTML(btn, c);
   }
-  tb.innerHTML = h;
-  tb.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => action(b.dataset.act)));
-  tb.querySelectorAll('[data-menu]').forEach(b => b.addEventListener('click', () => openTbMenu(b.dataset.menu, b)));
+  if (tb._h !== h) {
+    tb._h = h; tb.innerHTML = h;
+    tb.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => action(b.dataset.act)));
+    tb.querySelectorAll('[data-menu]').forEach(b => b.addEventListener('click', () => openTbMenu(b.dataset.menu, b)));
+  }
   const chip = document.getElementById('modeChip');
   chip.textContent = S.sk ? 'Sketch · ' + S.sk.name : 'Model';
   chip.classList.toggle('sketch', !!S.sk);
@@ -14793,7 +14807,7 @@ function cornerOverlay(P) {
     const post = new THREE.Line(new THREE.BufferGeometry().setFromPoints([V3(toW(c.v.x, c.v.y, z)), V3(toW(c.v.x, c.v.y, top))]), mat); post.renderOrder = 6; post.userData.own = true; camGroup.add(post);
   }
 }
-function camRefresh() { if (UIX.ws !== 'cam') return; camDraw(); refreshPanel(); refreshBrowser(); refreshTimeline(); requestDraw(); }
+function camRefresh() { if (UIX.ws !== 'cam') return; camDraw(); refreshPanel(); refreshBrowser(); refreshTimeline(); requestDraw(); try { ToolLook.warm([...new Set(cam().ops.map(o => toolOf(o.tool)).filter(Boolean))]); } catch (e) { /* not set up yet */ } }
 
 // ── Simulation: exact polygon stock ────────────────────────────────
 // The stock is a stack of slabs, one between each pair of cutting depths.
@@ -15442,7 +15456,17 @@ const ToolLook = (() => {
     thumbs.set(key, url);
     return url;
   }
-  return { build, thumb, env: () => envFor(renderer) };
+  // build the cutter and holder geometry ahead, a tool per idle moment, so starting a simulation does not stall on it
+  let warmQ = null;
+  function warm(tools) {
+    const todo = tools.filter(t => { try { return !geoCache.has(JSON.stringify(toolParams(t))); } catch (e) { return false; } });
+    if (!todo.length || warmQ) return;
+    warmQ = todo;
+    const idle = window.requestIdleCallback || (f => setTimeout(() => f({ timeRemaining: () => 8 }), 200));
+    const next = () => idle(() => { const t = warmQ.shift(); try { const p = toolParams(t); geoms(p); if (p.category !== 'facemill') holderGeoms(p.shankDia || p.dia); envFor(renderer); } catch (e) { /* built when needed instead */ } if (warmQ.length) next(); else warmQ = null; }, { timeout: 4000 });
+    next();
+  }
+  return { build, thumb, warm, env: () => envFor(renderer) };
 })();
 // Holder envelope and how far the tool sticks out of it (tip to nut face).
 // The collision checks and the drawing both read these.
@@ -16022,7 +16046,76 @@ function chainTravel(c) {
   let p = c.pts.map(q => P2(q[0], q[1]));
   if (c.closed && c.start) { const s = ((c.start % p.length) + p.length) % p.length; p = startAt(p, s); }
   if (c.rev) p = c.closed ? [p[0], ...p.slice(1).reverse()] : p.slice().reverse();
-  return p;
+  return chainArcs(p, c.closed);
+}
+// A chain is read off the model's edges: on a round wall its points lie on the circle and its straight segments cut
+// inside it (a Ø14 boss in 22 segments is 0.07 smaller across its flats). Offset from those flats, a tool runs into the
+// real wall. Every segment whose ends lie on one circle with the points beside them gets points on the true arc,
+// until the flats are within ARC_SAG of it.
+// Least-squares circle through points {x, y}: a chain read off the mesh has unevenly spaced points, so their average is
+// not the centre (an 8 mm hole's points averaged 0.2 mm off). d from the mean radius.
+function circleFit(pts) {
+  const n = pts.length;
+  let cx = 0, cy = 0; pts.forEach(q => { cx += q.x; cy += q.y; }); cx /= n; cy /= n;
+  let sxx = 0, sxy = 0, syy = 0, sxz = 0, syz = 0;
+  for (const q of pts) { const x = q.x - cx, y = q.y - cy, z = x * x + y * y; sxx += x * x; sxy += x * y; syy += y * y; sxz += x * z; syz += y * z; }
+  const det = sxx * syy - sxy * sxy;
+  if (Math.abs(det) > 1e-12) { cx += (sxz * syy - syz * sxy) / (2 * det); cy += (syz * sxx - sxz * sxy) / (2 * det); }
+  const rs = pts.map(q => Math.hypot(q.x - cx, q.y - cy));
+  return { x: cx, y: cy, d: 2 * rs.reduce((a, b) => a + b, 0) / n, rs };
+}
+const ARC_SAG = 0.004;
+function chainArcs(p0, closed) {
+  // points in the middle of a straight run (where a neighbouring face split the edge) say nothing about the curve and
+  // break the four-points-on-a-circle test: leave them out (the shape is the same; the start point is kept)
+  const p = [];
+  for (let i = 0; i < p0.length; i++) {
+    const a = p.length ? p[p.length - 1] : null, b = p0[i], c = p0[(i + 1) % p0.length];
+    const a1 = a || (closed && i === 0 ? p0[p0.length - 1] : null);
+    if (a1 && (closed || i < p0.length - 1)) {
+      const ab = Math.hypot(b.x - a1.x, b.y - a1.y), bc = Math.hypot(c.x - b.x, c.y - b.y), ac = Math.hypot(c.x - a1.x, c.y - a1.y);
+      if (ac > 1e-9 && ab + bc - ac < 1e-6 * Math.max(1, ac)) continue;
+    }
+    p.push(b);
+  }
+  const n = p.length;
+  if (n < 3) return p0;
+  // a start point mid-chord on a curve would leave a dent where the arc is filled in: it goes back on the filled-in curve afterwards
+  if (p[0] !== p0[0]) { const out = chainArcs(p, true), s = p0[0]; let bi = 0, bq = out[0], bd = Infinity;
+    for (let i = 0; i < out.length; i++) { const a = out[i], b = out[(i + 1) % out.length], dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy, t = L2 ? Math.max(0, Math.min(1, ((s.x - a.x) * dx + (s.y - a.y) * dy) / L2)) : 0, q = P2(a.x + dx * t, a.y + dy * t), d = Math.hypot(q.x - s.x, q.y - s.y); if (d < bd) { bd = d; bi = i; bq = q; } }
+    const r = [bq, ...out.slice(bi + 1), ...out.slice(0, bi + 1)]; return Math.hypot(r[r.length - 1].x - bq.x, r[r.length - 1].y - bq.y) < 1e-9 ? r.slice(0, -1) : r.filter((q, i) => i === 0 || Math.hypot(q.x - bq.x, q.y - bq.y) > 1e-9); }
+  const circ = (a, b, c) => {
+    const d = 2 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
+    if (Math.abs(d) < 1e-9) return null;
+    const a2 = a.x * a.x + a.y * a.y, b2 = b.x * b.x + b.y * b.y, c2 = c.x * c.x + c.y * c.y;
+    const x = (a2 * (b.y - c.y) + b2 * (c.y - a.y) + c2 * (a.y - b.y)) / d, y = (a2 * (c.x - b.x) + b2 * (a.x - c.x) + c2 * (b.x - a.x)) / d;
+    const R = Math.hypot(a.x - x, a.y - y);
+    return R < 1e4 ? { x, y, R } : null;
+  };
+  const at = i => closed ? (i + n) % n : i;
+  const C = p.map((q, i) => (!closed && (i === 0 || i === n - 1)) ? null : circ(p[at(i - 1)], q, p[at(i + 1)]));
+  const same = (u, v) => u && v && Math.abs(u.R - v.R) < 0.01 * u.R && Math.hypot(u.x - v.x, u.y - v.y) < 0.01 * u.R;
+  const cAt = i => (closed || (i >= 0 && i < n)) ? C[at(i)] : null;
+  const out = [];
+  for (let i = 0; i < (closed ? n : n - 1); i++) {
+    const j = at(i + 1), a = p[i], b = p[j];
+    out.push(a);
+    // the segment is on an arc when four points in a row (it and a neighbour on either side) share one circle and it is short beside the radius
+    // (and all three segments between those four points are short beside the radius: a rectangle's corners also lie on one circle)
+    const seg = (u, v) => (closed || (u >= 0 && v < n)) ? Math.hypot(p[at(v)].x - p[at(u)].x, p[at(v)].y - p[at(u)].y) : Infinity;
+    const short = (o, k) => o && [k, k + 1, k + 2].every(u => seg(u, u + 1) <= 0.6 * o.R);
+    const o1 = same(cAt(i), cAt(i - 1)) && short(cAt(i), i - 2) ? cAt(i) : null, o2 = same(cAt(j), cAt(j + 1)) && short(cAt(j), i) ? cAt(j) : null;
+    const o = o1 && o2 ? (o1.R <= o2.R ? o1 : o2) : o1 || o2;        // where a line meets a fillet, a long sweep through the line's far end fits too: the tighter arc is the fillet
+    if (!o) continue;
+    const L = Math.hypot(b.x - a.x, b.y - a.y), sag = o.R - Math.sqrt(Math.max(0, o.R * o.R - L * L / 4));
+    if (!(sag > ARC_SAG)) continue;
+    const m = Math.ceil(Math.sqrt(sag / ARC_SAG)), t0 = Math.atan2(a.y - o.y, a.x - o.x);
+    let dt = Math.atan2(b.y - o.y, b.x - o.x) - t0;
+    if (dt > Math.PI) dt -= 2 * Math.PI; else if (dt < -Math.PI) dt += 2 * Math.PI;
+    for (let k = 1; k < m; k++) out.push(P2(o.x + o.R * Math.cos(t0 + dt * k / m), o.y + o.R * Math.sin(t0 + dt * k / m)));
+  }
+  if (!closed) out.push(p[n - 1]);
+  return out;
 }
 // Grow a run of connected, level edges out of one edge: at every vertex take the one that continues most smoothly.
 // whole = false gives just that one edge. Returns { z, closed, pts, eks } or null when the edge is not level.
@@ -16166,15 +16259,30 @@ function chainContour(op, tool, st, part, P, chains) {
       paths.push({ pts: side === 'on' ? pts : offsetOpen(pts, off, side === 'left' ? 1 : -1), closed: false });
     }
     const zs = op._single ? [bottom] : levels(st.z1, bottom, op.stepdown || 2), tabZ = !op._single && op.tabs > 0 ? bottom + Math.max(0.2, op.tabH || 1.5) : -Infinity;
+    const outsideLoop = c.closed && side !== 'on' && (side === 'left') !== (cArea(cP(pts)) > 0);
+    // how far a tool centred at q reaches into the stock block (≤ 0: clear of it)
+    const pen = q => { const dx = Math.max(st.x0 - q.x, 0, q.x - st.x1), dy = Math.max(st.y0 - q.y, 0, q.y - st.y1); return r - (dx || dy ? Math.hypot(dx, dy) : -Math.min(q.x - st.x0, st.x1 - q.x, q.y - st.y0, st.y1 - q.y)); };
+    const sgn = toolSide === 'left' ? 1 : -1, nrmAt = t => P2(-t.y * sgn, t.x * sgn);
     for (const path of paths) {
-      const L = path.pts, n = L.length;
+      let L = path.pts; const n = L.length;
       if (n < 2) continue;
-      const t0 = nrm2(sub2(L[1], L[0])), nside = P2(-t0.y * (toolSide === 'left' ? 1 : -1), t0.x * (toolSide === 'left' ? 1 : -1));
-      const useArc = op.lead !== 'none';
-      const arcIn = k => { const C = add2(L[0], mul2(nside, rho)), phi = Math.PI / 2 * k / 8; return sub2(C, mul2(add2(mul2(t0, Math.cos(phi)), mul2(nside, Math.sin(phi))), rho)); };
+      let useArc = op.lead !== 'none', rh = rho; const leadAt = i => { const t = nrm2(sub2(L[(i + 1) % n], L[i])); return sub2(add2(L[i], mul2(nrmAt(t), rho)), mul2(t, useArc ? rho : 0)); };
+      if (path.closed && outsideLoop && !c.sp && !c.start && pen(leadAt(0)) > 0) {      // no start picked: enter where the stock is thinnest (the side of a block, not its corner)
+        let bi = 0, bp = pen(leadAt(0));
+        for (let k = 1, N = Math.min(n, 96); k < N; k++) { const i = Math.floor(k * n / N), v = pen(leadAt(i)); if (v < bp - 0.01) { bp = v; bi = i; } }
+        if (bi) L = path.pts = [...L.slice(bi), ...L.slice(0, bi)];
+      }
+      const t0 = nrm2(sub2(L[1], L[0])), nside = nrmAt(t0);
+      const arcIn = k => { const C = add2(L[0], mul2(nside, rh)), phi = Math.PI / 2 * k / 8; return sub2(C, mul2(add2(mul2(t0, Math.cos(phi)), mul2(nside, Math.sin(phi))), rh)); };
       const eEnd = path.closed ? L[0] : L[n - 1], tE = path.closed ? t0 : nrm2(sub2(L[n - 1], L[n - 2])), nE = path.closed ? nside : P2(-tE.y * (toolSide === 'left' ? 1 : -1), tE.x * (toolSide === 'left' ? 1 : -1));
-      const arcOut = k => { const C = add2(eEnd, mul2(nE, rho)), phi = Math.PI / 2 * k / 8; return sub2(C, mul2(add2(mul2(tE, Math.cos(phi)), mul2(nE, Math.sin(phi))), rho)); };
-      const S = useArc ? arcIn(0) : L[0];
+      const arcOut = k => { const C = add2(eEnd, mul2(nE, rh)), phi = Math.PI / 2 * k / 8; return sub2(C, mul2(add2(mul2(tE, Math.cos(phi)), mul2(nE, Math.sin(phi))), rh)); };
+      if (useArc && path.closed && !outsideLoop && side !== 'on') {       // inside a narrow opening a full-size lead arc swings through the far wall: shrink it to fit, or go straight in
+        const loop = cP(L), fits = () => [0, 2, 4, 6, 8].every(k => ClipperLib.Clipper.PointInPolygon(cP([arcIn(k)])[0], loop) !== 0 && ClipperLib.Clipper.PointInPolygon(cP([arcOut(8 + k)])[0], loop) !== 0);
+        while (rh > 0.3 && !fits()) rh *= 0.7;
+        if (!fits()) useArc = false;
+      }
+      const S = useArc ? arcIn(0) : L[0], ext = outsideLoop && path.closed ? pen(S) : 0;
+      const Sx = ext > 0 ? add2(S, mul2(nside, ext + 0.5)) : S;            // go down clear of the stock and feed in, rather than plunge into it
       zs.forEach((z, li) => {
         const zAbove = Math.min(ret, (li ? zs[li - 1] : st.z1) + 1);
         if (op.ramp && path.closed && !(z < tabZ - 1e-6)) {            // ramp contour: one spiral down the loop, no plunge and lead at every level
@@ -16182,8 +16290,8 @@ function chainContour(op, tool, st, part, P, chains) {
           rampLoop(P, L, li ? zs[li - 1] : zAbove, z, op.rampAngle || 3, 0);
           return;
         }
-        if (!started) { P.rapid(S.x, S.y, safe); started = true; } else P.rapid(P.cur[0], P.cur[1], ret);
-        P.rapid(S.x, S.y, ret); P.rapid(S.x, S.y, zAbove); P.plunge(S.x, S.y, z);
+        if (!started) { P.rapid(Sx.x, Sx.y, safe); started = true; } else P.rapid(P.cur[0], P.cur[1], ret);
+        P.rapid(Sx.x, Sx.y, ret); P.rapid(Sx.x, Sx.y, zAbove); P.plunge(Sx.x, Sx.y, z); if (Sx !== S) P.feed(S.x, S.y, z);
         if (useArc) for (let k = 1; k <= 8; k++) { const q = arcIn(k); P.feed(q.x, q.y, z); } else P.feed(L[0].x, L[0].y, z);
         if (z < tabZ - 1e-6) chainTabbed(P, path.closed ? [...L, L[0]] : L, z, tabZ, op.tabs, Math.max(0.5, op.tabW || 4), path.closed, tool);
         else { for (let i = 1; i < n; i++) P.feed(L[i].x, L[i].y, z); if (path.closed) P.feed(L[0].x, L[0].y, z); }
@@ -16219,7 +16327,7 @@ function chainPocket(op, tool, st, part, P, chains) {
     const items = [];
     rings.forEach((rg, k) => rg.forEach(q => items.push({ k, pts: uP(q) })));
     const link = cOffset(tArea, 0.002), zs = levels(st.z1, floor, op.stepdown || 1.5);
-    const run = (loops, z, zFrom, ramp) => {
+    const run = (loops, z, zFrom, ramp, inner) => {
       const left = loops.slice(); let first = true;
       while (left.length) {
         // next: the innermost loop the tool can reach straight from where it is, else the innermost of all
@@ -16229,9 +16337,11 @@ function chainPocket(op, tool, st, part, P, chains) {
         if (goDown) { bi = 0; left.forEach((q, i) => { if (q.k > left[bi].k) bi = i; }); }
         const L = left.splice(bi, 1)[0], s = L.pts[0];
         if (goDown) {
-          if (!started) { P.rapid(s.x, s.y, safe); started = true; } else P.rapid(P.cur[0], P.cur[1], ret);
-          P.rapid(s.x, s.y, ret); P.rapid(s.x, s.y, Math.min(ret, zFrom + 0.5));
-          if (ramp) rampLoop(P, L.pts, zFrom, z, 3, 0.35 * r); else { P.plunge(s.x, s.y, z); for (let j = 1; j <= L.pts.length; j++) P.feed(L.pts[j % L.pts.length].x, L.pts[j % L.pts.length].y, z); }
+          // the finish pass starts on the wall stock the roughing left: go down where the roughing cleared, then step out to it
+          const e = inner ? inner(s) : s;
+          if (!started) { P.rapid(e.x, e.y, safe); started = true; } else P.rapid(P.cur[0], P.cur[1], ret);
+          P.rapid(e.x, e.y, ret); P.rapid(e.x, e.y, Math.min(ret, zFrom + 0.5));
+          if (ramp) rampLoop(P, L.pts, zFrom, z, 3, 0.35 * r); else { P.plunge(e.x, e.y, z); if (e !== s) P.feed(s.x, s.y, z); for (let j = 1; j <= L.pts.length; j++) P.feed(L.pts[j % L.pts.length].x, L.pts[j % L.pts.length].y, z); }
         } else {
           if (Math.abs(P.cur[2] - z) > 1e-9) P.feed(P.cur[0], P.cur[1], z);
           P.feed(s.x, s.y, z);
@@ -16244,7 +16354,14 @@ function chainPocket(op, tool, st, part, P, chains) {
     // finish pass: the walls to size at full depth
     if (fs > 0) {
       const fin = cOffset(area, -(r + lw)).filter(p => Math.abs(cArea(p)) > 1e-4).map(q => ({ k: 0, pts: uP(q) }));
-      if (fin.length) run(fin, zs[zs.length - 1], zs[zs.length - 1] + 1, false);
+      const rough = items.filter(q => q.k === 0).flatMap(q => q.pts);
+      const finLink = cOffset(area, -(r + lw) + 0.002);           // where the tool's centre may go at the finish
+      const inner = q => { let b = null; for (const p of rough) if ((!b || dst2(p, q) < dst2(b, q)) && !segHitsPaths(p, q, finLink)) b = p; return b || q; };
+      // a finish ring no roughing ring reaches (a corner the roughing tool did not fit, with its wall stock) has full-height
+      // material on it: it is cut down level by level like the roughing, not entered at depth
+      const iso = fin.filter(L => inner(L.pts[0]) === L.pts[0]), reach = fin.filter(L => !iso.includes(L));
+      if (iso.length) zs.forEach((z, li) => run(iso, z, li ? zs[li - 1] : st.z1, true));
+      if (reach.length) run(reach, zs[zs.length - 1], zs[zs.length - 1] + 1, false, inner);
     }
     total++;
   }
@@ -16257,13 +16374,16 @@ function chainDrill(op, tool, st, part, P, chains) {
   for (const c of chains) {
     const p = chainTravel(c);
     if (!c.closed || p.length < 3) { skipped++; continue; }
-    const cp = cP(p), A = Math.abs(cArea(cp));
-    let cx = 0, cy = 0; p.forEach(q => { cx += q.x; cy += q.y; }); cx /= p.length; cy /= p.length;
+    const cp = cP(p), A = Math.abs(cArea(cp)), { x: cx, y: cy } = circleFit(p);
     const d = 2 * Math.sqrt(A / Math.PI), hit = real.find(h => Math.hypot(h.x - cx, h.y - cy) < 0.25 && Math.abs(h.d - d) < 0.3);
     holes.push(hit ? { ...hit, real: true } : { x: cx, y: cy, d, top: c.z, bot: c.z - (op.depth > 0 ? op.depth : 1.5 * tool.d), synth: true });
   }
   if (skipped) P.warn.push(`${skipped} open chain${skipped > 1 ? 's' : ''} skipped: drilling needs a closed circle (click the edge of a hole).`);
   if (!holes.length) return;
+  if (tool.type === 'drill') {                                     // a drill cuts its own size: a larger one than the hole cuts it oversize
+    const big = [...new Set(holes.filter(h => tool.d > h.d + 0.1).map(h => +h.d.toFixed(2)))];
+    if (big.length) P.warn.push(`The Ø${fmtTool(tool.d)} drill is larger than the ${big.map(d => 'Ø' + fmtTool(d)).join(', ')} hole${big.length > 1 ? 's' : ''}: it cuts ${big.length > 1 ? 'them' : 'it'} oversize. Pick the drill of the hole's size.`);
+  }
   const ordered = []; let cur = P2(st.x0, st.y0);
   while (holes.length) { let bi = 0; holes.forEach((h, i) => { if (dst2(P2(h.x, h.y), cur) < dst2(P2(holes[bi].x, holes[bi].y), cur)) bi = i; }); const h = holes.splice(bi, 1)[0]; ordered.push(h); cur = P2(h.x, h.y); }
   const safe = st.z1 + cam().safe, tap = tool.type === 'tap', pitch = tap ? toolParams(tool).pitch || isoPitch(tool.d) : 0;
@@ -16375,13 +16495,16 @@ function chainCircle(op, tool, st, part, P, chains) {
   for (const c of chains) {
     const p = chainTravel(c);
     if (!c.closed || p.length < 3) { skipped++; continue; }
-    const A = Math.abs(cArea(cP(p))); let cx = 0, cy = 0; p.forEach(q => { cx += q.x; cy += q.y; }); cx /= p.length; cy /= p.length;
+    const A = Math.abs(cArea(cP(p))), { x: cx, y: cy } = circleFit(p);
     const D = 2 * Math.sqrt(A / Math.PI), hit = !boss && real.find(h => Math.hypot(h.x - cx, h.y - cy) < 0.25 && Math.abs(h.d - D) < 0.3);
     let bottom;
     if (op.depth > 0) bottom = c.z - op.depth;
     else if (hit) bottom = holeThrough(hit, part) ? hit.bot - (op.through == null ? 0.5 : op.through) : hit.bot;
     else if (boss) { const fl = chainSideFloor(c, p, cArea(cP(p)) > 0 ? 'right' : 'left'); bottom = Math.min(c.z, fl === -Infinity ? part.z0 - 0.5 : fl); }
-    else bottom = c.z - Math.max(1, tool.d);
+    else {      // a round recess the model has no hole for: down to the floor just inside its wall, or through
+      const fl = chainSideFloor(c, p, cArea(cP(p)) > 0 ? 'left' : 'right');
+      bottom = fl < part.z0 + 0.01 ? part.z0 - (op.through == null ? 0.5 : op.through) : fl < c.z - 0.05 ? fl : c.z - Math.max(1, tool.d);
+    }
     found.push({ x: cx, y: cy, D, top: c.z, bottom });
   }
   if (skipped) P.warn.push(`${skipped} open chain${skipped > 1 ? 's' : ''} skipped: a circle mill needs a closed circle.`);
@@ -16391,7 +16514,8 @@ function chainCircle(op, tool, st, part, P, chains) {
   while (todo.length) { let bi = 0; todo.forEach((h, i) => { if (dst2(P2(h.x, h.y), cur) < dst2(P2(todo[bi].x, todo[bi].y), cur)) bi = i; }); const h = todo.splice(bi, 1)[0]; order.push(h); cur = P2(h.x, h.y); }
   const pitch = Math.max(0.1, op.pitch || Math.min(2, tool.d * 0.3)), steps = 36, dir = boss ? -1 : 1;
   for (const h of order) {
-    const rp = boss ? h.D / 2 + r + (op.leave || 0) : h.D / 2 - r - (op.leave || 0), top = Math.min(st.z1, h.top), turns = Math.max(1, Math.ceil((top - h.bottom) / pitch));
+    // a hole stepping down from a wider bore starts at the part top: this op may come before the bore is cut
+    const rp = boss ? h.D / 2 + r + (op.leave || 0) : h.D / 2 - r - (op.leave || 0), top = Math.min(st.z1, boss ? h.top : Math.max(h.top, part.z1)), turns = Math.max(1, Math.ceil((top - h.bottom) / pitch));
     if (!boss && rp < 0.3) { P.rapid(h.x, h.y, safe); P.rapid(h.x, h.y, top + 1); P.plunge(h.x, h.y, h.bottom); P.rapid(h.x, h.y, safe); continue; }
     const x = a => h.x + rp * Math.cos(a), y = a => h.y + rp * Math.sin(a), ext = boss ? 2 + r : 0;
     P.rapid(h.x + rp + ext, h.y, safe); P.rapid(h.x + rp + ext, h.y, top + 1);
@@ -21317,7 +21441,8 @@ async function verifyProgram(onProgress) {
     }
     // flat end mills should never go down into solid material steeper than 15°
     if (!sg.ax && (tool.type === 'flat' || tool.type === 'bull' || tool.type === 'face') && b.z < a.z - 0.05 && (a.z - b.z) > L * Math.tan(15 * Math.PI / 180)) {
-      const top = model.topAt(b.x, b.y);
+      let top = model.topAt(b.x, b.y);
+      if (top > b.z + 0.05 && since) { model.flush(); since = 0; top = model.topAt(b.x, b.y); }      // the cuts not yet applied may have cleared it
       if (top > b.z + 0.05) add('plunge', sg, b.x, b.y, b.z, { depth: top - b.z });
     }
     if (!sg.fin) model.cut(sg.a, sg.b, tool, undefined, sg.ax);
@@ -21399,8 +21524,12 @@ function measurePart(res) {
   // nominal size from the exact CAM mesh (the display mesh's chords fall short on round outlines)
   const F = camFine.G && camFine.key === camModelKey() ? camFine.G : null;
   if (F && !F.box) { F.box = [Infinity, Infinity, -Infinity, -Infinity]; for (const t of F.T) { F.box[0] = Math.min(F.box[0], t.x0); F.box[1] = Math.min(F.box[1], t.y0); F.box[2] = Math.max(F.box[2], t.x1); F.box[3] = Math.max(F.box[3], t.y1); } }
-  const nb = F ? F.box : [part.x0, part.y0, part.x1, part.y1];
-  if (isFinite(bb[0])) { row('Overall length (X)', nb[2] - nb[0], bb[2] - bb[0]); row('Overall width (Y)', nb[3] - nb[1], bb[3] - bb[1]); }
+  const nm = (F ? F.box : [part.x0, part.y0, part.x1, part.y1]).slice(), nb = nm.slice();
+  if (F) for (const q of sil) if (cArea(q) > 0) for (const v of chainArcs(uP(q), true)) { nb[0] = Math.min(nb[0], v.x + 0.002); nb[1] = Math.min(nb[1], v.y + 0.002); nb[2] = Math.max(nb[2], v.x - 0.002); nb[3] = Math.max(nb[3], v.y - 0.002); }   // a round outline's true extent, past the mesh's chords
+  if (isFinite(bb[0])) {        // to the true circle, or to the mesh's chords where a path followed those
+    row('Overall length (X)', nb[2] - nb[0], bb[2] - bb[0]); row('Overall width (Y)', nb[3] - nb[1], bb[3] - bb[1]);
+    rows.slice(-2).forEach((r, i) => { const m = i ? nm[3] - nm[1] : nm[2] - nm[0]; if (!r.ok && Math.abs(r.measured - m) <= tol) { r.ok = true; r.nominal = m; r.dev = r.measured - m; } });
+  }
   let top = -Infinity;
   for (let k = model.n - 1; k >= 0; k--) if (model.P[k].length) { top = model.lv[k + 1]; break; }
   if (isFinite(bb[0]) && isFinite(top)) { const my = (bb[1] + bb[3]) / 2, mx = (bb[0] + bb[2]) / 2, zb = Math.max(part.z0, model.st.z0); for (const r of rows) r.pts = r.name.includes('(X)') ? [[bb[0], my, top], [bb[2], my, top]] : [[mx, bb[1], top], [mx, bb[3], top]]; }
@@ -21413,7 +21542,9 @@ function measurePart(res) {
     for (const p of model.P[k]) if (cArea(p) < 0 && ClipperLib.Clipper.PointInPolygon(pt, p)) { const a = -cArea(p); if (!best || a < best.a) best = { a, p }; }
     const P1 = mm => (isIn() ? `${fmt(mm / 25.4, 3)}"` : fmt(mm, 2));         // one unit only: these labels sit in a narrow table
     const name = `Hole Ø${P1(h.d)} at X${P1(h.x - camOrigin()[0])} Y${P1(h.y - camOrigin()[1])}`;
-    if (best) { const mr = best.p.reduce((s, q) => s + Math.hypot(q.X / CS - h.x, q.Y / CS - h.y), 0) / best.p.length; row(name + ' · diameter', h.d, 2 * mr, 'len', [[h.x - mr, h.y, zh], [h.x + mr, h.y, zh]], DRILL_TOL); }
+    // a hole that breaks out of the side (its wall runs to nothing at the part edge) is no closed opening: read the cut wall round it
+    if (!best) { const near = model.P[k].flatMap(p => p.map(q => Math.hypot(q.X / CS - h.x, q.Y / CS - h.y))).filter(r => Math.abs(r - h.d / 2) < 0.5); if (near.length >= 8) best = { r: near.reduce((s, r) => s + r, 0) / near.length }; }
+    if (best) { const mr = best.r != null ? best.r : best.p.reduce((s, q) => s + Math.hypot(q.X / CS - h.x, q.Y / CS - h.y), 0) / best.p.length; row(name + ' · diameter', h.d, 2 * mr, 'len', [[h.x - mr, h.y, zh], [h.x + mr, h.y, zh]], DRILL_TOL); }
     else rows.push({ name: name + ' · diameter', nominal: h.d, measured: NaN, ok: false, note: 'not cut' });
     const through = holeThrough(h, part);
     // depth on the hole's floor: the highest point found just inside its wall (the middle may hold a smaller hole)
@@ -25660,15 +25791,17 @@ function camOptimizeAll() {
   const t0 = performance.now();
   // the stock, sliced at every level the program cuts to
   const segs = [];
-  raws.forEach((P, k) => { for (let i = 1; i < P.m.length; i++) segs.push({ a: P.m[i - 1], b: P.m[i], r: P.m[i].r, tool: P.tool, ax: opAxis(ops[k]) }); });
+  raws.forEach((P, k) => { if (mcFin(ops[k])) return; for (let i = 1; i < P.m.length; i++) segs.push({ a: P.m[i - 1], b: P.m[i], r: P.m[i].r, tool: P.tool, ax: opAxis(ops[k]) }); });
   const model = new StockModel(st, stockLevels(st, segs));
   const out = new Map(), ret = st.z1 + cam().retract, inStock = p => p.x >= st.x0 && p.x <= st.x1 && p.y >= st.y0 && p.y <= st.y1;
   ops.forEach((op, k) => {
     const P = raws[k], tool = P.tool, ax = opAxis(op), m0 = P.m;
-    const fixed = !!ax || isDrillOp(op) || !!op.safeLinks || !flatBottom(tool) && tool.type !== 'ball' && tool.type !== 'chamfer';
+    // a surface finish (3D parallel and the like) follows the part: it is left as programmed and takes only its skin off
+    // the stock, so it is not replayed move by move (a raster of thousands of moves froze the page for 45 s)
+    const fin = mcFin(op), fixed = fin || !!ax || isDrillOp(op) || !!op.safeLinks || !flatBottom(tool) && tool.type !== 'ball' && tool.type !== 'chamfer';
     let m = m0.map(x => ({ ...x }));
     let airLen = 0, feedLen = 0, lowered = 0, n = 0, restLost = 0;
-    if (!fixed) {
+    if (!fixed && m.length) {                                       // an op with nothing to cut (no faces picked yet) has no moves to walk
       // one walk through the moves, each judged against the stock as it is at that moment
       // (cuts not yet merged into the model still count as material: every call errs safe)
       const outM = [m[0]], mp = [0], rest = !!op.restStock;      // mp: where each original move ended up (the G12 cycles and other index-bearing marks follow it)                     // rest: moves through ground the earlier operations already cleared are dropped
@@ -25721,7 +25854,7 @@ function camOptimizeAll() {
       model.flush();
       for (let q = 0; q < m.length; q++) if (m[q].g12) { const nq = mp[q] == null ? q : mp[q], g = m[q].g12; outM[nq].g12 = { ...g, end: mp[g.end] == null ? g.end : mp[g.end] }; }
       m = outM; restLost = restDrop;
-    } else {
+    } else if (!fin) {
       for (let i = 1; i < m.length; i++) { const a = m[i - 1], b = m[i]; if (!b.r) model.cut(a, b, tool, false, ax); if (++n % 48 === 0) model.flush(); }
       model.flush();
     }
