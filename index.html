@@ -16055,14 +16055,19 @@ function chainArcs(p0, closed) {
   const p = [];
   for (let i = 0; i < p0.length; i++) {
     const a = p.length ? p[p.length - 1] : null, b = p0[i], c = p0[(i + 1) % p0.length];
-    if (a && i > 0 && (closed || i < p0.length - 1)) {
-      const ab = Math.hypot(b.x - a.x, b.y - a.y), bc = Math.hypot(c.x - b.x, c.y - b.y), ac = Math.hypot(c.x - a.x, c.y - a.y);
+    const a1 = a || (closed && i === 0 ? p0[p0.length - 1] : null);
+    if (a1 && (closed || i < p0.length - 1)) {
+      const ab = Math.hypot(b.x - a1.x, b.y - a1.y), bc = Math.hypot(c.x - b.x, c.y - b.y), ac = Math.hypot(c.x - a1.x, c.y - a1.y);
       if (ac > 1e-9 && ab + bc - ac < 1e-6 * Math.max(1, ac)) continue;
     }
     p.push(b);
   }
   const n = p.length;
   if (n < 3) return p0;
+  // a start point mid-chord on a curve would leave a dent where the arc is filled in: it goes back on the filled-in curve afterwards
+  if (p[0] !== p0[0]) { const out = chainArcs(p, true), s = p0[0]; let bi = 0, bq = out[0], bd = Infinity;
+    for (let i = 0; i < out.length; i++) { const a = out[i], b = out[(i + 1) % out.length], dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy, t = L2 ? Math.max(0, Math.min(1, ((s.x - a.x) * dx + (s.y - a.y) * dy) / L2)) : 0, q = P2(a.x + dx * t, a.y + dy * t), d = Math.hypot(q.x - s.x, q.y - s.y); if (d < bd) { bd = d; bi = i; bq = q; } }
+    const r = [bq, ...out.slice(bi + 1), ...out.slice(0, bi + 1)]; return Math.hypot(r[r.length - 1].x - bq.x, r[r.length - 1].y - bq.y) < 1e-9 ? r.slice(0, -1) : r.filter((q, i) => i === 0 || Math.hypot(q.x - bq.x, q.y - bq.y) > 1e-9); }
   const circ = (a, b, c) => {
     const d = 2 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
     if (Math.abs(d) < 1e-9) return null;
