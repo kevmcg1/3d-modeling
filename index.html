@@ -25518,10 +25518,10 @@ function airSlabAt(model, z) {
   const m = model.layerAbove(z);
   return m < model.lv.length && Math.abs(model.lv[m] - z) < 1e-3 ? m : m - 1;           // the slab the tip is in (or sits on)
 }
-function airEngaged(model, a, b, tool) {
+function airEngaged(model, a, b, tool, margin = 0.05) {
   const j = Math.max(0, airSlabAt(model, Math.min(a.z, b.z) + 0.02));
   if (j >= model.n) return false;
-  return airPolyHits(model.eff(j), a, b, tool.d / 2 + 0.05);
+  return airPolyHits(model.eff(j), a, b, tool.d / 2 + margin);
 }
 // Highest material along a hop (a corridor the tool's width + 1 mm): slabs are nested, so search.
 function airTopAlong(model, a, b, r) {
@@ -25547,13 +25547,30 @@ function camOptimizeAll() {
     const P = raws[k], tool = P.tool, ax = opAxis(op), m0 = P.m;
     const fixed = !!ax || isDrillOp(op) || !!op.safeLinks || !flatBottom(tool) && tool.type !== 'ball' && tool.type !== 'chamfer';
     let m = m0.map(x => ({ ...x }));
-    let airLen = 0, feedLen = 0, lowered = 0, n = 0;
+    let airLen = 0, feedLen = 0, lowered = 0, n = 0, restLost = 0;
     if (!fixed) {
       // one walk through the moves, each judged against the stock as it is at that moment
       // (cuts not yet merged into the model still count as material: every call errs safe)
-      const outM = [m[0]];
+      const outM = [m[0]], rest = !!op.restStock;                     // rest: moves through ground the earlier operations already cleared are dropped
+      let skipped = false, restDrop = 0;
       for (let i = 1; i < m.length; i++) {
-        const b = m[i], A = outM[outM.length - 1];
+        const b = m[i];
+        if (rest && b.r && skipped) continue;                         // hops between removed moves are planned again when cutting resumes
+        if (rest && !b.r) {
+          const Ao = m[i - 1], Lo = Math.hypot(b.x - Ao.x, b.y - Ao.y, b.z - Ao.z);
+          if (!airEngaged(model, Ao, b, tool, -0.03)) { skipped = true; restDrop += Lo; feedLen += Lo; continue; }
+          if (skipped) {                                              // cutting resumes: hop from where the tool is to where this cut starts
+            const F0 = outM[outM.length - 1];
+            if (Math.hypot(F0.x - Ao.x, F0.y - Ao.y, F0.z - Ao.z) > 1e-6) {
+              const top = airTopAlong(model, F0, Ao, tool.d / 2 + 1), hh = inStock(F0) && inStock(Ao) ? Math.max(F0.z, Ao.z, (isFinite(top) ? top : st.z0) + AIR.clear) : Math.max(F0.z, Ao.z, ret);
+              if (F0.z < hh - 1e-6) outM.push({ x: F0.x, y: F0.y, z: hh, r: 1 });
+              outM.push({ x: Ao.x, y: Ao.y, z: hh, r: 1 });
+              if (Ao.z < hh - 1e-6) { const zz = Math.min(hh, Ao.z + 1); if (zz > Ao.z + 1e-6) outM.push({ x: Ao.x, y: Ao.y, z: zz, r: 1 }); outM.push({ ...Ao, r: 0, f: tool.plunge }); }
+            }
+            skipped = false;
+          }
+        }
+        const A = outM[outM.length - 1];
         if (b.r) {
           // a hop: up, across, down — only as high as the stock along the way needs
           let j = i; while (j + 1 < m.length && m[j + 1].r) j++;
@@ -25578,15 +25595,17 @@ function camOptimizeAll() {
         if (++n % 48 === 0) model.flush();
         outM.push(b);
       }
+      if (skipped) { const F0 = outM[outM.length - 1]; outM.push({ x: F0.x, y: F0.y, z: Math.max(F0.z, ret), r: 1 }); }
       model.flush();
-      m = outM;
+      m = outM; restLost = restDrop;
     } else {
       for (let i = 1; i < m.length; i++) { const a = m[i - 1], b = m[i]; if (!b.r) model.cut(a, b, tool, false, ax); if (++n % 48 === 0) model.flush(); }
       model.flush();
     }
     const Q = Object.assign(Object.create(Object.getPrototypeOf(P)), P, { m });
     if (airLen > 0.5 || lowered) Q.info = (P.info ? P.info + ' · ' : '') + `${airLen > 0.5 ? `${Math.round(100 * airLen / Math.max(feedLen, 1e-6))}% of the feed runs through air — at ${AIR.feed} mm/min` : ''}${airLen > 0.5 && lowered ? ' · ' : ''}${lowered ? `${lowered} hop${lowered > 1 ? 's' : ''} kept low over the stock` : ''}`;
-    Q.airLen = airLen; Q.lowered = lowered;
+    if (op.restStock && !fixed) Q.info = (Q.info ? Q.info + ' · ' : '') + `rest from stock: ${Math.round(100 * restLost / Math.max(feedLen, 1e-6))}% of the cutting was already done and is left out`;
+    Q.airLen = airLen; Q.lowered = lowered; Q.restLost = restLost;
     out.set(op.id, { raw: P, path: Q });
   });
   AIR.paths = out; AIR.key = key; AIR.ms = performance.now() - t0;
@@ -36483,6 +36502,7 @@ function gsPick(i) {
 <script src="tip-anim.js"></script>
 <script src="cam-mc.js"></script>
 <script src="cam-post.js"></script>
+<script src="cam-stock.js"></script>
 <script src="cam-autotool.js"></script>
 <script src="cam-flow.js"></script>
 <script src="cam-chaining.js"></script>
