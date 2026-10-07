@@ -34,14 +34,15 @@ What the Manufacture tab can cut compared with Mastercam's toolpath families, an
 | Rigid tap (G84) | Done | Tap matched to the drilled hole |
 | Counterbore, back spot face | Done | Counterbore tool; back-spot-face blade cycle |
 | Bore G86, bore with dwell G89, fine bore G76 | Done | Batch 2. Drill cycles in the Drill panel; G76 has a Q shift, the sim shows the shift and the rapid out. A boring bar is modeled by the reamer tool type |
-| Back bore (G87) | Partial | The back spot-face blade cycle covers the usual job; G87 with a boring bar is not separate |
+| Back bore (G87) | Done | Batch 5. Drill cycle "Back bore": shifts off the wall, rapids through the hole, shifts back, bores upward to the top, shifts and lifts out. Posts G87 with R on the far side and Z at the top of the cut; needs a through hole (others are skipped with a warning) |
 | Circle Mill / Helix Bore | Done | Hole or boss to size by helical interpolation |
 | Thread Mill | Done | Helical, with tangent arc in and out (Threads panel) |
 | Engraving | Done | Text (any font, on an arc or a wave) and image relief |
 | Chamfer / Deburr | Done | Chamfer mill follows the chain at a set break size; Conical Swarf for sloped faces |
-| Keyseat / T-slot | Batch 3 | Needs a side-cutter tool model (disc cutter that enters from the side); a straight pass from outside the stock |
+| Keyseat / T-slot | Done | Batch 4: T-slot chain mode. Straight pass at depth that starts and ends outside the stock, so the disc cutter enters from the side |
 | Spiral / helical pocket entry | Done | Ramp and helix entries are built into Pocket, Dynamic, Area and Peel |
-| Mill-turn and 2D high-speed "Hybrid" | Browser limit | Needs a machine model with live stock; the Dynamic and Area strategies cover the common cases |
+| 2D High-speed Hybrid | Done (approx.) | Dynamic Mill (light bite, chip-thinning feed) and Area Mill cover it; there is no live stock engagement model |
+| Mill-turn | Browser limit | Needs a combined mill-turn machine model with live stock; see the Lathe table |
 
 ## 3D
 
@@ -51,16 +52,17 @@ What the Manufacture tab can cut compared with Mastercam's toolpath families, an
 | Surface Finish Waterline (Constant Z) | Done | Level-by-level contours; ramp or plunge entry |
 | Surface Rough Pocket (Z-level rough) | Done | Batch 2: 3D Rough Pocket. Levels from the stock top, an extra level at every flat floor, stock left on walls and floors. Steep walls come out as steps |
 | Surface Rough Parallel | Done | Batch 2: the "Rough" option on 3D Parallel cuts the drop-cutter raster level by level, only where the surface is at or below the level |
-| Surface Rough Project / Radial / Flowline | Batch 4 | Project and radial about a point; flowline partial (needs a surface UV) |
-| Surface High Speed: Dynamic OptiRough, Area Rough, Hybrid | Batch 3, approx. | 3D version of Dynamic Mill on a heightfield; true engagement control is approximated |
-| Rest Mill (3D leftover) | Batch 4 | Material left by a larger tool, from the heightfield |
-| Horizontal Area / Flat finish | Batch 4 | Flat floors only |
-| Steep and Shallow | Batch 4 | Waterline on steep, parallel or scallop on shallow |
+| Surface Rough Project / Radial | Done | Batch 4: the "Rough" option on 3D Finish (radial, spiral, scallop, pencil) and Project cuts the pattern level by level with stock left |
+| Surface Rough / Finish Flowline | Done (approx.) | The Morph chain mode: passes spread evenly between two picked boundary curves and follow the surface by drop-cutter. A triangle mesh has no surface UV grid, so the flow comes from the two curves you pick, not from the surface's own edges |
+| Surface High Speed: Dynamic OptiRough, Area Rough, Hybrid | Done (approx.) | Batch 4: "Dynamic" option on 3D Rough Pocket (light side bite, chip-thinning feed). Offset rings, not a true engagement-controlled path |
+| Rest Mill (3D leftover) | Done | Batch 4: "Rest after tool Ø" on 3D Rough Pocket, level by level from the part silhouette |
+| Horizontal Area / Flat finish | Done | Batch 4: 3D Finish strategy Flats, strokes on flat floors at their own heights |
+| Steep and Shallow | Done | Batch 4: 3D Finish strategies Steep (waterline on faces over the slope angle) and Shallow (raster on the rest) |
 | Scallop (constant step-over) | Done (approx.) | Batch 3: rings of the outline inward, stepover true in plan view (wider on steep walls) |
 | Pencil / Corner | Done | Batch 3: along concave creases found from the mesh, ball resting in the crease |
 | Spiral, Radial finish | Done | Batch 3: 3D Finish, strategies Radial and Spiral about a center you set; ball mill follows the surface by drop-cutter |
 | Contour / Project (curves on a surface) | Done | Batch 3: Project (3D contour) chain mode; chain followed over the surface by the tool tip |
-| Morph between curves | Batch 5, partial | Two chains, linear blend |
+| Morph between curves | Done (approx.) | Batch 4: Morph chain mode, linear blend of two chains, followed over the surface |
 
 ## Multiaxis
 
@@ -99,7 +101,8 @@ What the Manufacture tab can cut compared with Mastercam's toolpath families, an
 1. Done (PR #43): Dynamic Mill, Peel Mill, Area Mill, Corner Rest Mill, Ramp Contour.
 2. Done: bore G86, bore with dwell G89, fine bore G76, 3D Rough Pocket, rough 3D Parallel.
 3. Done: 3D Finish (radial, spiral, scallop, pencil) and Project.
-4. 3D roughing and finishing: rough radial/project, dynamic OptiRough, rest mill, horizontal, steep and shallow, flowline, morph; keyseat / T-slot.
+4. Done: Flats, Steep and Shallow finish; Rough option for 3D Finish and Project; dynamic and rest 3D Rough Pocket; Morph; Keyseat / T-slot.
+4b. Done (the 2D and 3D tables have no open rows): G87 back bore; flowline (via Morph) and hybrid rows settled as approximations.
 5. In-process stock model; holder checks for 3D; remaining 2D items.
 6. Multiaxis: indexed 3+2 on any toolpath; work offsets G55 to G59; posts.
 7. Lathe and 4-axis wire.
