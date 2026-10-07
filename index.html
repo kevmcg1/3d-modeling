@@ -16305,7 +16305,11 @@ function chainPocket(op, tool, st, part, P, chains) {
       const rough = items.filter(q => q.k === 0).flatMap(q => q.pts);
       const finLink = cOffset(area, -(r + lw) + 0.002);           // where the tool's centre may go at the finish
       const inner = q => { let b = null; for (const p of rough) if ((!b || dst2(p, q) < dst2(b, q)) && !segHitsPaths(p, q, finLink)) b = p; return b || q; };
-      if (fin.length) run(fin, zs[zs.length - 1], zs[zs.length - 1] + 1, false, inner);
+      // a finish ring no roughing ring reaches (a corner the roughing tool did not fit, with its wall stock) has full-height
+      // material on it: it is cut down level by level like the roughing, not entered at depth
+      const iso = fin.filter(L => inner(L.pts[0]) === L.pts[0]), reach = fin.filter(L => !iso.includes(L));
+      if (iso.length) zs.forEach((z, li) => run(iso, z, li ? zs[li - 1] : st.z1, true));
+      if (reach.length) run(reach, zs[zs.length - 1], zs[zs.length - 1] + 1, false, inner);
     }
     total++;
   }
