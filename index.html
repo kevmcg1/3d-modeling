@@ -14038,8 +14038,9 @@ const GEN = {
       if (!region.length) { P.warn.push('No through cut-outs in the chosen faces.'); return; }
       op = { ...op, side: 'inside' };
     } else if (op.faces && op.faces.length) {
-      const sel = resolveCamFaces(op.faces);
+      const sel = resolveCamFaces(op.faces, true);
       if (!sel.length) { P.warn.push('The chosen faces no longer exist.'); return; }
+      if (sel.some(f => f.slope)) P.warn.push('A sloped or curved face is cut flat at its highest point; finish it with a 3D toolpath.');
       for (const f of sel) { const rg = faceRegion(f.mesh, f.fid); if (rg) region.push(orient(cP(rg.outer), true)); }
       const fz = Math.min(...sel.map(f => f.z)), det = contourFaceSide(sel, part);
       if (op.side === 'auto' || op.side === undefined) op = { ...op, side: det.side };            // Auto: follow the open space
@@ -14176,8 +14177,9 @@ const GEN = {
     P.rapid(P.cur[0], P.cur[1], safe);
   },
   pocket(op, tool, st, part, P) {
-    const r = tool.d / 2, sel = resolveCamFaces(op.faces || []);
-    if (!sel.length) { P.warn.push('Pick one or more flat floor faces.'); return; }
+    const r = tool.d / 2, sel = resolveCamFaces(op.faces || [], true);
+    if (!sel.length) { P.warn.push('Pick one or more faces.'); return; }
+    if (sel.some(f => f.slope)) P.warn.push('A sloped or curved face is cleared flat at its highest point; finish it with a 3D toolpath.');
     const safe = st.z1 + cam().safe, ret = st.z1 + cam().retract, so = Math.max(0.05, op.stepover) * tool.d, ml = op.microlift || 0;
     const rect = [cP([P2(st.x0, st.y0), P2(st.x1, st.y0), P2(st.x1, st.y1), P2(st.x0, st.y1)])];
     const openDone = new Set();
@@ -14473,9 +14475,16 @@ function chamferPasses(refs, tool, extra, leave) {
   }
   return out.filter(p => !p.gone);
 }
-function resolveCamFaces(refs) {
+// any = true also takes sloped and curved faces (2D pocket and contour): they are cut flat, projected onto XY, at the
+// face's highest point so the cutter never gouges the surface (a 3D toolpath finishes it).
+function resolveCamFaces(refs, any) {
   const out = [];
-  for (const ref of refs) { const r = findFace(visibleBodies(), ref); if (r && Surf.list[r.fid].t === 'P' && Math.abs(Surf.list[r.fid].n[1]) > 0.999) { const s = Surf.list[r.fid]; out.push({ mesh: r.mesh, fid: r.fid, z: s.d / s.n[1] }); } }
+  for (const ref of refs) {
+    const r = findFace(visibleBodies(), ref); if (!r) continue;
+    const s = Surf.list[r.fid];
+    if (s.t === 'P' && Math.abs(s.n[1]) > 0.999) out.push({ mesh: r.mesh, fid: r.fid, z: s.d / s.n[1] });
+    else if (any) { const vs = faceVerts(r.mesh, r.fid); if (vs.length) out.push({ mesh: r.mesh, fid: r.fid, z: Math.max(...vs.map(v => v[1])), slope: true }); }
+  }
   return out;
 }
 // Box (machine frame) around chosen faces, cached per model.
@@ -15859,7 +15868,7 @@ function camSetFinish(op, um) {
 function camToggleFace(op, h) {
   const s = Surf.list[h.fid];
   if (op.type === 'chamfer') { if (!chamferEdge(h.mesh, h.fid, 'any')) { toast('Pick a sloped flat or conical face (a chamfer, draft or countersink).'); return; } }
-  else if (s.t !== 'P' || Math.abs(s.n[1]) < 0.999) { toast('Pick a flat, horizontal face.'); return; }
+  else if (op.type !== 'pocket' && op.type !== 'contour' && (s.t !== 'P' || Math.abs(s.n[1]) < 0.999)) { toast('Pick a flat, horizontal face.'); return; }
   const fi = faceInfo(h.mesh, h.fid), ref = faceRef(h.mesh, h.fid, fi.on);
   const i = op.faces.findIndex(r => { const f = findFace(visibleBodies(), r); return f && f.fid === h.fid; });
   const faces = op.faces.slice();
@@ -15875,7 +15884,7 @@ function camMove(x, y) {
   }
   if (op && (op.type === 'pocket' || op.type === 'contour')) {
     const h = pick3D(x, y, { faces: true });
-    const ok = h && h.kind === 'face' && Surf.list[h.fid].t === 'P' && Math.abs(Surf.list[h.fid].n[1]) > 0.999;
+    const ok = h && h.kind === 'face';
     setHover3D(ok ? h : null); ov.className = ok ? 'pointer' : 'default'; return;
   }
   if (op && op.type === 'drill') {
