@@ -85,12 +85,29 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
     });
     assert(r.row && r.has && r.opSel && r.gone && r.none, JSON.stringify(r));
   });
+  await ok('Heidenhain: numbered blocks from BEGIN PGM to END PGM, BLK FORM, TOOL CALL, FMAX rapids, no G or M6 words', async () => {
+    const t = await post('heidenhain'), ls = t.split('\n');
+    assert(/^0 BEGIN PGM 1001 (MM|INCH)$/.test(ls[0]) && /^\d+ END PGM 1001 (MM|INCH)$/.test(ls[ls.length - 1]) && ls.every((l, i) => l.startsWith(i + ' ')) && /BLK FORM 0\.1 Z X/.test(t) && /BLK FORM 0\.2 X/.test(t)
+      && /TOOL CALL \d+ Z S\d+/.test(t) && /L Z\+?-?[\d.]+ R0 FMAX M3/.test(t) && /R0 F\d+/.test(t) && !/\bG\d+\b/.test(t.replace(/;.*$/gm, '')) && /M30\n\d+ END PGM/.test(t), t.slice(0, 900));
+  });
+  await ok('Heidenhain: spot drilling posts CYCL DEF 200 with the dwell, one M99 block per hole, and a datum shift for G55', async () => {
+    const r = await page.evaluate(() => {
+      const C = cam(); C.post.ctrl = 'heidenhain'; C.wcs = { 55: { o: C.origin, d: [50, 0, 0] } }; C.ops[1].wcs = 1; C.ops[1].mode = 'spot';
+      const t = postGcode().text; C.wcs = {}; C.ops[1].wcs = 0; return t;
+    });
+    const holes = (r.match(/M99/g) || []).length;
+    assert(/CYCL DEF 200 DRILLING ~/.test(r) && /Q211=1\.5 ;DWELL TIME AT DEPTH/.test(r) && holes >= 4 && /CYCL DEF 7\.1 #2/.test(r) && /CYCL DEF 7\.0 DATUM SHIFT/.test(r), r.slice(-900));
+  });
+  await ok('Heidenhain: arcs post as CC + C with DR direction, and feeds are a number', async () => {
+    const t = await page.evaluate(() => { const C = cam(); C.post.ctrl = 'heidenhain'; C.ops.push(Object.assign({}, C.ops[0])); C.ops.pop(); camAddOp('pocket'); const op = C.ops[C.ops.length - 1]; return postGcode().text; });
+    assert(!/FNaN|F undefined/.test(t), t.slice(0, 300));
+  });
   await ok('the G-code panel lists the controllers and switching one re-posts', async () => {
     const r = await page.evaluate(() => {
       CAMUI.view = 'post'; camRefresh(); const s = document.getElementById('postCtrl'); const names = [...s.options].map(o => o.value);
       s.value = 'siemens'; s.dispatchEvent(new Event('change')); return { names, ctrl: cam().post.ctrl, text: CAMUI.gcode.slice(0, 40) };
     });
-    assert(r.names.length >= 5 && r.ctrl === 'siemens' && /^; DATUM/.test(r.text), JSON.stringify(r));
+    assert(r.names.length >= 6 && r.ctrl === 'siemens' && /^; DATUM/.test(r.text), JSON.stringify(r));
   });
   await ok('no page errors', async () => { assert(!errs.length, errs.join(' | ')); });
   await browser.close();

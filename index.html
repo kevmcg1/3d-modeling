@@ -15515,6 +15515,7 @@ function tiltFrame(w, mode, o = [0, 0, 0]) {
 }
 function postGcode() {
   const C = cam(), pf = C.post, PF = postProfile(pf), grbl = !!PF.grbl, o = camOrigin(), part = camPart();          // the controller's dialect comes from the profile (cam-post.js); Haas by default
+  if (PF.build) return PF.build();                                                        // a dialect that is not ISO G-code (Heidenhain) builds its own program
   // inches (G20, 4 places) when the display is in inches, else millimeters (G21, 3 places)
   const inch = isIn(), k = inch ? 1 / 25.4 : 1, dp = inch ? 4 : 3;
   const N = v => { v *= k; const s = (Math.abs(v) < 0.5 * Math.pow(10, -dp) ? 0 : v).toFixed(dp).replace(/0+$/, '').replace(/\.$/, '.'); return s === '-0.' ? '0.' : s; };
