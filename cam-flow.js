@@ -286,7 +286,7 @@
     return n >= 3;
   }
   // material standing at the centre of a circle up to its height: the edge of a ring groove round a solid middle, not a hole
-  const ringOf = (c, o) => { const r = o.d / 2; for (const f of [0, 0.35, 0.7]) for (let k = 0; k < (f ? 8 : 1); k++) { const a = k * Math.PI / 4; if (partTopAt(o.x + f * r * Math.cos(a), o.y + f * r * Math.sin(a)) > c.z - 0.05) return true; } return false; };   // a bore through the middle still leaves a ring of material
+  const ringOf = (c, o, up = -0.05) => { const r = o.d / 2; for (const f of [0, 0.35, 0.7]) for (let k = 0; k < (f ? 8 : 1); k++) { const a = k * Math.PI / 4; if (partTopAt(o.x + f * r * Math.cos(a), o.y + f * r * Math.sin(a)) > c.z + up) return true; } return false; };   // a bore through the middle still leaves a ring of material
   const sameZ = (a, b) => Math.abs(a - b) < 0.02;
   CF.selectors = {
     // one entry per hole (its top edge): the edges of one hole at other heights (a counterbore's floor) and sizes a
@@ -300,7 +300,7 @@
       }
       return out;
     },
-    floors: () => allChains().filter(c => { const o = circleOf(c); return (!o || ringOf(c, o)) && c.z < camPart().z1 - 0.01 && sides(c).floor; }),   // a round floor is a hole's, unless it rings a solid middle
+    floors: () => allChains().filter(c => { const o = circleOf(c); return (!o || ringOf(c, o, 0.05)) && c.z < camPart().z1 - 0.01 && sides(c).floor; }),   // a round floor is a hole's, unless it rings a solid middle
     // every pocket floor, with the islands (bosses) standing on it, so the pocket clears round them instead of through them
     pockets: () => {
       const fl = CF.selectors.floors(), inside = (c, f) => inPaths(P2(c.pts[0][0], c.pts[0][1]), [cP(chainTravel(f))]);
