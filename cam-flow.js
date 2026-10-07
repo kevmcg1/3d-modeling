@@ -252,7 +252,9 @@
   function circleOf(c) {
     if (!c.closed || c.pts.length < 8) return null;
     const f = circleFit(c.pts.map(p => P2(p[0], p[1]))), cx = f.x, cy = f.y, rs = f.rs, r = f.d / 2;      // least squares: unevenly spaced points average off centre
-    return rs.every(x => Math.abs(x - r) < 0.02 * r + 0.01) ? { x: cx, y: cy, d: 2 * r } : null;
+    if (!rs.every(x => Math.abs(x - r) < 0.02 * r + 0.01)) return null;
+    const h = camHoles().find(q => Math.hypot(q.x - cx, q.y - cy) < 0.3 && Math.abs(q.d - 2 * r) < 0.3);   // the model's own hole: its exact size, not the mesh's
+    return h ? { x: h.x, y: h.y, d: h.d } : { x: cx, y: cy, d: 2 * r };
   }
   // what is just inside and just outside the loop: a pocket floor has the floor level inside and a wall outside, a boss top the reverse
   function sides(c) {
