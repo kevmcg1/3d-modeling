@@ -15929,12 +15929,12 @@ function chainTravel(c) {
 }
 // Grow a run of connected, level edges out of one edge: at every vertex take the one that continues most smoothly.
 // whole = false gives just that one edge. Returns { z, closed, pts, eks } or null when the edge is not level.
-function buildChain(mesh, seed, whole, fid) {
+function buildChain(mesh, seed, whole, fid, only) {
   // a level edge grows only through level edges at its height; any other edge (sloped, curved in 3D, an edge of a
   // slanted face) is projected flat onto XY like a Mastercam 2D chain, at the height of its highest point
   const level = chainFlat(seed), pt = p => P2(p[0], -p[2]);
   const z0 = level ? seed.pts[0][1] : Math.max(...seed.pts.map(p => p[1]));
-  const flat = edgeChains(mesh).filter(c => (fid == null || c.fa === fid || c.fb === fid) && (!level || (chainFlat(c) && Math.abs(c.pts[0][1] - z0) < CHAIN_Z_TOL)));
+  const flat = edgeChains(mesh).filter(c => (!only || only.has(c)) && (fid == null || c.fa === fid || c.fb === fid) && (!level || (chainFlat(c) && Math.abs(c.pts[0][1] - z0) < CHAIN_Z_TOL)));
   let seq = seed.pts.map(p => p), eks = [chainEdgeKey(seed)], closed = !!seed.closed;
   const k0 = chainKey(seq[0]);
   if (closed && chainKey(seq[seq.length - 1]) === k0) seq.pop();
@@ -16397,6 +16397,8 @@ const chainIsCircle = op => op.cm === 'drill' || op.cm === 'circle';   // modes 
 const isDrillOp = op => op.type === 'drill' || (op.type === 'chain' && op.cm === 'drill');
 
 // ── Picking ──
+// the same warning raised by many chains reads once, with a count
+const warnList = ws => { const n = new Map(); for (const w of ws) n.set(w, (n.get(w) || 0) + 1); return [...n].map(([w, k]) => k > 1 ? `${w} (×${k})` : w); };
 const CHAINUI = { mode: 'single', hover: null, hoverKey: '', startFor: null };
 function chainPickAt(x, y) {
   const e = pickEdge(x, y, visibleBodies(), 8);
@@ -16832,7 +16834,7 @@ function camPanel() {
     if (op.type === 'surf') f += surfFields(op);
     { const fb = ['parallel', 'chamfer', 'contour', 'pocket'].includes(op.type) && !op.rough ? finishBlock(op, toolOf(op.tool)) : ''; if (fb) f += `<h3 class="sub">Surface finish</h3>${fb}`; }
     f += feedsCard(op);
-    const warn = P && P.warn.length ? P.warn.map(w => `<p class="note err-note">${w}</p>`).join('') : '';
+    const warn = P && P.warn.length ? warnList(P.warn).map(w => `<p class="note err-note">${w}</p>`).join('') : '';
     const info = P && P.pending ? '<p class="note"><span class="spin"></span> Computing the 3D toolpath in the background…</p>' : stats ? `<dl class="kv"><dt>Cutting</dt><dd>${fmtRun(stats.feedLen)}</dd><dt>Rapids</dt><dd>${fmtRun(stats.rapidLen)}</dd><dt>Machining time</dt><dd>${fmtTime(stats.min)}</dd>${P.info ? `<dt>Detail</dt><dd>${P.info}</dd>` : ''}</dl>` : '';
     return `<div class="pn-head"><h2 id="opNameH" title="Double-click to rename">${op.name}</h2><span class="tag">${OP_INFO[op.type].name}</span></div><div class="pn-body">
       <p class="note">${OP_INFO[op.type].tip}</p>${f}${warn}${info}
@@ -36483,6 +36485,7 @@ function gsPick(i) {
 <script src="cam-post.js"></script>
 <script src="cam-autotool.js"></script>
 <script src="cam-flow.js"></script>
+<script src="cam-chaining.js"></script>
 <script src="cam-origin.js"></script>
 <script src="cam-vise.js"></script>
 <script src="heatmap.js"></script>
