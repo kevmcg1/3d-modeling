@@ -91,10 +91,10 @@ What the Manufacture tab can cut compared with Mastercam's toolpath families, an
 |---|---|---|
 | Tool library | Done | Metric and inch tools, catalog, feeds and speeds by material |
 | Feeds and speeds card, heat map | Done | Shared math (`feedsOf`); each new toolpath is picked up automatically |
-| Work offsets | Partial | One G54 per setup; Batch 6 adds G55 to G59 per setup and an offset per operation |
+| Work offsets | Done | G54 is the Setup origin. Setup adds G55 to G59, each a chosen origin plus an X Y Z shift (several parts or vises on one table); each operation picks its offset and the program posts the G55 line before it, with coordinates relative to that origin |
 | Stock model | Partial | Stock box, simulation removal and "rest after tool Ø" exist; an in-process stock model between operations is Batch 5 |
 | Collision checks | Done | Verify checks gouge, shank, holder, rapids through stock and the vise; Batch 5 adds holders for 3D toolpaths |
-| Post processors | Partial | Haas / Fanuc flavor; Batch 6 adds Mazak, Siemens, Heidenhain, LinuxCNC and Grbl |
+| Post processors | Partial | Controller picker in the G-code panel: Haas, Fanuc, Mach3 / Mach4, Grbl and Siemens Sinumerik (own CYCLE81 to 85 calls, `;` comments, `.mpf`), plus optional line numbers. A cycle a control lacks posts as plain moves with a note. Heidenhain conversational is next; Mazak, LinuxCNC later |
 
 ## Batches
 
