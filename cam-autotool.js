@@ -129,6 +129,11 @@
         depth = Math.max(depth, st.z1 - bottom);
       }
       if (!inner.length) return null;
+      if (cm === 'pocket') {          // a loop inside another is an island (a boss on the floor, a groove's middle): the tool must fit between them
+        const depthIn = q => inner.filter(o => o !== q && ClipperLib.Clipper.PointInPolygon(q[0], o) !== 0).length;
+        const isl = inner.filter(q => depthIn(q) % 2);
+        if (isl.length) return { air: cDiff(cUnion(inner.filter(q => !isl.includes(q))), cUnion(isl)), depth, kind: 'pocket' };
+      }
       return { air: other.length ? cDiff(cUnion(inner), cUnion(other)) : inner, depth, kind: cm === 'pocket' ? 'pocket' : 'wall' };
     }
     if (op.type === 'waterline' || op.type === 'parallel') {     // 3D: the recesses of the part (floors with walls rising round them)
