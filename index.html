@@ -16090,7 +16090,8 @@ function chainArcs(p0, closed) {
     // (and all three segments between those four points are short beside the radius: a rectangle's corners also lie on one circle)
     const seg = (u, v) => (closed || (u >= 0 && v < n)) ? Math.hypot(p[at(v)].x - p[at(u)].x, p[at(v)].y - p[at(u)].y) : Infinity;
     const short = (o, k) => o && [k, k + 1, k + 2].every(u => seg(u, u + 1) <= 0.6 * o.R);
-    const o = same(cAt(i), cAt(i - 1)) && short(cAt(i), i - 2) ? cAt(i) : same(cAt(j), cAt(j + 1)) && short(cAt(j), i) ? cAt(j) : null;
+    const o1 = same(cAt(i), cAt(i - 1)) && short(cAt(i), i - 2) ? cAt(i) : null, o2 = same(cAt(j), cAt(j + 1)) && short(cAt(j), i) ? cAt(j) : null;
+    const o = o1 && o2 ? (o1.R <= o2.R ? o1 : o2) : o1 || o2;        // where a line meets a fillet, a long sweep through the line's far end fits too: the tighter arc is the fillet
     if (!o) continue;
     const L = Math.hypot(b.x - a.x, b.y - a.y), sag = o.R - Math.sqrt(Math.max(0, o.R * o.R - L * L / 4));
     if (!(sag > ARC_SAG)) continue;
