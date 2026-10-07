@@ -303,7 +303,7 @@
     floors: () => allChains().filter(c => { const o = circleOf(c); return (!o || ringOf(c, o, 0.05)) && c.z < camPart().z1 - 0.01 && sides(c).floor; }),   // a round floor is a hole's, unless it rings a solid middle
     // every pocket floor, with the islands (bosses) standing on it, so the pocket clears round them instead of through them
     pockets: () => {
-      const fl = CF.selectors.floors(), inside = (c, f) => inPaths(P2(c.pts[0][0], c.pts[0][1]), [cP(chainTravel(f))]);
+      const fl = CF.selectors.floors(), inside = (c, f) => ClipperLib.Clipper.PointInPolygon(cP([P2(c.pts[0][0], c.pts[0][1])])[0], cP(chainTravel(f))) !== 0;   // either way round
       const isl = allChains().filter(c => !fl.includes(c) && fl.some(f => sameZ(f.z, c.z) && inside(c, f)) && sides(c).island);
       return [...fl, ...isl];
     },
