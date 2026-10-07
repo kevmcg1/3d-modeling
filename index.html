@@ -11090,20 +11090,52 @@ function arrowGeom() {
   const base = planeTo3(pl, f.pts[0], z), s0 = toScreen(base), s1 = toScreen(add3(base, mul3(pl.n, sg)));
   let d = sub2(s1, s0), perUnit = len2(d);
   if (perUnit < ppu() * 0.15) { d = P2(0, -1); perUnit = 0; } else d = nrm2(d);
-  return { s0, tip: add2(s0, mul2(d, 46)), dir: d, perUnit, sg };
+  return { s0, tip: add2(s0, mul2(d, 92)), dir: d, perUnit, sg };
+}
+// A big drag handle: a thick bright arrow with a white halo and a round grab knob, readable over any model. Shared by every drag handle.
+const HANDLE_COL = '#ff6a00', HANDLE_HOT = '#ff8a2b';
+let arrowHot = false;
+function drawHandle(s0, tip, dir, hot, text) {
+  const n = rot90(dir), L = Math.hypot(tip.x - s0.x, tip.y - s0.y), headL = 26, headW = 17, shaft = hot ? 6 : 5, col = hot ? HANDLE_HOT : HANDLE_COL;
+  const neck = P2(tip.x - dir.x * headL, tip.y - dir.y * headL);
+  const path = () => {
+    og.beginPath();
+    og.moveTo(s0.x + n.x * shaft / 2, s0.y + n.y * shaft / 2); og.lineTo(neck.x + n.x * shaft / 2, neck.y + n.y * shaft / 2);
+    og.lineTo(neck.x + n.x * headW, neck.y + n.y * headW); og.lineTo(tip.x, tip.y); og.lineTo(neck.x - n.x * headW, neck.y - n.y * headW);
+    og.lineTo(neck.x - n.x * shaft / 2, neck.y - n.y * shaft / 2); og.lineTo(s0.x - n.x * shaft / 2, s0.y - n.y * shaft / 2); og.closePath();
+  };
+  og.save(); og.lineJoin = 'round'; og.lineCap = 'round';
+  og.shadowColor = 'rgba(15,20,30,.55)'; og.shadowBlur = hot ? 14 : 8; og.shadowOffsetY = 2;
+  path(); og.strokeStyle = '#fff'; og.lineWidth = 6; og.stroke(); og.shadowColor = 'transparent';
+  path(); og.fillStyle = col; og.fill(); og.strokeStyle = '#7a2e00'; og.lineWidth = 1.5; og.stroke();
+  if (hot) { path(); og.strokeStyle = 'rgba(255,255,255,.9)'; og.lineWidth = 1; og.stroke(); }
+  // anchor ring where the arrow leaves the profile
+  og.beginPath(); og.arc(s0.x, s0.y, 6, 0, Math.PI * 2); og.fillStyle = '#fff'; og.fill(); og.beginPath(); og.arc(s0.x, s0.y, 3.5, 0, Math.PI * 2); og.fillStyle = col; og.fill();
+  // grab knob mid-shaft: the obvious thing to take hold of
+  const m = P2(s0.x + dir.x * L * 0.42, s0.y + dir.y * L * 0.42);
+  og.beginPath(); og.arc(m.x, m.y, hot ? 11 : 10, 0, Math.PI * 2); og.fillStyle = '#fff'; og.shadowColor = 'rgba(15,20,30,.5)'; og.shadowBlur = 6; og.fill(); og.shadowColor = 'transparent';
+  og.beginPath(); og.arc(m.x, m.y, hot ? 8 : 7, 0, Math.PI * 2); og.fillStyle = col; og.fill();
+  og.strokeStyle = '#fff'; og.lineWidth = 1.8; og.beginPath(); og.moveTo(m.x - dir.x * 3.2 - n.x * 0, m.y - dir.y * 3.2); og.lineTo(m.x + dir.x * 3.2, m.y + dir.y * 3.2); og.stroke();
+  og.restore();
+  if (text) {
+    og.font = '500 11.5px Inter, system-ui, sans-serif';
+    const w = og.measureText(text).width + 10, lx = tip.x + n.x * (headW + 6) + (n.x < 0 ? -w - 4 : 4), ly = tip.y + n.y * (headW + 6) + 4;
+    label(text, Math.max(8, Math.min(ov.clientWidth - w - 8, lx)), Math.max(22, Math.min(ov.clientHeight - 8, ly)), col);   // kept inside the view
+  }
 }
 function drawArrow() {
   const g = arrowGeom();
   if (!g) return;
-  og.strokeStyle = COL.accent; og.fillStyle = COL.accent; og.lineWidth = 2;
-  og.beginPath(); og.moveTo(g.s0.x, g.s0.y); og.lineTo(g.tip.x, g.tip.y); og.stroke();
-  const n = rot90(g.dir);
-  og.beginPath(); og.moveTo(g.tip.x + g.dir.x * 10, g.tip.y + g.dir.y * 10);
-  og.lineTo(g.tip.x + n.x * 6, g.tip.y + n.y * 6); og.lineTo(g.tip.x - n.x * 6, g.tip.y - n.y * 6); og.closePath(); og.fill();
   const f = CMD.f, me = f.extent && f.extent !== 'dist' && MODEL.ext[f.id];
-  label(me ? (f.extent === 'next' ? 'to next · ' : f.extent === 'to' ? 'to point · ' : 'thru all · ') + fmtL(me.z1 - me.z0) : fmtL(f.dist), g.tip.x + 14, g.tip.y + 4);
+  drawHandle(g.s0, g.tip, g.dir, arrowHot || !!arrowDrag, me ? (f.extent === 'next' ? 'to next · ' : f.extent === 'to' ? 'to point · ' : 'thru all · ') + fmtL(me.z1 - me.z0) : fmtL(f.dist));
 }
-function hitArrow(x, y) { const g = CMD && CMD.type === 'extrude' && arrowGeom(); return g && dst2(P2(x, y), g.tip) < 16; }
+function hitArrow(x, y) {
+  const g = CMD && CMD.type === 'extrude' && arrowGeom(); if (!g) return false;
+  const p = P2(x, y), d = sub2(g.tip, g.s0), l2 = d.x * d.x + d.y * d.y, t = l2 ? Math.max(0, Math.min(1, dot2(sub2(p, g.s0), d) / l2)) : 0;
+  return dst2(p, P2(g.s0.x + d.x * t, g.s0.y + d.y * t)) < 17;
+}
+ov.addEventListener('pointerleave', () => { if (arrowHot) { arrowHot = false; requestDraw(); } });
+function setArrowHot(x, y) { const h = hitArrow(x, y); if (h !== arrowHot) { arrowHot = h; requestDraw(); } return h; }
 
 function solidMove(x, y) {
   if (CMD && CMD_HANDLERS[CMD.type]) { CMD_HANDLERS[CMD.type].move(x, y); return; }
@@ -11116,7 +11148,8 @@ function solidMove(x, y) {
   else o = { profiles: true };
   const h = pick3D(x, y, o);
   setHover3D(h);
-  ov.className = h || hitArrow(x, y) ? 'pointer' : 'default';
+  const onArrow = setArrowHot(x, y);
+  ov.className = h || onArrow ? 'pointer' : 'default';
 }
 function solidClick(x, y, ev) {
   const h = hover3D;
@@ -35864,6 +35897,48 @@ ${D2} .rb-panel .rb-col > .rb-sm { padding: 0 4px 0 3px; gap: 4px; font-size: 10
 })();
 </script>
 <!-- RIB3-END -->
+<!-- UIFIT-START -->
+<style id="uifit-css">
+/* Shared control layout: every ribbon button, segmented control and panel button is centered, evenly sized and never wraps or clips. */
+.ribbon .rb-panel .rb-big, .ribbon[data-dens] .rb-panel .rb-big { flex: none; width: auto; min-width: 62px; max-width: 86px; padding: 5px 6px 3px; align-items: center; justify-content: flex-start; box-sizing: border-box; }
+.ribbon .rb-panel .rb-big > span, .ribbon[data-dens] .rb-panel .rb-big > span { width: 100%; text-align: center; text-wrap: balance; overflow-wrap: normal; word-break: keep-all; hyphens: none; }
+.ribbon .rb-panel .rb-big svg { margin: 0 auto; }
+.ribbon::after { content: ''; flex: 0 0 34px; }
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); grid-template-columns: var(--seg-cols, none); gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 7px; overflow: hidden; }
+.seg[data-fit] { grid-auto-flow: row; }
+.seg button { display: flex; align-items: center; justify-content: center; min-height: 30px; padding: 5px 6px; text-align: center; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border: 0; background: var(--panel-2); }
+.seg button + button { border-left: 0; }
+.seg button.on, .seg button.on.cut { background: var(--panel); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-align: center; }
+</style>
+<script>
+// Segmented controls: one even row when every label fits on one line, else an even grid of two (or more) rows.
+(() => {
+  const fit = seg => {
+    const bs = [...seg.children].filter(b => b.tagName === 'BUTTON');
+    if (bs.length < 2 || !seg.clientWidth) return false;
+    seg.style.setProperty('--seg-cols', 'none'); seg.removeAttribute('data-fit');
+    seg.style.gridAutoColumns = 'max-content';
+    const need = Math.max(...bs.map(b => Math.ceil(b.scrollWidth) + 1)); seg.style.gridAutoColumns = '';
+    const W = seg.clientWidth - 2; let cols = bs.length;
+    while (cols > 1 && cols * need + (cols - 1) > W) cols--;
+    bs.forEach(b => { b.style.gridColumn = ''; });
+    if (cols < bs.length) {
+      cols = Math.ceil(bs.length / Math.ceil(bs.length / cols));
+      seg.setAttribute('data-fit', ''); seg.style.setProperty('--seg-cols', `repeat(${cols}, minmax(0, 1fr))`);
+      const rem = bs.length % cols; if (rem) bs[bs.length - 1].style.gridColumn = `span ${cols - rem + 1}`;   // a short last row fills the width
+    }
+    seg.dataset.segN = bs.length; seg.dataset.segW = W; return true;
+  };
+  let queued = false;
+  const pass = all => { queued = false; document.querySelectorAll('.seg').forEach(s => { if (all || s.dataset.segW !== String(Math.max(0, s.clientWidth - 2)) || s.dataset.segN !== String(s.children.length)) fit(s); }); };
+  const q = all => { if (!queued) { queued = true; requestAnimationFrame(() => pass(all)); } };
+  new MutationObserver(() => q(false)).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'hidden'] });
+  addEventListener('resize', () => q(true)); q(true);
+  window.fitSegs = () => pass(true);
+})();
+</script>
+<!-- UIFIT-END -->
 <script>
 // ═══ Animated dropdowns ═══
 // Every <select> keeps its look, focus and change events; only its popup is swapped for an animated one.
