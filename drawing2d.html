@@ -233,7 +233,9 @@ input[type=text], input[type=number], textarea { background:#fff; border:1px sol
 <div id="tip" hidden></div>
 <div id="dlg" hidden><div class="card" id="dlgCard"></div></div>
 <input type="file" id="fileIn" accept=".dxf,.json,.d2d,application/json,text/plain" hidden>
+<script src="tip-anim-legacy.js"></script>
 <script src="tip-anim.js"></script>
+<script src="tip-scenes-sketch.js"></script>
 <script>
 'use strict';
 /* ═══ 2D geometry kernel: points are [x, y]; curves are "atoms" — a line segment or a circular arc ═══ */
@@ -3956,17 +3958,17 @@ function tipInfo(el) {
     const t = TI[cmd], a = el.dataset.args ? JSON.parse(el.dataset.args) : {}, mode = a.mode, m = t.modes && (t.modes.find(x => x.id === mode) || t.modes[0]), steps = (m || t).steps || [];
     const key = Object.keys(ALIASES).filter(k => ALIASES[k] === cmd && k !== cmd && k.length <= 3).slice(0, 2).map(x => x.toUpperCase());
     const artKey = { zoome: 'zext', zoomw: 'zoom', zoomp: 'zoom', zin: 'zin', zout: 'zout' }[el.dataset.id] || ARTMAP[cmd] || cmd;
-    return { name: t.t, desc: t.d, steps: steps.map(s => s[0] + ' — ' + s[1].replace(/<[^>]+>/g, '')), art: ART.A[artKey] || null, key: cmd.toUpperCase() + (key.length ? ' · ' + key.join(', ') : ''), icon: t.i || cmd };
+    return { name: t.t, desc: t.d, steps: steps.map(s => s[0] + ' — ' + s[1].replace(/<[^>]+>/g, '')), art: ART.A[artKey] || null, sk: ['circle', 'arc', 'ellipse'].includes(cmd) && mode ? cmd + mode : artKey, key: cmd.toUpperCase() + (key.length ? ' · ' + key.join(', ') : ''), icon: t.i || cmd };
   }
   const id = el.id, aid = el.dataset && (el.dataset.aid || el.dataset.t), act = el.dataset && el.dataset.act;
   const b = BTN[id] || (aid && AIDINFO[aid]) || (act === 'cancel' && BTN.cancel) || (act === 'matchprop' && ['Match properties', 'Copy colour, layer and linetype from one object to others.', ['Click it.', 'Pick the source, then each object to change.'], 'matchprop', 'MATCHPROP']) || null;
-  if (b) return { name: b[0], desc: b[1], steps: b[2], art: b[3] ? ART.A[b[3]] : null, key: b[4] || '' };
+  if (b) return { name: b[0], desc: b[1], steps: b[2], art: b[3] ? ART.A[b[3]] : null, sk: b[3] || '', key: b[4] || '' };
   const raw = (el.dataset && el.dataset.tip) || el.textContent.trim(), m2 = MISC[raw] || MISC[el.dataset.tip];
-  if (m2) return { name: m2[0], desc: m2[1], steps: m2[2], art: m2[3] ? ART.A[m2[3]] : null, key: '' };
+  if (m2) return { name: m2[0], desc: m2[1], steps: m2[2], art: m2[3] ? ART.A[m2[3]] : null, sk: m2[3] || '', key: '' };
   // menu items from the circle and arc drop-downs
-  if (el.closest && el.closest('#ctx') && el.dataset.i != null && TIP.items) { const it = TIP.items[+el.dataset.i]; if (it) { const mode = it[2] && it[2].mode, t = TI[it[1]], m = t && t.modes && t.modes.find(x => x.id === mode); const art = mode && ART[it[1] === 'arc' ? 'arcM' : 'circM'][mode]; return { name: it[0], desc: t ? t.d : '', steps: m ? m.steps.map(s => s[0] + ' — ' + s[1].replace(/<[^>]+>/g, '')) : [], art: art || null, key: '', icon: t && t.i }; } }
+  if (el.closest && el.closest('#ctx') && el.dataset.i != null && TIP.items) { const it = TIP.items[+el.dataset.i]; if (it) { const mode = it[2] && it[2].mode, t = TI[it[1]], m = t && t.modes && t.modes.find(x => x.id === mode); const art = mode && ART[it[1] === 'arc' ? 'arcM' : 'circM'][mode]; return { name: it[0], desc: t ? t.d : '', steps: m ? m.steps.map(s => s[0] + ' — ' + s[1].replace(/<[^>]+>/g, '')) : [], art: art || null, sk: mode ? it[1] + mode : it[1], key: '', icon: t && t.i }; } }
   if (el.classList && el.classList.contains('rtab')) { const T = { Home: 'The everyday tools: draw, modify, annotate and layers.', Annotate: 'Text, dimensions, leaders, hatches, blocks and measuring.', View: 'Zoom, pan, panels, grid and drawing settings.', Output: 'Plot, export and import drawings.' }[el.dataset.tab]; return { name: el.dataset.tab, desc: T || '', steps: [], art: null, key: '' }; }
-  if (el.dataset && el.dataset.mode && G.name && TI[G.name] && TI[G.name].modes) { const m = TI[G.name].modes.find(x => x.id === el.dataset.mode); if (m) return { name: m.t, desc: 'How you define the ' + TI[G.name].t.toLowerCase() + '. Click to restart the tool this way.', steps: m.steps.map(s => s[0] + ' — ' + s[1].replace(/<[^>]+>/g, '')), art: ART[G.name === 'arc' ? 'arcM' : 'circM'][m.id] || null, key: '' }; }
+  if (el.dataset && el.dataset.mode && G.name && TI[G.name] && TI[G.name].modes) { const m = TI[G.name].modes.find(x => x.id === el.dataset.mode); if (m) return { name: m.t, desc: 'How you define the ' + TI[G.name].t.toLowerCase() + '. Click to restart the tool this way.', steps: m.steps.map(s => s[0] + ' — ' + s[1].replace(/<[^>]+>/g, '')), art: ART[G.name === 'arc' ? 'arcM' : 'circM'][m.id] || null, sk: G.name + m.id, key: '' }; }
   if (el.dataset && el.dataset.kw) return { name: el.textContent.trim(), desc: 'An option for this step. Click it, or type ' + ((el.dataset.tip || '').replace(/^Type /, '') || 'its name') + ' in the command line.', steps: [], art: null, key: '' };
   if (el.dataset && el.dataset.x) return { name: el.textContent.trim(), desc: el.dataset.x === 'cancel' ? 'Close this window without changing anything (Esc).' : 'Apply the settings and close this window (Enter).', steps: [], art: null, key: el.dataset.x === 'cancel' ? 'Esc' : 'Enter' };
   if (el.dataset && el.dataset.c != null) { const n = el.dataset.c === 'bylayer' ? 'ByLayer' : null; return { name: n || (el.dataset.tip || 'Colour').replace(/ ·.*$/, ''), desc: n ? 'Use the colour of the layer.' : 'Use this colour' + (/·/.test(el.dataset.tip || '') ? ' (' + el.dataset.tip.split('· ')[1] + ').' : '.'), steps: [], art: ART.A.color, key: '' }; }
@@ -3982,7 +3984,7 @@ function tipPlace() {
 }
 function tipShow() {
   const el = TIP.el; if (!el || !document.contains(el)) return; const info = tipInfo(el); if (!info) return; const c = $('#tip');
-  const pic = info.art ? TipAnim.pics(info.art[0](), info.art[1]()) : info.icon ? `<div class="tip-plate">${ic(info.icon, 34)}</div>` : '';
+  const pic = TipAnim.pic(info.sk, info.art ? () => TipAnim.legacyPics(info.art[0](), info.art[1]()) : null) || (info.icon ? `<div class="tip-plate">${ic(info.icon, 34)}</div>` : '');
   const steps = (info.steps || []).filter(Boolean);
   c.innerHTML = `<div class="tip-head"><b>${info.name}</b>${info.key ? `<span class="tip-cmd">${info.key}</span>` : ''}</div>${info.desc ? `<p class="tip-what">${info.desc}</p>` : ''}${pic}${steps.length ? `<div class="tip-more"><div class="tip-step">How to use it</div><ol>${steps.map(s => `<li>${s}</li>`).join('')}</ol></div><div class="tip-hold">Keep hovering for the steps</div>` : ''}`;
   c.hidden = false; tipPlace(); TipAnim.start(c); requestAnimationFrame(() => c.classList.add('in'));
