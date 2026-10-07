@@ -13012,10 +13012,11 @@ const MATERIALS = {
 };
 const matOf = () => MATERIALS[(typeof doc !== 'undefined' && doc && doc.cam && doc.cam.material) || 'aluminum'] || MATERIALS.aluminum;
 // Feeds & speeds for a tool in the current material.
+const MACHINE_MAX_RPM = 12000;                       // a Haas VF with the 12k spindle; set doc.cam.maxRpm for a different machine
 function toolDefaults(type, d) {
   const M = matOf(), drillish = type === 'drill' || type === 'spot' || type === 'reamer' || type === 'cbore' || type === 'bsf', tap = type === 'tap';
   const vc = type === 'face' ? M.vc.face : tap ? M.vc.tap : drillish ? M.vc.drill : M.vc.mill;
-  const rpm = Math.round(clamp(vc * 1000 / (Math.PI * d), 200, 18000) / 50) * 50;
+  const rpm = Math.round(clamp(vc * 1000 / (Math.PI * d), 200, (doc.cam && doc.cam.maxRpm) || MACHINE_MAX_RPM) / 50) * 50;   // never above what the spindle can turn
   const flutes = type === 'face' ? 5 : drillish || tap ? 2 : d < 4 ? 2 : 3;
   const fz = (drillish ? 0.012 * d + 0.02 : clamp(0.008 * d, 0.01, 0.1)) * M.fz;
   const feed = tap ? Math.round(rpm * isoPitch(d)) : Math.round(rpm * (drillish ? fz : fz * flutes));
@@ -14104,7 +14105,7 @@ const GEN = {
     const openDone = new Set();
     for (const f of sel.sort((a, b) => b.z - a.z)) {
       const all = faceRegion(f.mesh, f.fid);
-      if (!all) { P.warn.push('Could not read a floor face.'); continue; }
+      if (!all) { if (faceInfo(f.mesh, f.fid).area >= 3) P.warn.push('Could not read a floor face.'); continue; }
       for (const rg of all.parts) {
         if (!floorPartMachinable(rg, f.z)) continue;
         const floor = f.z + (op.leaveFloor || 0);
@@ -15469,7 +15470,9 @@ function postGcode() {
     if (lastTool !== t.n) {
       if (lastTool !== null) { if (pf.coolant) L.push('M9'); L.push('M5'); if (pf.optStop && !grbl) L.push('M1 (OPTIONAL STOP)'); }
       L.push(grbl ? `M0 (Change to ${toolName(t)})` : `T${t.n} M6`);
-      L.push(op.kind === 'bsf' ? `S${Math.round(t.rpm)} (SPINDLE STAYS OFF UNTIL THE BLADE IS BELOW THE PART)` : `S${Math.round(t.rpm)} M3`);
+      const maxRpm = C.maxRpm || MACHINE_MAX_RPM, srpm = Math.min(Math.round(t.rpm), maxRpm);
+      if (srpm < Math.round(t.rpm)) L.push(`(T${t.n}: S${Math.round(t.rpm)} is above the ${maxRpm} rpm limit, posted at S${srpm} - lower its feed to keep the chip load)`);
+      L.push(op.kind === 'bsf' ? `S${srpm} (SPINDLE STAYS OFF UNTIL THE BLADE IS BELOW THE PART)` : `S${srpm} M3`);
       if (pf.coolant && op.kind !== 'bsf') L.push('M8');
       lastTool = t.n; st.g = null; st.x = st.y = st.z = null; st.f = null;
     }
@@ -15535,7 +15538,7 @@ function postGcode() {
       if (m.g12 && !grbl && !fr) {
         const g = m.g12;
         SRC = { op: op.id, mi: g.end };
-        L.push(`(CIRCULAR POCKET R${N(g.K)} - G12 CLOCKWISE, TOOL-CENTER RADII, NO CUTTER COMP. G13 IS THE COUNTERCLOCKWISE TWIN)`,
+        L.push(`(CIRCULAR POCKET R${N(g.K)} - G12 CLOCKWISE, TOOL-CENTER RADII, NO CUTTER COMP, PLUNGES AT THE CENTER SO USE A CENTER-CUTTING END MILL. G13 IS THE COUNTERCLOCKWISE TWIN)`,
           `G91 G12 I${N(g.I)} ${g.K !== g.I ? `K${N(g.K)} Q${N(g.Q)} ` : ''}${g.L > 1 ? `L${g.L} ` : ''}Z${N(-g.dz)} F${F(g.feed)}`, 'G90');
         st.g = null; st.x = N(g.cx - o[0]); st.y = N(g.cy - o[1]); st.z = N(g.zEnd - o[2]); st.f = null;
         i = g.end + 1; continue;
@@ -20314,7 +20317,7 @@ const IN_SERIES = [1 / 32, 1 / 16, 3 / 32, 1 / 8, 5 / 32, 3 / 16, 1 / 4, 5 / 16,
 // Auto-detect always picks inch tools, whatever the display units: a shop buys 3/8", not 9.53 mm.
 // End mills: the stocked fractions from 1/8" to 3/4"; ball mills from 1/16" to 1/2".
 const inMM = xs => xs.map(x => +(x * 25.4).toFixed(4));
-const FLAT_IN = inMM([1 / 8, 3 / 16, 1 / 4, 5 / 16, 3 / 8, 1 / 2, 5 / 8, 3 / 4]), BALL_IN = inMM([1 / 16, 1 / 8, 3 / 16, 1 / 4, 5 / 16, 3 / 8, 1 / 2]);
+const FLAT_IN = inMM([1 / 32, 1 / 16, 1 / 8, 3 / 16, 1 / 4, 5 / 16, 3 / 8, 1 / 2, 5 / 8, 3 / 4]), BALL_IN = inMM([1 / 16, 1 / 8, 3 / 16, 1 / 4, 5 / 16, 3 / 8, 1 / 2]);
 const stdFlat = () => FLAT_IN, stdBall = () => BALL_IN;
 const stdChamfer = () => inMM([1 / 4, 3 / 8, 1 / 2, 5 / 8, 3 / 4, 1]);
 // Twist drills a shop stocks: fractions 1/16"–1/2" by 64ths, letters A–Z and numbers #1–#40 (diameters in inches).
@@ -20453,6 +20456,7 @@ function autoDetect() {
           if (parts.some(q => q.holes.some(isCutout))) { cutoutFaces.push(ref); add(G('cutout', 'Through cut-outs (non-round or large)')); }
           if (Math.abs(z - part.z1) < 1e-3) { add(G('top', 'Top faces')); continue; }
           if (parts.length && parts.every(q => drillBottom(q))) { skipFacet.add(fid); continue; }    // bottoms of drilled holes
+          if (!rg && fi.area < 3) { skipFacet.add(fid); continue; }          // a degenerate sliver the mesh cannot read as a floor
           const closed = rg && loopRises(rg.outer, z, true);
           // floors with material straight above them (the sill of a window in a wall)
           // cannot be reached by a tool coming down from the top
@@ -20718,7 +20722,8 @@ function autoPlan(R) {
   // 5 · outside profile before the 3D finish: the finishing tool then only meets the part
   if (R.st.x1 - R.part.x1 > 1e-3 || R.part.x0 - R.st.x0 > 1e-3) {
     const cop = (d, extra) => ({ lead: 'corner', side: 'outside', stepdown: +Math.max(1, Math.min(d * 0.5, 3)).toFixed(2), leave: LEAVE_DEF, through: 0.5, faces: [], ...extra });
-    const tool = uniTool(), wallF = R.groups.get('wall') ? R.groups.get('wall').faces : [], cv = coveredBy(o => o.type === 'contour' && !o.holes && o.side !== 'inside');
+    // a hair-thin end mill that the pockets need is no tool to run round the whole outline: use a sturdy one there
+    const tool = dUni < inMM([1 / 8])[0] - 0.01 ? pick('flat', flatSizes.find(d => d <= 12.7 + 1e-6 && d <= spanOf / 2 + 1e-6) || dUni, true) : uniTool(), wallF = R.groups.get('wall') ? R.groups.get('wall').faces : [], cv = coveredBy(o => o.type === 'contour' && !o.holes && o.side !== 'inside');
     step({ key: 'contour', type: 'contour', title: `Rough the outside profile (${fmtToolD(tool.t.d)})`, why: `Cut around the part outline through the stock, leaving ${fmtLs(LEAVE_DEF)} on the walls. The tool enters and leaves off a corner, ${fmtLs(LEAD_MIN, 1)} out in the air.`, tool, faces: wallF,
       op: cop(tool.t.d), covered: cv });
     step({ key: 'contourfin', type: 'contour', title: `Finish the outside profile (${fmtToolD(tool.t.d)})`, why: `One more pass round the outline with the same end mill, taking the ${fmtLs(LEAVE_DEF)} off the walls, before the 3D finish so the ball mill never meets raw stock.`, tool, faces: wallF,
@@ -25429,9 +25434,10 @@ function camOptimizeAll() {
     if (!fixed) {
       // one walk through the moves, each judged against the stock as it is at that moment
       // (cuts not yet merged into the model still count as material: every call errs safe)
-      const outM = [m[0]];
+      const outM = [m[0]], mp = [0];                   // mp: where each original move ended up (the G12 cycles and other index-bearing marks follow it)
       for (let i = 1; i < m.length; i++) {
         const b = m[i], A = outM[outM.length - 1];
+        mp[i] = outM.length;
         if (b.r) {
           // a hop: up, across, down — only as high as the stock along the way needs
           let j = i; while (j + 1 < m.length && m[j + 1].r) j++;
@@ -25442,10 +25448,11 @@ function camOptimizeAll() {
             if (hh < zmax - 0.2) {
               outM.push({ x: A.x, y: A.y, z: hh, r: 1 }, { x: E.x, y: E.y, z: hh, r: 1 });
               if (E.z < hh - 1e-6) outM.push({ ...E });
+              for (let q = i + 1; q <= j; q++) mp[q] = outM.length - 1;
               lowered++; i = j; continue;
             }
           }
-          for (let q = i; q <= j; q++) outM.push(m[q]);
+          for (let q = i; q <= j; q++) { mp[q] = outM.length; outM.push(m[q]); }
           i = j; continue;
         }
         const L = Math.hypot(b.x - A.x, b.y - A.y, b.z - A.z);
@@ -25457,6 +25464,7 @@ function camOptimizeAll() {
         outM.push(b);
       }
       model.flush();
+      for (let q = 0; q < m.length; q++) if (m[q].g12) { const nq = mp[q] == null ? q : mp[q], g = m[q].g12; outM[nq].g12 = { ...g, end: mp[g.end] == null ? g.end : mp[g.end] }; }
       m = outM;
     } else {
       for (let i = 1; i < m.length; i++) { const a = m[i - 1], b = m[i]; if (!b.r) model.cut(a, b, tool, false, ax); if (++n % 48 === 0) model.flush(); }
