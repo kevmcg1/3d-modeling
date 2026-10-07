@@ -34821,12 +34821,13 @@ const GCED = { el: null, text: '', base: '', edited: false, closed: false, wide:
     <div class="ge-foot"><span id="geLn">Ln 1, Col 1</span><span id="geCount"></span><span class="ed" id="geEd"></span></div>`;
   const host = document.getElementById('simcode').parentNode; host.appendChild(el);
 })();
-function gcedLines() { return GCED.text.split('\n'); }
+// split once per program text: scrolling a long program redraws every frame and must not re-split it
+function gcedLines() { if (GCED._lt !== GCED.text) { GCED._lt = GCED.text; GCED._ll = GCED.text.split('\n'); } return GCED._ll; }
 function gcedDraw() {
   const ta = document.getElementById('geIn'); if (!ta || GCED.el.hidden) return;
   const H = GCED.rowH, lines = gcedLines(), top = ta.scrollTop, left = ta.scrollLeft;
   const first = Math.max(0, Math.floor(top / H) - 4), last = Math.min(lines.length, Math.ceil((top + ta.clientHeight) / H) + 4);
-  const pos = ta.selectionStart, cur = GCED.text.slice(0, pos).split('\n').length - 1;
+  const pos = ta.selectionStart; let cur = 0; for (let i = GCED.text.indexOf('\n'); i >= 0 && i < pos; i = GCED.text.indexOf('\n', i + 1)) cur++;
   let h = '', g = '';
   for (let i = first; i < last; i++) { h += `<div${i === cur ? ' class="cur"' : ''}>${gcColor(lines[i]) || ' '}</div>`; g += `<div style="height:${H}px"${i === cur ? ' class="cur"' : ''}>${i + 1}</div>`; }
   const hl = document.getElementById('geHl'), gi = document.getElementById('geGutIn');
@@ -34858,7 +34859,7 @@ function gcedProgram(gen) { return GCED.edited && GCED.base === gen ? GCED.text 
 (() => {
   const ta = document.getElementById('geIn');
   ta.addEventListener('input', () => { GCED.text = ta.value; GCED.edited = GCED.text !== GCED.base; gcedStatus(); gcedDraw(); });
-  ta.addEventListener('scroll', gcedDraw);
+  let scrollQ = 0; ta.addEventListener('scroll', () => { if (!scrollQ) scrollQ = requestAnimationFrame(() => { scrollQ = 0; gcedDraw(); }); });
   for (const ev of ['keyup', 'click', 'mouseup', 'focus']) ta.addEventListener(ev, gcedDraw);
   ta.addEventListener('keydown', e => { if (e.key === 'Tab') { e.preventDefault(); const s = ta.selectionStart; ta.setRangeText('    ', s, ta.selectionEnd, 'end'); ta.dispatchEvent(new Event('input')); } e.stopPropagation(); });
   GCED.el.addEventListener('click', e => {
