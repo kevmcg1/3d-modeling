@@ -142,8 +142,9 @@ const path = require('path'), assert = require('assert');
   const badCards = []; for (const id of tools) { const c = await hoverCard('.tool[data-tool=' + id + ']'); if (!c.show || !c.name || !c.what || c.pics !== 2) badCards.push([id, c]); }
   ok('every tool shows a hover card with a description and Before/After', badCards.length === 0, badCards);
   await page.click('.mb >> text=Filter'); await page.hover('#pop .mi >> nth=0'); await page.waitForTimeout(450);
-  const fxCard = await ev(() => ({ imgs: document.querySelectorAll('#tipcard .tip-pics img').length, differ: (() => { const i = document.querySelectorAll('#tipcard .tip-pics img'); return i.length === 2 && i[0].src !== i[1].src; })() }));
-  ok('menu filters preview a real before and after', fxCard.imgs === 2 && fxCard.differ, fxCard); await page.keyboard.press('Escape');
+  const fxFrame = () => ev(() => { const c = document.querySelector('#tipcard canvas.ta-cv'); return c ? c.toDataURL().length + ':' + c.toDataURL().slice(-120) : ''; });
+  const fx1 = await fxFrame(); await page.waitForTimeout(700); const fx2 = await fxFrame();
+  ok('menu filters play the filter being applied (a moving canvas, not two pictures)', !!fx1 && fx1 !== fx2, { fx1: fx1.slice(0, 20), fx2: fx2.slice(0, 20) }); await page.keyboard.press('Escape');
   // dropdowns and number fields are custom, animated and still drive the original controls
   await ev(() => GFX.setTool('text')); await page.click('#optbar .ddb'); await page.waitForTimeout(250);
   ok('dropdown opens as a styled list', await ev(() => document.getElementById('ddlist').classList.contains('in') && document.getElementById('ddlist').children.length > 4));

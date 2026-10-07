@@ -218,7 +218,9 @@ input[type=color] { appearance:none; -webkit-appearance:none; width:34px; height
 <div id="modal"><div id="mcard"><h3 id="mtitle"></h3><div id="mbody"></div><div id="mfoot"></div></div></div>
 <div id="toast"></div><div id="drop">Drop an image, SVG or .gfx project</div>
 <input type="file" id="fileIn" hidden multiple>
+<script src="tip-anim-legacy.js"></script>
 <script src="tip-anim.js"></script>
+<script src="tip-scenes-gfx.js"></script>
 <script>
 (() => {
 'use strict';
@@ -2467,6 +2469,7 @@ function fxPair(type, reg) {
   x.putImageData(id, 0, 0); return (fxCache[key] = [`<img alt="" src="${src.toDataURL()}">`, `<img alt="" src="${c.toDataURL()}">`]);
 }
 const FXNAME = (() => { const m = {}; return () => { if (!Object.keys(m).length) { for (const k in ADJ) m[ADJ[k].label.toLowerCase()] = ['adj', k]; for (const k in FILT) m[FILT[k].label.toLowerCase()] = ['filt', k]; m['black & white'] = ['adj', 'desaturate']; m['sepia'] = ['adj', 'sepia']; } return m; }; })();
+if (window.TipAnim && TipAnim.gfx) TipAnim.gfx.register({ ADJ, FILT, SAMPLE, DEMO, mk, cx2 });
 
 /* what each control does (name → text). Steps come from the tool guides when the name is a tool. */
 const CARDS = {};
@@ -2539,11 +2542,12 @@ const CARDGROUP = el => el.closest('#optbar') ? 'Options' : el.closest('#tools')
     if (!desc && b.closest('#pal')) { desc = 'Click to make this the foreground color.'; name = 'Color ' + name; }
     if (!desc && b.id === 'lOp') desc = 'How see-through the whole layer is.'; if (!desc && b.classList.contains('dd')) desc = 'Choose from the list.'; if (!desc && b.matches('input[type=range]')) desc = `Drag to change ${name.toLowerCase()}.`; if (!desc && b.matches('input[type=checkbox]')) desc = `Turn ${name.toLowerCase()} on or off.`;
     if (!desc) desc = name ? `${name}.` : '';
-    return { name, key, desc, steps, art };
+    const fxk = FXNAME()[norm], noPic = /^(file|edit|image|layer|select|filter|vector|view|help|tool guide|double-click to rename)$|^#[0-9a-f]{6}$|^normalmultiply/.test(norm), sk = noPic ? '' : fxk && b.closest('#pop') ? `g:fx:${fxk[0]}:${fxk[1]}` : tool ? 'g:tool:' + tool : 'g:' + norm;
+    return { name, key, desc, steps, art, sk };
   }
   const show = () => {
-    if (!el || !el.isConnected) return; const { name, key, desc, steps, art } = info(el), grp = CARDGROUP(el) || '';
-    const pic = art ? TipAnim.pics(art[0], art[1]) : (() => { const ic = el.querySelector && el.querySelector('svg'); return ic ? `<div class="tip-plate">${ic.outerHTML}</div>` : ''; })();
+    if (!el || !el.isConnected) return; const { name, key, desc, steps, art, sk } = info(el), grp = CARDGROUP(el) || '';
+    const pic = TipAnim.pic(sk, art ? () => TipAnim.legacyPics(art[0], art[1]) : null) || (() => { const ic = el.querySelector && el.querySelector('svg'); return ic ? `<div class="tip-plate">${ic.outerHTML}</div>` : ''; })();
     card.innerHTML = `<div class="tip-head"><b>${esc(name)}</b>${key ? `<span class="kbd">${esc(key)}</span>` : ''}${grp ? `<span class="tip-group">${esc(grp)}</span>` : ''}</div>${desc ? `<p class="tip-what">${esc(desc)}</p>` : ''}${pic}${steps ? `<div class="tip-more"><div class="tip-step">How to use it</div><ol>${steps.map(s => `<li>${esc(s)}</li>`).join('')}</ol></div>` : ''}`;
     card.hidden = false; place(); TipAnim.start(card); requestAnimationFrame(() => card.classList.add('in'));
     if (steps) t2 = setTimeout(() => { card.classList.add('more'); requestAnimationFrame(place); setTimeout(place, 260); }, 1300);

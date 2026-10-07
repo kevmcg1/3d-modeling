@@ -31070,12 +31070,12 @@ const TIP_TXT = {
   };
   const show = () => {
     if (!el || !document.contains(el)) return;
-    const k = keyOf(el), art = TIP_ART[k], { name, key, tx } = tipInfoFor(el, k);
+    const k0 = keyOf(el), { name, key, tx, sk: k } = tipInfoFor(el, k0), art = TIP_ART[k];
     const hue = (el.closest('.rb-panel') || el).style.getPropertyValue('--h') || '';
     const grp = (el.closest('.rb-panel') || {}).getAttribute ? (el.closest('.rb-panel').getAttribute('aria-label') || '') : '';
     const ic = el.querySelector('svg');
-    const pic = art ? TipAnim.pics(TipArt.wrap(art[0]()), TipArt.wrap(art[1]()))
-      : ic && el.closest('#toolbar') ? `<div class="tip-plate" style="--h:${hue || 214}">${ic.outerHTML}</div>` : '';
+    const pic = TipAnim.pic(k, art ? () => TipAnim.legacyPics(TipArt.wrap(art[0]()), TipArt.wrap(art[1]())) : null)
+      || (ic && el.closest('#toolbar') ? `<div class="tip-plate" style="--h:${hue || 214}">${ic.outerHTML}</div>` : '');
     card.innerHTML = `<div class="tip-head"><b>${name}</b>${key ? `<span class="kbd">${key}</span>` : ''}${grp ? `<span class="tip-group">${grp}</span>` : ''}</div>${tx[0] ? `<p class="tip-what">${tx[0]}</p>` : ''}${pic}${tx[1] ? `<div class="tip-more"><div class="tip-step">How to use it</div><ol>${tx[1].map(s => `<li>${s}</li>`).join('')}</ol></div><div class="tip-hold">Keep hovering for the steps</div>` : ''}`;
     card.hidden = false; place(); TipAnim.start(card);
     const small = document.getElementById('tip'); if (small) small.classList.remove('show');       // the card takes over from the one-line label
@@ -35683,7 +35683,7 @@ function tipInfoFor(b, k) {
     if (o) tx = [o.tip, ['Pick the tool and what to cut (or leave it on Auto).', 'Set the depths and the stepover.', 'Check the path in the view, then Simulate.']];
   }
   if (!tx && raw && raw.replace(/\s*\(.*\)$/, '') !== name) tx = [raw.replace(/\s*\(.*\)$/, ''), null];
-  return { name, key, tx: tx || [null, null] };
+  return { name, key, tx: tx || [null, null], sk: k || k2 };
 }
 
 // ── 2. the ribbon fits itself ──
@@ -36552,7 +36552,13 @@ function gsPick(i) {
 }
 </script>
 <!-- 3D Print workspace: the slicer engine and its front end (own files, so the modeler stays untouched) -->
+<script src="tip-anim-legacy.js"></script>
 <script src="tip-anim.js"></script>
+<script src="tip-scenes-sketch.js"></script>
+<script src="tip-scenes-model.js"></script>
+<script src="tip-scenes-cam.js"></script>
+<script src="tip-scenes-print.js"></script>
+<script src="tip-scenes-ui.js"></script>
 <script src="cam-mc.js"></script>
 <script src="cam-post.js"></script>
 <script src="cam-stock.js"></script>
