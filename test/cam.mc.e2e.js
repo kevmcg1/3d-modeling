@@ -167,6 +167,51 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
     const r = await page.evaluate(() => { const C = cam(); C.ops = []; camAddOp('surf'); const op = C.ops[0]; op.stepover = 2; HEAT.on = true; CAMUI.view = 'sim'; simStart(); camDraw(); const s = (HEAT.segs || []).filter(x => x.op === op && !x.m.plunge); return { n: s.length, ae: s.length && s[5].m.ae }; });
     assert(r.n > 20 && r.ae > 1.9 && r.ae < 2.1, JSON.stringify(r));
   });
+  // ── batch 4 ──
+  for (const strat of ['flats', 'steep', 'shallow']) {
+    await ok(`3D Finish ${strat}: makes strokes, never below the part`, async () => {
+      const r = await page.evaluate(strat => {
+        const C = cam(); C.ops = []; camAddOp('surf'); const op = C.ops[0]; op.strategy = strat; op.stepover = 2; op.leave = 0; op.slopeAngle = 30;
+        const P = toolpath(op), cut = P.m.filter(m => !m.r); let low = 0;
+        for (const m of cut) { const top = partTopAt(m.x, m.y); if (isFinite(top) && m.z < top - 0.05) low++; }
+        return { n: P.m.length, warn: P.warn, low, info: P.info };
+      }, strat);
+      assert(r.low === 0 && (r.n > 6 || r.warn.length), JSON.stringify(r));
+    });
+  }
+  await ok('3D Finish flats: the plate\'s pocket floors get strokes at their own heights', async () => {
+    const r = await page.evaluate(() => { const op = cam().ops[0]; op.strategy = 'flats'; op.tool; const P = toolpath(op), zs = [...new Set(P.m.filter(m => !m.r).map(m => +m.z.toFixed(1)))]; return { zs, warn: P.warn }; });
+    assert(r.zs.includes(7) && r.zs.includes(10) && !r.warn.length, JSON.stringify(r));
+  });
+  await ok('3D Finish rough option: radial in levels, stock left, and deeper than one level', async () => {
+    const r = await page.evaluate(() => { const C = cam(); C.ops = []; camAddOp('surf'); const op = C.ops[0]; op.strategy = 'radial'; op.rough = true; op.stepdown = 4; op.leave = 0.5; op.stepover = 3; const P = toolpath(op), cut = P.m.filter(m => !m.r); return { n: P.m.length, warn: P.warn, levels: new Set(cut.map(m => +m.z.toFixed(0))).size, info: P.info }; });
+    assert(r.n > 100 && !r.warn.length && r.levels > 3 && /rough/.test(r.info), JSON.stringify(r));
+  });
+  await ok('Morph: blends two chains into passes that follow the surface', async () => {
+    const r = await page.evaluate(() => {
+      const C = cam(); C.ops = []; camAddOp('chain'); const cs = allChains().filter(c => c.closed && Math.abs(c.z - 7) < 0.01).sort((a, b) => Math.abs(cArea(cP(chainTravel(b)))) - Math.abs(cArea(cP(chainTravel(a)))));
+      const op = setMode('morph', cs[0], { mcPasses: 6 }); op.chains = [{ id: 1, rev: false, start: 0, ...cs[0] }, { id: 2, rev: false, start: 0, ...cs[1] }];
+      const P = toolpath(op); return { n: P.m.length, warn: P.warn, info: P.info };
+    });
+    assert(r.n > 100 && !r.warn.length && /blending/.test(r.info), JSON.stringify(r));
+  });
+  await ok('Keyseat / T-slot: a straight pass at depth that starts and ends outside the stock', async () => {
+    const r = await page.evaluate(() => {
+      const C = cam(); C.ops = []; camAddOp('chain'); const op = setMode('tslot', { id: 1, z: 15, closed: false, pts: [[-30, 0], [30, 0]], eks: [] }, { depth: 5 }), P = toolpath(op), cut = P.m.filter(m => !m.r), st = camStock();
+      const a = cut[0], b = cut[cut.length - 1];
+      return { n: P.m.length, warn: P.warn, z: [...new Set(cut.map(m => m.z))], outA: a.x < st.x0 || a.x > st.x1, outB: b.x < st.x0 || b.x > st.x1 };
+    });
+    assert(r.n >= 4 && !r.warn.length && r.z.length <= 2 && r.outA && r.outB, JSON.stringify(r));
+  });
+  await ok('3D Rough Pocket: dynamic raises the feed on a light bite; rest after a big tool cuts less', async () => {
+    const r = await page.evaluate(() => {
+      const C = cam(); C.ops = []; camAddOp('zrough'); const op = C.ops[0], t = toolOf(op.tool);
+      const len = P => { let L = 0, a = null; for (const m of P.m) { if (!m.r && a) L += Math.hypot(m.x - a.x, m.y - a.y, m.z - a.z); a = m; } return Math.round(L); }; const base = len(toolpath(op)); op.dynamic = true; const dyn = toolpath(op), boosted = dyn.m.filter(m => !m.r && m.f > t.feed * 1.2).length;
+      op.dynamic = false; op.restD = t.d * 1.3; const rest = toolpath(op);
+      return { base, dyn: dyn.m.length, boosted, rest: len(rest), warn: rest.warn };
+    });
+    assert(r.boosted > 50 && r.rest < r.base, JSON.stringify(r));
+  });
   await ok('no page errors', async () => { assert(!errs.length, errs.join(' | ')); });
   await browser.close();
   console.log(fail ? `${fail} failed, ${pass} passed` : 'all CAM mc checks passed');
