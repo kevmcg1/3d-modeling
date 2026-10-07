@@ -42,6 +42,8 @@
     return L;
   }
   CF.catalog = catalog;
+  const camAddOp0 = camAddOp;                                    // a new toolpath never inherits the flow of an earlier one: op ids start again at 1 in every part
+  camAddOp = function (...a) { CF.FLOW.id = null; return camAddOp0.apply(this, a); };
   const keyOf = op => op.type === 'chain' ? 'chain:' + (op.cm || 'contour') : op.type === 'drill' ? 'drill:' + (op.kind || 'peck') : op.type;
   const geomKind = op => op.type === 'chain' ? 'chain' : (op.type === 'pocket' || op.type === 'contour' || op.type === 'chamfer') ? 'faces' : op.type === 'drill' ? 'holes' : 'none';
   const geomCount = op => op.type === 'chain' ? (op.chains || []).length : op.type === 'drill' ? (op.diams || []).length : (op.faces || []).length;
@@ -356,7 +358,10 @@
     panel.classList.remove('cf-on');
     if (!op || op.type === 'wire' || !panel.querySelector('.pn-body')) return;
     const f = FLOW();
-    if (f.id !== op.id) Object.assign(CF.FLOW, { id: op.id, step: 'params', tab: 'cut', fresh: false, autoTool: false, touched: true });
+    if (f.id !== op.id) {                                       // opened from the ribbon or the list: a pocket or chain with nothing picked yet starts at its geometry
+      const needGeo = (op.type === 'pocket' || op.type === 'chain') && !geomCount(op);
+      Object.assign(CF.FLOW, { id: op.id, step: needGeo ? 'geo' : 'params', tab: 'cut', fresh: false, autoTool: false, touched: true });
+    }
     if (!STEPS(op).includes(f.step)) f.step = STEPS(op)[0];
     const body = panel.querySelector('.pn-body'), { B, foot } = arrange(body, op);
     const delBtn = foot && foot.querySelector('[data-camdo="delop"]');

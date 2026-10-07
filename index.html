@@ -25656,7 +25656,7 @@ function camOptimizeAll() {
     const fixed = !!ax || isDrillOp(op) || !!op.safeLinks || !flatBottom(tool) && tool.type !== 'ball' && tool.type !== 'chamfer';
     let m = m0.map(x => ({ ...x }));
     let airLen = 0, feedLen = 0, lowered = 0, n = 0, restLost = 0;
-    if (!fixed) {
+    if (!fixed && m.length) {                                       // an op with nothing to cut (no faces picked yet) has no moves to walk
       // one walk through the moves, each judged against the stock as it is at that moment
       // (cuts not yet merged into the model still count as material: every call errs safe)
       const outM = [m[0]], mp = [0], rest = !!op.restStock;      // mp: where each original move ended up (the G12 cycles and other index-bearing marks follow it)                     // rest: moves through ground the earlier operations already cleared are dropped
