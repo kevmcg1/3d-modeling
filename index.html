@@ -16239,15 +16239,25 @@ function chainContour(op, tool, st, part, P, chains) {
       paths.push({ pts: side === 'on' ? pts : offsetOpen(pts, off, side === 'left' ? 1 : -1), closed: false });
     }
     const zs = op._single ? [bottom] : levels(st.z1, bottom, op.stepdown || 2), tabZ = !op._single && op.tabs > 0 ? bottom + Math.max(0.2, op.tabH || 1.5) : -Infinity;
+    const outsideLoop = c.closed && side !== 'on' && (side === 'left') !== (cArea(cP(pts)) > 0);
+    // how far a tool centred at q reaches into the stock block (≤ 0: clear of it)
+    const pen = q => { const dx = Math.max(st.x0 - q.x, 0, q.x - st.x1), dy = Math.max(st.y0 - q.y, 0, q.y - st.y1); return r - (dx || dy ? Math.hypot(dx, dy) : -Math.min(q.x - st.x0, st.x1 - q.x, q.y - st.y0, st.y1 - q.y)); };
+    const sgn = toolSide === 'left' ? 1 : -1, nrmAt = t => P2(-t.y * sgn, t.x * sgn);
     for (const path of paths) {
-      const L = path.pts, n = L.length;
+      let L = path.pts; const n = L.length;
       if (n < 2) continue;
-      const t0 = nrm2(sub2(L[1], L[0])), nside = P2(-t0.y * (toolSide === 'left' ? 1 : -1), t0.x * (toolSide === 'left' ? 1 : -1));
-      const useArc = op.lead !== 'none';
+      const useArc = op.lead !== 'none', leadAt = i => { const t = nrm2(sub2(L[(i + 1) % n], L[i])); return sub2(add2(L[i], mul2(nrmAt(t), rho)), mul2(t, useArc ? rho : 0)); };
+      if (path.closed && outsideLoop && !c.sp && !c.start && pen(leadAt(0)) > 0) {      // no start picked: enter where the stock is thinnest (the side of a block, not its corner)
+        let bi = 0, bp = pen(leadAt(0));
+        for (let k = 1, N = Math.min(n, 96); k < N; k++) { const i = Math.floor(k * n / N), v = pen(leadAt(i)); if (v < bp - 0.01) { bp = v; bi = i; } }
+        if (bi) L = path.pts = [...L.slice(bi), ...L.slice(0, bi)];
+      }
+      const t0 = nrm2(sub2(L[1], L[0])), nside = nrmAt(t0);
       const arcIn = k => { const C = add2(L[0], mul2(nside, rho)), phi = Math.PI / 2 * k / 8; return sub2(C, mul2(add2(mul2(t0, Math.cos(phi)), mul2(nside, Math.sin(phi))), rho)); };
       const eEnd = path.closed ? L[0] : L[n - 1], tE = path.closed ? t0 : nrm2(sub2(L[n - 1], L[n - 2])), nE = path.closed ? nside : P2(-tE.y * (toolSide === 'left' ? 1 : -1), tE.x * (toolSide === 'left' ? 1 : -1));
       const arcOut = k => { const C = add2(eEnd, mul2(nE, rho)), phi = Math.PI / 2 * k / 8; return sub2(C, mul2(add2(mul2(tE, Math.cos(phi)), mul2(nE, Math.sin(phi))), rho)); };
-      const S = useArc ? arcIn(0) : L[0];
+      const S = useArc ? arcIn(0) : L[0], ext = outsideLoop && path.closed ? pen(S) : 0;
+      const Sx = ext > 0 ? add2(S, mul2(nside, ext + 0.5)) : S;            // go down clear of the stock and feed in, rather than plunge into it
       zs.forEach((z, li) => {
         const zAbove = Math.min(ret, (li ? zs[li - 1] : st.z1) + 1);
         if (op.ramp && path.closed && !(z < tabZ - 1e-6)) {            // ramp contour: one spiral down the loop, no plunge and lead at every level
@@ -16255,8 +16265,8 @@ function chainContour(op, tool, st, part, P, chains) {
           rampLoop(P, L, li ? zs[li - 1] : zAbove, z, op.rampAngle || 3, 0);
           return;
         }
-        if (!started) { P.rapid(S.x, S.y, safe); started = true; } else P.rapid(P.cur[0], P.cur[1], ret);
-        P.rapid(S.x, S.y, ret); P.rapid(S.x, S.y, zAbove); P.plunge(S.x, S.y, z);
+        if (!started) { P.rapid(Sx.x, Sx.y, safe); started = true; } else P.rapid(P.cur[0], P.cur[1], ret);
+        P.rapid(Sx.x, Sx.y, ret); P.rapid(Sx.x, Sx.y, zAbove); P.plunge(Sx.x, Sx.y, z); if (Sx !== S) P.feed(S.x, S.y, z);
         if (useArc) for (let k = 1; k <= 8; k++) { const q = arcIn(k); P.feed(q.x, q.y, z); } else P.feed(L[0].x, L[0].y, z);
         if (z < tabZ - 1e-6) chainTabbed(P, path.closed ? [...L, L[0]] : L, z, tabZ, op.tabs, Math.max(0.5, op.tabW || 4), path.closed, tool);
         else { for (let i = 1; i < n; i++) P.feed(L[i].x, L[i].y, z); if (path.closed) P.feed(L[0].x, L[0].y, z); }
