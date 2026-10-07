@@ -15,11 +15,22 @@ Legend: PASS = checked and correct · FIXED = a bug was found, fixed and has an 
 | Sample parts | Every sample part rebuilds from its history without a feature error | `test/design.qa.e2e.js` |
 | CAM regressions | Each CAM fix below has a browser test | `test/cam.qa.e2e.js` |
 
-The sweeps that found most of the bugs ran Auto Program followed by Verify on every 3-axis sample part (47 parts), with the G-code check and replay on each program. A second sweep ran individual toolpaths one at a time (drill, pocket, face, contour, chain modes, 3D finishing) on three sample parts.
+The sweeps that found most of the bugs ran Auto Program followed by Verify on every 3-axis sample part (70 parts), with the G-code check and replay on each program. A second sweep ran individual toolpaths one at a time (drill, pocket, face, contour, chain modes, 3D finishing) on three sample parts.
 
 ## Result in one view
 
-[[RESULT]]
+Final run of Auto Program followed by Verify on all 70 three-axis sample parts, on the merged branch:
+
+| Measure | Result |
+|---|---|
+| G-code check problems (units, offsets, tool changes, canned cycles, arcs, S above 12000, M30) | 0 of 70 programs |
+| Posted G-code differs from the toolpath by more than 0.03 mm | 3 of 70 parts, all at or under 0.05 mm on through contours (a rounding of arc fitting) |
+| Verify (gouge, holder, shank, rapid, vise, plunge, coverage, size, holes, floors) passes | 61 of 70 |
+| Verify fails | 9 of 70: see Open items. Every one is a real limit of cutting that part with 3-axis round tools, not a program error |
+| Crashes, NaN moves, empty toolpaths | 0 |
+| Full test suite (`test/*.js`, 38 files) | all pass. `print-ui.e2e.js` prints nothing and is stopped by its 10 minute timeout on `main` too |
+
+The same sweep before the fixes passed Verify on 49 of 70 parts and had 6 parts with a wrong G12 finish cycle.
 
 ## Bugs found and fixed
 
@@ -90,4 +101,22 @@ The status column is the app's claim in `docs/mastercam-toolpaths.md`. "Auto" me
 
 ## Open items
 
-[[OPEN]]
+These nine parts still fail Verify. In each case the program is what a 3-axis machinist would run, and Verify names what is left.
+
+| Part | What Verify finds | Why it is not fixed |
+|---|---|---|
+| Flanged boss | 18 faces and a ring of material 22 mm high at the thread relief | An undercut and an external thread. The plan lists "Thread Ø32 external" as a manual step; it needs a lathe or a thread mill from the side |
+| Mold cavity insert | Two narrow areas left (2.8 mm wide) and 3 plunge warnings | The round pockets use the G12 cycle, which plunges at the centre. The warnings tell the machinist to use a centre-cutting end mill |
+| Serpentine coolant plate | Four corner slivers at the ends of the channel measure "not cut" | The Ø8 port hole leaves 0.4 mm corner wedges that no round tool can reach |
+| Gear blank, Star slot disc, Honeycomb plate, Board tray | Wall faces within a tool radius of sharp inside corners (keyway, star points, hexagon corners) | Round tools leave their own radius in sharp corners. The plan lists these as "sharp inside corners" to fillet in the design or finish by EDM or broaching. The coverage check counts them as red rather than excusing them |
+| Mold half insert | Four 28 mm² corner areas 2.2 mm high | Corners that the finishing ball mill does not reach |
+| Gusset bracket | The triangular lightening window is not planned: the top face is read as two pieces with no window in it | The wall between the window and the edge is 1.7 mm. Planner bug, not fixed in this pass |
+
+Other open items:
+
+- **Game controller sample (Design):** two fillets on a loft say "Edge no longer exists" on every rebuild. Not a CAM part. Not fixed.
+- **Verify on long 3D paths:** a program with more than about 100k moves takes several minutes to verify. The performance thread owns this.
+- **`autoApply` straight after loading a part:** it can use the quick display mesh and pick a different tool than Auto Program does, which waits for the exact mesh. Auto Program is the one-click path and is correct; the Auto Detect panel updates as soon as the exact mesh arrives.
+- **Engraving:** Verify reports gouges and holder hits on it by design.
+- **Verify "plunge" warnings** on pockets that start where a flat end mill cannot ramp: shown as a warning, not a failure.
+- **Not 3-axis, not run:** multiaxis, lathe, wire.
