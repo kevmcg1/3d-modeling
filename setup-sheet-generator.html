@@ -432,22 +432,6 @@
     * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   }
 </style>
-<style id="motion">
-/* ── Motion: one set of timing tokens for every control, panel and mode switch ── */
-:root { --mo-fast: 150ms; --mo: 200ms; --mo-slow: 250ms; --mo-ease: cubic-bezier(.2, .7, .2, 1); }
-:where(button, [role="tab"], [role="button"], a, select, input, textarea, summary, label, .btn, .tb, .chip, .tab, li) {
-  transition-property: background-color, color, border-color, box-shadow, opacity, transform, fill, stroke;
-  transition-duration: var(--mo); transition-timing-function: var(--mo-ease);
-}
-:where(button, [role="tab"], [role="button"], .btn, .tb, .chip):active:not(:disabled) { transition-duration: 80ms; }
-:where(button, input, select, textarea, [role="tab"], a):focus-visible { transition-duration: var(--mo-fast); }
-:where(svg, svg *) { transition: fill var(--mo) var(--mo-ease), stroke var(--mo) var(--mo-ease), opacity var(--mo) var(--mo-ease), transform var(--mo) var(--mo-ease); }
-@keyframes mo-in { from { opacity: 0; } to { opacity: 1; } }
-@keyframes mo-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) {
-  *:not(.spin), *::before, *::after { animation-duration: .01ms !important; animation-delay: 0s !important; transition-duration: .01ms !important; transition-delay: 0s !important; scroll-behavior: auto !important; }
-}
-</style>
 </head>
 <body>
 <div id="app">
@@ -1200,21 +1184,18 @@
       markPreset();
     }
     function markPreset() { $$('.preset', ROOT).forEach(b => b.classList.toggle('on', b.dataset.preset === state.theme.preset)); }
-    // a slider can fire several times a frame: keep the state and the readouts current at once, redo the layout once per frame
-    let layoutRaf = 0;
-    const scheduleLayout = () => { if (!layoutRaf) layoutRaf = requestAnimationFrame(() => { layoutRaf = 0; applyLayout(); }); };
-    function commit(path, value, source, soft) {
+    function commit(path, value, source) {
       setPath(path, value);
       if (path.startsWith('theme.') && COLOR_KEYS.includes(path.slice(6))) { state.theme.preset = 'custom'; markPreset(); }
       syncBound(path, source);
-      if (path.startsWith('tables.')) scheduleColumns(); else if (soft) scheduleLayout(); else applyLayout();
+      if (path.startsWith('tables.')) scheduleColumns(); else applyLayout();
       save();
     }
     const toggleTick = el => commit(el.dataset.bind, !getPath(el.dataset.bind), null);
 
     ROOT.addEventListener('input', e => {
       const el = e.target.closest('[data-bind]');
-      if (el) commit(el.dataset.bind, B.readEl(el), el, el.type === 'range');
+      if (el) commit(el.dataset.bind, B.readEl(el), el);
     });
 
     /* ---------- Layout / theme ---------- */
@@ -2409,14 +2390,12 @@
       $$('[data-show]', ROOT).forEach(B.writeShow);
     }
 
-    let updRaf = 0;
     ROOT.addEventListener('input', e => {
       const el = e.target.closest('[data-bind]'); if (!el) return;
       const v = B.readEl(el);
       pathSet(state, el.dataset.bind, v);
       $$(`[data-show="${el.dataset.bind}"]`, ROOT).forEach(B.writeShow);
-      if (el.type === 'range') { if (!updRaf) updRaf = requestAnimationFrame(() => { updRaf = 0; update(); }); } else update();   // sliders: one redraw per frame
-      save();
+      update(); save();
     });
 
     document.addEventListener('click', e => {
