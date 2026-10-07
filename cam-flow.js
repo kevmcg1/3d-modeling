@@ -286,7 +286,7 @@
     return n >= 3;
   }
   // material standing at the centre of a circle up to its height: the edge of a ring groove round a solid middle, not a hole
-  const ringOf = (c, o) => partTopAt(o.x, o.y) > c.z - 0.05;
+  const ringOf = (c, o) => { const r = o.d / 2; for (const f of [0, 0.35, 0.7]) for (let k = 0; k < (f ? 8 : 1); k++) { const a = k * Math.PI / 4; if (partTopAt(o.x + f * r * Math.cos(a), o.y + f * r * Math.sin(a)) > c.z - 0.05) return true; } return false; };   // a bore through the middle still leaves a ring of material
   const sameZ = (a, b) => Math.abs(a - b) < 0.02;
   CF.selectors = {
     // one entry per hole (its top edge): the edges of one hole at other heights (a counterbore's floor) and sizes a
