@@ -257,7 +257,7 @@
   // what is just inside and just outside the loop: a pocket floor has the floor level inside and a wall outside, a boss top the reverse
   function sides(c) {
     const p = chainTravel(c), n = p.length, inLeft = cArea(cP(p)) > 0;
-    let floor = 0, rim = 0, isl = 0, s = 0;
+    let floor = 0, rim = 0, isl = 0, outer = 0, s = 0;
     const N = Math.min(24, n);
     for (let k = 0; k < N; k++) {
       const i = Math.floor((k + 0.5) * n / N), a = p[i], b = p[(i + 1) % n], t = nrm2(sub2(b, a)), m = lerp2(a, b, 0.5), nl = P2(-t.y * (inLeft ? 1 : -1), t.x * (inLeft ? 1 : -1));
@@ -266,8 +266,9 @@
       if (Math.abs(tin - c.z) < 0.05 && tout > c.z + 0.05) floor++;
       else if (Math.abs(tin - c.z) < 0.05 && tout < c.z - 0.05) rim++;
       else if (Math.abs(tout - c.z) < 0.05 && tin > c.z + 0.05) isl++;
+      if (tin > c.z - 0.05 && tout < c.z - 0.05) outer++;          // material inside, open air outside (a top rim, or the bottom edge of a wall)
     }
-    return { floor: s && floor / s > 0.7, outline: s && rim / s > 0.7, island: s && isl / s > 0.7 };
+    return { floor: s && floor / s > 0.7, outline: s && rim / s > 0.7, island: s && isl / s > 0.7, outer: s && outer / s > 0.7 };
   }
   const area = c => Math.abs(cArea(cP(chainTravel(c))));
   // a circle with material just inside it up to its height and no wall rising outside it is a boss (its top edge, or
@@ -301,7 +302,9 @@
       const isl = allChains().filter(c => !fl.includes(c) && fl.some(f => sameZ(f.z, c.z) && inside(c, f)) && sides(c).island);
       return [...fl, ...isl];
     },
-    outline: () => { const l = allChains().filter(c => !circleOf(c) && sides(c).outline); l.sort((a, b) => area(b) - area(a)); return l.slice(0, 1); },
+    // the part's outside: the biggest loop with open air all round it; a step or a flange makes a loop part way up that is
+    // smaller than the bottom edge, and of loops the same size (straight walls) the lowest one takes the whole wall
+    outline: () => { const l = allChains().filter(c => !circleOf(c) && sides(c).outer); l.sort((a, b) => (area(b) - area(a)) || (a.z - b.z)); const top = l[0]; return top ? [l.filter(c => area(c) > area(top) * 0.999).sort((a, b) => a.z - b.z)[0]] : []; },
   };
   function setChains(op, list, label) {
     if (!list.length) { toast('Nothing like that in this part.'); return; }
