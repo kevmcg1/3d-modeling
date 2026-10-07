@@ -5,6 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Datum Modeler</title>
 <script>try { document.documentElement.setAttribute("data-theme", localStorage.getItem("datum.theme") === "dark" ? "dark" : "light"); } catch (e) { document.documentElement.setAttribute("data-theme", "light"); }   // light unless the user chose dark</script>
+<script>
+// Early capture for the exported log: errors, rejections and console warnings/errors from page load, before the trace module exists.
+(function () {
+  var q = window.__early = [], hook = null, cw = console.warn, ce = console.error;
+  function add(kind, what, level) { if (kind === 'console' && typeof Trace !== 'undefined' && Trace.busy) return; var e = { ts: Date.now(), kind: kind, what: String(what).slice(0, 300), level: level }; if (hook) hook(e); else if (q.length < 200) q.push(e); }
+  function fmt(a) { return Array.prototype.map.call(a, function (x) { try { return x instanceof Error ? x.message : typeof x === 'object' ? JSON.stringify(x) : String(x); } catch (e) { return '[object]'; } }).join(' '); }
+  console.warn = function () { add('console', 'warn: ' + fmt(arguments), 'warn'); return cw.apply(console, arguments); };
+  console.error = function () { add('console', 'error: ' + fmt(arguments), 'error'); return ce.apply(console, arguments); };
+  window.addEventListener('error', function (ev) { add('error', ev.message + ' (' + String(ev.filename || '').split('/').pop() + ':' + ev.lineno + ':' + ev.colno + ')' + (ev.error && ev.error.stack ? '\n' + String(ev.error.stack).split('\n').slice(0, 6).join('\n') : ''), 'error'); });
+  window.addEventListener('unhandledrejection', function (ev) { var r = ev.reason; add('error', 'Unhandled promise rejection: ' + (r && r.message || r) + (r && r.stack ? '\n' + String(r.stack).split('\n').slice(0, 6).join('\n') : ''), 'error'); });
+  window.__earlyHook = function (h) { hook = h; var l = q.splice(0); l.forEach(h); };
+})();
+</script>
 <style>
 /* Boot gate: the app is one big page that builds its toolbars and panels as it parses, so show a calm splash until it is all in place and reveal it in one frame (no unstyled flash, no tabs popping in, no layout jumps). */
 html.booting { background: #e9ecf0; }
@@ -7970,8 +7983,8 @@ SHOP.cClamp = {
 
 // ── Vises and dovetail fixtures ──
 SHOP.vise = {
-  name: 'Machine vise', grp: 'Vises', parts: [['Base', SHOP_COL.blue], ['Fixed jaw', SHOP_COL.blue], ['Fixed jaw plate', SHOP_COL.ground], ['Moving jaw', SHOP_COL.blue], ['Moving jaw plate', SHOP_COL.ground], ['Lead screw', SHOP_COL.black], ['Handle', SHOP_COL.black]],
-  p: [['W', 'Jaw width', 6 * INCH, 'len'], ['open', 'Jaw opening now', 70, 'len'], ['maxOpen', 'Maximum opening', 6 * INCH, 'len'], ['H', 'Jaw height', 45, 'len'], ['sd', 'Screw Ø', 26, 'len'], ['hl', 'Handle length', 160, 'len']],
+  name: 'Machine vise', grp: 'Vises', parts: [['Base', SHOP_COL.blue], ['Fixed jaw', SHOP_COL.blue], ['Fixed jaw plate', SHOP_COL.ground], ['Moving jaw', SHOP_COL.blue], ['Moving jaw plate', SHOP_COL.ground], ['Lead screw', SHOP_COL.black], ['Handle', SHOP_COL.black], ['Parallels', SHOP_COL.ground]],
+  p: [['W', 'Jaw width', 6 * INCH, 'len'], ['open', 'Jaw opening now', 70, 'len'], ['maxOpen', 'Maximum opening', 6 * INCH, 'len'], ['H', 'Jaw height', 45, 'len'], ['sd', 'Screw Ø', 26, 'len'], ['hl', 'Handle length', 160, 'len'], ['par', 'Parallels on the bed', true, 'chk'], ['parH', 'Parallel height', 19.05, 'len'], ['parT', 'Parallel thickness', 6.35, 'len']],
   build(P, K) {
     const W = P.W / 2, bh = 30, jt = 40, pl = 8, x0 = -pl - jt - 20, x1 = P.maxOpen + pl + jt + 100, g = Math.min(P.open, P.maxOpen), sz = bh + 14, mj = g + pl;
     let base = K.add(K.box(x0, x1, -W, W, 0, bh), K.box(x0, x0 + 90, -W - 26, W + 26, 0, 16), K.box(x1 - 130, x1 - 40, -W - 26, W + 26, 0, 16), K.box(x1 - 60, x1 - 10, -34, 34, bh, sz + P.sd / 2 + 10));
@@ -7980,9 +7993,18 @@ SHOP.vise = {
     return [base, K.box(-pl - jt, -pl, -W, W, bh, bh + P.H), K.box(-pl, 0, -W + 6, W - 6, bh + 6, bh + P.H - 4),
       K.box(mj, mj + jt + 10, -W, W, bh, bh + P.H), K.box(g, g + pl, -W + 6, W - 6, bh + 6, bh + P.H - 4),
       K.turnX(0, sz, mj + jt + 10, [[0, 0], [P.sd / 2, 0], [P.sd / 2, hx - mj - jt - 10], [0, hx - mj - jt - 10]]),
-      K.add(K.cylY(hx, sz, 7, -P.hl / 2, P.hl / 2), K.turnY(hx, sz, P.hl / 2, [[0, 0], [11, 4], [11, 20], [0, 24]]), K.turnY(hx, sz, -P.hl / 2, [[0, 0], [11, -4], [11, -20], [0, -24]]))];
+      K.add(K.cylY(hx, sz, 7, -P.hl / 2, P.hl / 2), K.turnY(hx, sz, P.hl / 2, [[0, 0], [11, 4], [11, 20], [0, 24]]), K.turnY(hx, sz, -P.hl / 2, [[0, 0], [11, -4], [11, -20], [0, -24]])),
+      // two parallels standing on the bed between the jaw plates, along the jaw length, so a part rests on them
+      P.par && g > 2 * P.parT + 4 ? K.add(...[[pl + 2, pl + 2 + P.parT], [g - 2 - P.parT, g - 2]].map(([a, b]) => K.box(a, b, -W + 10, W - 10, bh, bh + P.parH))) : null];
   },
 };
+// Kurt vises: the same model at catalog sizes (jaw width, largest opening, jaw height), opened to about two thirds
+const KURT = [['Kurt DX4 (4 in)', 4, 5, 1.25], ['Kurt DX6 (6 in)', 6, 8, 1.75], ['Kurt D688 (6 in)', 6, 8.75, 1.75], ['Kurt DX8 (8 in)', 8, 10, 2]];
+KURT.forEach(([name, w, mo, h]) => {
+  SHOP['kurt' + name.match(/D\w?\d+/)[0]] = {
+    ...SHOP.vise, name, p: SHOP.vise.p.map(q => q[0] === 'W' ? [q[0], q[1], w * INCH, q[3]] : q[0] === 'maxOpen' ? [q[0], q[1], mo * INCH, q[3]] : q[0] === 'open' ? [q[0], q[1], Math.round(mo * INCH * 0.6), q[3]] : q[0] === 'H' ? [q[0], q[1], h * INCH, q[3]] : q),
+  };
+});
 // a dovetail groove (female) in a jaw face at x = face, running along y: width wo at the face, flaring to wb at depth dg (dir +1: the jaw lies at x < face)
 const dovetailPts = (face, dir, zc, wo, dg, ang) => { const wb = wo + 2 * dg * Math.tan(ang * Math.PI / 180); return [[face + dir * 0.01, zc - wo / 2], [face - dir * dg, zc - wb / 2], [face - dir * dg, zc + wb / 2], [face + dir * 0.01, zc + wo / 2]]; };
 SHOP.dovetailVise = {
@@ -9098,9 +9120,9 @@ const Kernel = {
   cam3d(params, tol) {
     if (!this.worker) {
       const c = evaluate(tol, activeLimit());
-      return Promise.resolve(camParallel(c.bodies.filter(b => !(doc.hidden && doc.hidden[b.id])).map(b => meshOfPolys(b.polys).pos), params));
+      return Promise.resolve(camParallel(c.bodies.filter(b => !(doc.hidden && doc.hidden[b.id]) && !isTooling(b)).map(b => meshOfPolys(b.polys).pos), params));
     }
-    return this.post({ kind: 'cam3d', docStr: snap(), tol, limit: activeLimit(), hidden: doc.hidden || {}, params }).then(r => {
+    return this.post({ kind: 'cam3d', docStr: snap(), tol, limit: activeLimit(), hidden: camHiddenMap(), params }).then(r => {
       if (r.retry) return this.cam3d(params, tol);
       if (!r.ok) throw new Error(r.error);
       return r.result;
@@ -9109,9 +9131,9 @@ const Kernel = {
   camMesh(tol) {
     if (!this.worker) {
       const c = evaluate(tol, activeLimit());
-      return Promise.resolve(c.bodies.filter(b => !(doc.hidden && doc.hidden[b.id])).map(b => meshOfPolys(b.polys).pos));
+      return Promise.resolve(c.bodies.filter(b => !(doc.hidden && doc.hidden[b.id]) && !isTooling(b)).map(b => meshOfPolys(b.polys).pos));
     }
-    return this.post({ kind: 'camMesh', docStr: snap(), tol, limit: activeLimit(), hidden: doc.hidden || {} }).then(r => {
+    return this.post({ kind: 'camMesh', docStr: snap(), tol, limit: activeLimit(), hidden: camHiddenMap() }).then(r => {
       if (r.retry) return this.camMesh(tol);
       if (!r.ok) throw new Error(r.error);
       return [r.result];
@@ -11090,20 +11112,52 @@ function arrowGeom() {
   const base = planeTo3(pl, f.pts[0], z), s0 = toScreen(base), s1 = toScreen(add3(base, mul3(pl.n, sg)));
   let d = sub2(s1, s0), perUnit = len2(d);
   if (perUnit < ppu() * 0.15) { d = P2(0, -1); perUnit = 0; } else d = nrm2(d);
-  return { s0, tip: add2(s0, mul2(d, 46)), dir: d, perUnit, sg };
+  return { s0, tip: add2(s0, mul2(d, 92)), dir: d, perUnit, sg };
+}
+// A big drag handle: a thick bright arrow with a white halo and a round grab knob, readable over any model. Shared by every drag handle.
+const HANDLE_COL = '#ff6a00', HANDLE_HOT = '#ff8a2b';
+let arrowHot = false;
+function drawHandle(s0, tip, dir, hot, text) {
+  const n = rot90(dir), L = Math.hypot(tip.x - s0.x, tip.y - s0.y), headL = 26, headW = 17, shaft = hot ? 6 : 5, col = hot ? HANDLE_HOT : HANDLE_COL;
+  const neck = P2(tip.x - dir.x * headL, tip.y - dir.y * headL);
+  const path = () => {
+    og.beginPath();
+    og.moveTo(s0.x + n.x * shaft / 2, s0.y + n.y * shaft / 2); og.lineTo(neck.x + n.x * shaft / 2, neck.y + n.y * shaft / 2);
+    og.lineTo(neck.x + n.x * headW, neck.y + n.y * headW); og.lineTo(tip.x, tip.y); og.lineTo(neck.x - n.x * headW, neck.y - n.y * headW);
+    og.lineTo(neck.x - n.x * shaft / 2, neck.y - n.y * shaft / 2); og.lineTo(s0.x - n.x * shaft / 2, s0.y - n.y * shaft / 2); og.closePath();
+  };
+  og.save(); og.lineJoin = 'round'; og.lineCap = 'round';
+  og.shadowColor = 'rgba(15,20,30,.55)'; og.shadowBlur = hot ? 14 : 8; og.shadowOffsetY = 2;
+  path(); og.strokeStyle = '#fff'; og.lineWidth = 6; og.stroke(); og.shadowColor = 'transparent';
+  path(); og.fillStyle = col; og.fill(); og.strokeStyle = '#7a2e00'; og.lineWidth = 1.5; og.stroke();
+  if (hot) { path(); og.strokeStyle = 'rgba(255,255,255,.9)'; og.lineWidth = 1; og.stroke(); }
+  // anchor ring where the arrow leaves the profile
+  og.beginPath(); og.arc(s0.x, s0.y, 6, 0, Math.PI * 2); og.fillStyle = '#fff'; og.fill(); og.beginPath(); og.arc(s0.x, s0.y, 3.5, 0, Math.PI * 2); og.fillStyle = col; og.fill();
+  // grab knob mid-shaft: the obvious thing to take hold of
+  const m = P2(s0.x + dir.x * L * 0.42, s0.y + dir.y * L * 0.42);
+  og.beginPath(); og.arc(m.x, m.y, hot ? 11 : 10, 0, Math.PI * 2); og.fillStyle = '#fff'; og.shadowColor = 'rgba(15,20,30,.5)'; og.shadowBlur = 6; og.fill(); og.shadowColor = 'transparent';
+  og.beginPath(); og.arc(m.x, m.y, hot ? 8 : 7, 0, Math.PI * 2); og.fillStyle = col; og.fill();
+  og.strokeStyle = '#fff'; og.lineWidth = 1.8; og.beginPath(); og.moveTo(m.x - dir.x * 3.2 - n.x * 0, m.y - dir.y * 3.2); og.lineTo(m.x + dir.x * 3.2, m.y + dir.y * 3.2); og.stroke();
+  og.restore();
+  if (text) {
+    og.font = '500 11.5px Inter, system-ui, sans-serif';
+    const w = og.measureText(text).width + 10, lx = tip.x + n.x * (headW + 6) + (n.x < 0 ? -w - 4 : 4), ly = tip.y + n.y * (headW + 6) + 4;
+    label(text, Math.max(8, Math.min(ov.clientWidth - w - 8, lx)), Math.max(22, Math.min(ov.clientHeight - 8, ly)), col);   // kept inside the view
+  }
 }
 function drawArrow() {
   const g = arrowGeom();
   if (!g) return;
-  og.strokeStyle = COL.accent; og.fillStyle = COL.accent; og.lineWidth = 2;
-  og.beginPath(); og.moveTo(g.s0.x, g.s0.y); og.lineTo(g.tip.x, g.tip.y); og.stroke();
-  const n = rot90(g.dir);
-  og.beginPath(); og.moveTo(g.tip.x + g.dir.x * 10, g.tip.y + g.dir.y * 10);
-  og.lineTo(g.tip.x + n.x * 6, g.tip.y + n.y * 6); og.lineTo(g.tip.x - n.x * 6, g.tip.y - n.y * 6); og.closePath(); og.fill();
   const f = CMD.f, me = f.extent && f.extent !== 'dist' && MODEL.ext[f.id];
-  label(me ? (f.extent === 'next' ? 'to next · ' : f.extent === 'to' ? 'to point · ' : 'thru all · ') + fmtL(me.z1 - me.z0) : fmtL(f.dist), g.tip.x + 14, g.tip.y + 4);
+  drawHandle(g.s0, g.tip, g.dir, arrowHot || !!arrowDrag, me ? (f.extent === 'next' ? 'to next · ' : f.extent === 'to' ? 'to point · ' : 'thru all · ') + fmtL(me.z1 - me.z0) : fmtL(f.dist));
 }
-function hitArrow(x, y) { const g = CMD && CMD.type === 'extrude' && arrowGeom(); return g && dst2(P2(x, y), g.tip) < 16; }
+function hitArrow(x, y) {
+  const g = CMD && CMD.type === 'extrude' && arrowGeom(); if (!g) return false;
+  const p = P2(x, y), d = sub2(g.tip, g.s0), l2 = d.x * d.x + d.y * d.y, t = l2 ? Math.max(0, Math.min(1, dot2(sub2(p, g.s0), d) / l2)) : 0;
+  return dst2(p, P2(g.s0.x + d.x * t, g.s0.y + d.y * t)) < 17;
+}
+ov.addEventListener('pointerleave', () => { if (arrowHot) { arrowHot = false; requestDraw(); } });
+function setArrowHot(x, y) { const h = hitArrow(x, y); if (h !== arrowHot) { arrowHot = h; requestDraw(); } return h; }
 
 function solidMove(x, y) {
   if (CMD && CMD_HANDLERS[CMD.type]) { CMD_HANDLERS[CMD.type].move(x, y); return; }
@@ -11116,7 +11170,8 @@ function solidMove(x, y) {
   else o = { profiles: true };
   const h = pick3D(x, y, o);
   setHover3D(h);
-  ov.className = h || hitArrow(x, y) ? 'pointer' : 'default';
+  const onArrow = setArrowHot(x, y);
+  ov.className = h || onArrow ? 'pointer' : 'default';
 }
 function solidClick(x, y, ev) {
   const h = hover3D;
@@ -11158,6 +11213,10 @@ function solidClick(x, y, ev) {
 // ═══════════════════════════════════════════════════════════════════
 const selEdges = [];                      // idle-mode edge selection [{body, ch, ref}]
 const visibleBodies = () => MODEL.bodies.filter(b => !b.hole && !(doc.hidden && doc.hidden[b.id]));
+// Workholding from the shop library (vises, parallels, clamps, plates) is equipment, not the part: Manufacture leaves it out of the part, the stock box and the toolpaths
+const isTooling = b => { const f = byId(Math.floor(b.id)); return !!f && f.type === 'shop'; };
+const camBodies = () => visibleBodies().filter(b => !isTooling(b));
+const camHiddenMap = () => { const h = { ...(doc.hidden || {}) }; for (const b of MODEL.bodies) if (isTooling(b)) h[b.id] = true; return h; };
 const viewDepth = P => -dot3(sub3(P, A3(camera.position)), backDir());
 // Depth of the first surface under a pixel (for hiding picks behind solids).
 function surfaceDepthAt(x, y) {
@@ -11566,9 +11625,9 @@ const MOUSE_SVG = hot => `<svg viewBox="0 0 16 22"><rect class="body" x="1" y="1
 function renderMouseLegend() {
   const el = document.getElementById('mouseLegend');
   const dr = MOUSE.left === 'orbit' ? 'orbit' : MOUSE.left;
-  const left = S.sk ? 'Draw · select' : UIX.ws === 'cam' ? `Pick · drag to ${dr}` : CMD ? 'Pick' : `Select · drag to ${dr}`;
-  const right = S.sk ? `${MOUSE_ACT[MOUSE.right]} · click: end line` : `${MOUSE_ACT[MOUSE.right]} · click: menu`;
-  el.innerHTML = [['l', left], ['m', `${MOUSE_ACT[MOUSE.middle]} · wheel ${MOUSE.invertWheel ? 'zooms (reversed)' : 'zooms'}`], ['r', right]].map(([k, t]) => `<span class="ml">${MOUSE_SVG(k)}${t}</span>`).join('');
+  const left = S.sk ? 'Draw · select' : UIX.ws === 'cam' ? `Pick${MOUSE.left === 'none' ? '' : ' · drag to ' + dr}` : CMD ? 'Pick' : `Select${MOUSE.left === 'none' ? '' : ' · drag to ' + dr}`;
+  const right = S.sk ? `${MOUSE_ACT[MOUSE.right]} · click: end line` : `${MOUSE_ACT[MOUSE.right]} · click: ${MOUSE.rightClick === 'none' ? 'nothing' : 'menu'}`;
+  el.innerHTML = [['l', left], ['m', `${MOUSE_ACT[MOUSE.middle]} · wheel ${MOUSE.wheel === 'none' ? 'off' : MOUSE.wheel === 'zoom' ? (MOUSE.invertWheel ? 'zooms (reversed)' : 'zooms') : MOUSE.wheel + 's'}`], ['r', right]].map(([k, t]) => `<span class="ml">${MOUSE_SVG(k)}${t}</span>`).join('');
 }
 function action(a) {
   if (S.sk && [...SKETCH_TOOLS.flat(), ...SKETCH_XF].some(t => t[0] === a)) { setTool(a); return; }
@@ -12380,8 +12439,15 @@ function zoomAt(mx, my, f) {
   requestDraw(); scheduleLevelCheck();
 }
 // ── Mouse and navigation settings: what each button does, how the orbit feels ──
-const MOUSE = Object.assign({ left: 'orbit', middle: 'pan', right: 'orbit', pivot: 'cursor', sens: 1, invertOrbit: false, invertWheel: false }, (() => { try { return JSON.parse(localStorage.getItem('datum.mouse') || '{}'); } catch (e) { return {}; } })());
+const MOUSE_DEF = { left: 'orbit', middle: 'pan', right: 'orbit', midShift: 'orbit', midCtrl: 'same', rightShift: 'pan', rightCtrl: 'same', rightClick: 'menu', midClick: 'none', wheel: 'zoom', wheelAt: 'cursor', wheelSpeed: 1, pivot: 'cursor', sens: 1, invertOrbit: false, invertWheel: false };
+const MOUSE = Object.assign({}, MOUSE_DEF, (() => { try { return JSON.parse(localStorage.getItem('datum.mouse') || '{}'); } catch (e) { return {}; } })());
 const MOUSE_ACT = { orbit: 'Orbit', pan: 'Pan', zoom: 'Zoom', none: 'Nothing' };
+// What a middle or right drag does, with Shift or Ctrl held ('same' = the plain assignment).
+function mouseAct(btn, e) {
+  const k = btn === 1 ? 'mid' : 'right', plain = btn === 1 ? MOUSE.middle : MOUSE.right;
+  const m = e.shiftKey ? MOUSE[k + 'Shift'] : e.ctrlKey || e.metaKey ? MOUSE[k + 'Ctrl'] : 'same';
+  return !m || m === 'same' ? plain : m;
+}
 function mouseSave() { try { localStorage.setItem('datum.mouse', JSON.stringify(MOUSE)); } catch (e) { /* storage unavailable */ } renderMouseLegend(); }
 function openMouseSettings() {
   const card = document.getElementById('modalCard'), sel = (k, opts) => `<select data-ms="${k}">${opts.map(([v, l]) => `<option value="${v}" ${MOUSE[k] === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
@@ -12404,7 +12470,7 @@ function openMouseSettings() {
     const t = e.target.closest('[data-ms]'); if (!t) return;
     MOUSE[t.dataset.ms] = t.type === 'checkbox' ? t.checked : t.type === 'range' ? +t.value : t.value; mouseSave();
   };
-  card.querySelector('[data-ms-reset]').addEventListener('click', () => { Object.assign(MOUSE, { left: 'orbit', middle: 'pan', right: 'orbit', pivot: 'cursor', sens: 1, invertOrbit: false, invertWheel: false }); mouseSave(); openMouseSettings(); });
+  card.querySelector('[data-ms-reset]').addEventListener('click', () => { Object.assign(MOUSE, MOUSE_DEF); mouseSave(); openMouseSettings(); });
 }
 ov.addEventListener('contextmenu', e => e.preventDefault());
 ov.addEventListener('pointerdown', e => {
@@ -12417,8 +12483,7 @@ ov.addEventListener('pointerdown', e => {
   ptr.pivot = MOUSE.pivot === 'center' ? null : orbitPivotAt(x, y);
   if (e.button === 1) e.preventDefault();
   if (e.button === 1 || e.button === 2) {
-    const act = e.button === 1 ? MOUSE.middle : MOUSE.right;
-    ptr.nav = act === 'none' ? null : e.shiftKey && (act === 'orbit' || act === 'pan') ? (act === 'orbit' ? 'pan' : 'orbit') : act;
+    ptr.nav = mouseAct(e.button, e) || 'none';   // 'none' still lets a click through (menu / fit view) without moving the view
     return;
   }
   if (e.button !== 0) return;
@@ -12439,11 +12504,12 @@ ov.addEventListener('pointermove', e => {
     const dx = x - ptr.x, dy = y - ptr.y;
     ptr.x = x; ptr.y = y;
     if (Math.hypot(x - ptr.x0, y - ptr.y0) > 3) ptr.moved = true;
+    if (ptr.nav === 'none') return;
     if (ptr.nav) {
       ov.classList.add('nav');
       const now = performance.now(), dt = Math.max(1, now - ptr.t), a = Math.min(1, dt / 40);
       ptr.vx = ptr.vx * (1 - a) + (dx / dt) * a; ptr.vy = ptr.vy * (1 - a) + (dy / dt) * a; ptr.t = now;
-      if (ptr.nav === 'orbit') orbitAbout(dx, dy, ptr.pivot); else if (ptr.nav === 'zoom') zoomAt(ptr.x0, ptr.y0, Math.exp(dy * 0.008)); else pan(dx, dy);
+      if (ptr.nav === 'orbit') orbitAbout(dx, dy, ptr.pivot); else if (ptr.nav === 'zoom') zoomAt(ptr.x0, ptr.y0, Math.exp(dy * 0.008)); else if (ptr.nav === 'pan') pan(dx, dy);
       return;
     }
     if (arrowDrag) {
@@ -12487,7 +12553,8 @@ ov.addEventListener('pointerup', e => {
     const idle = performance.now() - was.t;
     if (was.nav === 'orbit' && was.moved && idle < 60 && Math.hypot(was.vx, was.vy) > 0.05 && !REDUCED()) { view.spin = { vx: was.vx, vy: was.vy, pivot: was.pivot }; requestDraw(); }
     if (was.nav === 'pan' && was.moved && idle < 60 && Math.hypot(was.vx, was.vy) > 0.05 && !REDUCED()) { view.glide = { vx: was.vx, vy: was.vy }; requestDraw(); }
-    if (!was.moved && was.btn === 2) { if (S.sk) { if (S.tool === 'select' && S.sel.size && !LIVE.on) contextSketch(e); else if (!sketchCancel()) contextSketch(e); } else if (CMD) cancelCmd(); }
+    if (!was.moved && was.btn === 1 && MOUSE.midClick !== 'none' && !S.sk) { if (MOUSE.midClick === 'home') { animateView({ quat: ISO() }); setTimeout(() => fitAll(), 0); } else fitAll(); }
+    if (!was.moved && was.btn === 2 && MOUSE.rightClick !== 'none') { if (S.sk) { if (S.tool === 'select' && S.sel.size && !LIVE.on) contextSketch(e); else if (!sketchCancel()) contextSketch(e); } else if (CMD) cancelCmd(); }
     scheduleLevelCheck();
     return;
   }
@@ -12508,7 +12575,11 @@ ov.addEventListener('pointerleave', () => { if (!ptr.down) { setHover3D(null); S
 ov.addEventListener('wheel', e => {
   e.preventDefault();
   const { x, y } = local(e);
-  const lg = e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0015) * (MOUSE.invertWheel ? -1 : 1);
+  const lg = e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0015) * (MOUSE.invertWheel ? -1 : 1) * (MOUSE.wheelSpeed || 1);
+  if (MOUSE.wheel === 'none') return;
+  if (MOUSE.wheel === 'orbit') { orbitAbout(e.deltaX * 0.25, e.deltaY * 0.25 * (e.deltaMode === 1 ? 16 : 1), MOUSE.pivot === 'center' ? null : orbitPivotAt(x, y)); return; }
+  if (MOUSE.wheel === 'pan') { pan(-e.deltaX, -e.deltaY * (e.deltaMode === 1 ? 16 : 1)); return; }
+  if (MOUSE.wheelAt === 'center') { zoomAt(W / 2, H / 2, Math.exp(lg)); return; }
   if (REDUCED()) { zoomAt(x, y, Math.exp(lg)); return; }
   view.zq = { x, y, log: (view.zq ? view.zq.log : 0) + lg };
   requestDraw();
@@ -13076,7 +13147,7 @@ const toolName = t => t.wire ? `Wire Ø${fmtLs(t.d)}` : `T${t.n} · ${isIn() ? `
 
 // ── Part, stock and work origin (CAM absolute coordinates) ─────────
 function camPart() {
-  const bs = visibleBodies();
+  const bs = camBodies();
   if (!bs.length) return null;
   // the exact CAM mesh once it is here: the display mesh's chords fall short of a
   // round part's true top and sides by up to the zoom's tolerance
@@ -13095,8 +13166,8 @@ function camStock() {
   if (!p) return null;
   return { x0: p.x0 - s.side, x1: p.x1 + s.side, y0: p.y0 - s.side, y1: p.y1 + s.side, z0: p.z0 - s.bottom, z1: p.z1 + s.top };
 }
-function camOrigin() {
-  const st = camStock(), o = cam().origin;
+function camOrigin(o = cam().origin) {
+  const st = camStock();
   if (!st) return [0, 0, 0];
   if (o === 'top-corner') return [st.x0, st.y0, st.z1];
   if (o === 'bottom-corner') return [st.x0, st.y0, st.z0];
@@ -13133,7 +13204,7 @@ const orient = (path, ccw) => (cArea(path) > 0) === ccw ? path : path.slice().re
 let camGeomCache = { model: null };
 function camGeom() {
   if (camGeomCache.model === MODEL) return camGeomCache;
-  const bodies = visibleBodies(), pos = bodies.map(b => bodyMesh(b).pos);
+  const bodies = camBodies(), pos = bodies.map(b => bodyMesh(b).pos);
   camGeomCache = { model: MODEL, G: binTriangles(camTriangles(pos), 4), pos, faces: null, holes: null };
   // the exact mesh (fixed 0.02 mm chords) for heights and outlines, once it has arrived
   camGeomCache.fineG = camFine.G && camFine.key === camModelKey() ? camFine.G : null;
@@ -13189,7 +13260,7 @@ function horizFaces() {
   const g = camGeom();
   if (g.faces) return g.faces;
   const out = [];
-  for (const b of visibleBodies()) {
+  for (const b of camBodies()) {
     const mesh = bodyMesh(b);
     for (const fid of new Set(mesh.PL.map(p => p.f))) {
       const s = Surf.list[fid];
@@ -13265,7 +13336,7 @@ function camHoles() {
   const g = camGeom();
   if (g.holes) return g.holes;
   const map = new Map();
-  for (const b of visibleBodies()) {
+  for (const b of camBodies()) {
     const mesh = bodyMesh(b);
     for (const fid of new Set(mesh.PL.map(p => p.f))) {
       const s = Surf.list[fid];
@@ -13675,6 +13746,7 @@ const DRILL_CYCLES = {
   bore: { g: 'G86', name: 'Bore, stop the spindle, rapid out', what: 'Feeds in, stops the spindle at the bottom and lifts out at rapid. For boring bars when a light drag mark on the wall is acceptable (roughing a bore).' },
   bored: { g: 'G89', name: 'Bore, pause at the bottom, feed out', what: 'Feeds in, waits at the bottom so the floor cleans up, then feeds back out at the same slow speed. Good for boring a blind hole or a counterbore to a clean floor.' },
   fine: { g: 'G76', name: 'Fine bore (shift off the wall, lift out)', what: 'Feeds in, stops the spindle in a set position, shifts the boring bar off the wall and lifts out at rapid, so the finished wall is never scratched. Needs a machine with spindle orient.' },
+  back: { g: 'G87', name: 'Back bore (through the hole, cut upward)', what: 'The boring bar shifts off the wall, rapids down through the hole, shifts back to center and bores upward to the top of the hole, then shifts off the wall and lifts out. For bores that must be finished from the far side (a bar that cannot turn around). Needs a through hole and spindle orient.' },
   tap: { g: 'G84', name: 'Cut threads', what: 'Goes in exactly one thread-width per turn, reverses at the bottom and winds back out.' },
 };
 // The op's cycle and its numbers, all in mm and seconds. Missing values take the Haas defaults.
@@ -13687,8 +13759,8 @@ function drillSpec(op, tool) {
     i: pecking ? Math.max(0, op.peckFirst || 0) : 0,                // I: first peck (0: use Q)
     j: pecking ? Math.max(0, op.peckReduce || 0) : 0,               // J: take this off each later peck
     k: pecking ? Math.max(0, op.peckMin || 0) : 0,                  // K: never peck less than this
-    p: mode === 'spot' || mode === 'peck' || mode === 'bored' || mode === 'fine' ? Math.max(0, op.dwell || 0) : 0,     // P: dwell at the bottom, seconds
-    shift: mode === 'fine' ? Math.max(0.01, op.shift == null ? 0.2 : op.shift) : 0,                 // Q on G76: how far the bar shifts off the wall
+    p: mode === 'spot' || mode === 'peck' || mode === 'bored' || mode === 'fine' || mode === 'back' ? Math.max(0, op.dwell || 0) : 0,     // P: dwell at the bottom, seconds
+    shift: mode === 'fine' || mode === 'back' ? Math.max(0.01, op.shift == null ? 0.2 : op.shift) : 0,                 // Q on G76: how far the bar shifts off the wall
     ret: op.retPlane === 'r' ? 'G99' : 'G98',
     rpl: op.rPlane == null ? cam().retract : Math.max(0.2, op.rPlane),           // R plane above the stock
     s22: op.chipBack == null ? 1.27 : Math.max(0.01, op.chipBack),             // Setting 22 (0.050")
@@ -13714,6 +13786,13 @@ function drillCycleMoves(P, cy, pt, R, bottom, init, tool, tap) {
   if (cy.mode === 'fine') {                                                                          // G76: feed in, orient, shift off the wall, rapid out, shift back
     go(P.feed, bottom, tool.plunge); dwell(cy.p);
     const q = pt(bottom), u = pt(R); P.rapid(q[0] + cy.shift, q[1], q[2]); P.rapid(u[0] + cy.shift, u[1], u[2]); P.rapid(u[0], u[1], u[2]);
+    if (cy.ret === 'G98') go(P.rapid, init); return;
+  }
+  if (cy.mode === 'back') {                                                                          // G87: shift, rapid through to the far side, shift back, feed up to the top of the hole, shift, rapid out
+    const top = cy.topAt == null ? R - cy.rpl : cy.topAt, q = pt(bottom), u = pt(top), r0 = pt(R);
+    P.rapid(r0[0] + cy.shift, r0[1], r0[2]); P.rapid(q[0] + cy.shift, q[1], q[2]); P.rapid(q[0], q[1], q[2]);
+    P.feed(u[0], u[1], u[2], tool.plunge); dwell(cy.p);
+    P.rapid(u[0] + cy.shift, u[1], u[2]); P.rapid(r0[0] + cy.shift, r0[1], r0[2]); P.rapid(r0[0], r0[1], r0[2]);
     if (cy.ret === 'G98') go(P.rapid, init); return;
   }
   if (cy.mode === 'ream') { go(P.feed, bottom, tool.plunge); go(P.feed, R, tool.plunge); if (cy.ret === 'G98') go(P.rapid, init); return; }
@@ -13959,8 +14038,9 @@ const GEN = {
       if (!region.length) { P.warn.push('No through cut-outs in the chosen faces.'); return; }
       op = { ...op, side: 'inside' };
     } else if (op.faces && op.faces.length) {
-      const sel = resolveCamFaces(op.faces);
+      const sel = resolveCamFaces(op.faces, true);
       if (!sel.length) { P.warn.push('The chosen faces no longer exist.'); return; }
+      if (sel.some(f => f.slope)) P.warn.push('A sloped or curved face is cut flat at its highest point; finish it with a 3D toolpath.');
       for (const f of sel) { const rg = faceRegion(f.mesh, f.fid); if (rg) region.push(orient(cP(rg.outer), true)); }
       const fz = Math.min(...sel.map(f => f.z)), det = contourFaceSide(sel, part);
       if (op.side === 'auto' || op.side === undefined) op = { ...op, side: det.side };            // Auto: follow the open space
@@ -14097,8 +14177,9 @@ const GEN = {
     P.rapid(P.cur[0], P.cur[1], safe);
   },
   pocket(op, tool, st, part, P) {
-    const r = tool.d / 2, sel = resolveCamFaces(op.faces || []);
-    if (!sel.length) { P.warn.push('Pick one or more flat floor faces.'); return; }
+    const r = tool.d / 2, sel = resolveCamFaces(op.faces || [], true);
+    if (!sel.length) { P.warn.push('Pick one or more faces.'); return; }
+    if (sel.some(f => f.slope)) P.warn.push('A sloped or curved face is cleared flat at its highest point; finish it with a 3D toolpath.');
     const safe = st.z1 + cam().safe, ret = st.z1 + cam().retract, so = Math.max(0.05, op.stepover) * tool.d, ml = op.microlift || 0;
     const rect = [cP([P2(st.x0, st.y0), P2(st.x1, st.y0), P2(st.x1, st.y1), P2(st.x0, st.y1)])];
     const openDone = new Set();
@@ -14216,12 +14297,14 @@ const GEN = {
       let bottom = through ? h.bot - (op.through == null ? 1 : op.through) - tip : h.bot;
       if (tap && !through) bottom = h.bot + 2 * pitch;          // leave room for the tap's lead
       if (op.depth > 0) bottom = Math.max(bottom, h.top - op.depth);           // depth into the hole, from its top
-      P.holes.push({ x: h.x, y: h.y, z: bottom, r: R, q: cy.q, mi: P.m.length });
+      const back = cy.mode === 'back';
+      if (back && !through) { P.warn.push(`Back bore needs a through hole: skipped the hole at X${fmtLs(h.x)} Y${fmtLs(h.y)}.`); continue; }
+      P.holes.push(back ? { x: h.x, y: h.y, z: h.top, r: bottom, q: cy.q, mi: P.m.length } : { x: h.x, y: h.y, z: bottom, r: R, q: cy.q, mi: P.m.length });   // G87: Z is the top of the cut, R the far side
       // G98 goes back to the start height between holes; G99 stays at the R plane
       if (!P.cur || cy.ret !== 'G99') P.rapid(h.x, h.y, safe);
       if (cy.ret === 'G99' && P.cur && P.cur[2] > R + 1e-9 && P.m.length > 1) P.rapid(P.cur[0], P.cur[1], R);
       P.rapid(h.x, h.y, R);
-      drillCycleMoves(P, cy, d => [h.x, h.y, d], R, bottom, safe, tool, tap);
+      drillCycleMoves(P, back ? { ...cy, topAt: h.top } : cy, d => [h.x, h.y, d], R, bottom, safe, tool, tap);
     }
     P.rapid(P.cur[0], P.cur[1], safe);
   },
@@ -14392,9 +14475,16 @@ function chamferPasses(refs, tool, extra, leave) {
   }
   return out.filter(p => !p.gone);
 }
-function resolveCamFaces(refs) {
+// any = true also takes sloped and curved faces (2D pocket and contour): they are cut flat, projected onto XY, at the
+// face's highest point so the cutter never gouges the surface (a 3D toolpath finishes it).
+function resolveCamFaces(refs, any) {
   const out = [];
-  for (const ref of refs) { const r = findFace(visibleBodies(), ref); if (r && Surf.list[r.fid].t === 'P' && Math.abs(Surf.list[r.fid].n[1]) > 0.999) { const s = Surf.list[r.fid]; out.push({ mesh: r.mesh, fid: r.fid, z: s.d / s.n[1] }); } }
+  for (const ref of refs) {
+    const r = findFace(visibleBodies(), ref); if (!r) continue;
+    const s = Surf.list[r.fid];
+    if (s.t === 'P' && Math.abs(s.n[1]) > 0.999) out.push({ mesh: r.mesh, fid: r.fid, z: s.d / s.n[1] });
+    else if (any) { const vs = faceVerts(r.mesh, r.fid); if (vs.length) out.push({ mesh: r.mesh, fid: r.fid, z: Math.max(...vs.map(v => v[1])), slope: true }); }
+  }
   return out;
 }
 // Box (machine frame) around chosen faces, cached per model.
@@ -15424,7 +15514,8 @@ function tiltFrame(w, mode, o = [0, 0, 0]) {
   return { code: [`G68.2 X0. Y0. Z0. I${f(al * d)} J${f(be * d)} K0. (tilted work plane)`, 'G53.1'], end: ['G69'], loc: p => [dot3(p, u), dot3(p, v), dot3(p, ww)] };
 }
 function postGcode() {
-  const C = cam(), pf = C.post, grbl = false, o = camOrigin(), part = camPart();          // mills always post Haas (Fanuc-style NGC)
+  const C = cam(), pf = C.post, PF = postProfile(pf), grbl = !!PF.grbl, o = camOrigin(), part = camPart();          // the controller's dialect comes from the profile (cam-post.js); Haas by default
+  if (PF.build) return PF.build();                                                        // a dialect that is not ISO G-code (Heidenhain) builds its own program
   // inches (G20, 4 places) when the display is in inches, else millimeters (G21, 3 places)
   const inch = isIn(), k = inch ? 1 / 25.4 : 1, dp = inch ? 4 : 3;
   const N = v => { v *= k; const s = (Math.abs(v) < 0.5 * Math.pow(10, -dp) ? 0 : v).toFixed(dp).replace(/0+$/, '').replace(/\.$/, '.'); return s === '-0.' ? '0.' : s; };
@@ -15446,20 +15537,21 @@ function postGcode() {
     L.push(w.join(' '));
     st.g = g; if (nx !== null) st.x = nx; if (ny !== null) st.y = ny; if (nz !== null) st.z = nz;
   };
-  if (!grbl) L.push('%', `O${String(pf.program).padStart(5, '0')} (DATUM - HAAS MILL)`);
+  L.push(...PF.head(pf));
   L.push(`(Part: ${doc.features.length} features · generated ${new Date().toISOString().slice(0, 10)})`);
   L.push(`(WCS G54: ${wcsName(C)})`);
   L.push(`(Units: ${inch ? 'inches' : 'millimeters'})`);
   const multi = pf.multi === 'g682' ? 'g682' : 'setup', SU = camSetup();
   if (!grbl && SU) L.push(multi === 'g682' ? '(Indexed ops: G68.2 tilted work plane + G53.1. Check your control has tilted-plane machining enabled.)' : `(Indexed ops on the ${SU.name}: rotation center X${N(SU.c[0] - o[0])} Y${N(SU.c[1] - o[1])} Z${N(SU.c[2] - o[2])} from G54 — set it to your rotary's centerline and check its directions.)`);
-  L.push(grbl ? `${inch ? 'G20' : 'G21'} G90 G94 G17` : `${inch ? 'G20' : 'G21'} G90 G94 G17 G40 G49 G80`, 'G54');
+  L.push(...PF.init(inch), PF.wcs[0]);
+  let wcsNow = 54;
   let lastTool = null, totalMin = 0;
   const ops = C.ops.filter(op => !op.sup);
   for (const op of ops) {
-    const P = toolpath(op);
+    const o = opOrigin(op), P = toolpath(op);
     if (!P || P.pending || P.m.length < 2) { L.push(`(${op.name}: skipped — ${P && P.pending ? 'still computing' : 'no toolpath'})`); continue; }
     const ax = opAxis(op);
-    if (ax && grbl) { L.push(`(${op.name}: skipped — needs the part turned or tilted; GRBL output is 3-axis)`); continue; }
+    if (ax && !PF.indexed) { L.push(`(${op.name}: skipped — needs the part turned or tilted; ${PF.name} output is 3-axis)`); continue; }
     totalMin += pathStats(P).min;
     const fr = ax ? tiltFrame(ax, multi, o) : null;
     const t = P.tool, rel = fr ? m => fr.loc([m.x - o[0], m.y - o[1], m.z - o[2]]) : m => [m.x - o[0], m.y - o[1], m.z - o[2]];
@@ -15468,32 +15560,42 @@ function postGcode() {
     if (grbl && P.tap) L.push('(WARNING: GRBL has no synchronized tapping cycle - use a floating tap holder)');
     if (lastTool !== t.n) {
       if (lastTool !== null) { if (pf.coolant) L.push('M9'); L.push('M5'); if (pf.optStop && !grbl) L.push('M1 (OPTIONAL STOP)'); }
-      L.push(grbl ? `M0 (Change to ${toolName(t)})` : `T${t.n} M6`);
+      L.push(...PF.toolChange(t, toolName(t)));
       L.push(op.kind === 'bsf' ? `S${Math.round(t.rpm)} (SPINDLE STAYS OFF UNTIL THE BLADE IS BELOW THE PART)` : `S${Math.round(t.rpm)} M3`);
       if (pf.coolant && op.kind !== 'bsf') L.push('M8');
       lastTool = t.n; st.g = null; st.x = st.y = st.z = null; st.f = null;
     }
     if (fr) { L.push('G91 G28 Z0. (clear before turning the part)', 'G90', ...fr.code); st.g = null; st.x = st.y = st.z = null; }
     const endFrame = () => { if (fr) { L.push('G91 G28 Z0.', 'G90', ...fr.end); st.g = null; st.x = st.y = st.z = null; } };
+    const wn = 54 + Math.max(0, Math.min(5, (op.wcs | 0) || 0));
+    if (wn !== wcsNow) { L.push(PF.wcs[wn - 54], `(WORK OFFSET G${wn}: ${wcsLabel(wn)})`); wcsNow = wn; st.g = null; st.x = st.y = st.z = null; }
     const m0 = rel(P.m[0]);
     L.push(`G0 X${N(m0[0])} Y${N(m0[1])}`); st.g = 'G0'; st.x = N(m0[0]); st.y = N(m0[1]);
-    if (!grbl) { L.push(`G43 H${t.n} Z${N(m0[2])}`); st.z = N(m0[2]); } else move('G0', null, null, m0[2]);
-    if (isDrillOp(op) && P.holes && !grbl && fr) {
+    const tl = PF.tlc(t, N(m0[2])); if (tl) { L.push(tl); st.z = N(m0[2]); } else move('G0', null, null, m0[2]);
+    const cyc = isDrillOp(op) && P.holes ? (P.cycle || drillSpec(op, t)) : null, canned = !!cyc && PF.canned(cyc.mode, t);
+    if (cyc && !canned) L.push(`(${DRILL_CYCLES[cyc.mode].g} ${PF.name}: no canned cycle for this, posted as moves)`);
+    if (canned && PF.cycleLines && !fr) {                                        // controls with their own cycle syntax (Siemens CYCLEnn)
+      L.push(...PF.cycleLines(cyc, P, t, { N, F, o, safe: camStock().z1 + C.safe, mark: i => { SRC = { op: op.id, mi: i }; } }));
+      SRC = { op: op.id, mi: P.m.length - 1 }; L.push(...PF.cycleEnd());
+      const last = P.m[P.m.length - 1]; L.push(`G0 Z${N(last.z - o[2])}`); st.g = 'G0'; st.z = N(last.z - o[2]);
+      continue;
+    }
+    if (canned && fr) {
       // canned cycles in the turned / tilted frame: every point of a hole shares its X Y there
-      const lc = v => fr.loc([v[0] - o[0], v[1] - o[1], v[2] - o[2]]), cy = P.cycle || drillSpec(op, t);
-      L.push(...cycleNotes(cy, P, N));
-      P.holes.forEach((hh, k) => { SRC = { op: op.id, mi: (P.holes[k + 1] ? P.holes[k + 1].mi : P.m.length) - 1 }; const B = lc(hh.bottom), Rr = lc(hh.r); L.push(k ? `X${N(B[0])} Y${N(B[1])} Z${N(B[2])} R${N(Rr[2])}` : `G98 ${cy.g} X${N(B[0])} Y${N(B[1])} Z${N(B[2])} R${N(Rr[2])}${cycleWords(cy, N)} F${P.tap ? N(P.tap.feed) : F(t.plunge)}${cy.tapJ > 1 ? ' J' + cy.tapJ : ''}`); });
+      const lc = v => fr.loc([v[0] - o[0], v[1] - o[1], v[2] - o[2]]), cy = cyc;
+      L.push(...cycleNotes(cy, P, N, PF));
+      P.holes.forEach((hh, k) => { SRC = { op: op.id, mi: (P.holes[k + 1] ? P.holes[k + 1].mi : P.m.length) - 1 }; const B = lc(hh.bottom), Rr = lc(hh.r); L.push(k ? `X${N(B[0])} Y${N(B[1])} Z${N(B[2])} R${N(Rr[2])}` : `G98 ${cy.g} X${N(B[0])} Y${N(B[1])} Z${N(B[2])} R${N(Rr[2])}${cycleWords(cy, N, PF)} F${P.tap ? N(P.tap.feed) : F(t.plunge)}${cy.tapJ > 1 ? ' J' + cy.tapJ : ''}`); });
       SRC = { op: op.id, mi: P.m.length - 1 };
       L.push('G80');
       endFrame();
       continue;
     }
-    if (isDrillOp(op) && P.holes && !grbl) {
-      const hs = P.holes, first = hs[0], rr = N(Math.max(...hs.map(h => h.r)) - o[2]), cy = P.cycle || drillSpec(op, t);
-      L.push(...cycleNotes(cy, P, N));
+    if (canned) {
+      const hs = P.holes, cy = cyc, first = hs[0], rr = N((cy.mode === 'back' ? Math.min : Math.max)(...hs.map(h => h.r)) - o[2]);
+      L.push(...cycleNotes(cy, P, N, PF));
       const holeEnd = k => (hs[k + 1] ? hs[k + 1].mi : P.m.length) - 1;       // a hole's line covers every move of its cycle
       SRC = { op: op.id, mi: holeEnd(0) };
-      L.push(`${cy.ret} ${cy.g} X${N(first.x - o[0])} Y${N(first.y - o[1])} Z${N(first.z - o[2])} R${rr}${cycleWords(cy, N)} F${P.tap ? N(P.tap.feed) : F(t.plunge)}${cy.tapJ > 1 ? ' J' + cy.tapJ : ''}`);
+      L.push(`${cy.ret} ${cy.g} X${N(first.x - o[0])} Y${N(first.y - o[1])} Z${N(first.z - o[2])} R${rr}${cycleWords(cy, N, PF)} F${P.tap ? N(P.tap.feed) : F(t.plunge)}${cy.tapJ > 1 ? ' J' + cy.tapJ : ''}`);
       let zPrev = N(first.z - o[2]);
       for (const [k, h] of hs.entries()) { if (!k) continue; SRC = { op: op.id, mi: holeEnd(k) }; const zz = N(h.z - o[2]); L.push(`X${N(h.x - o[0])} Y${N(h.y - o[1])}${zz !== zPrev ? ' Z' + zz : ''}`); zPrev = zz; }
       SRC = { op: op.id, mi: P.m.length - 1 };
@@ -15532,7 +15634,7 @@ function postGcode() {
       const m = P.m[i];
       SRC = { op: op.id, mi: i };
       if (m.code) L.push(...m.code);
-      if (m.g12 && !grbl && !fr) {
+      if (m.g12 && PF.g12 && !fr) {
         const g = m.g12;
         SRC = { op: op.id, mi: g.end };
         L.push(`(CIRCULAR POCKET R${N(g.K)} - G12 CLOCKWISE, TOOL-CENTER RADII, NO CUTTER COMP. G13 IS THE COUNTERCLOCKWISE TWIN)`,
@@ -15540,7 +15642,7 @@ function postGcode() {
         st.g = null; st.x = N(g.cx - o[0]); st.y = N(g.cy - o[1]); st.z = N(g.zEnd - o[2]); st.f = null;
         i = g.end + 1; continue;
       }
-      if (m.hold) { if (m.dw) L.push(`G4 P${+m.dw.toFixed(2)}`); i++; continue; }
+      if (m.hold) { if (m.dw) L.push(PF.dwell(m.dw)); i++; continue; }
       if (m.r) { const p = rel(m); move('G0', p[0], p[1], p[2]); i++; continue; }
       let j = i;
       while (j + 1 < P.m.length && !P.m[j + 1].r && !P.m[j + 1].hold && !P.m[j + 1].tool && !P.m[j + 1].code && Math.abs(P.m[j + 1].z - m.z) < 1e-9 && P.m[j + 1].f === m.f && Math.abs(P.m[i - 1].z - m.z) < 1e-9) j++;
@@ -15564,23 +15666,26 @@ function postGcode() {
   SRC = null;
   if (pf.coolant) L.push('M9');
   L.push('M5');
-  L.push(grbl ? 'G0 Z' + N(camStock().z1 + C.safe - o[2]) : 'G28 G91 Z0.', grbl ? 'M2' : 'G90');
-  if (!grbl) L.push('M30', '%');
-  return { text: L.join('\n'), lines: L.length, min: totalMin + (ops.length ? 0.15 * new Set(ops.map(x => x.tool)).size : 0), part, map: MAP };
+  L.push(...PF.end(N(camStock().z1 + C.safe - o[2])));
+  if (PF.semi) for (let i = 0; i < L.length; i++) L[i] = PF.semi(L[i]);                // ; comments instead of ( )
+  if (pf.lineNums) { let n = 0; const step = Math.max(1, Math.round(pf.lineStep || 10)); for (let i = 0; i < L.length; i++) if (L[i] !== '%' && L[i] !== '') { n += step; L[i] = `N${n} ${L[i]}`; } }
+  return { text: L.join('\n'), ext: PF.ext, ctrl: PF.name, lines: L.length, min: totalMin + (ops.length ? 0.15 * new Set(ops.map(x => x.tool)).size : 0), part, map: MAP };
 }
 // The words that shape a canned cycle: Q (or I J K) for pecking, P for a dwell (seconds).
-function cycleWords(cy, N) {
+function cycleWords(cy, N, PF) {
   let w = '';
   if (cy.mode === 'peck' || cy.mode === 'chip') w += cy.i > 0 ? ` I${N(cy.i)} J${N(cy.j)} K${N(cy.k > 0 ? cy.k : Math.min(cy.i, cy.q))}` : ` Q${N(cy.q)}`;
-  if (cy.mode === 'fine') w += ` Q${N(cy.shift)}`;
-  if (cy.p > 0) { const v = +cy.p.toFixed(3); w += ` P${Number.isInteger(v) ? v + '.' : v}`; }
+  if (cy.mode === 'fine' || cy.mode === 'back') w += ` Q${N(cy.shift)}`;
+  if (cy.p > 0) w += ` P${PF ? PF.cycP(cy.p) : (Number.isInteger(+cy.p.toFixed(3)) ? +cy.p.toFixed(3) + '.' : +cy.p.toFixed(3))}`;
   return w;
 }
 // Comments for what the cycle relies on that lives on the control, not in the program.
-function cycleNotes(cy, P, N) {
+function cycleNotes(cy, P, N, PF) {
   const u = isIn() ? ' IN' : ' MM', out = [];
+  if (PF && PF.notes) return PF.notes(cy, P, N);
   if (cy.mode === 'tap') out.push(`(RIGID TAP G84 - PITCH ${fmtLs(P.tap.pitch, 4)}, F = RPM X PITCH${cy.tapJ > 1 ? `, J${cy.tapJ} RETRACTS ${cy.tapJ}X FASTER` : ''})`);
   if (cy.mode === 'fine') out.push(`(G76 FINE BORE - Q${N(cy.shift)} SHIFTS THE BAR OFF THE WALL, THE SPINDLE ORIENTS FIRST - CHECK SETTING 27 FOR THE SHIFT DIRECTION)`);
+  if (cy.mode === 'back') out.push(`(G87 BACK BORE - Q${N(cy.shift)} SHIFTS THE BAR OFF THE WALL, R IS THE FAR SIDE, Z IS THE TOP OF THE CUT - THE SPINDLE ORIENTS FIRST, CHECK SETTING 27 FOR THE SHIFT DIRECTION)`);
   if (cy.mode === 'bore') out.push('(G86 BORE - THE SPINDLE STOPS AT THE BOTTOM, THEN RAPID OUT)');
   if (cy.mode === 'chip') out.push(`(G73 BACKS OFF SETTING 22 = ${N(cy.s22)}${u} BETWEEN PECKS - CHECK SETTING 22)`);
   if (cy.mode === 'peck') out.push(`(G83 STOPS ITS RAPID SETTING 22 = ${N(cy.s22)}${u} ABOVE THE LAST PECK${cy.s52 > 0 ? `, RETRACTS SETTING 52 = ${N(cy.s52)}${u} ABOVE R` : ''} - CHECK THE SETTINGS)`);
@@ -15588,7 +15693,7 @@ function cycleNotes(cy, P, N) {
 }
 function downloadGcode() {
   const g = postGcode();
-  download(`datum-O${cam().post.program}.nc`, new Blob([g.text], { type: 'text/plain' }));
+  download(postFileName(), new Blob([g.text], { type: 'text/plain' }));
   toast('G-code saved');
 }
 
@@ -15764,7 +15869,7 @@ function camSetFinish(op, um) {
 function camToggleFace(op, h) {
   const s = Surf.list[h.fid];
   if (op.type === 'chamfer') { if (!chamferEdge(h.mesh, h.fid, 'any')) { toast('Pick a sloped flat or conical face (a chamfer, draft or countersink).'); return; } }
-  else if (s.t !== 'P' || Math.abs(s.n[1]) < 0.999) { toast('Pick a flat, horizontal face.'); return; }
+  else if (op.type !== 'pocket' && op.type !== 'contour' && (s.t !== 'P' || Math.abs(s.n[1]) < 0.999)) { toast('Pick a flat, horizontal face.'); return; }
   const fi = faceInfo(h.mesh, h.fid), ref = faceRef(h.mesh, h.fid, fi.on);
   const i = op.faces.findIndex(r => { const f = findFace(visibleBodies(), r); return f && f.fid === h.fid; });
   const faces = op.faces.slice();
@@ -15780,7 +15885,7 @@ function camMove(x, y) {
   }
   if (op && (op.type === 'pocket' || op.type === 'contour')) {
     const h = pick3D(x, y, { faces: true });
-    const ok = h && h.kind === 'face' && Surf.list[h.fid].t === 'P' && Math.abs(Surf.list[h.fid].n[1]) > 0.999;
+    const ok = h && h.kind === 'face';
     setHover3D(ok ? h : null); ov.className = ok ? 'pointer' : 'default'; return;
   }
   if (op && op.type === 'drill') {
@@ -15824,10 +15929,12 @@ function chainTravel(c) {
 }
 // Grow a run of connected, level edges out of one edge: at every vertex take the one that continues most smoothly.
 // whole = false gives just that one edge. Returns { z, closed, pts, eks } or null when the edge is not level.
-function buildChain(mesh, seed, whole) {
-  if (!chainFlat(seed)) return null;
-  const z = seed.pts[0][1], pt = p => P2(p[0], -p[2]);
-  const flat = edgeChains(mesh).filter(c => chainFlat(c) && Math.abs(c.pts[0][1] - z) < CHAIN_Z_TOL);
+function buildChain(mesh, seed, whole, fid, only) {
+  // a level edge grows only through level edges at its height; any other edge (sloped, curved in 3D, an edge of a
+  // slanted face) is projected flat onto XY like a Mastercam 2D chain, at the height of its highest point
+  const level = chainFlat(seed), pt = p => P2(p[0], -p[2]);
+  const z0 = level ? seed.pts[0][1] : Math.max(...seed.pts.map(p => p[1]));
+  const flat = edgeChains(mesh).filter(c => (!only || only.has(c)) && (fid == null || c.fa === fid || c.fb === fid) && (!level || (chainFlat(c) && Math.abs(c.pts[0][1] - z0) < CHAIN_Z_TOL)));
   let seq = seed.pts.map(p => p), eks = [chainEdgeKey(seed)], closed = !!seed.closed;
   const k0 = chainKey(seq[0]);
   if (closed && chainKey(seq[seq.length - 1]) === k0) seq.pop();
@@ -15868,6 +15975,7 @@ function buildChain(mesh, seed, whole) {
   for (const p of seq) { const q = [+p[0].toFixed(4), +(-p[2]).toFixed(4)]; const l = out[out.length - 1]; if (!l || Math.hypot(l[0] - q[0], l[1] - q[1]) > 1e-5) out.push(q); }
   if (closed && out.length > 1 && Math.hypot(out[0][0] - out[out.length - 1][0], out[0][1] - out[out.length - 1][1]) < 1e-5) out.pop();
   if (out.length < 2) return null;
+  const z = level ? z0 : Math.max(...seq.map(p => p[1]));
   return { z: +z.toFixed(4), closed, pts: out, eks };
 }
 const chainLength = c => { const p = chainTravel(c); let L = 0; for (let i = 1; i < p.length; i++) L += dst2(p[i - 1], p[i]); if (c.closed) L += dst2(p[p.length - 1], p[0]); return L; };
@@ -16289,13 +16397,22 @@ const chainIsCircle = op => op.cm === 'drill' || op.cm === 'circle';   // modes 
 const isDrillOp = op => op.type === 'drill' || (op.type === 'chain' && op.cm === 'drill');
 
 // ── Picking ──
+// the same warning raised by many chains reads once, with a count
+const warnList = ws => { const n = new Map(); for (const w of ws) n.set(w, (n.get(w) || 0) + 1); return [...n].map(([w, k]) => k > 1 ? `${w} (×${k})` : w); };
 const CHAINUI = { mode: 'single', hover: null, hoverKey: '', startFor: null };
 function chainPickAt(x, y) {
   const e = pickEdge(x, y, visibleBodies(), 8);
-  return e && chainFlat(e.ch) ? e : null;
+  if (e) return e;
+  // no edge under the pointer: any face (flat, sloped, curved) offers its outline, like clicking a surface in Mastercam
+  const h = pick3D(x, y, { faces: true });
+  if (!h || h.kind !== 'face') return null;
+  const cs = edgeChains(h.mesh).filter(c => c.fa === h.fid || c.fb === h.fid);
+  if (!cs.length) return null;
+  const ch = cs.reduce((a, b) => (b.len > a.len ? b : a));
+  return { mesh: h.mesh, ch, fid: h.fid };
 }
 function chainAdd(op, e, whole, additive) {
-  const key = chainEdgeKey(e.ch), nc = buildChain(e.mesh, e.ch, whole);
+  const key = chainEdgeKey(e.ch), nc = buildChain(e.mesh, e.ch, whole || (e.fid != null && !chainIsCircle(op)), e.fid);
   if (!nc) return;
   const before = snap(), cur = (op.chains || []).slice();
   const hit = cur.findIndex(c => (c.eks || []).includes(key));
@@ -16321,16 +16438,16 @@ function chainClick(op, x, y, ev) {
     camRefresh(); return;
   }
   const e = chainPickAt(x, y);
-  if (!e) { toast('Click an edge that lies flat (at one height). Sloped and vertical edges are not part of a 2.5D chain.'); return; }
+  if (!e) { toast('Click an edge or a face of the part to chain it.'); return; }
   const add = ev && (ev.shiftKey || ev.ctrlKey || ev.metaKey) || chainIsCircle(op);
   chainAdd(op, e, CHAINUI.mode === 'chain' && !chainIsCircle(op), add);
 }
 function chainMove(op, x, y) {
   if (CHAINUI.startFor != null) { setHover3D(null); ov.className = 'pointer'; return; }
-  const e = chainPickAt(x, y), key = e ? chainEdgeKey(e.ch) + CHAINUI.mode : '';
+  const e = chainPickAt(x, y), key = e ? chainEdgeKey(e.ch) + CHAINUI.mode + (e.fid ?? '') : '';
   if (key !== CHAINUI.hoverKey) {
     CHAINUI.hoverKey = key;
-    CHAINUI.hover = e ? buildChain(e.mesh, e.ch, CHAINUI.mode === 'chain' && !chainIsCircle(op)) : null;
+    CHAINUI.hover = e ? buildChain(e.mesh, e.ch, !chainIsCircle(op) && (CHAINUI.mode === 'chain' || e.fid != null), e.fid) : null;
     requestDraw();
   }
   setHover3D(null);
@@ -16576,8 +16693,8 @@ function drillCycleFields(op) {
     if (cy.i > 0) h += fld(`<div class="row2">${num('opPkJ', op.peckReduce || 0, 'How much smaller each bite?', 0.1, 'min="0"')}${num('opPkK', op.peckMin || 0, 'Smallest bite allowed', 0.1, 'min="0"')}</div>`,
       'Chips pack tighter the deeper the hole gets, so each bite after the first is a little smaller. It never goes smaller than the smallest bite.');
   }
-  if (m === 'fine') h += fld(`<div class="row2">${num('opShift', cy.shift, 'Shift off the wall', 0.05, 'min="0.01"')}</div>`, 'How far the boring bar moves away from the wall before it lifts out (the Q word). The direction is the machine\'s own setting.');
-  if (m === 'spot' || m === 'peck' || m === 'bored' || m === 'fine') h += fld(`<div class="row2"><label class="field"><span>Wait at the bottom for how long? (seconds)</span><input type="number" id="opDwell" data-cam-input="1" step="0.1" min="0" value="${+(op.dwell || 0).toFixed(3)}"></label></div>`,
+  if (m === 'fine' || m === 'back') h += fld(`<div class="row2">${num('opShift', cy.shift, 'Shift off the wall', 0.05, 'min="0.01"')}</div>`, 'How far the boring bar moves away from the wall before it lifts out (the Q word). The direction is the machine\'s own setting.');
+  if (m === 'spot' || m === 'peck' || m === 'bored' || m === 'fine' || m === 'back') h += fld(`<div class="row2"><label class="field"><span>Wait at the bottom for how long? (seconds)</span><input type="number" id="opDwell" data-cam-input="1" step="0.1" min="0" value="${+(op.dwell || 0).toFixed(3)}"></label></div>`,
     'A short pause at the bottom lets the point clean up the floor. 0 means no pause.');
   h += fld(`<div class="row2">${num('opRpl', cy.rpl, 'Where does the slow drilling start? (height above the part)', 0.5, 'min="0.2"')}<div class="field"><span>How much to retract after each hole?</span><div class="seg"><button data-opset="retPlane:init" class="${cy.ret === 'G98' ? 'on' : ''}" title="Lift all the way up to the safe height before moving on">All the way up</button><button data-opset="retPlane:r" class="${cy.ret === 'G99' ? 'on' : ''}" title="Lift only to the slow-drilling height before moving on">Just a little</button></div></div></div>`,
     'The machine moves fast down to the starting height, then drills slowly from there. <b>All the way up</b> lifts to the safe height between holes, which is safe over clamps. <b>Just a little</b> only lifts to the starting height, which is faster, but only use it if nothing sticks up between the holes.');
@@ -16717,7 +16834,7 @@ function camPanel() {
     if (op.type === 'surf') f += surfFields(op);
     { const fb = ['parallel', 'chamfer', 'contour', 'pocket'].includes(op.type) && !op.rough ? finishBlock(op, toolOf(op.tool)) : ''; if (fb) f += `<h3 class="sub">Surface finish</h3>${fb}`; }
     f += feedsCard(op);
-    const warn = P && P.warn.length ? P.warn.map(w => `<p class="note err-note">${w}</p>`).join('') : '';
+    const warn = P && P.warn.length ? warnList(P.warn).map(w => `<p class="note err-note">${w}</p>`).join('') : '';
     const info = P && P.pending ? '<p class="note"><span class="spin"></span> Computing the 3D toolpath in the background…</p>' : stats ? `<dl class="kv"><dt>Cutting</dt><dd>${fmtRun(stats.feedLen)}</dd><dt>Rapids</dt><dd>${fmtRun(stats.rapidLen)}</dd><dt>Machining time</dt><dd>${fmtTime(stats.min)}</dd>${P.info ? `<dt>Detail</dt><dd>${P.info}</dd>` : ''}</dl>` : '';
     return `<div class="pn-head"><h2 id="opNameH" title="Double-click to rename">${op.name}</h2><span class="tag">${OP_INFO[op.type].name}</span></div><div class="pn-body">
       <p class="note">${OP_INFO[op.type].tip}</p>${f}${warn}${info}
@@ -19689,7 +19806,7 @@ function bodyExportMenu(id, x, y) {
   ov.addEventListener('pointerup', e => {
     if (!rc || e.button !== 2) return;
     const { x, y } = local(e), r0 = rc; rc = null;
-    if (Math.hypot(x - r0.x, y - r0.y) > 3 || !live()) return;
+    if (Math.hypot(x - r0.x, y - r0.y) > 3 || !live() || MOUSE.rightClick === 'none') return;
     const h = pick3D(x, y, { faces: true });
     if (!h || h.body == null) return;
     if (SELMODE === 'body' && !(sel3D && sel3D.kind === 'body' && sel3D.body === h.body)) { sel3D = { kind: 'body', body: h.body, fid: h.fid, mesh: h.mesh, point: h.point }; selProfiles.length = 0; selEdges.length = 0; rebuildHighlights(); refreshPanel(); requestDraw(); }
@@ -20435,7 +20552,7 @@ function autoDetect() {
   const holes = new Map(), threads = new Map(), needs = [];
   let minCornerR = Infinity, minConcave3D = Infinity, freeform = 0;
   const floors = [], cutoutFaces = [], dovetails = [];
-  for (const b of visibleBodies()) {
+  for (const b of camBodies()) {
     const mesh = bodyMesh(b), fids = [...new Set(mesh.PL.map(p => p.f))], skipFacet = new Set();
     const dts = detectDovetails(mesh, part), dtF = new Set(dts.flatMap(g => g.fids));
     dovetails.push(...dts);
@@ -21486,7 +21603,7 @@ function buildSheetData() {
   return {
     doc: { title: `Setup Sheet – ${partName}`, subtitle: `${M.name} · ${ops.length} operation${ops.length === 1 ? '' : 's'} · ${axes}-axis part${axes > 3 ? ' (this program is the 3-axis portion)' : ''}`, meta: new Date().toLocaleDateString(), fileName: `setup-sheet-${partName.toLowerCase()}` },
     tables: {
-      0: { title: 'Job Info', rows: [['Part #', partName], ['Program', `O${C.post.program}`], ['Machine', `Haas ${axes > 3 ? axes + '-axis' : '3-axis'} VMC`], ['Operation', 'OP1 – Top side'], ['Cycle time', g ? `${fmtClock2(g.min)} (est.)` : '—']] },
+      0: { title: 'Job Info', rows: [['Part #', partName], ['Program', `O${C.post.program}`], ['Machine', `${postProfile(C.post).name} ${axes > 3 ? axes + '-axis' : '3-axis'} VMC`], ['Operation', 'OP1 – Top side'], ['Cycle time', g ? `${fmtClock2(g.min)} (est.)` : '—']] },
       1: { title: 'Stock & Workholding', rows: [['Material', M.name], ['Stock size', size.map(v => inch(v)).join(' × ')], ['Vise', '6" machinist vise'], ['Parallels', st ? `Stock ≥ ${inch(above)} above jaws` : ''], ['Above jaws', `${inch(above)} min.`]] },
       2: { title: 'Work Offset', rows: [['Offset', 'G54'], ['X0', xyz.x], ['Y0', xyz.y], ['Z0', xyz.z], ['Found with', 'Edge finder / probe']] },
       3: { title: 'Tool Info', rows: toolRows.length ? toolRows : [[false, '', 'No tools yet', '']] },
@@ -22622,7 +22739,7 @@ function simToolTo(t) {
 //  the console prints the last 300 steps as a table.
 // ═══════════════════════════════════════════════════════════════════
 const Trace = {
-  on: true, buf: [], t0: performance.now(),
+  on: false, buf: [], t0: performance.now(), t0w: Date.now(), busy: false, cap: 4000,
   ctx() {
     const c = { ws: typeof UIX !== 'undefined' ? UIX.ws : '' };
     if (typeof S !== 'undefined' && S.sk) { c.sketch = S.sk.name; c.tool = S.tool; }
@@ -22631,15 +22748,19 @@ const Trace = {
     return c;
   },
   log(kind, what, data, level) {
-    const e = { t: +((performance.now() - this.t0) / 1000).toFixed(2), kind, what: String(what).slice(0, 120), ...this.ctx() };
-    this.buf.push(e); if (this.buf.length > 300) this.buf.shift();
-    if (!this.on && level !== 'error') return;
+    const e = { t: +((performance.now() - this.t0) / 1000).toFixed(2), ts: Date.now(), kind, what: String(what).slice(0, 200), ...this.ctx() };
+    if (data !== undefined) { try { e.data = data instanceof Error ? data.message : JSON.stringify(data).slice(0, 300); } catch (x) { e.data = '[unserializable]'; } }
+    if (level) e.level = level;
+    this.n = (this.n || 0) + 1;
+    this.buf.push(e); if (this.buf.length > this.cap * 1.25) this.buf.splice(0, this.buf.length - this.cap);   // ring buffer: cheap, never grows
+    if (!this.on || this.busy) return;
+    this.busy = true;
     const col = { click: '#2460c8', key: '#8b4fd0', call: '#1d8656', field: '#b46a00', view: '#0f7c8c', perf: '#c0392f', feature: '#c0392f', error: '#c0392f' }[kind] || '#778291';
     const args = [`%c[Datum ${e.t}s]%c ${kind}%c ${e.what}`, 'color:#778291', `color:${col};font-weight:600`, 'color:inherit'];
     const ctx = this.ctx();
     if (data !== undefined) args.push(data);
     if (Object.keys(ctx).length > 1 || ctx.ws !== 'design') args.push(ctx);
-    (level === 'error' ? console.error : level === 'warn' ? console.warn : console.log)(...args);
+    try { (level === 'error' ? console.error : level === 'warn' ? console.warn : console.log)(...args); } finally { this.busy = false; }
   },
   toggle() {
     this.on = !this.on;
@@ -22648,8 +22769,9 @@ const Trace = {
     if (typeof toast === 'function') toast('Debug log ' + (this.on ? 'on (browser console)' : 'off'));
   },
 };
-try { Trace.on = localStorage.getItem('datum.trace') !== '0'; } catch (e) { /* default on */ }
-window.datumTrace = () => { console.table(Trace.buf); return Trace.buf.length + ' steps'; };
+try { Trace.on = localStorage.getItem('datum.trace') === '1'; } catch (e) { /* default off: the log is kept in memory and exported from the top bar */ }
+if (window.__earlyHook) window.__earlyHook(ev => Trace.buf.push({ t: +((ev.ts - Trace.t0w) / 1000).toFixed(2), ts: ev.ts, kind: ev.kind, what: ev.what, level: ev.level, ws: 'design' }));
+window.datumTrace = () => { console.table(Trace.buf.slice(-300)); return Trace.buf.length + ' steps'; };
 
 (() => {
   const short = s => String(s || '').replace(/\s+/g, ' ').trim().slice(0, 60);
@@ -22672,7 +22794,7 @@ window.datumTrace = () => { console.table(Trace.buf); return Trace.buf.length + 
     const el = ev.target;
     if (!el.matches || !el.matches('input, select, textarea')) return;
     const key = el.id || Object.entries(el.dataset).map(([k, v]) => k + '=' + v).join(' ') || el.name || el.type;
-    Trace.log('field', key, el.type === 'checkbox' ? el.checked : el.value);
+    Trace.log('field', key, el.type === 'checkbox' ? el.checked : el.type === 'password' || /pass|secret|token|key\b/i.test(key) ? '[hidden]' : el.value);
   }, true);
   window.addEventListener('keydown', ev => {
     const ae = document.activeElement, typing = ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA');
@@ -22721,8 +22843,8 @@ window.datumTrace = () => { console.table(Trace.buf); return Trace.buf.length + 
 
   // errors, with the steps that led to them
   const trail = () => Trace.buf.slice(-25).map(e => `${e.t}s ${e.kind}: ${e.what}${e.cmd ? ' [' + e.cmd + ']' : ''}`).join('\n');
-  window.addEventListener('error', ev => { Trace.log('error', `${ev.message} (${(ev.filename || '').split('/').pop()}:${ev.lineno})`, undefined, 'error'); console.error('[Datum] steps before the error:\n' + trail()); });
-  window.addEventListener('unhandledrejection', ev => { Trace.log('error', 'Unhandled promise rejection: ' + (ev.reason && ev.reason.message || ev.reason), ev.reason, 'error'); console.error('[Datum] steps before the error:\n' + trail()); });
+  // errors and rejections are recorded by the early capture script (page load onwards); show the steps that led to them in the console
+  window.addEventListener('error', () => { if (Trace.on) console.error('[Datum] steps before the error:\n' + trail()); }); window.addEventListener('unhandledrejection', () => { if (Trace.on) console.error('[Datum] steps before the error:\n' + trail()); });
 
   // feature errors as they appear in the timeline
   let lastErr = {};
@@ -22773,7 +22895,7 @@ function roundAxis() {
   const part = camPart();
   if (!part) return null;
   let best = null;
-  for (const b of visibleBodies()) {
+  for (const b of camBodies()) {
     const mesh = bodyMesh(b);
     for (const fid of new Set(mesh.triF)) {
       const s = Surf.list[fid];
@@ -25396,10 +25518,10 @@ function airSlabAt(model, z) {
   const m = model.layerAbove(z);
   return m < model.lv.length && Math.abs(model.lv[m] - z) < 1e-3 ? m : m - 1;           // the slab the tip is in (or sits on)
 }
-function airEngaged(model, a, b, tool) {
+function airEngaged(model, a, b, tool, margin = 0.05) {
   const j = Math.max(0, airSlabAt(model, Math.min(a.z, b.z) + 0.02));
   if (j >= model.n) return false;
-  return airPolyHits(model.eff(j), a, b, tool.d / 2 + 0.05);
+  return airPolyHits(model.eff(j), a, b, tool.d / 2 + margin);
 }
 // Highest material along a hop (a corridor the tool's width + 1 mm): slabs are nested, so search.
 function airTopAlong(model, a, b, r) {
@@ -25425,13 +25547,30 @@ function camOptimizeAll() {
     const P = raws[k], tool = P.tool, ax = opAxis(op), m0 = P.m;
     const fixed = !!ax || isDrillOp(op) || !!op.safeLinks || !flatBottom(tool) && tool.type !== 'ball' && tool.type !== 'chamfer';
     let m = m0.map(x => ({ ...x }));
-    let airLen = 0, feedLen = 0, lowered = 0, n = 0;
+    let airLen = 0, feedLen = 0, lowered = 0, n = 0, restLost = 0;
     if (!fixed) {
       // one walk through the moves, each judged against the stock as it is at that moment
       // (cuts not yet merged into the model still count as material: every call errs safe)
-      const outM = [m[0]];
+      const outM = [m[0]], rest = !!op.restStock;                     // rest: moves through ground the earlier operations already cleared are dropped
+      let skipped = false, restDrop = 0;
       for (let i = 1; i < m.length; i++) {
-        const b = m[i], A = outM[outM.length - 1];
+        const b = m[i];
+        if (rest && b.r && skipped) continue;                         // hops between removed moves are planned again when cutting resumes
+        if (rest && !b.r) {
+          const Ao = m[i - 1], Lo = Math.hypot(b.x - Ao.x, b.y - Ao.y, b.z - Ao.z);
+          if (!airEngaged(model, Ao, b, tool, -0.03)) { skipped = true; restDrop += Lo; feedLen += Lo; continue; }
+          if (skipped) {                                              // cutting resumes: hop from where the tool is to where this cut starts
+            const F0 = outM[outM.length - 1];
+            if (Math.hypot(F0.x - Ao.x, F0.y - Ao.y, F0.z - Ao.z) > 1e-6) {
+              const top = airTopAlong(model, F0, Ao, tool.d / 2 + 1), hh = inStock(F0) && inStock(Ao) ? Math.max(F0.z, Ao.z, (isFinite(top) ? top : st.z0) + AIR.clear) : Math.max(F0.z, Ao.z, ret);
+              if (F0.z < hh - 1e-6) outM.push({ x: F0.x, y: F0.y, z: hh, r: 1 });
+              outM.push({ x: Ao.x, y: Ao.y, z: hh, r: 1 });
+              if (Ao.z < hh - 1e-6) { const zz = Math.min(hh, Ao.z + 1); if (zz > Ao.z + 1e-6) outM.push({ x: Ao.x, y: Ao.y, z: zz, r: 1 }); outM.push({ ...Ao, r: 0, f: tool.plunge }); }
+            }
+            skipped = false;
+          }
+        }
+        const A = outM[outM.length - 1];
         if (b.r) {
           // a hop: up, across, down — only as high as the stock along the way needs
           let j = i; while (j + 1 < m.length && m[j + 1].r) j++;
@@ -25456,15 +25595,17 @@ function camOptimizeAll() {
         if (++n % 48 === 0) model.flush();
         outM.push(b);
       }
+      if (skipped) { const F0 = outM[outM.length - 1]; outM.push({ x: F0.x, y: F0.y, z: Math.max(F0.z, ret), r: 1 }); }
       model.flush();
-      m = outM;
+      m = outM; restLost = restDrop;
     } else {
       for (let i = 1; i < m.length; i++) { const a = m[i - 1], b = m[i]; if (!b.r) model.cut(a, b, tool, false, ax); if (++n % 48 === 0) model.flush(); }
       model.flush();
     }
     const Q = Object.assign(Object.create(Object.getPrototypeOf(P)), P, { m });
     if (airLen > 0.5 || lowered) Q.info = (P.info ? P.info + ' · ' : '') + `${airLen > 0.5 ? `${Math.round(100 * airLen / Math.max(feedLen, 1e-6))}% of the feed runs through air — at ${AIR.feed} mm/min` : ''}${airLen > 0.5 && lowered ? ' · ' : ''}${lowered ? `${lowered} hop${lowered > 1 ? 's' : ''} kept low over the stock` : ''}`;
-    Q.airLen = airLen; Q.lowered = lowered;
+    if (op.restStock && !fixed) Q.info = (Q.info ? Q.info + ' · ' : '') + `rest from stock: ${Math.round(100 * restLost / Math.max(feedLen, 1e-6))}% of the cutting was already done and is left out`;
+    Q.airLen = airLen; Q.lowered = lowered; Q.restLost = restLost;
     out.set(op.id, { raw: P, path: Q });
   });
   AIR.paths = out; AIR.key = key; AIR.ms = performance.now() - t0;
@@ -27522,7 +27663,7 @@ camStock = function () {
 };
 // the work origin: a picked point on the model
 const camOrigin0 = camOrigin;
-camOrigin = function () { const o = cam().origin; if (o && typeof o === 'object' && Array.isArray(o.pick)) return o.pick.slice(); return camOrigin0(); };
+camOrigin = function (o = cam().origin) { if (o && typeof o === 'object' && Array.isArray(o.pick)) return o.pick.slice(); return camOrigin0(o); };
 function wcsName(C) {
   const o = C.origin;
   if (o && typeof o === 'object' && o.pick) return `${KP_LABEL[o.k] || 'Point'} on the part`;
@@ -29076,7 +29217,7 @@ function gcSay(line) {
   const t = line.replace(/\([^)]*\)/g, ' ').toUpperCase(), cm = (/\(([^)]*)\)/.exec(line) || [])[1];
   const has = re => re.test(t), say = [];
   const g = [...t.matchAll(/G\s*(\d+(?:\.\d+)?)/g)].map(m => +m[1]), mm = [...t.matchAll(/M\s*(\d+)/g)].map(m => +m[1]);
-  const W = { 0: 'Rapid move', 1: 'Straight cut', 2: 'Clockwise arc', 3: 'Counterclockwise arc', 17: 'XY plane', 20: 'Inches', 21: 'Millimeters', 28: 'Go to machine home', 40: 'Cutter comp off', 43: 'Tool length offset on', 49: 'Length offset off', 53.1: 'Swing the rotaries to the tilted plane', 54: 'Work offset G54', 68.2: 'Tilted work plane', 69: 'Tilted plane off', 73: 'Chip-break peck drilling', 80: 'Cancel the drilling cycle', 81: 'Drill', 82: 'Spot drill with a dwell', 83: 'Deep peck drilling', 84: 'Rigid tap', 85: 'Ream: feed in and out', 90: 'Absolute positions', 91: 'Incremental positions', 94: 'Feed per minute', 98: 'return to start height', 99: 'return to the R plane' };
+  const W = { 0: 'Rapid move', 1: 'Straight cut', 2: 'Clockwise arc', 3: 'Counterclockwise arc', 17: 'XY plane', 20: 'Inches', 21: 'Millimeters', 28: 'Go to machine home', 40: 'Cutter comp off', 43: 'Tool length offset on', 49: 'Length offset off', 53.1: 'Swing the rotaries to the tilted plane', 54: 'Work offset G54', 55: 'Work offset G55', 56: 'Work offset G56', 57: 'Work offset G57', 58: 'Work offset G58', 59: 'Work offset G59', 68.2: 'Tilted work plane', 69: 'Tilted plane off', 73: 'Chip-break peck drilling', 80: 'Cancel the drilling cycle', 81: 'Drill', 82: 'Spot drill with a dwell', 83: 'Deep peck drilling', 84: 'Rigid tap', 85: 'Ream: feed in and out', 90: 'Absolute positions', 91: 'Incremental positions', 94: 'Feed per minute', 98: 'return to start height', 99: 'return to the R plane' };
   const M = { 0: 'Stop', 1: 'Optional stop', 3: 'Spindle on clockwise', 5: 'Spindle off', 6: 'Tool change', 8: 'Coolant on', 9: 'Coolant off', 30: 'End of program, rewind' };
   for (const v of g) if (W[v]) say.push(W[v]);
   for (const v of mm) if (M[v]) say.push(M[v]);
@@ -29394,7 +29535,7 @@ function jawMats() {
 // pt / dir map machine points / directions (into the jaw frame); none: as modeled.
 function jawPartMesh(pt, dir) {
   const P = [], N = [], E = [], m2 = (a, i) => [a[i], -a[i + 2], a[i + 1]];            // world (Y up) → machine
-  for (const b of visibleBodies()) {
+  for (const b of camBodies()) {
     const m = bodyMesh(b);
     for (let i = 0; i < m.pos.length; i += 3) { const q = m2(m.pos, i), n = m2(m.nor, i), a = pt ? pt(q) : q, d = dir ? dir(n) : n; P.push(...toW(a[0], a[1], a[2])); N.push(...toW(d[0], d[1], d[2])); }
     for (let i = 0; i < m.edgePos.length; i += 3) { const q = m2(m.edgePos, i), a = pt ? pt(q) : q; E.push(...toW(a[0], a[1], a[2])); }
@@ -33254,7 +33395,7 @@ SAMPLES.push({ axes: 'model', name: 'Fastener assortment', desc: 'Screws, nuts a
 } });
 SAMPLES.push({ axes: 'model', name: 'Workholding table', desc: 'A 6 in vise, 1-2-3 blocks, toe clamps and a dovetail fixture: everything in a manual room, parametric.', make() {
   const k = sampleKit();
-  [['vise', 0, 0], ['block123', -170, 10], ['toeClamp', 140, 0], ['dovetailFixture', 0, 110], ['parallels', -170, 80], ['cClamp', 170, 90]].forEach(([kd, x, y], i) => k.features.push({ id: k.nid(), type: 'shop', name: kd + (i + 1), ...FEATS.shop.init(), kind: kd, cx: x, cy: y }));
+  [['kurtDX6', 0, 0], ['block123', -170, 10], ['toeClamp', 140, 0], ['dovetailFixture', 0, 110], ['parallels', -170, 80], ['cClamp', 170, 90]].forEach(([kd, x, y], i) => k.features.push({ id: k.nid(), type: 'shop', name: kd + (i + 1), ...FEATS.shop.init(), ...shopDefaults(kd), kind: kd, cx: x, cy: y }));
   return k.doc();
 } });
 SAMPLES.push({ axes: 'model', name: 'Deform gallery', desc: 'The same bar bent, twisted, tapered and warped. Edit any deform to change its angle, axis or range.', make() {
@@ -34610,7 +34751,7 @@ function gcedProgram(gen) { return GCED.edited && GCED.base === gen ? GCED.text 
     if (a === 'wide') { GCED.wide = !GCED.wide; gcedShow(true); gcedDraw(); }
     if (a === 'reset') { GCED.edited = false; gcedSet(GCED.gen != null ? GCED.gen : GCED.base); }
     if (a === 'copy') { (navigator.clipboard ? navigator.clipboard.writeText(GCED.text) : Promise.reject()).then(() => toast('G-code copied'), () => { ta.focus(); ta.select(); toast('Selected — press Ctrl+C to copy'); }); }
-    if (a === 'save') { download(`datum-O${cam().post.program}.nc`, new Blob([GCED.text], { type: 'text/plain' })); toast('G-code saved'); }
+    if (a === 'save') { download(postFileName(), new Blob([GCED.text], { type: 'text/plain' })); toast('G-code saved'); }
   });
   window.addEventListener('resize', gcedDraw);
 })();
@@ -34708,7 +34849,7 @@ const setWorkspaceG = setWorkspace;
 setWorkspace = function (ws) { setWorkspaceG.apply(this, arguments); if (UIX.ws !== 'cam') { GCED.lastView = ''; gcedShow(false); } };
 // Copy and Save .nc in the side panel and the file menu use the edited program too
 const downloadGcodeG = downloadGcode;
-downloadGcode = function () { if (GCED.edited && GCED.text) { download(`datum-O${cam().post.program}.nc`, new Blob([GCED.text], { type: 'text/plain' })); toast('G-code saved'); } else downloadGcodeG(); };
+downloadGcode = function () { if (GCED.edited && GCED.text) { download(postFileName(), new Blob([GCED.text], { type: 'text/plain' })); toast('G-code saved'); } else downloadGcodeG(); };
 </script>
 <!-- GCED-END -->
 <!-- GUIDED-BEGIN -->
@@ -35864,6 +36005,48 @@ ${D2} .rb-panel .rb-col > .rb-sm { padding: 0 4px 0 3px; gap: 4px; font-size: 10
 })();
 </script>
 <!-- RIB3-END -->
+<!-- UIFIT-START -->
+<style id="uifit-css">
+/* Shared control layout: every ribbon button, segmented control and panel button is centered, evenly sized and never wraps or clips. */
+.ribbon .rb-panel .rb-big, .ribbon[data-dens] .rb-panel .rb-big { flex: none; width: auto; min-width: 62px; max-width: 86px; padding: 5px 6px 3px; align-items: center; justify-content: flex-start; box-sizing: border-box; }
+.ribbon .rb-panel .rb-big > span, .ribbon[data-dens] .rb-panel .rb-big > span { width: 100%; text-align: center; text-wrap: balance; overflow-wrap: normal; word-break: keep-all; hyphens: none; }
+.ribbon .rb-panel .rb-big svg { margin: 0 auto; }
+.ribbon::after { content: ''; flex: 0 0 34px; }
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); grid-template-columns: var(--seg-cols, none); gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 7px; overflow: hidden; }
+.seg[data-fit] { grid-auto-flow: row; }
+.seg button { display: flex; align-items: center; justify-content: center; min-height: 30px; padding: 5px 6px; text-align: center; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border: 0; background: var(--panel-2); }
+.seg button + button { border-left: 0; }
+.seg button.on, .seg button.on.cut { background: var(--panel); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-align: center; }
+</style>
+<script>
+// Segmented controls: one even row when every label fits on one line, else an even grid of two (or more) rows.
+(() => {
+  const fit = seg => {
+    const bs = [...seg.children].filter(b => b.tagName === 'BUTTON');
+    if (bs.length < 2 || !seg.clientWidth) return false;
+    seg.style.setProperty('--seg-cols', 'none'); seg.removeAttribute('data-fit');
+    seg.style.gridAutoColumns = 'max-content';
+    const need = Math.max(...bs.map(b => Math.ceil(b.scrollWidth) + 1)); seg.style.gridAutoColumns = '';
+    const W = seg.clientWidth - 2; let cols = bs.length;
+    while (cols > 1 && cols * need + (cols - 1) > W) cols--;
+    bs.forEach(b => { b.style.gridColumn = ''; });
+    if (cols < bs.length) {
+      cols = Math.ceil(bs.length / Math.ceil(bs.length / cols));
+      seg.setAttribute('data-fit', ''); seg.style.setProperty('--seg-cols', `repeat(${cols}, minmax(0, 1fr))`);
+      const rem = bs.length % cols; if (rem) bs[bs.length - 1].style.gridColumn = `span ${cols - rem + 1}`;   // a short last row fills the width
+    }
+    seg.dataset.segN = bs.length; seg.dataset.segW = W; return true;
+  };
+  let queued = false;
+  const pass = all => { queued = false; document.querySelectorAll('.seg').forEach(s => { if (all || s.dataset.segW !== String(Math.max(0, s.clientWidth - 2)) || s.dataset.segN !== String(s.children.length)) fit(s); }); };
+  const q = all => { if (!queued) { queued = true; requestAnimationFrame(() => pass(all)); } };
+  new MutationObserver(() => q(false)).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'hidden'] });
+  addEventListener('resize', () => q(true)); q(true);
+  window.fitSegs = () => pass(true);
+})();
+</script>
+<!-- UIFIT-END -->
 <script>
 // ═══ Animated dropdowns ═══
 // Every <select> keeps its look, focus and change events; only its popup is swapped for an animated one.
@@ -36324,8 +36507,13 @@ function gsPick(i) {
 <script src="tip-scenes-print.js"></script>
 <script src="tip-scenes-ui.js"></script>
 <script src="cam-mc.js"></script>
+<script src="cam-post.js"></script>
+<script src="cam-stock.js"></script>
 <script src="cam-autotool.js"></script>
 <script src="cam-flow.js"></script>
+<script src="cam-chaining.js"></script>
+<script src="cam-origin.js"></script>
+<script src="cam-vise.js"></script>
 <script src="heatmap.js"></script>
 <script src="slicer.js"></script>
 <script src="costing.js"></script>
@@ -36358,5 +36546,7 @@ function gsPick(i) {
 </script>
 <!-- Fusion-style modeling (construction planes, Inspect tools): own file, loaded last so it can extend the toolbar, panels and help cards -->
 <script src="fusion-tools.js"></script>
+<!-- Export log, settings cog, mouse and keyboard layouts: own file so it can be loaded last -->
+<script src="input-settings.js"></script>
 </body>
 </html>
