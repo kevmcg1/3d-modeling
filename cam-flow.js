@@ -272,7 +272,7 @@
       if (tin > c.z - 0.05 && tout < c.z - 0.05) outer++;
       if (tin < camPart().z0 + 0.01 && Math.abs(tout - c.z) < 0.05) open++;            // air all the way down inside, the top of the material outside: a through opening          // material inside, open air outside (a top rim, or the bottom edge of a wall)
     }
-    return { floor: s && floor / s > 0.7, outline: s && rim / s > 0.7, island: s && isl / s > 0.7, outer: s && outer / s > 0.7, open: s && open / s > 0.7 };
+    return { floor: s && floor / s > 0.7, outline: s && rim / s > 0.7, island: s && isl / s > 0.7, outer: s && outer / s > 0.7, open: s && open / s > 0.95 };   // all the way round: an opening that runs in under a bridge cannot be cut from the top
   }
   const area = c => Math.abs(cArea(cP(chainTravel(c))));
   // a circle with material just inside it up to its height and no wall rising outside it is a boss (its top edge, or
