@@ -521,7 +521,7 @@
   // ═══ On-screen prompts ═══
   function promptText(op, plain) {
     const f = FLOW(), n = geomCount(op), g = geomKind(op), k = s => plain ? s : `<span class="kbd">${s}</span>`;
-    if (CHAINUI.startFor != null) return 'Click the corner of the chain where the cut should start.';
+    if (CHAINUI.startFor != null) return CHAINUI.startFor === 'all' ? 'Click a vertex or an edge midpoint on each chain to start it there. Esc when done.' : 'Click a vertex, an edge midpoint or anywhere along the chain to start the cut there.';
     if (f.step === 'geo') {
       if (g === 'chain') {
         const circ = op.cm === 'drill' || op.cm === 'circle', cx = !circ && window.CHAINX && CHAINX.prompt(op, n);
@@ -612,7 +612,7 @@
     items.push({ label: STEPS(op).indexOf(FLOW().step) === STEPS(op).length - 1 ? 'OK (Enter)' : 'Next step (Enter)', run: () => next(op) });
     if (op.type === 'chain' && last) {
       items.push({ label: 'Reverse the last chain', run: () => chainDo(op, 'rev:' + last.id) });
-      if (last.closed && !(op.cm === 'drill' || op.cm === 'circle')) items.push({ label: 'Pick a start point…', run: () => chainDo(op, 'start:' + last.id) });
+      if (!(op.cm === 'drill' || op.cm === 'circle')) { items.push({ label: 'Pick a start point…', run: () => chainDo(op, 'start:' + last.id) }); if (window.CHAINSTART && op.chains.length > 1) items.push({ label: 'Set start points on every chain…', run: () => CHAINSTART.setAll(op) }); }
       items.push({ label: 'Remove the last chain', run: () => chainDo(op, 'del:' + last.id) });
       items.push({ label: 'Clear the selection', run: () => doSelect(op, 'clear') });
     }
