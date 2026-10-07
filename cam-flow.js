@@ -381,12 +381,12 @@
     B.warn.forEach(e => { e.classList.add('cf-warn'); body.appendChild(e); });
     body.insertAdjacentHTML('beforeend', '<div class="cf-title"><h3></h3><p></p></div>');
     const mk = (k, els) => { const d = document.createElement('div'); d.className = 'cf-pane'; d.dataset.pane = k; els.forEach(e => d.appendChild(e)); body.appendChild(d); return d; };
-    const geoPane = mk('geo', B.geo);
+    const geoPane = mk('geo', [...B.geo, ...B.intro]);
     if (!B.geo.length) geoPane.insertAdjacentHTML('beforeend', '<p class="note">Nothing to select for this toolpath. Go on to the tool.</p>');
     const strip = document.createElement('div'); strip.className = 'cf-tabs'; strip.setAttribute('role', 'tablist');
     strip.innerHTML = tabs.map(([k, l]) => `<button role="tab" data-cftab="${k}">${l}</button>`).join('');
     body.appendChild(strip);
-    for (const [k] of tabs) mk(k, k === 'cut' ? [...B.cut, ...B.intro] : B[k]);          // every tab stays in the page (hidden), so each field keeps its binding
+    for (const [k] of tabs) mk(k, B[k]);          // every tab stays in the page (hidden), so each field keeps its binding
     B.stats.forEach(e => body.appendChild(e));
     const bar = document.createElement('div'); bar.className = 'cf-bar';
     bar.innerHTML = '<button class="btn ghost" data-cfdel="1" data-tip="Delete this toolpath">Delete</button><span class="sp"></span><button class="btn" data-cfback="1">Back</button><button class="btn primary" data-cfnext="1"><span class="lb"></span><span class="kbd">Enter</span></button>';
@@ -395,11 +395,17 @@
     body.querySelectorAll('[title]').forEach(e => { e.dataset.tip = e.dataset.tip || e.getAttribute('title'); e.removeAttribute('title'); });   // the app's own tip, not the browser's
     wire(op, body);
     apply(op, body, false);
+    const f0 = FLOW(), sk = op.id + ':' + f0.step;
+    if (CF._shown !== sk) {                                      // a new step opens at its top
+      CF._shown = sk; const sc = body.closest('#panel'), top = () => { body.scrollTop = 0; if (sc) sc.scrollTop = 0; };
+      top(); requestAnimationFrame(top); setTimeout(top, 90);
+    }
     updateHint();
   }
   // show the step's pane (geometry, or the chosen tab), the right title and the right footer
   function apply(op, body, anim) {
     const f = FLOW(), geo = f.step === 'geo', st = STEPS(op);
+    if (anim) { const sc = body.closest('#panel'), top = () => { body.scrollTop = 0; if (sc) sc.scrollTop = 0; }; top(); requestAnimationFrame(top); setTimeout(top, 90); }   // a new step opens at its top
     body.querySelector('.cf-title h3').textContent = STEP_NAME[f.step];
     body.querySelector('.cf-title p').textContent = promptText(op, true);
     body.querySelectorAll('.cf-pane').forEach(p => {
@@ -467,7 +473,8 @@
     if (CHAINUI.startFor != null) return 'Click the corner of the chain where the cut should start.';
     if (f.step === 'geo') {
       if (g === 'chain') {
-        const circ = op.cm === 'drill' || op.cm === 'circle';
+        const circ = op.cm === 'drill' || op.cm === 'circle', cx = !circ && window.CHAINX && CHAINX.prompt(op, n);
+        if (cx) return cx;
         return n ? `${n} chain${n > 1 ? 's' : ''} selected. Click another edge to add it${plain ? '' : ', right-click for options'}, check the arrow and the start dot, then go on.`
           : circ ? 'Click the edge of a hole. Each click takes one circle.' : CHAINUI.mode === 'chain' ? 'Click an edge: the whole chain it belongs to is picked.' : 'Click an edge. Double-click takes the whole chain.';
       }
