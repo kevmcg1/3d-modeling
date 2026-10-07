@@ -108,6 +108,21 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
     assert.strictEqual(r.hitJaw, 'jaw'); assert.strictEqual(r.hitBar, 'parallel'); assert.strictEqual(r.clear, null);
   });
 
+  await ok('a shop-library vise and parallels in the model are equipment: the stock box does not wrap around them', async () => {
+    await load('Pocketed plate');
+    const before = await page.evaluate(() => JSON.stringify([camPart(), camStock()]));
+    await page.evaluate(() => {
+      const d = JSON.parse(snap()), id = Math.max(...d.features.map(f => f.id)) + 1;
+      for (const [i, kd] of ['vise', 'parallels'].entries()) d.features.push({ id: id + i, type: 'shop', name: kd, ...FEATS.shop.init(), kind: kd, cx: 250, cy: 120 * i });
+      loadDoc(d, 'test'); setWorkspace('cam');
+    });
+    await page.waitForTimeout(2500);
+    assert(await page.evaluate(() => MODEL.bodies.length) > 3, 'vise bodies missing from the model');
+    assert.strictEqual(await page.evaluate(() => JSON.stringify([camPart(), camStock()])), before, 'part or stock box changed when the vise was added');
+    await page.evaluate(() => autoProgram()); await page.evaluate(() => waitToolpaths());
+    assert.strictEqual(await page.evaluate(() => JSON.stringify(camPart())), JSON.stringify(JSON.parse(before)[0]), 'part changed after programming');
+  });
+
   await ok('no page errors', async () => { assert.deepStrictEqual(errs, []); });
   await browser.close();
   console.log(`${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);
