@@ -20,3 +20,10 @@ An idle page (no input, no animation running) must stay at or under 4 rAF callba
 
 Already on demand before this work (idle 0 rAF/s): Design/Manufacture (`index.html`), Graphics, 2D Drawing, Setup Sheet.
 The Design viewport already lowers its pixel ratio when frames run long and raises it again when there is room.
+
+## G-code view
+
+The editor already drew only the visible rows. Scrolling a long program also re-split the whole text and re-counted the
+cursor line from the start on every scroll event; now the lines are split once per program text, the cursor line is counted
+with `indexOf` (no array), and scroll redraws are coalesced to one per frame. `test/gcode.view.test.js` guards the behavior
+on a 20,000-line program (38 rows drawn, scroll window, cursor line, line count).
