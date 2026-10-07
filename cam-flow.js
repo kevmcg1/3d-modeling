@@ -270,11 +270,15 @@
     return { floor: s && floor / s > 0.7, outline: s && rim / s > 0.7, island: s && isl / s > 0.7 };
   }
   const area = c => Math.abs(cArea(cP(chainTravel(c))));
-  // a circle with material just inside its edge, up to its own height, is a boss, not a hole
+  // a circle with material just inside it up to its height and no wall rising outside it is a boss (its top edge, or
+  // where it stands on a floor), not a hole; a counterbore's floor edge has the wall outside, a hole has no floor inside
   function bossOf(c, o) {
-    const rr = Math.max(o.d / 2 * 0.85, o.d / 2 - 0.5);
+    const r = o.d / 2, ri = Math.max(r * 0.85, r - 0.5), ro = r + Math.min(0.5, r * 0.15);
     let n = 0;
-    for (let k = 0; k < 4; k++) { const a = Math.PI / 4 + k * Math.PI / 2; if (partTopAt(o.x + rr * Math.cos(a), o.y + rr * Math.sin(a)) > c.z - 0.05) n++; }
+    for (let k = 0; k < 4; k++) {
+      const a = Math.PI / 4 + k * Math.PI / 2, cs = Math.cos(a), sn = Math.sin(a);
+      if (partTopAt(o.x + ri * cs, o.y + ri * sn) > c.z - 0.05 && partTopAt(o.x + ro * cs, o.y + ro * sn) < c.z + 0.05) n++;
+    }
     return n >= 3;
   }
   const sameZ = (a, b) => Math.abs(a - b) < 0.02;

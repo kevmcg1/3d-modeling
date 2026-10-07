@@ -16035,11 +16035,11 @@ function chainArcs(p, closed) {
   for (let i = 0; i < (closed ? n : n - 1); i++) {
     const j = at(i + 1), a = p[i], b = p[j];
     out.push(a);
-    // the segment is on an arc when four points in a row (it and a neighbour on either side) share one circle
+    // the segment is on an arc when four points in a row (it and a neighbour on either side) share one circle and it is short beside the radius
     const o = same(cAt(i), cAt(i - 1)) ? cAt(i) : same(cAt(j), cAt(j + 1)) ? cAt(j) : null;
     if (!o) continue;
     const L = Math.hypot(b.x - a.x, b.y - a.y), sag = o.R - Math.sqrt(Math.max(0, o.R * o.R - L * L / 4));
-    if (!(sag > ARC_SAG) || L > 1.9 * o.R) continue;
+    if (!(sag > ARC_SAG) || L > 0.6 * o.R) continue;                // a tessellated arc has short segments; a rectangle's corners also lie on one circle
     const m = Math.ceil(Math.sqrt(sag / ARC_SAG)), t0 = Math.atan2(a.y - o.y, a.x - o.x);
     let dt = Math.atan2(b.y - o.y, b.x - o.x) - t0;
     if (dt > Math.PI) dt -= 2 * Math.PI; else if (dt < -Math.PI) dt += 2 * Math.PI;
