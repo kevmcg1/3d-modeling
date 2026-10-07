@@ -932,6 +932,11 @@ function cancelOps() { S.tmp = null; S.drag = null; S.marquee = null; S.hover = 
 function undo() { cancelOps(); if (H.i > 0) { H.i--; restore(H.stack[H.i]); } }
 function redo() { cancelOps(); if (H.i < H.stack.length - 1) { H.i++; restore(H.stack[H.i]); } }
 const ui = { side: true, lv: true, ribbon: true };
+// The frame loop sleeps when nothing is dirty: setting any of these flags (or starting a view tween) wakes it for one frame.
+let tickQ = false;
+function wakeTick() { if (!tickQ && typeof requestAnimationFrame === "function") { tickQ = true; requestAnimationFrame(tick); } }
+function wakeOn(o, keys) { for (const k of keys) { let v = o[k]; Object.defineProperty(o, k, { get: () => v, set: x => { v = x; if (x) wakeTick(); }, enumerable: true, configurable: true }); } }
+wakeOn(ui, ['side', 'lv', 'ribbon']); wakeOn(V3, ['dirty', 'need']); wakeOn(S, ['dirty', 'tv']);
 
 function toast(msg, ms = 2400) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), ms); }
 function say(msg, warn) { const m = $('#stMsg'); m.textContent = msg || ''; m.className = 'msg' + (warn ? ' warn' : ''); }
@@ -2724,6 +2729,7 @@ function initInputs() {
 
 /* ════════ Boot ════════ */
 function tick(now) {
+  tickQ = false;
   try { stepView(now || performance.now()); } catch (e) { console.error(e); }
   try {
     if (ui.lv && !S.drag) { renderLeft(); ui.lv = false; }
@@ -2733,7 +2739,7 @@ function tick(now) {
   if (V3.need) { try { rebuild3D(); } catch (e) { console.error(e); } V3.need = false; }
   if (S.dirty) { S.dirty = false; try { drawPlan(); } catch (e) { console.error(e); } updateInfo(); try { updateSteps(); updateHint(); } catch (e) { console.error(e); } }
   if (V3.dirty) { V3.dirty = false; try { draw3D(); } catch (e) { console.error(e); } }
-  requestAnimationFrame(tick);
+  if (S.tv || S.dirty || V3.dirty || V3.need || ui.lv || ui.side || ui.ribbon) wakeTick();
 }
 let lastInfo = '';
 function updateInfo() {

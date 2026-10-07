@@ -257,6 +257,9 @@
     };
     const frame = now => {
       if (st.stop || cur !== st) return;
+      // the card morphs slowly: 30 fps looks the same and halves the work (a hidden tab already stops rAF)
+      if (st.last && now - st.last < 30) { st.raf = requestAnimationFrame(frame); return; }
+      st.last = now;
       if (!st.t0) st.t0 = now;
       // three.js arrives late on pages that did not have it: switch over once it is there
       if (st.mode !== 'gl' && root.THREE && !V.failed && makeGL()) mount('gl');
