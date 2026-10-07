@@ -4924,7 +4924,34 @@ const CSG = (() => {
     }
     return { v, f, n, w };
   }
-  const flipP = p => ({ v: p.v.slice().reverse(), f: Surf.flip(p.f), n: neg3(p.n), w: -p.w, o: p.o });
+  // Where every piece of a split polygon survives a boolean, the pieces are put back together as the polygon they came
+  // from: a plane of one solid slices through the other's faces far from where the two meet, and without this the
+  // result carries all those slices (ten times the polygons for one curved solid nested in another, like a shell).
+  // GEN maps each polygon of the running operation to its place in that family tree (flipped copies share it).
+  let GEN = null;
+  const genOf = p => { let g = GEN.get(p); if (!g) { g = { p, kids: null, par: null }; GEN.set(p, g); } return g; };
+  const flipP = p => { const q = { v: p.v.slice().reverse(), f: Surf.flip(p.f), n: neg3(p.n), w: -p.w, o: p.o }; if (GEN && GEN.has(p)) GEN.set(q, GEN.get(p)); return q; };
+  function regroup(ps) {
+    const have = new Map(), out = [];
+    for (const q of ps) { const g = GEN.get(q); if (g) have.set(g, q); else out.push(q); }
+    // a family is whole when its polygon survived as is, or every piece did, all facing the same way: +1 / −1 against the parent, 0 not whole
+    const memo = new Map(), whole = g => {
+      if (memo.has(g)) return memo.get(g);
+      let r = 0;
+      if (have.has(g)) r = dot3(have.get(g).n, g.p.n) > 0 ? 1 : -1;
+      else if (g.kids) { const k = g.kids.map(c => whole(c) * (dot3(c.p.n, g.p.n) > 0 ? 1 : -1)); r = k.every(x => x === k[0]) ? k[0] : 0; }   // a piece may have been split while flipped
+      memo.set(g, r); return r;
+    };
+    const done = new Set();
+    for (const g0 of have.keys()) {
+      let g = g0;
+      while (g.par && whole(g.par)) g = g.par;
+      if (done.has(g)) continue;
+      done.add(g);
+      out.push(have.has(g) ? have.get(g) : whole(g) > 0 ? g.p : flipP(g.p));
+    }
+    return out;
+  }
   function split(pl, p, coF, coB, fr, bk) {
     let type = 0; const types = [];
     for (const v of p.v) {
@@ -4945,8 +4972,10 @@ const CSG = (() => {
           f.push(v); b.push(v);
         }
       }
-      if (f.length >= 3) fr.push({ v: f, f: p.f, n: p.n, w: p.w, o: p.o });
-      if (b.length >= 3) bk.push({ v: b, f: p.f, n: p.n, w: p.w, o: p.o });
+      const pf = f.length >= 3 ? { v: f, f: p.f, n: p.n, w: p.w, o: p.o } : null, pb = b.length >= 3 ? { v: b, f: p.f, n: p.n, w: p.w, o: p.o } : null;
+      if (pf) fr.push(pf);
+      if (pb) bk.push(pb);
+      if (GEN) { const g = genOf(p); g.kids = [pf, pb].filter(Boolean).map(q => { const k = { p: q, kids: null, par: g }; GEN.set(q, k); return k; }); }
     }
   }
   // Choose a splitting plane that cuts few polygons (sampled), instead of
@@ -4966,54 +4995,94 @@ const CSG = (() => {
         if (t === 3) spl++; else if (t === 1) fr++; else if (t === 2) bk++;
       }
       const score = spl * 8 + Math.abs(fr - bk);
-      if (!best || score < best.score) best = { score, c };
+      if (!best || score < best.score) best = { score, c, lop: Math.min(fr, bk) };
+    }
+    // On a smooth curved surface every facet has all the others on one side, so the tree turns into a chain as
+    // deep as there are facets and every clip walks all of it. A plane square to an axis through the middle of
+    // the facets halves the set instead; it is only used when both sides keep polygons, so no empty side is
+    // taken for inside.
+    const sample = []; for (let i = 0; i < ps.length; i += pstep) sample.push(ps[i]);
+    if (best.lop < sample.length / 20 && ps.length >= 48) {
+      const ctr = sample.map(p => { const c = [0, 0, 0]; for (const v of p.v) { c[0] += v[0]; c[1] += v[1]; c[2] += v[2]; } return mul3(c, 1 / p.v.length); });
+      for (let a = 0; a < 3; a++) {
+        const xs = ctr.map(c => c[a]).sort((x, y) => x - y), w = xs[xs.length >> 1] + 1e-3 * (xs[xs.length - 1] - xs[0]) * ((SEED % 5) * 0.37 + 0.13), n = [0, 0, 0]; n[a] = 1;
+        let spl = 0, fr = 0, bk = 0;
+        for (const p of sample) {
+          let t = 0;
+          for (const v of p.v) { const d = v[a] - w; t |= d < -EPS ? 2 : d > EPS ? 1 : 0; }
+          if (t === 3) spl++; else if (t === 1) fr++; else if (t === 2) bk++;
+        }
+        const score = spl * 8 + Math.abs(fr - bk);
+        if (fr + spl > 0 && bk + spl > 0 && spl <= sample.length / 10 && score < best.score) best = { score, c: { n, w } };
+      }
     }
     return { n: best.c.n, w: best.c.w };
   }
   // Drop zero-area slivers the splitting leaves behind.
   const clean = ps => ps.filter(p => { let a = [0, 0, 0]; for (let i = 1; i + 1 < p.v.length; i++) a = add3(a, crs3(sub3(p.v[i], p.v[0]), sub3(p.v[i + 1], p.v[0]))); return len3(a) > 1e-11; });
+  // Every walk over the tree uses its own stack, not recursion: a smooth curved surface (a loft, a sweep) gives a
+  // tree as deep as it has facets, which overflows the call stack when the walk recurses.
   class Node {
     constructor(ps) { this.pl = null; this.fr = null; this.bk = null; this.ps = []; if (ps) this.build(ps); }
+    nodes() { const out = [], st = [this]; while (st.length) { const n = st.pop(); out.push(n); if (n.bk) st.push(n.bk); if (n.fr) st.push(n.fr); } return out; }
     invert() {
-      this.ps = this.ps.map(flipP);
-      if (this.pl) this.pl = { n: neg3(this.pl.n), w: -this.pl.w };
-      if (this.fr) this.fr.invert();
-      if (this.bk) this.bk.invert();
-      const t = this.fr; this.fr = this.bk; this.bk = t;
+      for (const n of this.nodes()) {
+        n.ps = n.ps.map(flipP);
+        if (n.pl) n.pl = { n: neg3(n.pl.n), w: -n.pl.w };
+        const t = n.fr; n.fr = n.bk; n.bk = t;
+      }
     }
+    // the polygons outside this solid, in the same order the recursive walk gives (front before back)
     clip(ps) {
-      if (!this.pl) return ps.slice();
-      let f = [], b = [];
-      for (const p of ps) split(this.pl, p, f, b, f, b);
-      if (this.fr) f = this.fr.clip(f);
-      b = this.bk ? this.bk.clip(b) : [];
-      return f.concat(b);
+      const out = [], st = [[this, ps]];
+      while (st.length) {
+        const [n, q] = st.pop();
+        if (!q.length) continue;                                   // nothing to carry down: skip the whole subtree
+        if (!n) { for (const p of q) out.push(p); continue; }
+        if (!n.pl) { for (const p of q) out.push(p); continue; }
+        const f = [], b = [];
+        for (const p of q) split(n.pl, p, f, b, f, b);
+        if (n.bk) st.push([n.bk, b]);
+        st.push([n.fr, f]);
+      }
+      return out;
     }
-    clipTo(bsp) { this.ps = bsp.clip(this.ps); if (this.fr) this.fr.clipTo(bsp); if (this.bk) this.bk.clipTo(bsp); }
-    all() { let r = this.ps.slice(); if (this.fr) r = r.concat(this.fr.all()); if (this.bk) r = r.concat(this.bk.all()); return r; }
+    clipTo(bsp) { for (const n of this.nodes()) n.ps = GEN ? regroup(bsp.clip(n.ps)) : bsp.clip(n.ps); }
+    all() { const r = []; for (const n of this.nodes()) for (const p of n.ps) r.push(p); return r; }
     build(ps) {
-      if (!ps.length) return;
-      if (!this.pl) this.pl = pickPlane(ps);
-      const f = [], b = [];
-      for (const p of ps) split(this.pl, p, this.ps, this.ps, f, b);
-      if (f.length) (this.fr || (this.fr = new Node())).build(f);
-      if (b.length) (this.bk || (this.bk = new Node())).build(b);
+      const st = [[this, ps]];
+      while (st.length) {
+        const [n, q] = st.pop();
+        if (!q.length) continue;
+        if (!n.pl) n.pl = pickPlane(q);
+        const f = [], b = [];
+        for (const p of q) split(n.pl, p, n.ps, n.ps, f, b);
+        if (b.length) st.push([n.bk || (n.bk = new Node()), b]);
+        if (f.length) st.push([n.fr || (n.fr = new Node()), f]);
+      }
     }
   }
+  const withGen = run => { GEN = new WeakMap(); try { return clean(regroup(run())); } finally { GEN = null; } };
   function rawUnion(a, b) {
-    const A = new Node(a), B = new Node(b);
-    A.clipTo(B); B.clipTo(A); B.invert(); B.clipTo(A); B.invert(); A.build(B.all());
-    return clean(A.all());
+    return withGen(() => {
+      const A = new Node(a), B = new Node(b);
+      A.clipTo(B); B.clipTo(A); B.invert(); B.clipTo(A); B.invert(); A.build(B.all());
+      return A.all();
+    });
   }
   function rawSubtract(a, b) {
-    const A = new Node(a), B = new Node(b);
-    A.invert(); A.clipTo(B); B.clipTo(A); B.invert(); B.clipTo(A); B.invert(); A.build(B.all()); A.invert();
-    return clean(A.all());
+    return withGen(() => {
+      const A = new Node(a), B = new Node(b);
+      A.invert(); A.clipTo(B); B.clipTo(A); B.invert(); B.clipTo(A); B.invert(); A.build(B.all()); A.invert();
+      return A.all();
+    });
   }
   function rawIntersect(a, b) {
-    const A = new Node(a), B = new Node(b);
-    A.invert(); B.clipTo(A); B.invert(); A.clipTo(B); B.clipTo(A); A.build(B.all()); A.invert();
-    return clean(A.all());
+    return withGen(() => {
+      const A = new Node(a), B = new Node(b);
+      A.invert(); B.clipTo(A); B.invert(); A.clipTo(B); B.clipTo(A); A.build(B.all()); A.invert();
+      return A.all();
+    });
   }
   // Only polygons that reach into the other solid's bounding box can be
   // affected, so everything else skips the BSP work entirely.
@@ -6923,13 +6992,16 @@ function loopParam(segs, pl, tol) {
   segs.forEach((g, i) => { const p = segs[(i - 1 + segs.length) % segs.length]; if (Math.acos(clamp(dot2(tanAt(p, true), tanAt(g, false)), -1, 1)) > 0.02) corners.push(cum[i] / tot); });
   let dens = 0;
   for (const g of segs) if (g.k === 'A') dens = Math.max(dens, circleN(g.r, tol) / (TAU * g.r));
+  // where each curve starts, and how many columns it needs on its own: one for a line, a tolerance-sized count for an arc
+  const joints = cum.slice(0, segs.length).map(c => c / tot), need = segs.map(g => g.k === 'L' ? 1 : Math.max(1, Math.ceil(circleN(g.r, tol) * Math.abs(g.s) / TAU)));
+  const segAt = u => { const l = mod(u, 1) * tot; let i = 0; while (i < segs.length - 1 && l > cum[i + 1]) i++; return i; };
   const at2 = u => {
     const l = mod(u, 1) * tot; let i = 0;
     while (i < segs.length - 1 && l > cum[i + 1]) i++;
     const g = segs[i], x = lens[i] > 0 ? clamp((l - cum[i]) / lens[i], 0, 1) : 0;
     return g.k === 'L' ? lerp2(g.a, g.b, x) : polar(g.c, g.r, g.t0 + g.s * x);
   };
-  return { tot, corners, dens, at: u => planeTo3(pl, at2(u)), pl };
+  return { tot, corners, dens, joints, need, segAt, kinds: segs.map(g => g.k), at: u => planeTo3(pl, at2(u)), pl };
 }
 function evalLoft(f, ctx, tol) {
   const secs = (f.secs || []).map((sec, i) => {
@@ -6952,17 +7024,28 @@ function evalLoft(f, ctx, tol) {
   });
   // start points: line up each profile with the one before it
   const shape = (S, u0) => { const p = []; for (let j = 0; j < M0; j++) p.push(S.at(u0 + S.dir * j / M0)); const c = p.reduce((a, v) => add3(a, v), [0, 0, 0]); const cc = mul3(c, 1 / M0); const q = p.map(v => sub3(v, cc)); const rms = Math.sqrt(q.reduce((a, v) => a + dot3(v, v), 0) / M0) || 1; return q.map(v => mul3(v, 1 / rms)); };
-  secs[0].u0 = secs[0].corners.length ? secs[0].corners[0] : 0;
+  // Profiles drawn with the same number of curves (a rounded rectangle and a smaller one, say) are matched curve
+  // for curve: each curve gets the columns it needs, so a long straight side is one column, not as many as the
+  // tightest corner arc would want along its whole length.
+  const byCurve = secs.every(S => S.joints.length === secs[0].joints.length) && secs[0].joints.length > 1;
+  const breaks = S => byCurve ? S.joints : S.corners;
+  secs[0].u0 = breaks(secs[0]).length ? breaks(secs[0])[0] : 0;
   for (let k = 1; k < K; k++) {
     const S = secs[k], prev = shape(secs[k - 1], secs[k - 1].u0);
-    const cands = S.corners.length ? S.corners : [...Array(72).keys()].map(i => i / 72);
+    let cands = breaks(S).length ? breaks(S) : [...Array(72).keys()].map(i => i / 72);
+    if (byCurve) {
+      // only starts that pair line with line and arc with arc all the way round, when there are any
+      const n = S.kinds.length, run = (T, i) => T.kinds.map((x, m) => T.kinds[T.dir > 0 ? (i + m) % n : (i - 1 - m + 2 * n) % n]).join('');
+      const want = run(secs[k - 1], secs[k - 1].joints.indexOf(secs[k - 1].u0)), same = S.joints.filter((u, i) => run(S, i) === want);
+      if (same.length) cands = same;
+    }
     let best = null;
     for (const u0 of cands) { const q = shape(S, u0); let e = 0; for (let j = 0; j < M0; j++) { const d = sub3(q[j], prev[j]); e += dot3(d, d); } if (!best || e < best.e) best = { e, u0 }; }
     S.u0 = best.u0;
   }
   // spans between corners, sampled alike on every profile
-  const cu = S => S.corners.map(c => mod(S.dir * (c - S.u0), 1)).map(u => (u > 1 - 1e-9 ? 0 : u)).sort((a, b) => a - b);
-  const nC = secs.map(S => S.corners.length), matched = nC[0] > 0 && nC.every(n => n === nC[0]);
+  const cu = S => breaks(S).map(c => mod(S.dir * (c - S.u0), 1)).map(u => (u > 1 - 1e-9 ? 0 : u)).sort((a, b) => a - b);
+  const nC = secs.map(S => breaks(S).length), matched = nC[0] > 0 && nC.every(n => n === nC[0]);
   let bk;
   if (matched) bk = secs.map(cu);
   else {
@@ -6975,7 +7058,7 @@ function evalLoft(f, ctx, tol) {
   const colsPer = [];
   for (let i = 0; i < J; i++) {
     let m = 1;
-    secs.forEach((S, k) => { const a = bk[k][i], b = i + 1 < J ? bk[k][i + 1] : 1; m = Math.max(m, Math.ceil(S.dens * (b - a) * S.tot)); });
+    secs.forEach((S, k) => { const a = bk[k][i], b = i + 1 < J ? bk[k][i + 1] : 1; m = Math.max(m, byCurve ? S.need[S.segAt(S.u0 + S.dir * (a + b) / 2)] : Math.ceil(S.dens * (b - a) * S.tot)); });
     if (J === 1) m = Math.max(m, 24);
     colsPer.push(Math.min(m, 256));
   }
@@ -6991,8 +7074,18 @@ function evalLoft(f, ctx, tol) {
   const rows = [], rowSec = [], rowAt = [];
   const P = k => rowsAt[Math.max(0, Math.min(K - 1, k))];
   const ext = (k, j) => k < 0 ? sub3(mul3(rowsAt[0][j], 2), rowsAt[1][j]) : k >= K ? sub3(mul3(rowsAt[K - 1][j], 2), rowsAt[K - 2][j]) : rowsAt[k][j];
+  const tw0 = Math.abs((f.twist || 0) * Math.PI / 180), Ctot = C.reduce((a, c, k) => k ? a + dist3(c, C[k - 1]) : 0, 0) || 1;
+  const rMax = Math.max(...secs.map((S, k) => Math.max(...rowsAt[k].map(p => dist3(p, C[k])))));
   for (let k = 0; k + 1 < K; k++) {
-    const gap = dist3(C[k], C[k + 1]), ns = smooth ? clamp(Math.ceil(gap / (2 * spacing)), 4, 32) : clamp(Math.ceil(gap / (4 * spacing)), 1, 24);
+    const gap = dist3(C[k], C[k + 1]);
+    let ns;
+    if (byCurve) {
+      // how far the curve between the two profiles bows away from the straight line: n rows leave about bow / n² of it
+      let bow = 0;
+      if (smooth) for (let j = 0; j < Nc; j++) { const p0 = ext(k - 1, j), p1 = ext(k, j), p2 = ext(k + 1, j), p3 = ext(k + 2, j); bow = Math.max(bow, len3([0, 1, 2].map(a => 0.0625 * (p1[a] + p2[a] - p0[a] - p3[a])))); }      // the spline's midpoint less the chord's
+      const turn = tw0 * gap / Ctot;                                                         // the twist this step turns through
+      ns = clamp(Math.max(smooth ? 3 : 1, Math.ceil(Math.sqrt(bow / tol)), Math.ceil(circleN(rMax, tol) * turn / TAU)), 1, 32);
+    } else ns = smooth ? clamp(Math.ceil(gap / (2 * spacing)), 4, 32) : clamp(Math.ceil(gap / (4 * spacing)), 1, 24);
     for (let s = 0; s < ns; s++) {
       const t = s / ns, row = [];
       for (let j = 0; j < Nc; j++) {
@@ -24590,6 +24683,347 @@ SAMPLES.unshift(
   { axes: 'model', name: 'Scissors', make: sScissors, desc: 'Two blades with rounded outlines, finger-ring handles and a pivot screw, opened a little.' },
 );
 AXIS_WHAT.model = 'Product models — modeling showcase';
+
+// ── Centrifugal pump impeller ──────────────────────────────────────
+function sImpeller() {
+  const K = modelKit(), { L, C } = K, BRONZE = '#b98a4e';
+  // back plate and hub: one revolved half-section with a blended root, a Ø16 bore
+  const sk = K.sketch(K.FRONT(0), []);
+  sk.ents.push(...K.rpoly([[8, 0], [62, 0], [62, 3.5], [26, 7.5], [17, 26], [8, 26]], [0, 0.8, 0, 9, 2, 0]));
+  const ax = K.cons(L(0, -5, 0, 35)); sk.ents.push(ax);
+  const hub = K.revolve(sk, [P2(30, 3)], ax, 'new');
+  K.color(hub, BRONZE);
+  // one backward-curved blade: a crescent between two concentric arcs from the eye (r 20) to the rim (r 58), standing on the plate
+  const p0 = P2(20, 0), p1 = P2(58 * Math.cos(1.05), 58 * Math.sin(1.05)), Rb = 46, t = 2.2;
+  const m = lerp2(p0, p1, 0.5), hc = dst2(p0, p1) / 2, dn = nrm2(P2(-(p1.y - p0.y), p1.x - p0.x)), bc = add2(m, mul2(dn, -Math.sqrt(Rb * Rb - hc * hc)));
+  let a0 = ang2(bc, p0), a1 = ang2(bc, p1); if (mod(a1 - a0, TAU) > Math.PI) [a0, a1] = [a1, a0]; a1 = a0 + mod(a1 - a0, TAU);
+  const bs = K.sketch(K.GROUND(2), []);
+  const o = K.Ar(bc.x, bc.y, Rb + t, a0, a1), i = K.Ar(bc.x, bc.y, Rb - t, a0, a1), Eo = G.ends(o), Ei = G.ends(i);
+  bs.ents.push(o, K.L(Eo[1].x, Eo[1].y, Ei[1].x, Ei[1].y), i, K.L(Ei[0].x, Ei[0].y, Eo[0].x, Eo[0].y));
+  const mid = (a0 + a1) / 2, blade = K.extrude(bs, [P2(bc.x + Rb * Math.cos(mid), bc.y + Rb * Math.sin(mid))], 22, 'join');
+  K.circular([blade], { k: 'world', w: 'Z' }, 7);
+  // trim the blade tips to a cone: tall at the eye, low at the rim
+  const tr = K.sketch(K.FRONT(0), []);
+  tr.ents.push(...K.rpoly([[20.5, 22], [66, 10], [66, 40], [20.5, 40]], 0));
+  const ax2 = K.cons(L(0, -5, 0, 45)); tr.ents.push(ax2);
+  K.revolve(tr, [P2(40, 30)], ax2, 'cut');
+  // keyway along the bore and a chamfered nose nut
+  K.extrude(K.sketch(K.GROUND(30), K.rpoly([[-2.5, 5], [2.5, 5], [2.5, 10.3], [-2.5, 10.3]], 0)), [P2(0, 9)], -40, 'cut');
+  const ns = K.sketch(K.FRONT(0), []);
+  ns.ents.push(...K.rpoly([[0, 26], [15, 26], [15, 31], [11, 36], [0, 36]], [0, 0, 1, 2, 0]));
+  const ax3 = K.cons(L(0, 20, 0, 40)); ns.ents.push(ax3);
+  const nut = K.revolve(ns, [P2(6, 30)], ax3, 'new');
+  K.color(nut, '#8d949b');
+  return K.doc();
+}
+
+// ── Connecting rod with a split big-end cap ────────────────────────
+function sConRod() {
+  const K = modelKit(), { L, C } = K, STEEL = '#9aa1a8';
+  const R1 = 40, R2 = 17, D = 160, T = 26;
+  const al = Math.acos((R1 - R2) / D), up = [Math.cos(al), Math.sin(al)];
+  const out = K.sketch(K.GROUND(-T / 2), []);
+  out.ents.push(K.Ar(0, 0, R1, al, TAU - al), K.L(R1 * up[0], -R1 * up[1], D + R2 * up[0], -R2 * up[1]), K.Ar(D, 0, R2, -al, al), K.L(D + R2 * up[0], R2 * up[1], R1 * up[0], R1 * up[1]));
+  const rod = K.extrude(out, [P2(80, 0)], T, 'new');
+  K.color(rod, STEEL);
+  K.fillet(K.capEdges(rod, 'top'), 1.5);
+  K.fillet(K.capEdges(rod, 'bottom'), 1.5);
+  // I-beam shank: a pocket in the top, mirrored to the underside
+  const hw = x => R1 + (R2 - R1) * x / D - 6;
+  const pk = K.sketch(K.GROUND(T / 2), K.rpoly([[48, -hw(48) + 2], [128, -hw(128)], [128, hw(128)], [48, hw(48) - 2]], [6, 4, 4, 6]));
+  const pocket = K.extrude(pk, [P2(88, 0)], -8, 'cut');
+  K.mirror([pocket], { k: 'origin', w: 'XZ' });
+  // bores, bolt holes through the cap, and an oil hole into the small end
+  K.extrude(K.sketch(K.GROUND(T), [C(0, 0, 26), C(D, 0, 10)]), [P2(0, 0), P2(D, 0)], -2 * T, 'cut');
+  const bolts = K.extrude(K.sketch(K.LEFT(-R1 - 5), [C(33, 0, 4.2), C(-33, 0, 4.2)]), [P2(33, 0), P2(-33, 0)], -(R1 + 35), 'cut');
+  K.extrude(K.sketch(K.LEFT(-R1 - 5), [C(33, 0, 7.5), C(-33, 0, 7.5)]), [P2(33, 0), P2(-33, 0)], -17, 'cut');   // counterbores for the heads
+  K.hole([D + R2, 0, 0], [1, 0, 0], 3, 9);
+  // split the cap off along the bore centerline
+  K.features.push({ id: K.nid(), type: 'split', name: K.nm('split'), body: rod.id, plane: { k: 'origin', w: 'YZ' } });
+  // bearing shells (bronze) in both bores
+  const sh = K.extrude(K.sketch(K.GROUND(-11), [C(0, 0, 26), C(0, 0, 24), C(D, 0, 10), C(D, 0, 8.5)]), [P2(25, 0), P2(D + 9.2, 0)], 22, 'new');
+  K.color(sh, '#c08a3e');
+  return K.doc();
+}
+
+// ── Three-blade propeller ──────────────────────────────────────────
+function sPropeller() {
+  const K = modelKit(), { L, C } = K, BRASS = '#c9a24a';
+  // hub with a domed nose cone, revolved
+  const hs = K.sketch(K.FRONT(0), []);
+  hs.ents.push(...K.rpoly([[0, -18], [20, -18], [22, 18], [14, 30], [0, 34]], [0, 2, 6, 10, 0]));
+  const ax = K.cons(L(0, -25, 0, 40)); hs.ents.push(ax);
+  const hub = K.revolve(hs, [P2(10, 0)], ax, 'new');
+  K.color(hub, BRASS);
+  // one blade lofted through five sections square to its span: the chord twists from steep at the root to flat at the tip
+  const secs = [[16, 30, 6, 52], [35, 54, 4.5, 38], [60, 62, 3.2, 26], [85, 48, 2.2, 18], [100, 22, 1.4, 14]];
+  const sec = ([r, c, th, pitch], i) => {
+    const a = pitch * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a), sk = 3 + i * 2;      // skew: each section a little further round
+    const pts = [[-c / 2, -th / 2], [c / 2, -th / 2], [c / 2, th / 2], [-c / 2, th / 2]].map(([x, y]) => [sk + x * ca - y * sa, x * sa + y * ca]);
+    return [K.sketch(K.RIGHT(r), K.rpoly(pts, th * 0.48)), P2(sk, 0)];
+  };
+  const blade = K.loft(secs.map(sec), 'join');
+  K.circular([blade], { k: 'world', w: 'Z' }, 3);
+  // shaft bore with a key
+  K.extrude(K.sketch(K.GROUND(40), [C(0, 0, 8)]), [P2(0, 0)], -70, 'cut');
+  K.extrude(K.sketch(K.GROUND(40), K.rpoly([[-2, 6], [2, 6], [2, 10], [-2, 10]], 0)), [P2(0, 9)], -70, 'cut');
+  return K.doc();
+}
+
+// ── Deep-groove ball bearing (6205 size) ───────────────────────────
+function sBallBearing() {
+  const K = modelKit(), { L } = K, W = 15, PR = 19.25, BR = 3.97, GR = 4.1, h = W / 2;
+  const STEEL = '#b9c0c7';
+  const ring = (x0, x1, outer) => {          // one race: a rectangle with a groove arc on the ball side and chamfered corners
+    const xg = outer ? x0 : x1, dy = Math.sqrt(GR * GR - (xg - PR) ** 2), th = Math.asin(dy / GR), c = 0.6;
+    const sk = K.sketch(K.FRONT(0), []), s = outer ? 1 : -1;
+    const xo = outer ? x1 : x0;            // the plain cylindrical side
+    const P = [[xg, h - dy], [xg, c], [xg + s * c, 0], [xo - s * c, 0], [xo, c], [xo, W - c], [xo - s * c, W], [xg + s * c, W], [xg, W - c], [xg, h + dy]];
+    for (let i = 0; i + 1 < P.length; i++) sk.ents.push(L(P[i][0], P[i][1], P[i + 1][0], P[i + 1][1]));
+    sk.ents.push(outer ? K.Ar(PR, h, GR, -th, th) : K.Ar(PR, h, GR, Math.PI - th, Math.PI + th));
+    const ax = K.cons(L(0, -2, 0, W + 2)); sk.ents.push(ax);
+    const f = K.revolve(sk, [P2((x0 + x1) / 2, 2)], ax, 'new'); K.color(f, STEEL); return f;
+  };
+  ring(22.3, 26, true);
+  ring(12.5, 16.2, false);
+  // one ball (a half disc turned about its own diameter), patterned round the bearing
+  const bs = K.sketch(K.FRONT(0), []), bl = L(PR, h - BR - 1, PR, h + BR + 1);
+  bs.ents.push(K.C(PR, h, BR), bl);
+  const ball = K.revolve(bs, [P2(PR + 1, h)], bl, 'new');
+  K.color(ball, '#e3e7eb');
+  const pat = K.circular([ball], { k: 'world', w: 'Z' }, 9);
+  // pressed cage: a band at the pitch circle with a pocket cut by every ball
+  const cs = K.sketch(K.FRONT(0), []);
+  cs.ents.push(...K.rpoly([[PR - 0.8, h - 3], [PR + 0.8, h - 3], [PR + 0.8, h + 3], [PR - 0.8, h + 3]], 0));
+  const ax = K.cons(L(0, 0, 0, W)); cs.ents.push(ax);
+  const cage = K.revolve(cs, [P2(PR, h)], ax, 'new');
+  K.color(cage, '#c08a3e');
+  K.features.push({ id: K.nid(), type: 'combine', name: K.nm('combine'), target: cage.id, tools: [ball.id, ...[1, 2, 3, 4, 5, 6, 7, 8].map(k => pat.id + k / 1000)], op: 'cut', keep: true });
+  return K.doc();
+}
+
+// ── Coilover shock absorber ────────────────────────────────────────
+function sCoilover() {
+  const K = modelKit(), { L, C } = K, RED = '#c8382e', CHROME = '#d9dde1', BODY = '#3a3d44', RUBBER = '#1d1f24';
+  const turn = (pts, rad, y0, y1, op = 'new') => { const sk = K.sketch(K.FRONT(0), K.rpoly(pts, rad)); const ax = K.cons(L(0, y0, 0, y1)); sk.ents.push(ax); return { f: K.revolve(sk, [P2((pts[0][0] + pts[1][0]) / 2 + 0.3, (pts[0][1] + pts[2][1]) / 2)], ax, op), ax, sk }; };
+  // damper body, a threaded collar and the lower spring seat with spanner notches
+  const body = turn([[0, 22], [19, 22], [19, 168], [15, 174], [0, 174]], [0, 2, 0, 2, 0], 0, 200).f; K.color(body, BODY);
+  const collar = turn([[19, 58], [30, 58], [30, 68], [19, 68]], [0, 1, 1, 0], 0, 200).f; K.color(collar, RED);
+  const seat = turn([[19, 70], [36, 70], [36, 78], [19, 78]], [0, 1.5, 1.5, 0], 0, 200).f; K.color(seat, RED);
+  const notch = K.extrude(K.sketch(K.GROUND(80), K.rpoly([[32, -2.5], [37, -2.5], [37, 2.5], [32, 2.5]], 0)), [P2(34.5, 0)], -24, 'cut');
+  K.circular([notch], { k: 'world', w: 'Z' }, 8);
+  // chromed rod, bump stop and the upper perch
+  const rod = K.extrude(K.sketch(K.GROUND(170), [C(0, 0, 7)]), [P2(0, 0)], 122, 'new'); K.color(rod, CHROME);
+  const bump = turn([[7, 250], [14, 254], [12, 268], [7, 272]], [0, 3, 3, 0], 200, 300).f; K.color(bump, RUBBER);
+  const perch = turn([[7, 282], [34, 282], [34, 290], [7, 290]], [0, 1.5, 1.5, 0], 200, 300).f; K.color(perch, RED);
+  // the spring: a coil, lifted onto the seat
+  const spring = { id: K.nid(), type: 'coil', name: K.nm('coil'), base: 'XZ', cx: 0, cy: 0, D: 54, pitch: 22, turns: 8.75, sec: 'circle', size: 7.5, hand: 'R', op: 'new' };
+  K.features.push(spring); K.color(spring, '#e4b330');
+  K.features.push({ id: K.nid(), type: 'move', name: K.nm('move'), ...FEATS.move.init(), bodies: [spring.id], tz: 82 });
+  // mounting eyes with bushings, top and bottom
+  const eye = (yc, y0, y1) => {
+    const e = K.extrude(K.sketch(K.FRONT(0), [C(0, yc, 13)]), [P2(0, yc)], 22, 'new', { mode: 'sym' }); K.color(e, BODY);
+    K.extrude(K.sketch(K.FRONT(0), K.rpoly([[-9, y0], [9, y0], [9, y1], [-9, y1]], 0)), [P2(0, (y0 + y1) / 2)], 18, 'join', { mode: 'sym' });
+    K.extrude(K.sketch(K.FRONT(15), [C(0, yc, 7.5)]), [P2(0, yc)], -30, 'cut');
+    const b = K.extrude(K.sketch(K.FRONT(0), [C(0, yc, 7.5), C(0, yc, 4)]), [P2(5.7, yc)], 24, 'new', { mode: 'sym' }); K.color(b, RUBBER);
+    const s = K.extrude(K.sketch(K.FRONT(0), [C(0, yc, 4), C(0, yc, 2.6)]), [P2(3.3, yc)], 30, 'new', { mode: 'sym' }); K.color(s, CHROME);
+    return e;
+  };
+  eye(8, 8, 26);
+  eye(306, 288, 306);
+  // piggyback reservoir on a bridge, with a knurled adjuster knob
+  const res = K.extrude(K.sketch(K.GROUND(96), [C(46, 0, 14)]), [P2(46, 0)], 74, 'new'); K.color(res, BODY);
+  K.fillet(K.capEdges(res, 'top'), 4); K.fillet(K.capEdges(res, 'bottom'), 4);
+  const br = K.extrude(K.sketch(K.GROUND(140), K.rpoly([[12, -7], [40, -7], [40, 7], [12, 7]], 2)), [P2(26, 0)], 22, 'new'); K.color(br, BODY);
+  const knob = K.extrude(K.sketch(K.GROUND(170), [C(46, 0, 9)]), [P2(46, 0)], 10, 'new'); K.color(knob, RED);
+  const kn = K.extrude(K.sketch(K.GROUND(181), [C(55, 0, 1.4)]), [P2(55, 0)], -12, 'cut');           // knurl: one flute, turned round the knob's own axis
+  const kax = K.sketch(K.FRONT(0), []), kl = K.cons(L(46, 160, 46, 190)); kax.ents.push(kl);
+  K.circular([kn], { k: 'ent', sk: kax.id, ent: kl.id }, 14);
+  return K.doc();
+}
+
+// ── Gearbox housing ────────────────────────────────────────────────
+function sGearboxHousing() {
+  const K = modelKit(), { L, C } = K, CAST = '#8f969d';
+  const box = K.extrude(K.sketch(K.GROUND(0), K.rpoly([[-80, -55], [80, -55], [80, 55], [-80, 55]], 10)), [P2(0, 0)], 90, 'new');
+  K.color(box, CAST);
+  K.shell([K.face(box, { side: 'top' }, [0, 90, 0])], 6);
+  // bolting flange round the open top
+  const fl = K.sketch(K.GROUND(84), [...K.rpoly([[-96, -70], [96, -70], [96, 70], [-96, 70]], 14), ...K.rpoly([[-74, -49], [74, -49], [74, 49], [-74, 49]], 4)]);
+  K.extrude(fl, [P2(0, 60)], 6, 'join');
+  const fh = K.extrude(K.sketch(K.GROUND(90), [C(-86, -62, 4.5)]), [P2(-86, -62)], -8, 'cut');
+  K.features.push({ id: K.nid(), type: 'pattern', name: K.nm('pattern'), ...FEATS.pattern.init(), kind: 'rect', of: 'feats', feats: [fh.id], dir1: { k: 'world', w: 'X' }, n1: 4, s1: 172 / 3, dir2: { k: 'world', w: 'Y' }, n2: 2, s2: 124 });
+  // bearing bosses on the front wall, mirrored to the back, then bored right through
+  const bosses = K.extrude(K.sketch(K.FRONT(50), [C(-35, 45, 27), C(42, 45, 22)]), [P2(-35, 45), P2(42, 45)], 20, 'join');
+  const tap = []; for (const [cx, r] of [[-35, 21.5], [42, 17]]) for (let q = 0; q < 4; q++) { const a = Math.PI / 4 + q * Math.PI / 2; tap.push([cx + r * Math.cos(a), 45 + r * Math.sin(a)]); }
+  const taps = K.extrude(K.sketch(K.FRONT(70), tap.map(([x, y]) => C(x, y, 2.1))), tap.map(([x, y]) => P2(x, y)), -12, 'cut');
+  K.mirror([bosses, taps], { k: 'origin', w: 'XY' });
+  K.extrude(K.sketch(K.FRONT(80), [C(-35, 45, 17), C(42, 45, 13.5)]), [P2(-35, 45), P2(42, 45)], -160, 'cut');
+  // stiffening ribs under the bosses
+  const rib = K.extrude(K.sketch(K.RIGHT(-35), K.rpoly([[-54, 0], [-68, 0], [-68, 22], [-54, 30]], 0)), [P2(-60, 10)], 8, 'join', { mode: 'sym' });
+  const rib2 = K.extrude(K.sketch(K.RIGHT(42), K.rpoly([[-54, 0], [-68, 0], [-68, 27], [-54, 34]], 0)), [P2(-60, 10)], 8, 'join', { mode: 'sym' });
+  K.mirror([rib, rib2], { k: 'origin', w: 'XY' });
+  // feet with slotted holes, one side mirrored to the other
+  const foot = K.extrude(K.sketch(K.GROUND(0), K.rpoly([[-112, -45], [-78, -45], [-78, 45], [-112, 45]], [8, 0, 0, 8])), [P2(-95, 0)], 12, 'join');
+  const slot = K.extrude(K.sketch(K.GROUND(12), K.rpoly([[-101, -22], [-91, -22], [-91, 22], [-101, 22]], 4.99)), [P2(-96, 0)], -14, 'cut');
+  K.mirror([foot, slot], { k: 'origin', w: 'YZ' });
+  // drain and fill ports
+  K.hole([80, 24, 0], [1, 0, 0], 12, 10);
+  K.hole([-80, 70, 0], [-1, 0, 0], 16, 10);
+  return K.doc();
+}
+
+// ── Twisted vase ───────────────────────────────────────────────────
+function sTwistVase() {
+  const K = modelKit(), GLAZE = '#3f7f8c';
+  // an eight-lobed outline, scaled and turned a little more at every level
+  const lobes = (R, rot) => { const pts = []; for (let i = 0; i < 16; i++) { const a = rot + i * Math.PI / 8, r = R * (i % 2 ? 0.8 : 1); pts.push([r * Math.cos(a), r * Math.sin(a)]); } return pts; };
+  const lv = [[0, 38, 0], [45, 56, 8], [100, 46, 18], [150, 30, 28], [185, 34, 34], [200, 40, 38]];
+  const secs = lv.map(([y, R, d]) => [K.sketch(K.GROUND(y), K.rpoly(lobes(R, d * Math.PI / 180), R * 0.16)), P2(0, 0)]);
+  const vase = K.loft(secs, 'new');
+  K.color(vase, GLAZE);
+  K.shell([K.face(vase, { side: 'end' }, [0, 200, 0])], 3);
+  return K.doc();
+}
+
+// ── Combination wrench (17 mm) ─────────────────────────────────────
+function sWrench() {
+  const K = modelKit(), { C } = K, CHROME = '#c5cad0', AF = 17, HX = AF / Math.sqrt(3), OX = 190;
+  const hexPts = (cx, cy, r, rot) => [0, 1, 2, 3, 4, 5].map(i => [cx + r * Math.cos(rot + i * Math.PI / 3), cy + r * Math.sin(rot + i * Math.PI / 3)]);
+  // box end, shank and open end: three extrusions joined, the heads a little thicker than the shank
+  const box = K.extrude(K.sketch(K.GROUND(-5), [C(0, 0, 16)]), [P2(0, 0)], 10, 'new'); K.color(box, CHROME);
+  K.fillet(K.capEdges(box, 'top'), 1.2); K.fillet(K.capEdges(box, 'bottom'), 1.2);
+  K.extrude(K.sketch(K.GROUND(-3.5), K.rpoly([[10, -7], [OX - 14, -9.5], [OX - 14, 9.5], [10, 7]], 0)), [P2(OX / 2, 0)], 7, 'join');
+  const open = K.extrude(K.sketch(K.GROUND(-4.5), [C(OX, 0, 21)]), [P2(OX, 0)], 9, 'join');
+  // twelve-point box: two hexagons 30° apart
+  for (const rot of [0, Math.PI / 6]) K.extrude(K.sketch(K.GROUND(6), K.rpoly(hexPts(0, 0, HX, rot), 0)), [P2(0, 0)], -12, 'cut');
+  // open jaw at 15° to the handle, with a relief at the bottom of the throat
+  const a = 15 * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a), rot = ([x, y]) => [OX + x * ca - y * sa, x * sa + y * ca];
+  K.extrude(K.sketch(K.GROUND(6), K.rpoly([[0, -AF / 2], [30, -AF / 2], [30, AF / 2], [0, AF / 2]].map(rot), 0)), [P2(...rot([15, 0]))], -12, 'cut');
+  K.extrude(K.sketch(K.GROUND(6), [C(...rot([0, 0]), AF / 2)]), [P2(...rot([-2, 0]))], -12, 'cut');
+  K.extrude(K.sketch(K.GROUND(6), [C(...rot([-AF / 2 - 1, 0]), 2)]), [P2(...rot([-AF / 2 - 1, 0]))], -12, 'cut');
+  // the size stamped into a recessed panel in the shank, top and bottom
+  const panel = K.extrude(K.sketch(K.GROUND(3.5), K.rpoly([[34, -4.5], [OX - 46, -5.8], [OX - 46, 5.8], [34, 4.5]], 3)), [P2(OX / 2, 0)], -0.8, 'cut');
+  K.mirror([panel], { k: 'origin', w: 'XZ' });
+  return K.doc();
+}
+
+// ── Liquid rocket engine ───────────────────────────────────────────
+function sRocketEngine() {
+  const K = modelKit(), { L, C } = K, COPPER = '#b87333', STEEL = '#8d949b', DARK = '#3a3d44';
+  // inner contour: bell from the exit (r 72) to the throat (r 18 at 150), converging cone up to the chamber (r 44) and the chamber to 280
+  const rIn = y => y <= 150 ? 18 + 54 * Math.pow((150 - y) / 150, 1.7) : y <= 190 ? 18 + 26 * (1 - Math.cos(Math.PI * (y - 150) / 40)) / 2 : 44;
+  const ys = []; for (let y = 0; y < 150; y += 10) ys.push(y); for (let y = 150; y < 190; y += 5) ys.push(y); ys.push(190, 280);
+  const wall = 3.5, inner = ys.map(y => [rIn(y), y]), outer = ys.slice().reverse().map(y => [rIn(y) + wall, y]);
+  const pts = [...inner, ...outer], sk = K.sketch(K.FRONT(0), []);
+  for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[(i + 1) % pts.length]; sk.ents.push(L(p[0], p[1], q[0], q[1])); }
+  const ax = K.cons(L(0, -10, 0, 340)); sk.ents.push(ax);
+  const chamber = K.revolve(sk, [P2(rIn(240) + wall / 2, 240)], ax, 'new'); K.color(chamber, COPPER);
+  // stiffening rings on the bell and the chamber flange
+  const ring = (y, h, out) => { const r0 = rIn(y) + wall - 0.5, s = K.sketch(K.FRONT(0), K.rpoly([[r0, y], [r0 + out, y], [r0 + out, y + h], [r0, y + h]], 0)); const a2 = K.cons(L(0, 0, 0, 300)); s.ents.push(a2); return K.revolve(s, [P2(r0 + out / 2, y + h / 2)], a2, 'join'); };
+  ring(40, 5, 4); ring(95, 5, 4);
+  const fs = K.sketch(K.FRONT(0), K.rpoly([[rIn(272) + 1, 270], [66, 270], [66, 280], [rIn(272) + 1, 280]], 0)), a3 = K.cons(L(0, 0, 0, 300)); fs.ents.push(a3);
+  K.revolve(fs, [P2(56, 275)], a3, 'join');
+  // injector head: a domed cap with its own flange, bolted through both
+  const hs = K.sketch(K.FRONT(0), K.rpoly([[0, 280], [66, 280], [66, 290], [48, 292], [40, 304], [22, 314], [0, 316]], [0, 1, 1, 4, 8, 6, 0])), a4 = K.cons(L(0, 270, 0, 330)); hs.ents.push(a4);
+  const head = K.revolve(hs, [P2(30, 290)], a4, 'new'); K.color(head, STEEL);
+  const bolt = K.extrude(K.sketch(K.GROUND(295), [C(58, 0, 3.2)]), [P2(58, 0)], -30, 'cut');
+  K.circular([bolt], { k: 'world', w: 'Z' }, 16);
+  // gimbal block and its pin bore on top
+  K.extrude(K.sketch(K.GROUND(308), K.rpoly([[-16, -16], [16, -16], [16, 16], [-16, 16]], 4)), [P2(0, 0)], 26, 'join');
+  K.extrude(K.sketch(K.LEFT(-20), [C(0, 324, 6)]), [P2(0, 324)], -40, 'cut');
+  // regenerative-cooling manifold round the nozzle exit, fed by four swept pipes up to the injector flange
+  const ts = K.sketch(K.FRONT(0), [C(82, 10, 7)]), tl = L(0, 0, 0, 20); ts.ents.push(K.cons(tl));
+  const tor = K.revolve(ts, [P2(82, 10)], tl, 'new'); K.color(tor, STEEL);
+  const ps = K.sketch(K.FRONT(0), []), pa = K.Ar(62, 255, 20, 0, Math.PI / 2), E = G.ends(pa);
+  const l1 = L(82, 15, E[0].x, E[0].y), l2 = L(E[1].x, E[1].y, 60, 275);
+  ps.ents.push(l1, pa, l2);
+  const pr = K.sketch(K.GROUND(15), [C(82, 0, 4.5), C(82, 0, 3)]);
+  const pipe = K.sweep(pr, [P2(85.7, 0)], ps, [l1, pa, l2], 'new'); K.color(pipe, DARK);
+  const pp = K.circular([pipe], { k: 'world', w: 'Z' }, 4);
+  for (let k = 1; k < 4; k++) K.color(pp.id + k / 1000, DARK);
+  return K.doc();
+}
+
+// ── Chess pieces on a board ────────────────────────────────────────
+function sChessSet() {
+  const K = modelKit(), { L, C } = K, S = 40, B0 = 12, Y = B0 + 0.6, IVORY = '#efe6d2', EBONY = '#2a2522';
+  // the board: a dark slab with inlaid light squares
+  const board = K.extrude(K.sketch(K.GROUND(0), K.rpoly([[-170, -170], [170, -170], [170, 170], [-170, 170]], 6)), [P2(0, 0)], B0, 'new'); K.color(board, '#5b3a24');
+  const lite = []; for (let i = 0; i < 8; i++) for (let j = 0; j < 8; j++) if ((i + j) % 2) lite.push([-160 + S * i, -160 + S * j]);
+  const sq = K.extrude(K.sketch(K.GROUND(B0), lite.flatMap(([x, y]) => K.rpoly([[x + 0.3, y + 0.3], [x + S - 0.3, y + 0.3], [x + S - 0.3, y + S - 0.3], [x + 0.3, y + S - 0.3]], 0))), lite.map(([x, y]) => P2(x + S / 2, y + S / 2)), 0.6, 'new');
+  K.color(sq, '#d8b98a');
+  // a turned piece on file i of the first rank: a half section (x out from the axis, y up) revolved about its own axis
+  const sq0 = i => ({ x: -160 + S * i + S / 2, z: 160 - S / 2 });
+  const axisSketch = (x, z, ents) => { const sk = K.sketch(K.FRONT(z), ents), ax = K.cons(L(x, Y - 1, x, Y + 100)); sk.ents.push(ax); return { sk, ax }; };
+  const turned = (i, pts, rad, op = 'new') => {
+    const { x, z } = sq0(i), { sk, ax } = axisSketch(x, z, K.rpoly(pts.map(([a, b]) => [x + a, Y + b]), rad));
+    return { f: K.revolve(sk, [P2(x + pts[1][0] / 2, Y + pts[1][1] + 1)], ax, op), sk, ax, x, z };
+  };
+  const pieces = [];
+  // rook: a hollow top with crenellations, one slot turned three times
+  const rook = turned(0, [[0, 0], [17, 0], [17, 3], [14, 6], [10, 9], [9, 32], [12, 34], [13, 46], [0, 46]], [0, 0.8, 1, 2, 3, 1, 1, 0.6, 0]);
+  pieces.push(rook.f);
+  turned(0, [[0, 41], [9, 41], [9, 47], [0, 47]], 0, 'cut');
+  const cren = K.extrude(K.sketch(K.GROUND(Y + 47), K.rpoly([[rook.x - 16, -rook.z - 2.2], [rook.x + 16, -rook.z - 2.2], [rook.x + 16, -rook.z + 2.2], [rook.x - 16, -rook.z + 2.2]], 0)), [P2(rook.x, -rook.z)], -5, 'cut');
+  K.circular([cren], { k: 'ent', sk: rook.sk.id, ent: rook.ax.id }, 3, 180);
+  // knight: a horse's head cut from a slab on a turned base, with an eye drilled through
+  const kn = turned(1, [[0, 0], [16, 0], [16, 3], [13, 6], [12, 10], [0, 10]], [0, 0.8, 1, 2, 0]);
+  pieces.push(kn.f);
+  const head = [[-9, 8], [10, 8], [11, 18], [8, 27], [12, 34], [15, 43], [12, 49], [3, 52], [-4, 50], [-11, 44], [-15, 39], [-12, 35], [-3, 37], [-6, 28], [-10, 18]];
+  K.extrude(K.sketch(K.FRONT(kn.z), K.rpoly(head.map(([a, b]) => [kn.x + a, Y + b]), [1, 2, 3, 4, 3, 3, 4, 3, 3, 2, 2, 1.5, 2, 3, 3])), [P2(kn.x, Y + 20)], 13, 'join', { mode: 'sym' });
+  K.extrude(K.sketch(K.LEFT(kn.x - 20), [C(-kn.z, Y + 42, 1.6)]), [P2(-kn.z, Y + 42)], -40, 'cut');
+  // bishop: a mitre with a slanted slot through it and a ball finial
+  const bi = turned(2, [[0, 0], [16, 0], [16, 3], [13, 6], [10, 8], [7, 30], [11, 32], [11, 34], [6, 36], [8, 40], [9, 46], [6, 53], [0, 55]], [0, 0.8, 1, 2, 2, 1, 0.8, 0.8, 1, 2, 3, 3, 0]);
+  pieces.push(bi.f);
+  const d = Math.SQRT1_2, w = 0.85, sl = [[2 + w * d, 41 - w * d], [2 + (20 + w) * d, 41 + (20 - w) * d], [2 + (20 - w) * d, 41 + (20 + w) * d], [2 - w * d, 41 + w * d]];
+  K.extrude(K.sketch(K.FRONT(bi.z), K.rpoly(sl.map(([a, b]) => [bi.x + a, Y + b]), 0)), [P2(bi.x + 2 + 10 * d, Y + 41 + 10 * d)], 30, 'cut', { mode: 'sym' });
+  const fb = K.sketch(K.FRONT(bi.z), []), fl = L(bi.x, Y + 52, bi.x, Y + 62); fb.ents.push(C(bi.x, Y + 57, 3.2), fl);
+  K.revolve(fb, [P2(bi.x + 1.5, Y + 57)], fl, 'join');
+  // king: a tall body with a cross on top
+  const ki = turned(3, [[0, 0], [18, 0], [18, 3], [15, 6], [11, 9], [8, 44], [13, 46], [13, 48], [8, 50], [11, 62], [0, 64]], [0, 0.8, 1, 2, 3, 1, 0.8, 0.8, 2, 4, 0]);
+  pieces.push(ki.f);
+  const cr = [[-2.5, 62], [2.5, 62], [2.5, 70], [7, 70], [7, 75], [2.5, 75], [2.5, 82], [-2.5, 82], [-2.5, 75], [-7, 75], [-7, 70], [-2.5, 70]];
+  K.extrude(K.sketch(K.FRONT(ki.z), K.rpoly(cr.map(([a, b]) => [ki.x + a, Y + b]), 0.6)), [P2(ki.x, Y + 72)], 5, 'join', { mode: 'sym' });
+  // queen: a crown of eight balls round a waisted body
+  const qu = turned(4, [[0, 0], [17, 0], [17, 3], [14, 6], [10, 9], [7, 40], [12, 43], [12, 45], [8, 47], [12, 60], [0, 60]], [0, 0.8, 1, 2, 3, 1, 0.8, 0.8, 2, 0, 0]);
+  pieces.push(qu.f);
+  const bs = K.sketch(K.FRONT(qu.z), []), bl = L(qu.x + 11, Y + 56, qu.x + 11, Y + 66); bs.ents.push(C(qu.x + 11, Y + 61, 2.6), bl);
+  const ball = K.revolve(bs, [P2(qu.x + 12, Y + 61)], bl, 'join');
+  K.circular([ball], { k: 'ent', sk: qu.sk.id, ent: qu.ax.id }, 8);
+  const top = K.sketch(K.FRONT(qu.z), []), tl = L(qu.x, Y + 58, qu.x, Y + 72); top.ents.push(C(qu.x, Y + 64, 4.5), tl);
+  K.revolve(top, [P2(qu.x + 2, Y + 64)], tl, 'join');
+  // pawn: a ball on a collar, then seven more along the second rank
+  const x0 = -160 + S / 2, z0 = 160 - S * 1.5, hr = 7.5, nk = 4.5, hy = 36, dy = Math.sqrt(hr * hr - nk * nk);
+  const pw = [[0, 0], [14, 0], [14, 3], [11, 6], [8, 8], [5.5, 24], [9, 26], [9, 28], [nk, 29], [nk, hy - dy]];
+  // the outline closes with a chord across the head and a line down the axis; the chord gives way to the ball's arc
+  const ents = K.rpoly([...pw, [0, hy + hr]].map(([a, b]) => [x0 + a, Y + b]), [0, 0.8, 1, 2, 2, 1, 0.8, 0.8, 0.5, 0, 0]);
+  const chord = ents.find(e => e.type === 'line' && Math.abs(e.a.x - (x0 + nk)) < 1e-9 && Math.abs(e.b.y - (Y + hy + hr)) < 1e-9);
+  const pk = axisSketch(x0, z0, ents.filter(e => e !== chord));
+  pk.sk.ents.push(K.Ar(x0, Y + hy, hr, Math.atan2(-dy, nk), Math.PI / 2));
+  const pawn = K.revolve(pk.sk, [P2(x0 + 5, Y + 4)], pk.ax, 'new');
+  pieces.push(pawn);
+  const row = K.linear([pawn], 'X', 8, S);
+  const light = [...pieces.map(f => f.id), ...[1, 2, 3, 4, 5, 6, 7].map(k => row.id + k / 1000)];
+  for (const id of light) K.color(id, IVORY);
+  // the dark side: every piece mirrored across the middle of the board
+  const mir = { id: K.nid(), type: 'pattern', name: K.nm('mirror'), ...FEATS.pattern.init(), kind: 'mirror', of: 'bodies', bodies: light, plane: { k: 'origin', w: 'XY' } };
+  K.features.push(mir);
+  light.forEach((b, k) => K.color(mir.id + (k + 1) / 1000, EBONY));
+  return K.doc();
+}
+SAMPLES.push(
+  { axes: 'model', name: 'Pump impeller', make: sImpeller, desc: 'Revolved back plate and hub, seven backward-curved blades in a circular pattern, trimmed to a cone by a revolved cut, a keyed bore and a nose nut.' },
+  { axes: 'model', name: 'Connecting rod', make: sConRod, desc: 'Tangent-arc outline with filleted edges, an I-beam pocket mirrored top and bottom, counterbored cap bolts, an oil hole, the cap split off and bronze shells in both bores.' },
+  { axes: 'model', name: 'Three-blade propeller', make: sPropeller, desc: 'Each blade lofted through five sections that twist from steep at the root to flat at the tip, patterned three times round a revolved hub with a keyed bore.' },
+  { axes: 'model', name: 'Ball bearing (6205)', make: sBallBearing, desc: 'Revolved races with ball grooves and chamfers, nine balls in a circular pattern, and a cage whose pockets are cut by the balls with Combine.' },
+  { axes: 'model', name: 'Coilover shock', make: sCoilover, desc: 'Damper body, chromed rod, a coil spring moved onto its seat, a notched preload collar, bushed eyes and a piggyback reservoir with a knurled knob.' },
+  { axes: 'model', name: 'Gearbox housing', make: sGearboxHousing, desc: 'Shelled box with a bolting flange (rectangular hole pattern), bearing bosses mirrored front to back, tapped holes, ribs, slotted feet and ports.' },
+  { axes: 'model', name: 'Twisted vase', make: sTwistVase, desc: 'Eight-lobed outline lofted through six levels, each turned a little further, then shelled open at the top.' },
+  { axes: 'model', name: 'Combination wrench', make: sWrench, desc: '17 mm: a twelve-point box end from two hexagons, a 15° open jaw with a throat relief, filleted head and a recessed shank panel on both faces.' },
+  { axes: 'model', name: 'Rocket engine', make: sRocketEngine, desc: 'Bell nozzle, throat and chamber revolved from a computed contour, a bolted injector dome, gimbal block, cooling manifold and four swept feed pipes.' },
+  { axes: 'model', name: 'Chess pieces', make: sChessSet, desc: 'Inlaid board; turned rook, knight, bishop, king and queen with crenellations, a mitre slot and a crown of balls; a row of patterned pawns, all mirrored for the dark side.' },
+);
 </script>
 
 <script>
