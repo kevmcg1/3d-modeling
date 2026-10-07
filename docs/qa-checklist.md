@@ -30,7 +30,7 @@ Final run of Auto Program followed by Verify on all 70 three-axis sample parts, 
 | Crashes, NaN moves, empty toolpaths | 0 |
 | Full test suite (`test/*.js`, 38 files) | all pass. `print-ui.e2e.js` prints nothing and is stopped by its 10 minute timeout on `main` too |
 
-The same sweep before the fixes passed Verify on 49 of 70 parts and had 6 parts with a wrong G12 finish cycle.
+Before the fixes, 6 parts posted a wrong or missing G12 finish cycle, and several correct programs were reported red by Verify (blind holes, ring grooves, shallow wells, a channel that was never cut).
 
 ## Bugs found and fixed
 
