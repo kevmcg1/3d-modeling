@@ -154,7 +154,7 @@
       for (const d of ds) {
         if (c.closed) {
           const ccw = cArea(cP(pts)) > 0, inside = (side === 'left') === ccw, base = ccw ? cP(pts) : cP(pts.slice().reverse());
-          for (const q of cOffset([base], inside ? -d : d)) { if (cArea(q) <= 1e-4) continue; let u = uP(q); if (!ccw) u = u.reverse(); let bi = 0; u.forEach((p, i) => { if (dst2(p, pts[0]) < dst2(u[bi], pts[0])) bi = i; }); paths.push({ pts: startAt(u, bi), closed: true }); }
+          for (const q of cOffset([base], inside ? -d : d)) { if (cArea(q) <= 1e-4) continue; let u = uP(q); if (!ccw) u = u.reverse(); paths.push({ pts: startNear(u, pts[0]), closed: true }); }
         } else paths.push({ pts: offsetOpen(pts, d, side === 'left' ? 1 : -1), closed: false });
       }
       if (!paths.length) { P.warn.push(`The ${fmtToolD(tool.d)} tool does not fit this chain.`); continue; }
