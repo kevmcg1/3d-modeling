@@ -34960,7 +34960,7 @@ function gsGo(n) {
 }
 // the whole right sidebar while Guided Setup is open
 function gsPanel() {
-  const n = GS.step, part = gsHasPart(), st = part && n > 1 ? camStock() : null, C = part ? cam() : null;
+  const part = gsHasPart(), n = part ? GS.step : 1, st = part && n > 1 ? camStock() : null, C = part ? cam() : null;   // no part (deleted, or undone to nothing): back to step 1 instead of reading its stock settings
   const steps = [['1', 'Part'], ['2', 'Stock'], ['3', 'Machine']].map(([i, t], k) => `<button class="gs-st ${n === k + 1 ? 'on' : ''} ${(k === 0 && part && n > 1) || (k === 1 && n > 2) || (k === 2 && GS.machined && n > 2) ? 'done' : ''}" data-gs="go:${k + 1}"><i>${(k === 0 && part && n > 1) || (k === 1 && n > 2) ? '✓' : i}</i>${t}</button>`).join('');
   let body = '';
   if (n === 1) {
