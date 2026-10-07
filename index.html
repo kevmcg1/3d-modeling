@@ -34311,6 +34311,7 @@ async function completenessCheck(res, progress) {
     for (let dj = -reach; dj <= reach && !hit; dj++) for (let di = -reach; di <= reach; di++) { const a = i + di, b = j + dj; if (a >= 0 && b >= 0 && a < nx && b < ny && inPart[b * nx + a]) { hit = 1; break; } }
     near[k] = hit;
   }
+  const drillsHere = []; for (const o of cam().ops) if (isDrillOp(o)) { const P = toolpath(o); if (P && P.holes && P.tool) for (const q of P.holes) drillsHere.push({ x: q.x, y: q.y, rad: P.tool.d / 2 + 0.3 }); }
   let vol = 0, ncell = 0;
   for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
     const k = j * nx + i, s = sp[k];
@@ -34323,7 +34324,11 @@ async function completenessCheck(res, progress) {
     } else if (near[k]) { target = zb; tol = 0.06; } else continue;
     if (!fin(s)) continue;
     const d = s - target;
-    if (d > tol) { left[k] = d; flag[k] = 1; vol += d * h * h; ncell++; }
+    if (d > tol) {
+      // the 118° point of a drill leaves a cone above the model's flat hole bottom: allowed, up to the height of the cone at that radius
+      if (drillsHere.length && inPart[k]) { const x = st.x0 + (i + 0.5) * h, y = st.y0 + (j + 0.5) * h; if (drillsHere.some(q => { const r = Math.hypot(q.x - x, q.y - y); return r <= q.rad && d <= r / Math.tan(59 * Math.PI / 180) + 0.3; })) continue; }
+      left[k] = d; flag[k] = 1; vol += d * h * h; ncell++;
+    }
   }
   // connected areas of leftover
   const id = new Int32Array(n).fill(-1), clusters = [], stack = [];

@@ -114,6 +114,22 @@ const close = (a, b, tol, what) => assert(Math.abs(a - b) <= tol, `${what}: ${a}
     });
     assert.strictEqual(r.a, r.b);
   });
+  await ok('every one of the sample parts rebuilds from its history without a feature error and with positive volume (known: Game controller\'s two loft fillets)', async () => {
+    const r = await page.evaluate(() => {
+      const out = [];
+      for (const s of SAMPLES) {
+        try {
+          loadDoc(s.make(), 'x'); const c = evaluate(0.05); let vol = 0;
+          for (const b of c.bodies) for (const p of b.polys) for (let i = 1; i + 1 < p.v.length; i++) vol += dot3(p.v[0], crs3(p.v[i], p.v[i + 1])) / 6;
+          out.push({ name: s.name, errors: Object.keys(c.errors || {}).length, bodies: c.bodies.length, vol });
+        } catch (e) { out.push({ name: s.name, threw: String(e.message) }); }
+      }
+      return out;
+    });
+    assert(r.length > 100, 'samples: ' + r.length);
+    const bad = r.filter(x => x.threw || x.errors || !x.bodies || !(x.vol > 0)).map(x => x.name + ':' + (x.threw || x.errors + ' errors'));
+    assert.deepStrictEqual(bad, ['Game controller:2 errors'], 'sample parts with problems: ' + bad.join(', '));
+  });
   await ok('the page raised no errors', async () => { assert.deepStrictEqual(errs, [], errs.join('\n')); });
   console.log(`${pass} passed, ${fail} failed`);
   await browser.close();

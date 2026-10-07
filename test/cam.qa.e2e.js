@@ -58,6 +58,17 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
     assert.strictEqual(r.cover, 0);
     assert.deepStrictEqual(r.probs, [], JSON.stringify(r.probs));
   });
+  for (const [nm, why] of [['Tapped block', 'blind tap-drill holes leave a drill cone, not material left on the part'], ['Pen tray', 'two shallow wells are milled, not drilled with a drill that cannot reach full size'], ['Coaster with grooves', 'a ring groove\'s outer wall is not a drillable hole'], ['Soft jaw', 'a ring floor is measured on the floor, not at the hole in its middle'], ['Heat sink', 'a floor point on the edge of a fin is not measured']]) {
+    await ok(nm + ': Verify passes: ' + why, async () => {
+      const r = await page.evaluate(async (name) => {
+        const e0 = camEpoch; loadDoc(SAMPLES.find(x => x.name === name).make(), 'test'); setWorkspace('cam');
+        for (let i = 0; i < 200 && camEpoch === e0; i++) await new Promise(r => setTimeout(r, 50));
+        await autoProgram(); await waitToolpaths(120000); await verifyAndFix();
+        const R = VERIFY.report; return { ok: R.ok, bad: R.meas.filter(m => !m.ok).map(m => m.name), cover: R.cover && R.cover.fail, issues: R.issues.filter(i => i.type !== 'plunge').map(i => i.type), uncut: R.comp ? R.comp.clusters.filter(c => c.kind === 'uncut').length : 0 };
+      }, nm);
+      assert.strictEqual(r.ok, true, JSON.stringify(r));
+    });
+  }
   await ok('tiny features get small end mills, the spindle never exceeds 12000 rpm, and the program verifies', async () => {
     const r = await full('micro', `kBox(k,-10,-8,10,8,4); kHole(k,[0,0,4],[0,0,1],2,4); kCut(k,4,k.rect(-6,-5,-3,5),[P2(-4,0)],1.5);`);
     assert(r.ops.some(n => /Ø1\/(16|32)"/.test(n)), r.ops.join(' | '));
