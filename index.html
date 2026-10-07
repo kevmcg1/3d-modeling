@@ -11591,24 +11591,25 @@ function refreshToolbar() {
   const c = t => CMD && CMD.type === t;
   let h = '';
   if (UIX.ws === 'house') {
-    tb.innerHTML = '';
+    tb.innerHTML = ''; tb._h = null;
     document.querySelectorAll('[data-ws]').forEach(b => b.classList.toggle('on', b.dataset.ws === UIX.ws));
     return;
   }
   if (UIX.ws === 'draw') {
-    tb.innerHTML = '';
+    tb.innerHTML = ''; tb._h = null;
     document.querySelectorAll('[data-ws]').forEach(b => b.classList.toggle('on', b.dataset.ws === UIX.ws));
     return;
   }
   if (UIX.ws === 'sheet') {
-    tb.innerHTML = sheetRibbonHTML();
+    tb.innerHTML = sheetRibbonHTML(); tb._h = null;
     tb.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => b.dataset.act === 'sheetfill' ? openSetupSheet() : setWorkspace('cam')));
     document.querySelectorAll('[data-ws]').forEach(b => b.classList.toggle('on', b.dataset.ws === UIX.ws));
     return;
   }
   if (UIX.ws === 'cam') {
-    tb.innerHTML = camToolbar();
-    tb.querySelectorAll('[data-cam]').forEach(b => b.addEventListener('click', () => camAction(b.dataset.cam)));
+    // the ribbon is rebuilt only when it changed: replacing it re-runs the ribbon's fit (forced layouts) on every refresh
+    const hc = camToolbar();
+    if (tb._h !== hc) { tb._h = hc; tb.innerHTML = hc; tb.querySelectorAll('[data-cam]').forEach(b => b.addEventListener('click', () => camAction(b.dataset.cam))); }
     document.getElementById('btnUndo').disabled = hist.cur <= 0;
     document.getElementById('btnRedo').disabled = hist.cur >= hist.states.length - 1;
     document.querySelectorAll('[data-ws]').forEach(b => b.classList.toggle('on', b.dataset.ws === UIX.ws));
@@ -11620,9 +11621,11 @@ function refreshToolbar() {
   } else {
     h += modelToolbarHTML(btn, c);
   }
-  tb.innerHTML = h;
-  tb.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => action(b.dataset.act)));
-  tb.querySelectorAll('[data-menu]').forEach(b => b.addEventListener('click', () => openTbMenu(b.dataset.menu, b)));
+  if (tb._h !== h) {
+    tb._h = h; tb.innerHTML = h;
+    tb.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => action(b.dataset.act)));
+    tb.querySelectorAll('[data-menu]').forEach(b => b.addEventListener('click', () => openTbMenu(b.dataset.menu, b)));
+  }
   const chip = document.getElementById('modeChip');
   chip.textContent = S.sk ? 'Sketch · ' + S.sk.name : 'Model';
   chip.classList.toggle('sketch', !!S.sk);
