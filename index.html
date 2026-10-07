@@ -16036,9 +16036,20 @@ function circleFit(pts) {
   return { x: cx, y: cy, d: 2 * rs.reduce((a, b) => a + b, 0) / n, rs };
 }
 const ARC_SAG = 0.004;
-function chainArcs(p, closed) {
+function chainArcs(p0, closed) {
+  // points in the middle of a straight run (where a neighbouring face split the edge) say nothing about the curve and
+  // break the four-points-on-a-circle test: leave them out (the shape is the same; the start point is kept)
+  const p = [];
+  for (let i = 0; i < p0.length; i++) {
+    const a = p.length ? p[p.length - 1] : null, b = p0[i], c = p0[(i + 1) % p0.length];
+    if (a && i > 0 && (closed || i < p0.length - 1)) {
+      const ab = Math.hypot(b.x - a.x, b.y - a.y), bc = Math.hypot(c.x - b.x, c.y - b.y), ac = Math.hypot(c.x - a.x, c.y - a.y);
+      if (ac > 1e-9 && ab + bc - ac < 1e-6 * Math.max(1, ac)) continue;
+    }
+    p.push(b);
+  }
   const n = p.length;
-  if (n < 3) return p;
+  if (n < 3) return p0;
   const circ = (a, b, c) => {
     const d = 2 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
     if (Math.abs(d) < 1e-9) return null;
