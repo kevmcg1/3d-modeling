@@ -16303,7 +16303,8 @@ function chainPocket(op, tool, st, part, P, chains) {
     if (fs > 0) {
       const fin = cOffset(area, -(r + lw)).filter(p => Math.abs(cArea(p)) > 1e-4).map(q => ({ k: 0, pts: uP(q) }));
       const rough = items.filter(q => q.k === 0).flatMap(q => q.pts);
-      const inner = q => rough.length ? rough.reduce((b, p) => dst2(p, q) < dst2(b, q) ? p : b, rough[0]) : q;
+      const finLink = cOffset(area, -(r + lw) + 0.002);           // where the tool's centre may go at the finish
+      const inner = q => { let b = null; for (const p of rough) if ((!b || dst2(p, q) < dst2(b, q)) && !segHitsPaths(p, q, finLink)) b = p; return b || q; };
       if (fin.length) run(fin, zs[zs.length - 1], zs[zs.length - 1] + 1, false, inner);
     }
     total++;
