@@ -679,6 +679,33 @@
     });
   }
 
+  // ═══ Batch 4: Boundary Fill ═══
+  Object.assign(FEAT_BASE, { bfill: 'Boundary Fill' });
+  Object.assign(FEAT_IC, { bfill: 'bfill' });
+  FEATS.bfill = bodyTool({
+    label: 'Boundary Fill', need: 'Pick the bodies that surround the space.',
+    init: () => ({ bodies: [], remove: false }),
+    panel: f => bodyPickPanel(f, 'bodies', 'Bodies around the space') + pf.chk('Remove the picked bodies', 'remove')
+      + pf.note('Every closed space the bodies leave between them, or inside one of them, becomes a new body: a mold cavity, a core, the air in a housing. Bodies that only touch need to overlap a little to seal the space. An open space is not filled.'),
+    hint: () => 'click the bodies that surround the space (the tree rows work too)',
+    sub: f => f.remove ? 'removes tools' : '',
+  });
+  Object.assign(IC, { bfill: '<rect x="2.5" y="3.5" width="15" height="13" rx="1"/><rect x="6.5" y="7.5" width="7" height="5" rx=".5" opacity=".6"/>' });
+  Object.assign(FA_MAP, { bfill: 'fill-drip' });
+  Object.assign(MENU_IC, { 'f:bfill': 'bfill' });
+  TB_MENUS.create.push(['f:bfill', 'Boundary Fill', '']);
+  const modelToolbar3 = modelToolbarHTML;
+  modelToolbarHTML = function () { return rbAppend(modelToolbar3.apply(this, arguments), 'Create', [['f:bfill', 'Boundary Fill', '', 'bfill', cmdIs('bfill')]]); };
+  Object.assign(TIP_TXT, {
+    'f:bfill': ['Turn the closed space between bodies into a body of its own.', ['Click the bodies that surround the space.', 'Tick Remove the picked bodies to keep only the new body.', 'Click OK.']],
+  });
+  if (typeof TipArt !== 'undefined' && typeof TIP_ART !== 'undefined') {
+    const { C, at, P, box } = TipArt;
+    const iso = (f, ox = 60, oy = 48, s = 1.55) => () => { at(ox, oy, s); return f(); };
+    const shell = () => box(-22, -14, 0, 44, 28, 4) + box(-22, -14, 20, 44, 28, 4) + box(-22, -14, 4, 6, 28, 16) + box(16, -14, 4, 6, 28, 16);
+    Object.assign(TIP_ART, { 'f:bfill': [iso(shell, 60, 54, 1.25), iso(() => shell() + box(-16, -14, 4, 32, 28, 16, 'a'), 60, 54, 1.25)] });
+  }
+
   // ── Sketch: Spline (fit points; stored as a chain of arcs through points of a Catmull-Rom curve) ──
   const SPLINE_SUB = 2;                                              // arcs per span between two fit points
   function splineEnts(pts, closed) {

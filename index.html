@@ -5316,7 +5316,10 @@ function buildMesh(polys) {
   // slivers from the boolean engine are skipped.
   const edgePos = [], fedges = [], epoly = new Map();
   PL.forEach((p, pi) => { for (let i = 0; i < p.ids.length; i++) epoly.set(p.ids[i] + ',' + p.ids[(i + 1) % p.ids.length], pi); });
-  for (const [k, fs] of emap) {
+  for (const [k, fs0] of emap) {
+    // a sliver left by the boolean can put more than two polygons on one edge: it is still a real edge when they belong to just two faces
+    let fs = fs0;
+    if (fs.length > 2) { const u = [...new Set(fs)]; if (u.length === 2) fs = u; }
     if (fs.length !== 2 || fs[0] === fs[1]) continue;
     const pa = Surf.list[fs[0]].patch;
     if (pa !== undefined && pa === Surf.list[fs[1]].patch) continue;   // inside one smooth imported patch
@@ -5571,7 +5574,7 @@ function clipHalf(vs, n, w, cut) {
 // ── Straight-edge corner tool (fillet or chamfer) ──────────────────
 // E0,E1 edge ends; t1,t2 unit directions along each face away from the
 // edge. Returns closed polygons of the corner region to remove or add.
-function cornerProfile(t1, t2, kind, size, tol) {
+function cornerProfile(t1, t2, kind, size, tol, chm) {
   // Profile of the corner region as 3D offsets from the edge point E.
   // It is pushed a little past both faces (into air for cuts, into
   // material for fills) so the tool never lies exactly on a body face —
@@ -5581,7 +5584,11 @@ function cornerProfile(t1, t2, kind, size, tol) {
   const e1 = neg3(nrm3(sub3(t2, mul3(t1, dot3(t1, t2))))), e2 = neg3(nrm3(sub3(t1, mul3(t2, dot3(t1, t2)))));
   const dl = Math.max(size * 0.06, 1e-3), P0 = mul3(add3(e1, e2), dl);
   if (kind === 'chamfer') {
-    const T1 = mul3(t1, size), T2 = mul3(t2, size);
+    // chm: { d2 } a second distance along face B, or { ang } the angle (degrees) the cut makes with face A
+    let d2 = size;
+    if (chm && chm.d2 > 0) d2 = chm.d2;
+    else if (chm && chm.ang > 0 && chm.ang + al * 180 / Math.PI < 179) d2 = size * Math.sin(chm.ang * Math.PI / 180) / Math.sin(chm.ang * Math.PI / 180 + al);
+    const T1 = mul3(t1, chm && chm.flip ? d2 : size), T2 = mul3(t2, chm && chm.flip ? size : d2);
     return { pts: [P0, add3(T1, mul3(e1, dl)), T1, T2, add3(T2, mul3(e2, dl))], arc: null, face: [2, 3] };
   }
   const s = size / Math.tan(al / 2), bis = nrm3(add3(t1, t2)), C = mul3(bis, size / Math.sin(al / 2));
@@ -5598,8 +5605,8 @@ const newellN = pts => { let n = [0, 0, 0]; for (let i = 0; i < pts.length; i++)
 // (the caller passes the corner point P0 first; the profile is star-shaped from it)
 const fan = vs => { const out = []; for (let i = 1; i + 1 < vs.length; i++) out.push([vs[0], vs[i], vs[i + 1]]); return out; };
 const fromP0 = (arr, p0) => { const k = arr.indexOf(p0); return arr.slice(k).concat(arr.slice(0, k)); };
-function linearCornerTool(E0, E1, t1, t2, kind, size, tol, meta) {
-  const pr = cornerProfile(t1, t2, kind, size, tol);
+function linearCornerTool(E0, E1, t1, t2, kind, size, tol, meta, chm) {
+  const pr = cornerProfile(t1, t2, kind, size, tol, chm);
   if (!pr) return null;
   const d = nrm3(sub3(E1, E0)), P0 = pr.pts.map(p => add3(E0, p)), P1 = pr.pts.map(p => add3(E1, p));
   const polys = [], m = P0.length;
@@ -5626,9 +5633,9 @@ function linearCornerTool(E0, E1, t1, t2, kind, size, tol, meta) {
 // brk: optional ascending angles th0..th1 to put facet columns on — the
 // angles of the body's own facets along the edge, so the tool meets them
 // vertex for vertex and the tangent seam cuts clean instead of zig-zagging.
-function revolvedCornerTool(ax, R, h0, t1, t2, kind, size, th0, th1, tol, meta, brk) {
+function revolvedCornerTool(ax, R, h0, t1, t2, kind, size, th0, th1, tol, meta, brk, chm) {
   const T1 = [t1[0], t1[1], 0], T2 = [t2[0], t2[1], 0];
-  const pr = cornerProfile(T1, T2, kind, size, tol);
+  const pr = cornerProfile(T1, T2, kind, size, tol, chm);
   if (!pr) return null;
   const prof = pr.pts.map(p => [R + p[0], h0 + p[1]]);
   if (prof.some(p => p[0] < -1e-9)) return null;
@@ -5851,7 +5858,7 @@ function adjPolyCentroid(mesh, seg, fid) {
   return null;
 }
 // Build the fillet/chamfer tool for one chain. Returns {polys, op} or {err}.
-function edgeTool(body, mesh, ch, kind, size, tol, meta) {
+function edgeTool(body, mesh, ch, kind, size, tol, meta, chm) {
   const g = chainGeom(ch), seg = ch.segs[Math.floor(ch.segs.length / 2)];
   const cA = adjPolyCentroid(mesh, seg, ch.fa), cB = adjPolyCentroid(mesh, seg, ch.fb);
   if (!cA || !cB) return { err: 'Edge faces not found' };
@@ -5860,7 +5867,7 @@ function edgeTool(body, mesh, ch, kind, size, tol, meta) {
     const t1 = perp(cA), t2 = perp(cB);
     // Exact: an edge is convex when face A's outward normal points away from face B.
     const convex = dot3(Surf.list[ch.fa].n, t2) < 0;
-    const polys = linearCornerTool(g.a, g.b, t1, t2, kind, size, tol, meta);
+    const polys = linearCornerTool(g.a, g.b, t1, t2, kind, size, tol, meta, chm);
     if (!polys) return { err: 'Faces are tangent — nothing to round' };
     return { pieces: [polys], op: convex ? 'sub' : 'add' };
   }
@@ -5894,7 +5901,7 @@ function edgeTool(body, mesh, ch, kind, size, tol, meta) {
     const cut = k => Math.round(k * (brk.length - 1) / ns);
     for (let k = 0; k < ns; k++) {
       const b = brk.slice(cut(k), cut(k + 1) + 1);
-      const polys = revolvedCornerTool(ax, g.r, g.h0, t1, t2, kind, size, b[0], b[b.length - 1], tol, meta, b);
+      const polys = revolvedCornerTool(ax, g.r, g.h0, t1, t2, kind, size, b[0], b[b.length - 1], tol, meta, b, chm);
       if (!polys) return { err: 'Size is larger than the edge allows' };
       pieces.push(polys);
     }
@@ -6017,7 +6024,8 @@ function evalEdgeFeature(f, ctx, tol) {
   f.edges.forEach((ref, i) => {
     const r = findChain(ctx.bodies, ref);
     if (!r) throw new Error(`Edge ${i + 1} no longer exists`);
-    const t = edgeTool(r.body, r.mesh, r.ch, kind, f.size, tol, { feat: f.id, edge: i });
+    const chm = kind !== 'chamfer' ? null : f.cmode === 'angle' && f.angle > 0 ? { ang: f.angle, flip: !!f.flip } : f.cmode === 'two' && f.size2 > 0 ? { d2: f.size2, flip: !!f.flip } : null;
+    const t = edgeTool(r.body, r.mesh, r.ch, kind, f.size, tol, { feat: f.id, edge: i }, chm);
     if (t.err) throw new Error(t.err);
     jobs.push({ body: r.body, ...t });
   });
@@ -8902,6 +8910,39 @@ function evalPathPattern(f, ctx) {
 }
 FEATX.pathpat = evalPathPattern;
 
+// ── Boundary Fill: the closed spaces left between bodies (or inside one) become bodies of their own ──
+// A box around the tools minus the tools is the whole outside: its shells are the box itself, the surface of each tool (facing into the tool) and
+// every sealed cavity (facing out of the cavity, so its volume reads positive). The cavities are the cells.
+function polyShells(polys) {
+  const key = v => Math.round(v[0] * 1e4) + ',' + Math.round(v[1] * 1e4) + ',' + Math.round(v[2] * 1e4), par = polys.map((_, i) => i), at = new Map();
+  const root = i => { while (par[i] !== i) { par[i] = par[par[i]]; i = par[i]; } return i; };
+  polys.forEach((p, i) => { for (const v of p.v) { const k = key(v), j = at.get(k); if (j === undefined) at.set(k, i); else par[root(i)] = root(j); } });
+  const out = new Map();
+  polys.forEach((p, i) => { const r = root(i); if (!out.has(r)) out.set(r, []); out.get(r).push(p); });
+  return [...out.values()];
+}
+function evalBoundaryFill(f, ctx, tol) {
+  const tools = bodiesById(f.bodies, ctx);
+  if (!tools.length) throw new Error('Pick the bodies that enclose the space');
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (const b of tools) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], b.bb[k]); hi[k] = Math.max(hi[k], b.bb[k + 3]); }
+  const pad = Math.max(2, 0.15 * Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2])), x0 = lo[0] - pad, y0 = lo[1] - pad, z0 = lo[2] - pad;
+  const w = hi[0] - lo[0] + 2 * pad, d = hi[1] - lo[1] + 2 * pad, h = hi[2] - lo[2] + 2 * pad;
+  const pl = { o: [x0, y0, z0], u: [1, 0, 0], v: [0, 1, 0], n: [0, 0, 1] };
+  let rest = prism({ outer: loopOf([P2(0, 0), P2(w, 0), P2(w, d), P2(0, d)], 1), holes: [] }, pl, 0, h, tol, f.id);
+  for (const b of tools) rest = CSG.subtract(rest, b.polys);
+  const cells = polyShells(rest).filter(sh => {
+    const bb = bboxPolys(sh);
+    return polyVolume(sh) > 1e-3 && !(bb[0] < x0 + 1e-6 && bb[1] < y0 + 1e-6 && bb[2] < z0 + 1e-6 && bb[3] > x0 + w - 1e-6 && bb[4] > y0 + d - 1e-6 && bb[5] > z0 + h - 1e-6);
+  });
+  if (!cells.length) throw new Error('No closed space found. The bodies have to surround it completely: touching or overlapping bodies, or a body with an inner void.');
+  const made = [];
+  cells.forEach((sh, k) => { const id = f.id + (k + 1) / 1000; ctx.bodies = [...ctx.bodies, mkBody(id, sh)]; made.push(id); });
+  if (f.remove) ctx.bodies = ctx.bodies.filter(b => !f.bodies.includes(b.id));
+  ctx.hl[f.id] = made;
+}
+FEATX.bfill = evalBoundaryFill;
+
 // ── Rib / Web: thin walls from open sketch curves, extruded square to the sketch plane ──
 // A chain of lines and arcs is sampled, thickened to a flat-ended strip (mitered at bends) and extruded; several chains make a web.
 function ribLoops(pts, closed, h) {
@@ -11744,7 +11785,7 @@ function featSub(f) {
     case 'sketch': return f.ents.length + ' curve' + (f.ents.length === 1 ? '' : 's');
     case 'extrude': return `${f.op === 'hole' ? '⌀ hole' : OP_SIGN[f.op] || ''} ${f.extent === 'next' ? 'to next' : f.extent === 'all' ? 'thru all' : f.extent === 'to' ? 'to point' : fmtLs(Math.abs(f.dist))}${f.mode === 'sym' && f.op !== 'hole' ? ' sym' : ''}`.trim();
     case 'fillet': return 'R' + fmtLs(f.size);
-    case 'chamfer': return '× ' + fmtLs(f.size);
+    case 'chamfer': return f.cmode === 'two' && f.size2 > 0 ? '× ' + fmtLs(f.size) + ' × ' + fmtLs(f.size2) : f.cmode === 'angle' && f.angle > 0 ? '× ' + fmtLs(f.size) + ' @ ' + f.angle + '°' : '× ' + fmtLs(f.size);
     case 'plane': return fmtLs(f.off);
     case 'thread': return f.internal === true ? 'internal' : f.internal === false ? 'external' : '';
     case 'import': return `${OP_SIGN[f.op] || ''} ${(f.file || '').split('.').pop().toUpperCase()}`.trim();
@@ -12140,7 +12181,11 @@ function edgePanel() {
   return `<div class="pn-head"><h2>${f.type === 'fillet' ? 'Fillet' : 'Chamfer'}</h2><span class="tag">${CMD.isNew ? 'new' : 'edit ' + f.name}</span></div><div class="pn-body">
     <div class="field"><span>Type</span><div class="seg"><button data-ek="fillet" class="${f.type === 'fillet' ? 'on' : ''}">Fillet</button><button data-ek="chamfer" class="${f.type === 'chamfer' ? 'on' : ''}">Chamfer</button></div></div>
     <div class="field"><span>Edges</span><div class="pick ${n ? '' : 'empty'}"><span>${n ? 'Click an edge again to remove it' : 'Click straight or circular edges'}</span><span class="n">${n}</span></div></div>
-    <div class="field"><span>${f.type === 'fillet' ? 'Radius' : 'Distance'} (${uName()})</span><input type="number" id="edgeSize" data-live="1" min="0" step="${isIn() ? 0.01 : 0.5}" value="${uval(f.size)}"></div>
+    ${f.type === 'chamfer' ? `<div class="field"><span>Chamfer type</span><div class="seg"><button data-cm="eq" class="${!f.cmode || f.cmode === 'eq' ? 'on' : ''}">Equal</button><button data-cm="two" class="${f.cmode === 'two' ? 'on' : ''}">Two distances</button><button data-cm="angle" class="${f.cmode === 'angle' ? 'on' : ''}">Distance + angle</button></div></div>` : ''}
+    <div class="field"><span>${f.type === 'fillet' ? 'Radius' : f.cmode === 'two' ? 'Distance 1' : 'Distance'} (${uName()})</span><input type="number" id="edgeSize" data-live="1" min="0" step="${isIn() ? 0.01 : 0.5}" value="${uval(f.size)}"></div>
+    ${f.type === 'chamfer' && f.cmode === 'two' ? `<div class="field"><span>Distance 2 (${uName()})</span><input type="number" id="edgeSize2" data-live="1" min="0" step="${isIn() ? 0.01 : 0.5}" value="${uval(f.size2 || f.size)}"></div>` : ''}
+    ${f.type === 'chamfer' && f.cmode === 'angle' ? `<div class="field"><span>Angle (°)</span><input type="number" id="edgeAngle" data-live="1" min="1" max="89" step="1" value="${f.angle || 45}"></div>` : ''}
+    ${f.type === 'chamfer' && f.cmode && f.cmode !== 'eq' ? `<div class="field"><span>Direction</span><button class="btn" data-do="cmflip" title="Swap which face gets distance 1">Flip ⇅</button></div>` : ''}
     ${err ? `<p class="note err-note">${err}</p>` : ''}
     <p class="note">Convex edges are rounded off and concave (inside) edges are filled in. Fillet faces are exact cylinders or tori.</p>
     <div class="btns"><button class="btn" data-do="cancel">Cancel</button><button class="btn primary" data-do="edgeok" ${n ? '' : 'disabled'}>OK</button></div></div>`;
@@ -12313,6 +12358,12 @@ function bindPanel() {
   const es = document.getElementById('edgeSize');
   if (es) es.addEventListener('input', () => { const v = fromU(parseFloat(es.value)); if (v > 0) { CMD.f.size = v; modelChanged(); } });
   if (es) es.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); es.blur(); edgeOK(); } });
+  const es2 = document.getElementById('edgeSize2');
+  if (es2) es2.addEventListener('input', () => { const v = fromU(parseFloat(es2.value)); if (v > 0) { CMD.f.size2 = v; modelChanged(); } });
+  const ea = document.getElementById('edgeAngle');
+  if (ea) ea.addEventListener('input', () => { const v = parseFloat(ea.value); if (v > 0 && v < 90) { CMD.f.angle = v; modelChanged(); } });
+  panel.querySelectorAll('[data-cm]').forEach(b => b.addEventListener('click', () => { CMD.f.cmode = b.dataset.cm; if (CMD.f.cmode === 'two' && !(CMD.f.size2 > 0)) CMD.f.size2 = CMD.f.size; if (CMD.f.cmode === 'angle' && !(CMD.f.angle > 0)) CMD.f.angle = 45; modelChanged(); }));
+  panel.querySelectorAll('[data-do="cmflip"]').forEach(b => b.addEventListener('click', () => { CMD.f.flip = !CMD.f.flip; modelChanged(); }));
   panel.querySelectorAll('[data-ek]').forEach(b => b.addEventListener('click', () => { CMD.f.type = b.dataset.ek; modelChanged(); refreshToolbar(); }));
   panel.querySelectorAll('[data-th]').forEach(b => b.addEventListener('click', () => { const [k, v] = b.dataset.th.split(':'); CMD.f[k] = v === 'true' ? true : v === 'false' ? false : v; threadDescribe(); modelChanged(); }));
   const tp = document.getElementById('thPitch');
@@ -13426,6 +13477,13 @@ function isCutout(loop) {
   for (let i = 1; i < 8; i++) for (let j = 1; j < 8; j++) {
     const q = P2(x0 + (x1 - x0) * i / 8, y0 + (y1 - y0) * j / 8);
     if (!inside(q)) continue;
+    // a sample that falls on the opening's own wall (the diagonal of a triangle) reads that wall's top edge: it says nothing about material
+    let onWall = false;
+    for (let a = 0, b = loop.length - 1; a < loop.length && !onWall; b = a++) {
+      const A = loop[b], B = loop[a], dx = B.x - A.x, dy = B.y - A.y, L2 = dx * dx + dy * dy, t = L2 > 1e-12 ? Math.max(0, Math.min(1, ((q.x - A.x) * dx + (q.y - A.y) * dy) / L2)) : 0;
+      if (Math.hypot(q.x - A.x - t * dx, q.y - A.y - t * dy) < 0.05) onWall = true;
+    }
+    if (onWall) continue;
     n++;
     if (partTopAt(q.x, q.y) !== -Infinity) return false;
   }
@@ -24067,14 +24125,25 @@ function modelKit(start) {
   // A closed outline through pts with each corner rounded by a tangent arc (radius per corner, 0 = sharp).
   function rpoly(pts, rad) {
     const n = pts.length, P = pts.map(p => P2(p[0], p[1])), R = typeof rad === 'number' ? pts.map(() => rad) : rad;
+    // tangent length of each rounded corner (kept to 45% of the shorter side)
+    const tg = P.map((B, i) => {
+      const A = P[(i + n - 1) % n], C = P[(i + 1) % n], la = dst2(A, B), lc = dst2(C, B);
+      const d1 = mul2(sub2(A, B), 1 / la), d2 = mul2(sub2(C, B), 1 / lc), th = Math.acos(clamp(dot2(d1, d2), -1, 1));
+      const r = R[i] || 0;
+      if (!(r > 0) || th > Math.PI - 1e-4) return 0;
+      return Math.min(r / Math.tan(th / 2), 0.45 * Math.min(la, lc));
+    });
+    // two arcs that nearly meet would leave a sliver of straight line a few microns long, which the boolean cannot hold a face on: back both off
+    P.forEach((B, i) => {
+      const j = (i + 1) % n, g = dst2(B, P[j]) - tg[i] - tg[j];
+      if (tg[i] > 0 && tg[j] > 0 && g > 1e-9 && g < 0.06) { const dl = (0.06 - g) / 2; tg[i] -= dl; tg[j] -= dl; }
+    });
     const cor = P.map((B, i) => {
       const A = P[(i + n - 1) % n], C = P[(i + 1) % n], la = dst2(A, B), lc = dst2(C, B);
       const d1 = mul2(sub2(A, B), 1 / la), d2 = mul2(sub2(C, B), 1 / lc), th = Math.acos(clamp(dot2(d1, d2), -1, 1));
-      let r = R[i] || 0;
-      if (!(r > 0) || th > Math.PI - 1e-4) return { p: B };
-      let t = r / Math.tan(th / 2);
-      const tmax = 0.45 * Math.min(la, lc);
-      if (t > tmax) { t = tmax; r = t * Math.tan(th / 2); }
+      const t = tg[i];
+      if (!(t > 0)) return { p: B };
+      const r = t * Math.tan(th / 2);
       const c = add2(B, mul2(nrm2(add2(d1, d2)), r / Math.sin(th / 2))), T1 = add2(B, mul2(d1, t)), T2 = add2(B, mul2(d2, t));
       const a = ang2(c, T1), b = ang2(c, T2), ccw = crs2(sub2(T1, c), sub2(T2, c)) > 0;
       const a0 = ccw ? a : b, a1 = a0 + mod(ccw ? b - a : a - b, TAU);
@@ -24190,7 +24259,7 @@ function sController() {
   // three well-rounded corners a side (no near-straight kinks: they would leave slivers in the fillets)
   // down into the tops of the grips, with a flared U between them
   const bodyR = [[64, 32.5], [78.5, 12], [80, -44], [50, -44], [41, -29]];
-  const s1 = K.sketch(K.GROUND(0), K.rpoly(half(bodyR), mirrorR([16, 30, 10, 9, 14])));
+  const s1 = K.sketch(K.GROUND(0), K.rpoly(half(bodyR), mirrorR([16, 30, 10, 8, 14])));
   const body = K.extrude(s1, [P2(0, 0)], H, 'new');
   K.color(body, WHITE);
   K.fillet(K.capEdges(body, 'top'), 8);
@@ -33539,7 +33608,7 @@ SAMPLES.push({ axes: 'model', name: 'Deform gallery', desc: 'The same bar bent, 
   const S4 = [];
   const add = (name, desc, fn) => S4.push({ axes: 3, name, desc, make: () => { const k = sampleKit(); fn(k); return k.doc(); } });
   add('Bearing housing', 'A stepped bearing bore, four counterbored mounting holes and a grease port.', k => { kBox(k, -45, -35, 45, 35, 24, 3); kHole(k, [0, 0, 24], [0, 0, 1], 34, 10); kHole(k, [0, 0, 24], [0, 0, 1], 26, 24); for (const [x, y] of grid([-36, 36], [-26, 26])) { kHole(k, [x, y, 24], [0, 0, 1], 12, 5); kHole(k, [x, y, 24], [0, 0, 1], 7, 24); }  });
-  add('Gusset bracket', 'A triangular plate with three mounting holes and a lightening window.', k => { prof(k, [[-45, -30], [45, -30], [-45, 35]], 8); for (const [x, y] of [[-36, -22], [36, -22], [-36, 24]]) kHole(k, [x, y, 8], [0, 0, 1], 7, 8); kCut(k, 8, poly(k, [[-30, -14], [20, -14], [-30, 18]]), [P2(-20, -8)], 8); });
+  add('Gusset bracket', 'A triangular plate with three mounting holes and a lightening window.', k => { prof(k, [[-45, -30], [45, -30], [-45, 35]], 8); for (const [x, y] of [[-36, -22], [22, -23], [-37, 18]]) kHole(k, [x, y, 8], [0, 0, 1], 7, 8); kCut(k, 8, poly(k, [[-30, -14], [16, -14], [-30, 14]]), [P2(-20, -8)], 8); });
   add('Slide carriage', 'Two long guide grooves along the top and four tapped holes between them.', k => { kBox(k, -70, -25, 70, 25, 18); for (const y of [-14, 14]) kCut(k, 18, k.rect(-70.5, y - 4, 70.5, y + 4), [P2(0, y)], 5); for (const [x, y] of grid([-50, -17, 17, 50], [0])) kHole(k, [x, y, 18], [0, 0, 1], 6.8, 14); });
   add('Flange adaptor', 'Two bolt circles around a stepped center bore: a typical pipe adaptor.', k => { disc(k, 50, 14); kHole(k, [0, 0, 14], [0, 0, 1], 36, 6); kHole(k, [0, 0, 14], [0, 0, 1], 24, 14); for (const [x, y] of ring(6, 40, 0)) kHole(k, [x, y, 14], [0, 0, 1], 6.6, 14); for (const [x, y] of ring(4, 30, Math.PI / 4)) kHole(k, [x, y, 14], [0, 0, 1], 4.5, 8); });
   add('Window cover plate', 'A rounded viewing window and eight screw holes around its rim.', k => { kBox(k, -55, -38, 55, 38, 6, 4); kCut(k, 6, k.rrect(-38, -22, 38, 22, 6), [P2(0, 0)], 6); for (const [x, y] of [[-48, -30], [0, -32], [48, -30], [-48, 0], [48, 0], [-48, 30], [0, 32], [48, 30]]) kHole(k, [x, y, 6], [0, 0, 1], 4.5, 6); });

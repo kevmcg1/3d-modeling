@@ -4,6 +4,15 @@ A pass / fail record of one QA sweep, written so that anything marked partial or
 
 Legend: PASS = checked and correct · FIXED = a bug was found, fixed and has an automated test · PARTIAL = works with the limit noted · OPEN = a known problem that is not fixed · NOT RUN = not exercised in this sweep
 
+## Third sweep (added tests)
+
+| Test | What it checks |
+|---|---|
+| `test/cam.wire.e2e.js` | All 17 wire EDM samples: the posted program starts with %, sets units, absolute mode and the G92 start point, threads the wire (M60) before every cut and cuts it (M45) after, turns compensation on before using it and off again, stays inside the stock, and ends with M30 |
+| `test/cam.ops.e2e.js` (added) | Chamfer swarf on the faces Auto Program picks (Flanged boss): moves below the stock top, none below the stock bottom, valid G-code |
+| `test/design.qa.e2e.js` (added) | Two-distance chamfer (both ways round) and distance + angle chamfer against d1·d2/2·L |
+| `test/design.fusion4.e2e.js` | Boundary Fill volumes (a void, a cup closed by a lid, remove the tools, nothing enclosed), its ribbon button and panel, the three chamfer types in the panel |
+
 ## Second sweep (added tests)
 
 | Test | What it checks |
@@ -65,7 +74,7 @@ The status column is the app's own claim in `docs/fusion-coverage.md`. "Volume" 
 | Revolve | PASS | Volume (tube) |
 | Hole: simple, through, counterbore, countersink, 118° point | PASS | Volume |
 | Fillet (constant radius) | PASS | Volume |
-| Chamfer (equal distance) | PASS | Volume |
+| Chamfer (equal distance, two distances, distance + angle) | PASS | Volume |
 | Shell | PASS | Volume |
 | Combine: join, cut, intersect | PASS | Volume |
 | Split body | PASS | Volume |
@@ -80,8 +89,9 @@ The status column is the app's own claim in `docs/fusion-coverage.md`. "Volume" 
 | Undo, redo, save and reload | PASS | Volume test steps back and forward and round-trips the JSON |
 | Sweep, loft, coil, mirror, circular pattern, offset plane, spur gear, deform | PASS | `test/design.qa2.e2e.js`: loft prism and frustum, sweep along a straight path, coil by Pappus (circle and square), mirror and circular pattern volumes, offset-plane extrude height, gear volume against the pitch cylinder, bend / taper / twist stay one valid solid |
 | Thread (modeled), hardware (screws, nuts), other gear types | PARTIAL | Rebuild without error in every sample part; no separate volume formula |
-| Fillet larger than or equal to the convex corner radius | PARTIAL | The Game controller sample had two fillets (radius 8) on a body whose corner arcs were radius 8: the rolling ball degenerates and the fillet reports "Edge no longer exists". The sample now uses a 9 mm corner. The kernel still reports that message for a fillet that equals the corner radius; it is not a loft problem |
-| Thicken, surface tools, sheet metal, T-spline form, assemble joints | NOT RUN | Not in the app (see `fusion-coverage.md`) |
+| Fillet equal to the convex corner radius | FIXED | The Game controller fillets (radius 8 on corner arcs of radius 8) reported "Edge no longer exists". The cause was not the rolling ball: the boolean left a few-micron sliver on the body's top face, which put four polygons on one real edge, and the edge finder only accepted edges with exactly two. Edges whose polygons belong to two faces are now accepted, and the sample builder no longer leaves slivers between corner arcs. The sample is back to its original 8 mm corner. Radius 8 on an 8 mm corner builds without error; a larger fillet still says "Size is larger than the edge allows" |
+| Boundary Fill | PASS | `test/design.fusion4.e2e.js`: a void in a block, a cup closed by a lid, remove the tools, nothing enclosed. Bodies that only touch (shared faces) are not tested and may need a small overlap |
+| Variable and setback fillets, Thicken, surface tools, sheet metal, T-spline form, assemble joints | NOT RUN | Not in the app (see `fusion-coverage.md`): variable and setback fillets need a face that is not a cylinder or torus; Thicken and surfaces need open surface bodies |
 
 **Sample parts.** All 159 sample parts rebuild from their feature history; 158 without error and positive volume, and the one exception is noted above. `test/design.qa.e2e.js` fails if that number changes.
 
@@ -101,12 +111,13 @@ The status column is the app's claim in `docs/mastercam-toolpaths.md`. "Auto" me
 | Thread mill | PASS | `test/cam.ops.e2e.js`: Auto-detect threads on the Flanged boss makes thread-mill paths and posts helical arcs with no G-code check problems |
 | Engraving | PASS | `test/cam.ops.e2e.js`: plans, finite moves inside the stock, valid G-code. Verify reports gouge and holder counts on an engraving because it cuts into the part by design |
 | 3D parallel, waterline, rough pocket (Z-level), radial, spiral, scallop, pencil, project | PASS | Scenario on three parts, G-code matches within 0.05 mm. Verify reports a few rapid-through-stock moves on pencil, waterline and parallel rough when run alone; the Verify and fix step lifts them (Auto Program results show none) |
-| Chamfer swarf | PARTIAL | With no face picked the app says so and posts valid G-code (`cam.ops.e2e.js`). 1 swarf end can stop short where the cone would touch (the app warns). A swarf with picked faces is not in an automated test |
+| Chamfer swarf | PASS | With no face picked the app says so and posts valid G-code; with the faces Auto Program picks (Flanged boss) it makes moves and valid G-code (`cam.ops.e2e.js`). One swarf end can stop short where the cone would touch (the app warns) |
 | Clean-up (rest) | PASS | Auto Program adds it; "Nothing to clean up" when nothing is left |
 | Work offsets, origin choices, units | PASS | 4 origins × in and mm on one part: G-code consistent, no deviation. Existing `cam.origin` and `cam.vise` tests |
 | Save, load, undo, redo of a program | PASS | Same G-code and operations after a file round trip |
 | Setup sheet, inspection sheet | PASS | Tools, program number and origin match the G-code |
-| Multiaxis, lathe, wire | NOT RUN | Not 3-axis, outside this sweep |
+| Wire EDM G-code | PASS | `test/cam.wire.e2e.js`: all 17 wire samples |
+| Multiaxis, lathe | NOT RUN | Not 3-axis, outside this sweep |
 
 ## Open items
 
@@ -119,13 +130,12 @@ These nine parts still fail Verify. In each case the program is what a 3-axis ma
 | Serpentine coolant plate | Four corner slivers at the ends of the channel measure "not cut" | The Ø8 port hole leaves 0.4 mm corner wedges that no round tool can reach |
 | Gear blank, Star slot disc, Honeycomb plate, Board tray | Wall faces within a tool radius of sharp inside corners (keyway, star points, hexagon corners) | Round tools leave their own radius in sharp corners. The plan lists these as "sharp inside corners" to fillet in the design or finish by EDM or broaching. The coverage check counts them as red rather than excusing them |
 | Mold half insert | Four 28 mm² corner areas 2.2 mm high | Corners that the finishing ball mill does not reach |
-| Gusset bracket | The triangular lightening window is not planned: the top face is read as two pieces with no window in it | The wall between the window and the edge is 1.7 mm. Planner bug, not fixed in this pass |
+| Gusset bracket | Window planned and cut as a through cut-out since this sweep; Verify still lists the window's three sharp corners | Two causes were fixed: the sample had a hole through its edge and a 1.7 mm wall, and the cut-out check sampled a point exactly on the window's own wall (a triangle's diagonal) and read it as material. A triangle's sharp corners keep the tool radius |
 
 Other open items:
 
-- **Fillet equal to the corner radius (Design):** see the table. The Game controller sample is fixed (all 159 sample parts now rebuild with no error), the kernel message is not.
 - **Verify on long 3D paths:** a program with more than about 100k moves takes several minutes to verify. The performance thread owns this.
 - **`autoApply` straight after loading a part:** it can use the quick display mesh and pick a different tool than Auto Program does, which waits for the exact mesh. Auto Program is the one-click path and is correct; the Auto Detect panel updates as soon as the exact mesh arrives.
 - **Engraving:** Verify reports gouges and holder hits on it by design.
 - **Verify "plunge" warnings** on pockets that start where a flat end mill cannot ramp: shown as a warning, not a failure.
-- **Not 3-axis, not run:** multiaxis, lathe, wire.
+- **Not 3-axis, not run:** multiaxis, lathe.
