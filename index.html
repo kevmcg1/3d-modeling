@@ -5,6 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Datum Modeler</title>
 <script>try { document.documentElement.setAttribute("data-theme", localStorage.getItem("datum.theme") === "dark" ? "dark" : "light"); } catch (e) { document.documentElement.setAttribute("data-theme", "light"); }   // light unless the user chose dark</script>
+<script>
+// Early capture for the exported log: errors, rejections and console warnings/errors from page load, before the trace module exists.
+(function () {
+  var q = window.__early = [], hook = null, cw = console.warn, ce = console.error;
+  function add(kind, what, level) { if (kind === 'console' && typeof Trace !== 'undefined' && Trace.busy) return; var e = { ts: Date.now(), kind: kind, what: String(what).slice(0, 300), level: level }; if (hook) hook(e); else if (q.length < 200) q.push(e); }
+  function fmt(a) { return Array.prototype.map.call(a, function (x) { try { return x instanceof Error ? x.message : typeof x === 'object' ? JSON.stringify(x) : String(x); } catch (e) { return '[object]'; } }).join(' '); }
+  console.warn = function () { add('console', 'warn: ' + fmt(arguments), 'warn'); return cw.apply(console, arguments); };
+  console.error = function () { add('console', 'error: ' + fmt(arguments), 'error'); return ce.apply(console, arguments); };
+  window.addEventListener('error', function (ev) { add('error', ev.message + ' (' + String(ev.filename || '').split('/').pop() + ':' + ev.lineno + ':' + ev.colno + ')' + (ev.error && ev.error.stack ? '\n' + String(ev.error.stack).split('\n').slice(0, 6).join('\n') : ''), 'error'); });
+  window.addEventListener('unhandledrejection', function (ev) { var r = ev.reason; add('error', 'Unhandled promise rejection: ' + (r && r.message || r) + (r && r.stack ? '\n' + String(r.stack).split('\n').slice(0, 6).join('\n') : ''), 'error'); });
+  window.__earlyHook = function (h) { hook = h; var l = q.splice(0); l.forEach(h); };
+})();
+</script>
 <style>
 /* Boot gate: the app is one big page that builds its toolbars and panels as it parses, so show a calm splash until it is all in place and reveal it in one frame (no unstyled flash, no tabs popping in, no layout jumps). */
 html.booting { background: #e9ecf0; }
@@ -11566,9 +11579,9 @@ const MOUSE_SVG = hot => `<svg viewBox="0 0 16 22"><rect class="body" x="1" y="1
 function renderMouseLegend() {
   const el = document.getElementById('mouseLegend');
   const dr = MOUSE.left === 'orbit' ? 'orbit' : MOUSE.left;
-  const left = S.sk ? 'Draw · select' : UIX.ws === 'cam' ? `Pick · drag to ${dr}` : CMD ? 'Pick' : `Select · drag to ${dr}`;
-  const right = S.sk ? `${MOUSE_ACT[MOUSE.right]} · click: end line` : `${MOUSE_ACT[MOUSE.right]} · click: menu`;
-  el.innerHTML = [['l', left], ['m', `${MOUSE_ACT[MOUSE.middle]} · wheel ${MOUSE.invertWheel ? 'zooms (reversed)' : 'zooms'}`], ['r', right]].map(([k, t]) => `<span class="ml">${MOUSE_SVG(k)}${t}</span>`).join('');
+  const left = S.sk ? 'Draw · select' : UIX.ws === 'cam' ? `Pick${MOUSE.left === 'none' ? '' : ' · drag to ' + dr}` : CMD ? 'Pick' : `Select${MOUSE.left === 'none' ? '' : ' · drag to ' + dr}`;
+  const right = S.sk ? `${MOUSE_ACT[MOUSE.right]} · click: end line` : `${MOUSE_ACT[MOUSE.right]} · click: ${MOUSE.rightClick === 'none' ? 'nothing' : 'menu'}`;
+  el.innerHTML = [['l', left], ['m', `${MOUSE_ACT[MOUSE.middle]} · wheel ${MOUSE.wheel === 'none' ? 'off' : MOUSE.wheel === 'zoom' ? (MOUSE.invertWheel ? 'zooms (reversed)' : 'zooms') : MOUSE.wheel + 's'}`], ['r', right]].map(([k, t]) => `<span class="ml">${MOUSE_SVG(k)}${t}</span>`).join('');
 }
 function action(a) {
   if (S.sk && [...SKETCH_TOOLS.flat(), ...SKETCH_XF].some(t => t[0] === a)) { setTool(a); return; }
@@ -12380,8 +12393,15 @@ function zoomAt(mx, my, f) {
   requestDraw(); scheduleLevelCheck();
 }
 // ── Mouse and navigation settings: what each button does, how the orbit feels ──
-const MOUSE = Object.assign({ left: 'orbit', middle: 'pan', right: 'orbit', pivot: 'cursor', sens: 1, invertOrbit: false, invertWheel: false }, (() => { try { return JSON.parse(localStorage.getItem('datum.mouse') || '{}'); } catch (e) { return {}; } })());
+const MOUSE_DEF = { left: 'orbit', middle: 'pan', right: 'orbit', midShift: 'orbit', midCtrl: 'same', rightShift: 'pan', rightCtrl: 'same', rightClick: 'menu', midClick: 'none', wheel: 'zoom', wheelAt: 'cursor', wheelSpeed: 1, pivot: 'cursor', sens: 1, invertOrbit: false, invertWheel: false };
+const MOUSE = Object.assign({}, MOUSE_DEF, (() => { try { return JSON.parse(localStorage.getItem('datum.mouse') || '{}'); } catch (e) { return {}; } })());
 const MOUSE_ACT = { orbit: 'Orbit', pan: 'Pan', zoom: 'Zoom', none: 'Nothing' };
+// What a middle or right drag does, with Shift or Ctrl held ('same' = the plain assignment).
+function mouseAct(btn, e) {
+  const k = btn === 1 ? 'mid' : 'right', plain = btn === 1 ? MOUSE.middle : MOUSE.right;
+  const m = e.shiftKey ? MOUSE[k + 'Shift'] : e.ctrlKey || e.metaKey ? MOUSE[k + 'Ctrl'] : 'same';
+  return !m || m === 'same' ? plain : m;
+}
 function mouseSave() { try { localStorage.setItem('datum.mouse', JSON.stringify(MOUSE)); } catch (e) { /* storage unavailable */ } renderMouseLegend(); }
 function openMouseSettings() {
   const card = document.getElementById('modalCard'), sel = (k, opts) => `<select data-ms="${k}">${opts.map(([v, l]) => `<option value="${v}" ${MOUSE[k] === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
@@ -12404,7 +12424,7 @@ function openMouseSettings() {
     const t = e.target.closest('[data-ms]'); if (!t) return;
     MOUSE[t.dataset.ms] = t.type === 'checkbox' ? t.checked : t.type === 'range' ? +t.value : t.value; mouseSave();
   };
-  card.querySelector('[data-ms-reset]').addEventListener('click', () => { Object.assign(MOUSE, { left: 'orbit', middle: 'pan', right: 'orbit', pivot: 'cursor', sens: 1, invertOrbit: false, invertWheel: false }); mouseSave(); openMouseSettings(); });
+  card.querySelector('[data-ms-reset]').addEventListener('click', () => { Object.assign(MOUSE, MOUSE_DEF); mouseSave(); openMouseSettings(); });
 }
 ov.addEventListener('contextmenu', e => e.preventDefault());
 ov.addEventListener('pointerdown', e => {
@@ -12417,8 +12437,7 @@ ov.addEventListener('pointerdown', e => {
   ptr.pivot = MOUSE.pivot === 'center' ? null : orbitPivotAt(x, y);
   if (e.button === 1) e.preventDefault();
   if (e.button === 1 || e.button === 2) {
-    const act = e.button === 1 ? MOUSE.middle : MOUSE.right;
-    ptr.nav = act === 'none' ? null : e.shiftKey && (act === 'orbit' || act === 'pan') ? (act === 'orbit' ? 'pan' : 'orbit') : act;
+    ptr.nav = mouseAct(e.button, e) || 'none';   // 'none' still lets a click through (menu / fit view) without moving the view
     return;
   }
   if (e.button !== 0) return;
@@ -12439,11 +12458,12 @@ ov.addEventListener('pointermove', e => {
     const dx = x - ptr.x, dy = y - ptr.y;
     ptr.x = x; ptr.y = y;
     if (Math.hypot(x - ptr.x0, y - ptr.y0) > 3) ptr.moved = true;
+    if (ptr.nav === 'none') return;
     if (ptr.nav) {
       ov.classList.add('nav');
       const now = performance.now(), dt = Math.max(1, now - ptr.t), a = Math.min(1, dt / 40);
       ptr.vx = ptr.vx * (1 - a) + (dx / dt) * a; ptr.vy = ptr.vy * (1 - a) + (dy / dt) * a; ptr.t = now;
-      if (ptr.nav === 'orbit') orbitAbout(dx, dy, ptr.pivot); else if (ptr.nav === 'zoom') zoomAt(ptr.x0, ptr.y0, Math.exp(dy * 0.008)); else pan(dx, dy);
+      if (ptr.nav === 'orbit') orbitAbout(dx, dy, ptr.pivot); else if (ptr.nav === 'zoom') zoomAt(ptr.x0, ptr.y0, Math.exp(dy * 0.008)); else if (ptr.nav === 'pan') pan(dx, dy);
       return;
     }
     if (arrowDrag) {
@@ -12487,7 +12507,8 @@ ov.addEventListener('pointerup', e => {
     const idle = performance.now() - was.t;
     if (was.nav === 'orbit' && was.moved && idle < 60 && Math.hypot(was.vx, was.vy) > 0.05 && !REDUCED()) { view.spin = { vx: was.vx, vy: was.vy, pivot: was.pivot }; requestDraw(); }
     if (was.nav === 'pan' && was.moved && idle < 60 && Math.hypot(was.vx, was.vy) > 0.05 && !REDUCED()) { view.glide = { vx: was.vx, vy: was.vy }; requestDraw(); }
-    if (!was.moved && was.btn === 2) { if (S.sk) { if (S.tool === 'select' && S.sel.size && !LIVE.on) contextSketch(e); else if (!sketchCancel()) contextSketch(e); } else if (CMD) cancelCmd(); }
+    if (!was.moved && was.btn === 1 && MOUSE.midClick !== 'none' && !S.sk) { if (MOUSE.midClick === 'home') { animateView({ quat: ISO() }); setTimeout(() => fitAll(), 0); } else fitAll(); }
+    if (!was.moved && was.btn === 2 && MOUSE.rightClick !== 'none') { if (S.sk) { if (S.tool === 'select' && S.sel.size && !LIVE.on) contextSketch(e); else if (!sketchCancel()) contextSketch(e); } else if (CMD) cancelCmd(); }
     scheduleLevelCheck();
     return;
   }
@@ -12508,7 +12529,11 @@ ov.addEventListener('pointerleave', () => { if (!ptr.down) { setHover3D(null); S
 ov.addEventListener('wheel', e => {
   e.preventDefault();
   const { x, y } = local(e);
-  const lg = e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0015) * (MOUSE.invertWheel ? -1 : 1);
+  const lg = e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0015) * (MOUSE.invertWheel ? -1 : 1) * (MOUSE.wheelSpeed || 1);
+  if (MOUSE.wheel === 'none') return;
+  if (MOUSE.wheel === 'orbit') { orbitAbout(e.deltaX * 0.25, e.deltaY * 0.25 * (e.deltaMode === 1 ? 16 : 1), MOUSE.pivot === 'center' ? null : orbitPivotAt(x, y)); return; }
+  if (MOUSE.wheel === 'pan') { pan(-e.deltaX, -e.deltaY * (e.deltaMode === 1 ? 16 : 1)); return; }
+  if (MOUSE.wheelAt === 'center') { zoomAt(W / 2, H / 2, Math.exp(lg)); return; }
   if (REDUCED()) { zoomAt(x, y, Math.exp(lg)); return; }
   view.zq = { x, y, log: (view.zq ? view.zq.log : 0) + lg };
   requestDraw();
@@ -19689,7 +19714,7 @@ function bodyExportMenu(id, x, y) {
   ov.addEventListener('pointerup', e => {
     if (!rc || e.button !== 2) return;
     const { x, y } = local(e), r0 = rc; rc = null;
-    if (Math.hypot(x - r0.x, y - r0.y) > 3 || !live()) return;
+    if (Math.hypot(x - r0.x, y - r0.y) > 3 || !live() || MOUSE.rightClick === 'none') return;
     const h = pick3D(x, y, { faces: true });
     if (!h || h.body == null) return;
     if (SELMODE === 'body' && !(sel3D && sel3D.kind === 'body' && sel3D.body === h.body)) { sel3D = { kind: 'body', body: h.body, fid: h.fid, mesh: h.mesh, point: h.point }; selProfiles.length = 0; selEdges.length = 0; rebuildHighlights(); refreshPanel(); requestDraw(); }
@@ -22622,7 +22647,7 @@ function simToolTo(t) {
 //  the console prints the last 300 steps as a table.
 // ═══════════════════════════════════════════════════════════════════
 const Trace = {
-  on: true, buf: [], t0: performance.now(),
+  on: false, buf: [], t0: performance.now(), t0w: Date.now(), busy: false, cap: 4000,
   ctx() {
     const c = { ws: typeof UIX !== 'undefined' ? UIX.ws : '' };
     if (typeof S !== 'undefined' && S.sk) { c.sketch = S.sk.name; c.tool = S.tool; }
@@ -22631,15 +22656,19 @@ const Trace = {
     return c;
   },
   log(kind, what, data, level) {
-    const e = { t: +((performance.now() - this.t0) / 1000).toFixed(2), kind, what: String(what).slice(0, 120), ...this.ctx() };
-    this.buf.push(e); if (this.buf.length > 300) this.buf.shift();
-    if (!this.on && level !== 'error') return;
+    const e = { t: +((performance.now() - this.t0) / 1000).toFixed(2), ts: Date.now(), kind, what: String(what).slice(0, 200), ...this.ctx() };
+    if (data !== undefined) { try { e.data = data instanceof Error ? data.message : JSON.stringify(data).slice(0, 300); } catch (x) { e.data = '[unserializable]'; } }
+    if (level) e.level = level;
+    this.n = (this.n || 0) + 1;
+    this.buf.push(e); if (this.buf.length > this.cap * 1.25) this.buf.splice(0, this.buf.length - this.cap);   // ring buffer: cheap, never grows
+    if (!this.on || this.busy) return;
+    this.busy = true;
     const col = { click: '#2460c8', key: '#8b4fd0', call: '#1d8656', field: '#b46a00', view: '#0f7c8c', perf: '#c0392f', feature: '#c0392f', error: '#c0392f' }[kind] || '#778291';
     const args = [`%c[Datum ${e.t}s]%c ${kind}%c ${e.what}`, 'color:#778291', `color:${col};font-weight:600`, 'color:inherit'];
     const ctx = this.ctx();
     if (data !== undefined) args.push(data);
     if (Object.keys(ctx).length > 1 || ctx.ws !== 'design') args.push(ctx);
-    (level === 'error' ? console.error : level === 'warn' ? console.warn : console.log)(...args);
+    try { (level === 'error' ? console.error : level === 'warn' ? console.warn : console.log)(...args); } finally { this.busy = false; }
   },
   toggle() {
     this.on = !this.on;
@@ -22648,8 +22677,9 @@ const Trace = {
     if (typeof toast === 'function') toast('Debug log ' + (this.on ? 'on (browser console)' : 'off'));
   },
 };
-try { Trace.on = localStorage.getItem('datum.trace') !== '0'; } catch (e) { /* default on */ }
-window.datumTrace = () => { console.table(Trace.buf); return Trace.buf.length + ' steps'; };
+try { Trace.on = localStorage.getItem('datum.trace') === '1'; } catch (e) { /* default off: the log is kept in memory and exported from the top bar */ }
+if (window.__earlyHook) window.__earlyHook(ev => Trace.buf.push({ t: +((ev.ts - Trace.t0w) / 1000).toFixed(2), ts: ev.ts, kind: ev.kind, what: ev.what, level: ev.level, ws: 'design' }));
+window.datumTrace = () => { console.table(Trace.buf.slice(-300)); return Trace.buf.length + ' steps'; };
 
 (() => {
   const short = s => String(s || '').replace(/\s+/g, ' ').trim().slice(0, 60);
@@ -22672,7 +22702,7 @@ window.datumTrace = () => { console.table(Trace.buf); return Trace.buf.length + 
     const el = ev.target;
     if (!el.matches || !el.matches('input, select, textarea')) return;
     const key = el.id || Object.entries(el.dataset).map(([k, v]) => k + '=' + v).join(' ') || el.name || el.type;
-    Trace.log('field', key, el.type === 'checkbox' ? el.checked : el.value);
+    Trace.log('field', key, el.type === 'checkbox' ? el.checked : el.type === 'password' || /pass|secret|token|key\b/i.test(key) ? '[hidden]' : el.value);
   }, true);
   window.addEventListener('keydown', ev => {
     const ae = document.activeElement, typing = ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA');
@@ -22721,8 +22751,8 @@ window.datumTrace = () => { console.table(Trace.buf); return Trace.buf.length + 
 
   // errors, with the steps that led to them
   const trail = () => Trace.buf.slice(-25).map(e => `${e.t}s ${e.kind}: ${e.what}${e.cmd ? ' [' + e.cmd + ']' : ''}`).join('\n');
-  window.addEventListener('error', ev => { Trace.log('error', `${ev.message} (${(ev.filename || '').split('/').pop()}:${ev.lineno})`, undefined, 'error'); console.error('[Datum] steps before the error:\n' + trail()); });
-  window.addEventListener('unhandledrejection', ev => { Trace.log('error', 'Unhandled promise rejection: ' + (ev.reason && ev.reason.message || ev.reason), ev.reason, 'error'); console.error('[Datum] steps before the error:\n' + trail()); });
+  // errors and rejections are recorded by the early capture script (page load onwards); show the steps that led to them in the console
+  window.addEventListener('error', () => { if (Trace.on) console.error('[Datum] steps before the error:\n' + trail()); }); window.addEventListener('unhandledrejection', () => { if (Trace.on) console.error('[Datum] steps before the error:\n' + trail()); });
 
   // feature errors as they appear in the timeline
   let lastErr = {};
@@ -36352,5 +36382,7 @@ function gsPick(i) {
 </script>
 <!-- Fusion-style modeling (construction planes, Inspect tools): own file, loaded last so it can extend the toolbar, panels and help cards -->
 <script src="fusion-tools.js"></script>
+<!-- Export log, settings cog, mouse and keyboard layouts: own file so it can be loaded last -->
+<script src="input-settings.js"></script>
 </body>
 </html>
