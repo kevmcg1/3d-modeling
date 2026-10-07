@@ -16489,7 +16489,8 @@ function chainCircle(op, tool, st, part, P, chains) {
   while (todo.length) { let bi = 0; todo.forEach((h, i) => { if (dst2(P2(h.x, h.y), cur) < dst2(P2(todo[bi].x, todo[bi].y), cur)) bi = i; }); const h = todo.splice(bi, 1)[0]; order.push(h); cur = P2(h.x, h.y); }
   const pitch = Math.max(0.1, op.pitch || Math.min(2, tool.d * 0.3)), steps = 36, dir = boss ? -1 : 1;
   for (const h of order) {
-    const rp = boss ? h.D / 2 + r + (op.leave || 0) : h.D / 2 - r - (op.leave || 0), top = Math.min(st.z1, h.top), turns = Math.max(1, Math.ceil((top - h.bottom) / pitch));
+    // a hole stepping down from a wider bore starts at the part top: this op may come before the bore is cut
+    const rp = boss ? h.D / 2 + r + (op.leave || 0) : h.D / 2 - r - (op.leave || 0), top = Math.min(st.z1, boss ? h.top : Math.max(h.top, part.z1)), turns = Math.max(1, Math.ceil((top - h.bottom) / pitch));
     if (!boss && rp < 0.3) { P.rapid(h.x, h.y, safe); P.rapid(h.x, h.y, top + 1); P.plunge(h.x, h.y, h.bottom); P.rapid(h.x, h.y, safe); continue; }
     const x = a => h.x + rp * Math.cos(a), y = a => h.y + rp * Math.sin(a), ext = boss ? 2 + r : 0;
     P.rapid(h.x + rp + ext, h.y, safe); P.rapid(h.x + rp + ext, h.y, top + 1);
