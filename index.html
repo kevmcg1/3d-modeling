@@ -13166,8 +13166,8 @@ function camStock() {
   if (!p) return null;
   return { x0: p.x0 - s.side, x1: p.x1 + s.side, y0: p.y0 - s.side, y1: p.y1 + s.side, z0: p.z0 - s.bottom, z1: p.z1 + s.top };
 }
-function camOrigin() {
-  const st = camStock(), o = cam().origin;
+function camOrigin(o = cam().origin) {
+  const st = camStock();
   if (!st) return [0, 0, 0];
   if (o === 'top-corner') return [st.x0, st.y0, st.z1];
   if (o === 'bottom-corner') return [st.x0, st.y0, st.z0];
@@ -15514,7 +15514,7 @@ function tiltFrame(w, mode, o = [0, 0, 0]) {
   return { code: [`G68.2 X0. Y0. Z0. I${f(al * d)} J${f(be * d)} K0. (tilted work plane)`, 'G53.1'], end: ['G69'], loc: p => [dot3(p, u), dot3(p, v), dot3(p, ww)] };
 }
 function postGcode() {
-  const C = cam(), pf = C.post, grbl = false, o = camOrigin(), part = camPart();          // mills always post Haas (Fanuc-style NGC)
+  const C = cam(), pf = C.post, PF = postProfile(pf), grbl = !!PF.grbl, o = camOrigin(), part = camPart();          // the controller's dialect comes from the profile (cam-post.js); Haas by default
   // inches (G20, 4 places) when the display is in inches, else millimeters (G21, 3 places)
   const inch = isIn(), k = inch ? 1 / 25.4 : 1, dp = inch ? 4 : 3;
   const N = v => { v *= k; const s = (Math.abs(v) < 0.5 * Math.pow(10, -dp) ? 0 : v).toFixed(dp).replace(/0+$/, '').replace(/\.$/, '.'); return s === '-0.' ? '0.' : s; };
@@ -15536,20 +15536,21 @@ function postGcode() {
     L.push(w.join(' '));
     st.g = g; if (nx !== null) st.x = nx; if (ny !== null) st.y = ny; if (nz !== null) st.z = nz;
   };
-  if (!grbl) L.push('%', `O${String(pf.program).padStart(5, '0')} (DATUM - HAAS MILL)`);
+  L.push(...PF.head(pf));
   L.push(`(Part: ${doc.features.length} features · generated ${new Date().toISOString().slice(0, 10)})`);
   L.push(`(WCS G54: ${wcsName(C)})`);
   L.push(`(Units: ${inch ? 'inches' : 'millimeters'})`);
   const multi = pf.multi === 'g682' ? 'g682' : 'setup', SU = camSetup();
   if (!grbl && SU) L.push(multi === 'g682' ? '(Indexed ops: G68.2 tilted work plane + G53.1. Check your control has tilted-plane machining enabled.)' : `(Indexed ops on the ${SU.name}: rotation center X${N(SU.c[0] - o[0])} Y${N(SU.c[1] - o[1])} Z${N(SU.c[2] - o[2])} from G54 — set it to your rotary's centerline and check its directions.)`);
-  L.push(grbl ? `${inch ? 'G20' : 'G21'} G90 G94 G17` : `${inch ? 'G20' : 'G21'} G90 G94 G17 G40 G49 G80`, 'G54');
+  L.push(...PF.init(inch), PF.wcs[0]);
+  let wcsNow = 54;
   let lastTool = null, totalMin = 0;
   const ops = C.ops.filter(op => !op.sup);
   for (const op of ops) {
-    const P = toolpath(op);
+    const o = opOrigin(op), P = toolpath(op);
     if (!P || P.pending || P.m.length < 2) { L.push(`(${op.name}: skipped — ${P && P.pending ? 'still computing' : 'no toolpath'})`); continue; }
     const ax = opAxis(op);
-    if (ax && grbl) { L.push(`(${op.name}: skipped — needs the part turned or tilted; GRBL output is 3-axis)`); continue; }
+    if (ax && !PF.indexed) { L.push(`(${op.name}: skipped — needs the part turned or tilted; ${PF.name} output is 3-axis)`); continue; }
     totalMin += pathStats(P).min;
     const fr = ax ? tiltFrame(ax, multi, o) : null;
     const t = P.tool, rel = fr ? m => fr.loc([m.x - o[0], m.y - o[1], m.z - o[2]]) : m => [m.x - o[0], m.y - o[1], m.z - o[2]];
@@ -15558,32 +15559,42 @@ function postGcode() {
     if (grbl && P.tap) L.push('(WARNING: GRBL has no synchronized tapping cycle - use a floating tap holder)');
     if (lastTool !== t.n) {
       if (lastTool !== null) { if (pf.coolant) L.push('M9'); L.push('M5'); if (pf.optStop && !grbl) L.push('M1 (OPTIONAL STOP)'); }
-      L.push(grbl ? `M0 (Change to ${toolName(t)})` : `T${t.n} M6`);
+      L.push(...PF.toolChange(t, toolName(t)));
       L.push(op.kind === 'bsf' ? `S${Math.round(t.rpm)} (SPINDLE STAYS OFF UNTIL THE BLADE IS BELOW THE PART)` : `S${Math.round(t.rpm)} M3`);
       if (pf.coolant && op.kind !== 'bsf') L.push('M8');
       lastTool = t.n; st.g = null; st.x = st.y = st.z = null; st.f = null;
     }
     if (fr) { L.push('G91 G28 Z0. (clear before turning the part)', 'G90', ...fr.code); st.g = null; st.x = st.y = st.z = null; }
     const endFrame = () => { if (fr) { L.push('G91 G28 Z0.', 'G90', ...fr.end); st.g = null; st.x = st.y = st.z = null; } };
+    const wn = 54 + Math.max(0, Math.min(5, (op.wcs | 0) || 0));
+    if (wn !== wcsNow) { L.push(PF.wcs[wn - 54], `(WORK OFFSET G${wn}: ${wcsLabel(wn)})`); wcsNow = wn; st.g = null; st.x = st.y = st.z = null; }
     const m0 = rel(P.m[0]);
     L.push(`G0 X${N(m0[0])} Y${N(m0[1])}`); st.g = 'G0'; st.x = N(m0[0]); st.y = N(m0[1]);
-    if (!grbl) { L.push(`G43 H${t.n} Z${N(m0[2])}`); st.z = N(m0[2]); } else move('G0', null, null, m0[2]);
-    if (isDrillOp(op) && P.holes && !grbl && fr) {
+    const tl = PF.tlc(t, N(m0[2])); if (tl) { L.push(tl); st.z = N(m0[2]); } else move('G0', null, null, m0[2]);
+    const cyc = isDrillOp(op) && P.holes ? (P.cycle || drillSpec(op, t)) : null, canned = !!cyc && PF.canned(cyc.mode, t);
+    if (cyc && !canned) L.push(`(${DRILL_CYCLES[cyc.mode].g} ${PF.name}: no canned cycle for this, posted as moves)`);
+    if (canned && PF.cycleLines && !fr) {                                        // controls with their own cycle syntax (Siemens CYCLEnn)
+      L.push(...PF.cycleLines(cyc, P, t, { N, F, o, safe: camStock().z1 + C.safe, mark: i => { SRC = { op: op.id, mi: i }; } }));
+      SRC = { op: op.id, mi: P.m.length - 1 }; L.push(...PF.cycleEnd());
+      const last = P.m[P.m.length - 1]; L.push(`G0 Z${N(last.z - o[2])}`); st.g = 'G0'; st.z = N(last.z - o[2]);
+      continue;
+    }
+    if (canned && fr) {
       // canned cycles in the turned / tilted frame: every point of a hole shares its X Y there
-      const lc = v => fr.loc([v[0] - o[0], v[1] - o[1], v[2] - o[2]]), cy = P.cycle || drillSpec(op, t);
-      L.push(...cycleNotes(cy, P, N));
-      P.holes.forEach((hh, k) => { SRC = { op: op.id, mi: (P.holes[k + 1] ? P.holes[k + 1].mi : P.m.length) - 1 }; const B = lc(hh.bottom), Rr = lc(hh.r); L.push(k ? `X${N(B[0])} Y${N(B[1])} Z${N(B[2])} R${N(Rr[2])}` : `G98 ${cy.g} X${N(B[0])} Y${N(B[1])} Z${N(B[2])} R${N(Rr[2])}${cycleWords(cy, N)} F${P.tap ? N(P.tap.feed) : F(t.plunge)}${cy.tapJ > 1 ? ' J' + cy.tapJ : ''}`); });
+      const lc = v => fr.loc([v[0] - o[0], v[1] - o[1], v[2] - o[2]]), cy = cyc;
+      L.push(...cycleNotes(cy, P, N, PF));
+      P.holes.forEach((hh, k) => { SRC = { op: op.id, mi: (P.holes[k + 1] ? P.holes[k + 1].mi : P.m.length) - 1 }; const B = lc(hh.bottom), Rr = lc(hh.r); L.push(k ? `X${N(B[0])} Y${N(B[1])} Z${N(B[2])} R${N(Rr[2])}` : `G98 ${cy.g} X${N(B[0])} Y${N(B[1])} Z${N(B[2])} R${N(Rr[2])}${cycleWords(cy, N, PF)} F${P.tap ? N(P.tap.feed) : F(t.plunge)}${cy.tapJ > 1 ? ' J' + cy.tapJ : ''}`); });
       SRC = { op: op.id, mi: P.m.length - 1 };
       L.push('G80');
       endFrame();
       continue;
     }
-    if (isDrillOp(op) && P.holes && !grbl) {
-      const hs = P.holes, cy = P.cycle || drillSpec(op, t), first = hs[0], rr = N((cy.mode === 'back' ? Math.min : Math.max)(...hs.map(h => h.r)) - o[2]);
-      L.push(...cycleNotes(cy, P, N));
+    if (canned) {
+      const hs = P.holes, cy = cyc, first = hs[0], rr = N((cy.mode === 'back' ? Math.min : Math.max)(...hs.map(h => h.r)) - o[2]);
+      L.push(...cycleNotes(cy, P, N, PF));
       const holeEnd = k => (hs[k + 1] ? hs[k + 1].mi : P.m.length) - 1;       // a hole's line covers every move of its cycle
       SRC = { op: op.id, mi: holeEnd(0) };
-      L.push(`${cy.ret} ${cy.g} X${N(first.x - o[0])} Y${N(first.y - o[1])} Z${N(first.z - o[2])} R${rr}${cycleWords(cy, N)} F${P.tap ? N(P.tap.feed) : F(t.plunge)}${cy.tapJ > 1 ? ' J' + cy.tapJ : ''}`);
+      L.push(`${cy.ret} ${cy.g} X${N(first.x - o[0])} Y${N(first.y - o[1])} Z${N(first.z - o[2])} R${rr}${cycleWords(cy, N, PF)} F${P.tap ? N(P.tap.feed) : F(t.plunge)}${cy.tapJ > 1 ? ' J' + cy.tapJ : ''}`);
       let zPrev = N(first.z - o[2]);
       for (const [k, h] of hs.entries()) { if (!k) continue; SRC = { op: op.id, mi: holeEnd(k) }; const zz = N(h.z - o[2]); L.push(`X${N(h.x - o[0])} Y${N(h.y - o[1])}${zz !== zPrev ? ' Z' + zz : ''}`); zPrev = zz; }
       SRC = { op: op.id, mi: P.m.length - 1 };
@@ -15622,7 +15633,7 @@ function postGcode() {
       const m = P.m[i];
       SRC = { op: op.id, mi: i };
       if (m.code) L.push(...m.code);
-      if (m.g12 && !grbl && !fr) {
+      if (m.g12 && PF.g12 && !fr) {
         const g = m.g12;
         SRC = { op: op.id, mi: g.end };
         L.push(`(CIRCULAR POCKET R${N(g.K)} - G12 CLOCKWISE, TOOL-CENTER RADII, NO CUTTER COMP. G13 IS THE COUNTERCLOCKWISE TWIN)`,
@@ -15630,7 +15641,7 @@ function postGcode() {
         st.g = null; st.x = N(g.cx - o[0]); st.y = N(g.cy - o[1]); st.z = N(g.zEnd - o[2]); st.f = null;
         i = g.end + 1; continue;
       }
-      if (m.hold) { if (m.dw) L.push(`G4 P${+m.dw.toFixed(2)}`); i++; continue; }
+      if (m.hold) { if (m.dw) L.push(PF.dwell(m.dw)); i++; continue; }
       if (m.r) { const p = rel(m); move('G0', p[0], p[1], p[2]); i++; continue; }
       let j = i;
       while (j + 1 < P.m.length && !P.m[j + 1].r && !P.m[j + 1].hold && !P.m[j + 1].tool && !P.m[j + 1].code && Math.abs(P.m[j + 1].z - m.z) < 1e-9 && P.m[j + 1].f === m.f && Math.abs(P.m[i - 1].z - m.z) < 1e-9) j++;
@@ -15654,21 +15665,23 @@ function postGcode() {
   SRC = null;
   if (pf.coolant) L.push('M9');
   L.push('M5');
-  L.push(grbl ? 'G0 Z' + N(camStock().z1 + C.safe - o[2]) : 'G28 G91 Z0.', grbl ? 'M2' : 'G90');
-  if (!grbl) L.push('M30', '%');
-  return { text: L.join('\n'), lines: L.length, min: totalMin + (ops.length ? 0.15 * new Set(ops.map(x => x.tool)).size : 0), part, map: MAP };
+  L.push(...PF.end(N(camStock().z1 + C.safe - o[2])));
+  if (PF.semi) for (let i = 0; i < L.length; i++) L[i] = PF.semi(L[i]);                // ; comments instead of ( )
+  if (pf.lineNums) { let n = 0; const step = Math.max(1, Math.round(pf.lineStep || 10)); for (let i = 0; i < L.length; i++) if (L[i] !== '%' && L[i] !== '') { n += step; L[i] = `N${n} ${L[i]}`; } }
+  return { text: L.join('\n'), ext: PF.ext, ctrl: PF.name, lines: L.length, min: totalMin + (ops.length ? 0.15 * new Set(ops.map(x => x.tool)).size : 0), part, map: MAP };
 }
 // The words that shape a canned cycle: Q (or I J K) for pecking, P for a dwell (seconds).
-function cycleWords(cy, N) {
+function cycleWords(cy, N, PF) {
   let w = '';
   if (cy.mode === 'peck' || cy.mode === 'chip') w += cy.i > 0 ? ` I${N(cy.i)} J${N(cy.j)} K${N(cy.k > 0 ? cy.k : Math.min(cy.i, cy.q))}` : ` Q${N(cy.q)}`;
   if (cy.mode === 'fine' || cy.mode === 'back') w += ` Q${N(cy.shift)}`;
-  if (cy.p > 0) { const v = +cy.p.toFixed(3); w += ` P${Number.isInteger(v) ? v + '.' : v}`; }
+  if (cy.p > 0) w += ` P${PF ? PF.cycP(cy.p) : (Number.isInteger(+cy.p.toFixed(3)) ? +cy.p.toFixed(3) + '.' : +cy.p.toFixed(3))}`;
   return w;
 }
 // Comments for what the cycle relies on that lives on the control, not in the program.
-function cycleNotes(cy, P, N) {
+function cycleNotes(cy, P, N, PF) {
   const u = isIn() ? ' IN' : ' MM', out = [];
+  if (PF && PF.notes) return PF.notes(cy, P, N);
   if (cy.mode === 'tap') out.push(`(RIGID TAP G84 - PITCH ${fmtLs(P.tap.pitch, 4)}, F = RPM X PITCH${cy.tapJ > 1 ? `, J${cy.tapJ} RETRACTS ${cy.tapJ}X FASTER` : ''})`);
   if (cy.mode === 'fine') out.push(`(G76 FINE BORE - Q${N(cy.shift)} SHIFTS THE BAR OFF THE WALL, THE SPINDLE ORIENTS FIRST - CHECK SETTING 27 FOR THE SHIFT DIRECTION)`);
   if (cy.mode === 'back') out.push(`(G87 BACK BORE - Q${N(cy.shift)} SHIFTS THE BAR OFF THE WALL, R IS THE FAR SIDE, Z IS THE TOP OF THE CUT - THE SPINDLE ORIENTS FIRST, CHECK SETTING 27 FOR THE SHIFT DIRECTION)`);
@@ -15679,7 +15692,7 @@ function cycleNotes(cy, P, N) {
 }
 function downloadGcode() {
   const g = postGcode();
-  download(`datum-O${cam().post.program}.nc`, new Blob([g.text], { type: 'text/plain' }));
+  download(postFileName(), new Blob([g.text], { type: 'text/plain' }));
   toast('G-code saved');
 }
 
@@ -21587,7 +21600,7 @@ function buildSheetData() {
   return {
     doc: { title: `Setup Sheet – ${partName}`, subtitle: `${M.name} · ${ops.length} operation${ops.length === 1 ? '' : 's'} · ${axes}-axis part${axes > 3 ? ' (this program is the 3-axis portion)' : ''}`, meta: new Date().toLocaleDateString(), fileName: `setup-sheet-${partName.toLowerCase()}` },
     tables: {
-      0: { title: 'Job Info', rows: [['Part #', partName], ['Program', `O${C.post.program}`], ['Machine', `Haas ${axes > 3 ? axes + '-axis' : '3-axis'} VMC`], ['Operation', 'OP1 – Top side'], ['Cycle time', g ? `${fmtClock2(g.min)} (est.)` : '—']] },
+      0: { title: 'Job Info', rows: [['Part #', partName], ['Program', `O${C.post.program}`], ['Machine', `${postProfile(C.post).name} ${axes > 3 ? axes + '-axis' : '3-axis'} VMC`], ['Operation', 'OP1 – Top side'], ['Cycle time', g ? `${fmtClock2(g.min)} (est.)` : '—']] },
       1: { title: 'Stock & Workholding', rows: [['Material', M.name], ['Stock size', size.map(v => inch(v)).join(' × ')], ['Vise', '6" machinist vise'], ['Parallels', st ? `Stock ≥ ${inch(above)} above jaws` : ''], ['Above jaws', `${inch(above)} min.`]] },
       2: { title: 'Work Offset', rows: [['Offset', 'G54'], ['X0', xyz.x], ['Y0', xyz.y], ['Z0', xyz.z], ['Found with', 'Edge finder / probe']] },
       3: { title: 'Tool Info', rows: toolRows.length ? toolRows : [[false, '', 'No tools yet', '']] },
@@ -27628,7 +27641,7 @@ camStock = function () {
 };
 // the work origin: a picked point on the model
 const camOrigin0 = camOrigin;
-camOrigin = function () { const o = cam().origin; if (o && typeof o === 'object' && Array.isArray(o.pick)) return o.pick.slice(); return camOrigin0(); };
+camOrigin = function (o = cam().origin) { if (o && typeof o === 'object' && Array.isArray(o.pick)) return o.pick.slice(); return camOrigin0(o); };
 function wcsName(C) {
   const o = C.origin;
   if (o && typeof o === 'object' && o.pick) return `${KP_LABEL[o.k] || 'Point'} on the part`;
@@ -29182,7 +29195,7 @@ function gcSay(line) {
   const t = line.replace(/\([^)]*\)/g, ' ').toUpperCase(), cm = (/\(([^)]*)\)/.exec(line) || [])[1];
   const has = re => re.test(t), say = [];
   const g = [...t.matchAll(/G\s*(\d+(?:\.\d+)?)/g)].map(m => +m[1]), mm = [...t.matchAll(/M\s*(\d+)/g)].map(m => +m[1]);
-  const W = { 0: 'Rapid move', 1: 'Straight cut', 2: 'Clockwise arc', 3: 'Counterclockwise arc', 17: 'XY plane', 20: 'Inches', 21: 'Millimeters', 28: 'Go to machine home', 40: 'Cutter comp off', 43: 'Tool length offset on', 49: 'Length offset off', 53.1: 'Swing the rotaries to the tilted plane', 54: 'Work offset G54', 68.2: 'Tilted work plane', 69: 'Tilted plane off', 73: 'Chip-break peck drilling', 80: 'Cancel the drilling cycle', 81: 'Drill', 82: 'Spot drill with a dwell', 83: 'Deep peck drilling', 84: 'Rigid tap', 85: 'Ream: feed in and out', 90: 'Absolute positions', 91: 'Incremental positions', 94: 'Feed per minute', 98: 'return to start height', 99: 'return to the R plane' };
+  const W = { 0: 'Rapid move', 1: 'Straight cut', 2: 'Clockwise arc', 3: 'Counterclockwise arc', 17: 'XY plane', 20: 'Inches', 21: 'Millimeters', 28: 'Go to machine home', 40: 'Cutter comp off', 43: 'Tool length offset on', 49: 'Length offset off', 53.1: 'Swing the rotaries to the tilted plane', 54: 'Work offset G54', 55: 'Work offset G55', 56: 'Work offset G56', 57: 'Work offset G57', 58: 'Work offset G58', 59: 'Work offset G59', 68.2: 'Tilted work plane', 69: 'Tilted plane off', 73: 'Chip-break peck drilling', 80: 'Cancel the drilling cycle', 81: 'Drill', 82: 'Spot drill with a dwell', 83: 'Deep peck drilling', 84: 'Rigid tap', 85: 'Ream: feed in and out', 90: 'Absolute positions', 91: 'Incremental positions', 94: 'Feed per minute', 98: 'return to start height', 99: 'return to the R plane' };
   const M = { 0: 'Stop', 1: 'Optional stop', 3: 'Spindle on clockwise', 5: 'Spindle off', 6: 'Tool change', 8: 'Coolant on', 9: 'Coolant off', 30: 'End of program, rewind' };
   for (const v of g) if (W[v]) say.push(W[v]);
   for (const v of mm) if (M[v]) say.push(M[v]);
@@ -34716,7 +34729,7 @@ function gcedProgram(gen) { return GCED.edited && GCED.base === gen ? GCED.text 
     if (a === 'wide') { GCED.wide = !GCED.wide; gcedShow(true); gcedDraw(); }
     if (a === 'reset') { GCED.edited = false; gcedSet(GCED.gen != null ? GCED.gen : GCED.base); }
     if (a === 'copy') { (navigator.clipboard ? navigator.clipboard.writeText(GCED.text) : Promise.reject()).then(() => toast('G-code copied'), () => { ta.focus(); ta.select(); toast('Selected — press Ctrl+C to copy'); }); }
-    if (a === 'save') { download(`datum-O${cam().post.program}.nc`, new Blob([GCED.text], { type: 'text/plain' })); toast('G-code saved'); }
+    if (a === 'save') { download(postFileName(), new Blob([GCED.text], { type: 'text/plain' })); toast('G-code saved'); }
   });
   window.addEventListener('resize', gcedDraw);
 })();
@@ -34814,7 +34827,7 @@ const setWorkspaceG = setWorkspace;
 setWorkspace = function (ws) { setWorkspaceG.apply(this, arguments); if (UIX.ws !== 'cam') { GCED.lastView = ''; gcedShow(false); } };
 // Copy and Save .nc in the side panel and the file menu use the edited program too
 const downloadGcodeG = downloadGcode;
-downloadGcode = function () { if (GCED.edited && GCED.text) { download(`datum-O${cam().post.program}.nc`, new Blob([GCED.text], { type: 'text/plain' })); toast('G-code saved'); } else downloadGcodeG(); };
+downloadGcode = function () { if (GCED.edited && GCED.text) { download(postFileName(), new Blob([GCED.text], { type: 'text/plain' })); toast('G-code saved'); } else downloadGcodeG(); };
 </script>
 <!-- GCED-END -->
 <!-- GUIDED-BEGIN -->
@@ -36466,6 +36479,7 @@ function gsPick(i) {
 <!-- 3D Print workspace: the slicer engine and its front end (own files, so the modeler stays untouched) -->
 <script src="tip-anim.js"></script>
 <script src="cam-mc.js"></script>
+<script src="cam-post.js"></script>
 <script src="cam-autotool.js"></script>
 <script src="cam-flow.js"></script>
 <script src="cam-origin.js"></script>
