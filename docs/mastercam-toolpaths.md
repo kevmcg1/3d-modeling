@@ -16,6 +16,8 @@ What the Manufacture tab can cut compared with Mastercam's toolpath families, an
 
 **Choosing the tool.** `camPickTool({ air, depth, kind, tools })` in `cam-autotool.js` returns the largest library tool that fits an internal feature (smallest inside radius, narrowest width, flute length for the depth) with a one-line reason. `air` is the space the cutter must fit into (Clipper paths, µm); `kind` is `wall` (square end mills), `pocket` (square, then bull nose) or `surface` (bull nose, then ball nose). A new toolpath mode calls it with its own region, and `camAutoTool(op)` / `op.autoTool` / `op.toolMan` give it the sidebar card and the one-click override.
 
+**How a toolpath reaches the Manual flow.** The Manual flow (`cam-flow.js`, press **N** in Manufacture) reads its list of toolpaths from `OP_INFO`, `DRILL_KINDS` and `MC_CM` every time the picker opens, so a new `MC_CM` mode appears in the picker, the guided steps (geometry, tool, parameters), the parameter tabs and the hover tip with no change to `cam-flow.js`. Give the mode a `group` (`2D`, `3D`, `Drilling` or other), a `name`, the cutter types in `tools`, a `fields(op)` panel and, for a good hover card, `TIP_ART` / `TIP_TXT` under `mc:<key>`. Panel fields are sorted into the Tool, Cut, Depths, Lead in/out, Linking and Feeds & speeds tabs by their input ids (`DEPTH`, `LEAD`, `LINK` in `cam-flow.js`); anything else lands on Cut.
+
 ## 2D
 
 | Mastercam toolpath | Status | Notes |
