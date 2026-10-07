@@ -13311,6 +13311,19 @@ function floorShaded(rg, z) {
 }
 // A floor region a pocket can reach from the top and a drill does not already make.
 const floorPartMachinable = (rg, z) => !drillBottom(rg) && !floorShaded(rg, z);
+// A floor that is not closed by rising walls all round but sits in an opening that higher material surrounds (a channel whose ends drop into
+// deeper holes): the opening itself is the area to clear, not the open ground outside the stock. Null when the floor is open to the outside.
+function floorOpening(rg, z, rectO) {
+  const q = camRegionPoint(rg); if (!q) return null;
+  const flat = cDiff(rectO, silhouetteAbove(z, true)), pt = { X: Math.round(q.x * CS), Y: Math.round(q.y * CS) };
+  let best = null, big = 0;
+  for (const p of flat) { const a = cArea(p); if (a <= 0) continue; big = Math.max(big, a); if (ClipperLib.Clipper.PointInPolygon(pt, p) && (!best || a < cArea(best))) best = p; }
+  if (!best || cArea(best) >= big - 1) return null;
+  const out = [best];
+  for (const p of flat) if (cArea(p) < 0 && ClipperLib.Clipper.PointInPolygon(p[0], best)) out.push(p);
+  out.key = Math.round(q.x) + ',' + Math.round(q.y);
+  return out;
+}
 // Offset point just to the right of a polyline segment (interior of a CW loop).
 function probeRight(pts, k, d) {
   const a = pts[k], b = pts[(k + 1) % pts.length], t = nrm2(sub2(b, a));
@@ -14191,11 +14204,12 @@ const GEN = {
         if (!floorPartMachinable(rg, f.z)) continue;
         const floor = f.z + (op.leaveFloor || 0);
         const closed = loopRises(rg.outer, f.z, true);
-        if (!closed) { const k = Math.round(f.z * 1000); if (openDone.has(k)) continue; openDone.add(k); }   // an open level is cleared once, whatever faces share it
+        const rectO = cOffset(rect, r + 1 + (op.leaveWall || 0) + pocketFinishStock(op) + (op.finishOnly ? op.fromWall || 0 : 0)), enclosed = closed ? null : floorOpening(rg, f.z, rectO);
+        if (!closed) { const k = Math.round(f.z * 1000) + (enclosed ? ':' + enclosed.key : ''); if (openDone.has(k)) continue; openDone.add(k); }   // an open level is cleared once, whatever faces share it
         // A closed pocket is cleared inside its walls. An open floor (a step, the
         // ground around a boss) is cleared everywhere the part does not rise
         // above it — the exact silhouette of the material higher up.
-        let area = closed ? [orient(cP(rg.outer), true)] : cDiff(cOffset(rect, r + 1 + (op.leaveWall || 0) + pocketFinishStock(op) + (op.finishOnly ? op.fromWall || 0 : 0)), silhouetteAbove(f.z));   // (the box is wide enough that the stock left on the walls never lands inside the stock's own edge)
+        let area = closed ? [orient(cP(rg.outer), true)] : enclosed || cDiff(rectO, silhouetteAbove(f.z));   // (the box is wide enough that the stock left on the walls never lands inside the stock's own edge)
         const islands = rg.holes.filter(h => loopRises(h, f.z, false));
         if (islands.length) area = cDiff(area, islands.map(h => orient(cP(h), true)));
         // roughing stays off the walls by the finishing stock; the finish pass takes it off
@@ -20708,10 +20722,14 @@ function autoPlan(R) {
       const all = faceRegion(f.mesh, f.fid); if (!all) continue;
       for (const rg of all.parts) {
         if (!floorPartMachinable(rg, f.z)) continue;
-        let area = loopRises(rg.outer, f.z, true) ? [orient(cP(rg.outer), true)] : cDiff(cOffset(rect, r + 1), silhouetteAbove(f.z));
+        let area = loopRises(rg.outer, f.z, true) ? [orient(cP(rg.outer), true)] : floorOpening(rg, f.z, cOffset(rect, r + 1)) || cDiff(cOffset(rect, r + 1), silhouetteAbove(f.z));
         const isl = rg.holes.filter(h => loopRises(h, f.z, false));
         if (isl.length) area = cDiff(area, isl.map(h => orient(cP(h), true)));
         if (!roomForLeave(area, r + 0.3 + (lv ? 0.254 : 0), lv)) return false;
+        {                                       // every bit of the floor must lie within the tool's reach, walls' stock included (a 4 mm channel between two wide pockets is no place for a 3/4\" mill)
+          const rho = r + 0.3 + (lv ? 0.254 : 0) + lv, reg = cDiff([orient(cP(rg.outer), true)], rg.holes.map(h => orient(cP(h), true)));
+          if (cOffset(cDiff(reg, cOffset(cOffset(area, -rho), rho + 0.2)), -0.8).length) return false;
+        }
       }
     }
     return true;
@@ -20720,9 +20738,11 @@ function autoPlan(R) {
   const maxByCorner = isFinite(R.minCornerR) ? 2 * R.minCornerR * 0.95 : Infinity;
   // the rough pass leaves LEAVE_DEF on every wall, so the tool must fit with that much to spare; where no stocked size does (a
   // narrow slot), the pockets and cut-outs are cut straight to size and need no separate finish pass
-  const pickUni = lv => flatSizes.find(d => d <= maxByCorner + 1e-6 && d <= Math.max(FLAT_IN[0], spanOf / 2) + 1e-6 && (!R.floors.length || floorsFit(d, lv)) && (!R.cutoutFaces.length || cutFit(d, lv)));
+  const pickUni = (lv, small) => flatSizes.find(d => (small || d >= inMM([1 / 8])[0] - 0.01) && d <= maxByCorner + 1e-6 && d <= Math.max(FLAT_IN[0], spanOf / 2) + 1e-6 && (!R.floors.length || floorsFit(d, lv)) && (!R.cutoutFaces.length || cutFit(d, lv)));
   let leavePC = LEAVE_DEF, dUni = pickUni(LEAVE_DEF);
-  if (!dUni) { leavePC = 0; dUni = pickUni(0) || flatSizes[flatSizes.length - 1]; }
+  if (!dUni) { leavePC = 0; dUni = pickUni(0); }
+  if (!dUni) { leavePC = LEAVE_DEF; dUni = pickUni(LEAVE_DEF, true); }          // only a hair-thin end mill gets into it: Ø1/16 and Ø1/32 are kept for the tiny features
+  if (!dUni) { leavePC = 0; dUni = pickUni(0, true) || flatSizes[flatSizes.length - 1]; }
   const uniTool = () => pick('flat', dUni, true);
   // 1 · facing: a rough cut that leaves 0.100", then a finish cut to the part's top
   if (R.st.z1 - R.part.z1 > 1e-3) {
@@ -36162,6 +36182,8 @@ function vfCoverage(res) {
   const model = res.model; model.flush();
   const faces = new Map(), bad = [];
   let pass = 0, total = 0;
+  // a drill leaves a 118° cone at the bottom of a blind hole, where the model has a flat disc: that disc is accepted when a drill goes down its center
+  const drilled = []; for (const o of cam().ops) if (isDrillOp(o)) { const P = toolpath(o); if (P && P.holes && P.tool) for (const h of P.holes) drilled.push({ x: h.x, y: h.y, d: P.tool.d, rad: P.tool.d / 2 + 0.3 }); }
   for (const b of visibleBodies()) {
     const mesh = bodyMesh(b), byFace = new Map();
     for (let t = 0; t < mesh.triF.length; t++) { const f = mesh.triF[t]; if (!byFace.has(f)) byFace.set(f, []); byFace.get(f).push(t); }
@@ -36169,6 +36191,10 @@ function vfCoverage(res) {
       const s = Surf.list[fid]; if (!s || faceInfo(mesh, fid).area < 0.05) continue;
       if (cam().stock.bottom > 1e-3 && s.t === 'P' && s.n[1] < -0.999 && Math.abs(-s.d - camPart().z0) < 0.05) continue;   // the underside stays in the stock (held in the vise): it is machined on the second setup
       const pts = vfSamples(mesh, tris, 28); if (!pts.length) continue;
+      if (s.t === 'C' && Math.abs(s.dir[1]) > 0.999 && drilled.some(h => Math.hypot(h.x - s.p[0], h.y + s.p[2]) < 0.3 && Math.abs(2 * s.r - h.d) < 0.35)) { faces.set(b.id + ':' + fid, true); total++; pass++; continue; }   // a drilled hole's own wall (down to its point: the cone the drill leaves is the flat bottom accepted below)
+      if (s.t === 'P' && s.n[1] > 0.999 && drilled.length) {
+        if (pts.every(p => drilled.some(h => Math.hypot(h.x - p[0], h.y + p[2]) <= h.rad))) { faces.set(b.id + ':' + fid, true); total++; pass++; continue; }
+      }
       const exact = s.t === 'P' || s.t === 'C', delta = exact ? 0.05 : 0.15;
       let ok = 0;
       for (const p of pts) {

@@ -15,8 +15,8 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
   await page.goto('file://' + path.resolve(__dirname, '..', 'index.html')); await page.waitForTimeout(2000);
   await page.addScriptTag({ path: path.resolve(__dirname, 'lib', 'gcode-check.js') });
   const program = name => page.evaluate(async (name) => {
-    const s = SAMPLES.find(x => x.name === name); loadDoc(s.make(), 'test'); setWorkspace('cam');
-    await new Promise(r => setTimeout(r, 1200));
+    const e0 = camEpoch, s = SAMPLES.find(x => x.name === name); loadDoc(s.make(), 'test'); setWorkspace('cam');
+    for (let i = 0; i < 200 && camEpoch === e0; i++) await new Promise(r => setTimeout(r, 50));       // the model has been rebuilt for the new part
     autoResult(); autoApply(true); await waitToolpaths(120000);
     const g = postGcode();
     return { text: g.text, probs: gcheck(g.text, { units: isIn() ? 'in' : 'mm' }), dev: gDeviation().filter(d => d.err || d.toolpathOffGcode > 0.03 || d.gcodeOffToolpath > 0.03), warns: cam().ops.flatMap(o => toolpath(o).warn || []) };
@@ -34,6 +34,36 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
     const r = await program('Flanged boss');
     assert(!r.warns.some(w => /Could not read a floor face/.test(w)), JSON.stringify(r.warns));
     assert.deepStrictEqual(r.probs, [], JSON.stringify(r.probs));
+  });
+  const full = (name, code) => page.evaluate(async ([name, code]) => {
+    const e0 = camEpoch;
+    if (code) { const k = sampleKit(); new Function('k', 'kBox', 'kCut', 'kHole', 'P2', code)(k, kBox, kCut, kHole, P2); loadDoc(k.doc(), name); }
+    else loadDoc(SAMPLES.find(x => x.name === name).make(), 'test');
+    setWorkspace('cam'); for (let i = 0; i < 200 && camEpoch === e0; i++) await new Promise(r => setTimeout(r, 50));
+    await autoProgram(); await waitToolpaths(120000); await verifyAndFix();
+    const R = VERIFY.report, g = postGcode();
+    return { ops: cam().ops.map(o => o.name), bad: R.meas.filter(m => !m.ok).map(m => m.name), cover: R.cover ? R.cover.fail : null, counts: R.counts, probs: gcheck(g.text, { units: isIn() ? 'in' : 'mm' }), spindles: [...g.text.matchAll(/\bS(\d+)/g)].map(m => +m[1]) };
+  }, [name, code]);
+
+  await ok('a block with a shoulder and blind holes keeps a sturdy pocket tool (no hair-thin end mill where a Ø3/8" fits) and its blind-hole bottoms count as drilled', async () => {
+    const r = await full('Stepped block');
+    assert(r.ops.some(n => /Pocket 3 floors \(Ø3\/8"\)/.test(n)), r.ops.join(' | '));
+    assert.strictEqual(r.cover, 0, 'coverage fails: ' + r.cover);
+    assert.deepStrictEqual(r.bad, []);
+  });
+  await ok('a narrow channel between deep holes is pocketed with a tool that fits it and every floor measures to size', async () => {
+    const r = await full('Battery tray');
+    assert(r.ops.some(n => /Pocket 1 floor \(Ø1\/8"\)/.test(n)), r.ops.join(' | '));
+    assert.deepStrictEqual(r.bad, [], 'floors not cut: ' + r.bad.join(', '));
+    assert.strictEqual(r.cover, 0);
+    assert.deepStrictEqual(r.probs, [], JSON.stringify(r.probs));
+  });
+  await ok('tiny features get small end mills, the spindle never exceeds 12000 rpm, and the program verifies', async () => {
+    const r = await full('micro', `kBox(k,-10,-8,10,8,4); kHole(k,[0,0,4],[0,0,1],2,4); kCut(k,4,k.rect(-6,-5,-3,5),[P2(-4,0)],1.5);`);
+    assert(r.ops.some(n => /Ø1\/(16|32)"/.test(n)), r.ops.join(' | '));
+    assert(r.spindles.length && Math.max(...r.spindles) <= 12000, 'S: ' + Math.max(...r.spindles));
+    assert.deepStrictEqual(r.probs, [], JSON.stringify(r.probs));
+    assert.deepStrictEqual(r.bad, [], r.bad.join(', '));
   });
   await ok('the page raised no errors', async () => { assert.deepStrictEqual(errs, [], errs.join('\n')); });
   console.log(`${pass} passed, ${fail} failed`);
