@@ -16275,7 +16275,7 @@ function chainPocket(op, tool, st, part, P, chains) {
     const items = [];
     rings.forEach((rg, k) => rg.forEach(q => items.push({ k, pts: uP(q) })));
     const link = cOffset(tArea, 0.002), zs = levels(st.z1, floor, op.stepdown || 1.5);
-    const run = (loops, z, zFrom, ramp) => {
+    const run = (loops, z, zFrom, ramp, inner) => {
       const left = loops.slice(); let first = true;
       while (left.length) {
         // next: the innermost loop the tool can reach straight from where it is, else the innermost of all
@@ -16285,9 +16285,11 @@ function chainPocket(op, tool, st, part, P, chains) {
         if (goDown) { bi = 0; left.forEach((q, i) => { if (q.k > left[bi].k) bi = i; }); }
         const L = left.splice(bi, 1)[0], s = L.pts[0];
         if (goDown) {
-          if (!started) { P.rapid(s.x, s.y, safe); started = true; } else P.rapid(P.cur[0], P.cur[1], ret);
-          P.rapid(s.x, s.y, ret); P.rapid(s.x, s.y, Math.min(ret, zFrom + 0.5));
-          if (ramp) rampLoop(P, L.pts, zFrom, z, 3, 0.35 * r); else { P.plunge(s.x, s.y, z); for (let j = 1; j <= L.pts.length; j++) P.feed(L.pts[j % L.pts.length].x, L.pts[j % L.pts.length].y, z); }
+          // the finish pass starts on the wall stock the roughing left: go down where the roughing cleared, then step out to it
+          const e = inner ? inner(s) : s;
+          if (!started) { P.rapid(e.x, e.y, safe); started = true; } else P.rapid(P.cur[0], P.cur[1], ret);
+          P.rapid(e.x, e.y, ret); P.rapid(e.x, e.y, Math.min(ret, zFrom + 0.5));
+          if (ramp) rampLoop(P, L.pts, zFrom, z, 3, 0.35 * r); else { P.plunge(e.x, e.y, z); if (e !== s) P.feed(s.x, s.y, z); for (let j = 1; j <= L.pts.length; j++) P.feed(L.pts[j % L.pts.length].x, L.pts[j % L.pts.length].y, z); }
         } else {
           if (Math.abs(P.cur[2] - z) > 1e-9) P.feed(P.cur[0], P.cur[1], z);
           P.feed(s.x, s.y, z);
@@ -16300,7 +16302,9 @@ function chainPocket(op, tool, st, part, P, chains) {
     // finish pass: the walls to size at full depth
     if (fs > 0) {
       const fin = cOffset(area, -(r + lw)).filter(p => Math.abs(cArea(p)) > 1e-4).map(q => ({ k: 0, pts: uP(q) }));
-      if (fin.length) run(fin, zs[zs.length - 1], zs[zs.length - 1] + 1, false);
+      const rough = items.filter(q => q.k === 0).flatMap(q => q.pts);
+      const inner = q => rough.length ? rough.reduce((b, p) => dst2(p, q) < dst2(b, q) ? p : b, rough[0]) : q;
+      if (fin.length) run(fin, zs[zs.length - 1], zs[zs.length - 1] + 1, false, inner);
     }
     total++;
   }
