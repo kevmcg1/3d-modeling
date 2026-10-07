@@ -13685,6 +13685,19 @@ function rotateToLongest(pts) {
 // retract. Returns false when it could not link at depth.
 const nearestIdx = (pts, c) => { let bi = 0, bd = Infinity; for (let i = 0; i < pts.length; i++) { const d = (pts[i].x - c.x) ** 2 + (pts[i].y - c.y) ** 2; if (d < bd) { bd = d; bi = i; } } return bi; };
 const startAt = (pts, i) => pts.slice(i).concat(pts.slice(0, i));
+// A closed loop rotated to start at its corner nearest q or, when a side passes clearly nearer than any corner (a chain
+// started at an edge midpoint), at the nearest point of that side, which is split there.
+function startNear(loop, q) {
+  const n = loop.length; let vi = 0, vd = Infinity, bi = 0, bt = 0, bd = Infinity;
+  for (let i = 0; i < n; i++) {
+    const a = loop[i], b = loop[(i + 1) % n], dx = b.x - a.x, dy = b.y - a.y, L = dx * dx + dy * dy;
+    const t = L > 0 ? Math.max(0, Math.min(1, ((q.x - a.x) * dx + (q.y - a.y) * dy) / L)) : 0, d = Math.hypot(a.x + dx * t - q.x, a.y + dy * t - q.y);
+    if (d < bd - 1e-9) { bd = d; bi = i; bt = t; }
+    const dv = dst2(a, q); if (dv < vd) { vd = dv; vi = i; }
+  }
+  if (vd <= bd + 0.05) return startAt(loop, vi);
+  return [lerp2(loop[bi], loop[(bi + 1) % n], bt), ...startAt(loop, (bi + 1) % n)];
+}
 function linkAtDepth(P, to, z, allowed, cut, ml) {
   const c = P2(P.cur[0], P.cur[1]);
   if (dst2(c, to) < 1e-6) { if (Math.abs(P.cur[2] - z) > 1e-9) P.feed(to.x, to.y, z); return true; }
@@ -16145,8 +16158,7 @@ function chainContour(op, tool, st, part, P, chains) {
         for (const q of cOffset([base], inside ? -off : off)) {
           if (cArea(q) <= 1e-4) continue;
           let u = uP(q); if (!ccw) u = u.reverse();
-          let bi = 0; u.forEach((p, i) => { if (dst2(p, pts[0]) < dst2(u[bi], pts[0])) bi = i; });
-          paths.push({ pts: startAt(u, bi), closed: true });
+          paths.push({ pts: startNear(u, pts[0]), closed: true });
         }
         if (!paths.length) { P.warn.push(`The Ø${fmtTool(tool.d)} tool is too large for ${op.chains.length > 1 ? 'one of these chains' : 'this chain'}.`); continue; }
       }

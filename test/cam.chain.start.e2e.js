@@ -18,7 +18,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
   await page.waitForTimeout(1500);
   await page.evaluate(() => { setWorkspace('cam'); camAddOp('chain'); });
   await page.waitForTimeout(1000);
-  // every closed chain at the top of the plate (the outline and the pocket rim)
+  // the two closed chains at the top of the plate with the most edges (the outline and the pocket rim)
   const chains = await page.evaluate(() => {
     const op = opById(CAMUI.op), out = [];
     for (const b of visibleBodies()) {
@@ -26,24 +26,26 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
       for (const ch of edgeChains(m)) {
         if (!chainFlat(ch) || Math.abs(ch.pts[0][1] - top) > 1e-3) continue;
         const nc = buildChain(m, ch, true); if (!nc || !nc.closed || out.some(c => c.eks.some(k => nc.eks.includes(k)))) continue;
-        out.push({ id: out.length + 1, rev: false, start: 0, ...nc });
+        out.push({ rev: false, start: 0, ...nc });
       }
     }
+    out.sort((a, b) => b.eks.length - a.eks.length || chainLength(b) - chainLength(a)); out.length = Math.min(out.length, 2); out.forEach((c, i) => c.id = i + 1);
     op.chains = out; camRefresh(); return out.length;
   });
   const page2 = (id, x, y) => page.evaluate(([id, x, y]) => { const c = opById(CAMUI.op).chains.find(q => q.id === id), r = ov.getBoundingClientRect(), s = toScreen(toW(x, y, c.z)); return { x: s.x + r.left, y: s.y + r.top }; }, [id, x, y]);
   const snapOf = (id, kind) => page.evaluate(([id, kind]) => { const c = opById(CAMUI.op).chains.find(q => q.id === id); return CHAINSTART.snapsOf(c).filter(s => s.kind === kind); }, [id, kind]);
   const first = id => page.evaluate(id => { const p = chainTravel(opById(CAMUI.op).chains.find(q => q.id === id)); return { x: p[0].x, y: p[0].y, n: p.length }; }, id);
+  const press = async sel => { await page.evaluate(sel => { const b = document.querySelector(sel); if (!b) throw new Error('no ' + sel); b.click(); }, sel); await page.waitForTimeout(150); };
   const clickAt = async q => { await page.mouse.move(q.x, q.y); await page.waitForTimeout(80); await page.mouse.click(q.x, q.y); await page.waitForTimeout(200); };
 
-  await ok('two closed chains to work with', async () => assert(chains >= 2, 'chains: ' + chains));
+  await ok('two closed chains to work with', async () => assert(chains === 2, 'chains: ' + chains));
   await ok('each chain offers vertices and edge midpoints to snap to', async () => {
     const v = await snapOf(1, 'vertex'), m = await snapOf(1, 'mid');
     assert(v.length >= 4 && m.length >= 4, JSON.stringify({ v: v.length, m: m.length }));
   });
   await ok('Start… then a click near an edge midpoint starts the chain (and its toolpath) there', async () => {
     const before = await page.evaluate(() => { const P = toolpath(opById(CAMUI.op)); return P.m.length; });
-    await page.click('[data-chdo="start:1"]'); await page.waitForTimeout(150);
+    await press('[data-chdo="start:1"]');
     const m = (await snapOf(1, 'mid'))[0], q = await page2(1, m.x, m.y);
     await page.mouse.move(q.x + 5, q.y + 4); await page.waitForTimeout(100);
     const hov = await page.evaluate(() => CHAINSTART.hover && CHAINSTART.hover.kind);
@@ -59,11 +61,11 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
       const P = toolpath(op), s = chainTravel(keep[0])[0], cut = P.m.filter(q => !q.r), d = Math.hypot(cut[0].x - s.x, cut[0].y - s.y);
       op.chains = keep; return { d, tool: toolOf(op.tool).d };
     });
-    assert(r.d < r.tool * 2 + 2, JSON.stringify(r));
+    assert(r.d < r.tool, JSON.stringify(r));                    // the lead-in arc starts about a radius plus the lead from it
   });
   await ok('Reverse keeps the start point; undo puts the old start back', async () => {
     const a = await first(1);
-    await page.click('[data-chdo="rev:1"]'); await page.waitForTimeout(150);
+    await press('[data-chdo="rev:1"]');
     const b = await first(1);
     assert(Math.hypot(a.x - b.x, a.y - b.y) < 1e-6, 'start kept when reversed');
     await page.evaluate(() => { undo(); undo(); camRefresh(); }); await page.waitForTimeout(150);
@@ -71,14 +73,14 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
     assert(!c.sp && !c.rev, JSON.stringify(c));
   });
   await ok('a click near a vertex starts the chain at that corner', async () => {
-    await page.click('[data-chdo="start:1"]'); await page.waitForTimeout(150);
+    await press('[data-chdo="start:1"]');
     const f0 = await first(1), v = (await snapOf(1, 'vertex')).find(s => Math.hypot(s.x - f0.x, s.y - f0.y) > 1), q = await page2(1, v.x, v.y);
     await clickAt({ x: q.x - 4, y: q.y + 3 });
     const f = await first(1), c = await page.evaluate(() => { const ch = opById(CAMUI.op).chains[0]; return { sp: ch.sp || null, start: ch.start }; });
     assert(Math.hypot(f.x - v.x, f.y - v.y) < 1e-3 && !c.sp && c.start > 0, JSON.stringify({ f, v, c }));
   });
   await ok('away from vertices and midpoints, a click starts the chain at that point along it', async () => {
-    await page.click('[data-chdo="start:1"]'); await page.waitForTimeout(150);
+    await press('[data-chdo="start:1"]');
     // a quarter of the way along the longest straight side
     const q = await page.evaluate(() => {
       const c = opById(CAMUI.op).chains[0], n = c.pts.length; let best = null;
@@ -90,7 +92,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
     assert(sp && Math.hypot(f.x - q.x, f.y - q.y) < 0.5, JSON.stringify({ f, q, sp }));
   });
   await ok('Set start points moves the start of every chain, stays on until Esc', async () => {
-    await page.click('[data-chstart="all"]'); await page.waitForTimeout(150);
+    await press('[data-chstart="all"]');
     assert.strictEqual(await page.evaluate(() => CHAINUI.startFor), 'all');
     const want = [];
     for (const id of [1, 2]) {
@@ -112,7 +114,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
     const ends = await snapOf(9, 'vertex'), f0 = await first(9);
     assert.strictEqual(ends.length, 2);
     const far = ends.find(s => Math.hypot(s.x - f0.x, s.y - f0.y) > 1e-3);
-    await page.click('[data-chdo="start:9"]'); await page.waitForTimeout(150);
+    await press('[data-chdo="start:9"]');
     await clickAt(await page2(9, far.x, far.y));
     const f = await first(9), rev = await page.evaluate(() => opById(CAMUI.op).chains[0].rev);
     assert(rev && Math.hypot(f.x - far.x, f.y - far.y) < 1e-3, JSON.stringify({ f, far, rev }));

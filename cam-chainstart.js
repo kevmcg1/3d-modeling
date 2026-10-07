@@ -33,11 +33,7 @@
   const travelOrig = chainTravel;
   chainTravel = function (c) {
     if (!c.closed || !c.sp || !c.pts || c.pts.length < 2) return travelOrig.apply(this, arguments);
-    let p = c.pts.map(q => P2(q[0], q[1]));
-    const n = p.length, h = nearestSeg(p, P2(c.sp[0], c.sp[1])), L = dst2(p[h.i], p[(h.i + 1) % n]);
-    if (h.t * L < 1e-4) p = startAt(p, h.i);
-    else if ((1 - h.t) * L < 1e-4) p = startAt(p, (h.i + 1) % n);
-    else p = [lerp2(p[h.i], p[(h.i + 1) % n], h.t), ...startAt(p, (h.i + 1) % n)];
+    let p = startNear(c.pts.map(q => P2(q[0], q[1])), P2(c.sp[0], c.sp[1]));
     if (c.rev) p = [p[0], ...p.slice(1).reverse()];
     return p;
   };
