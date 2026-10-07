@@ -16262,16 +16262,21 @@ function chainContour(op, tool, st, part, P, chains) {
     for (const path of paths) {
       let L = path.pts; const n = L.length;
       if (n < 2) continue;
-      const useArc = op.lead !== 'none', leadAt = i => { const t = nrm2(sub2(L[(i + 1) % n], L[i])); return sub2(add2(L[i], mul2(nrmAt(t), rho)), mul2(t, useArc ? rho : 0)); };
+      let useArc = op.lead !== 'none', rh = rho; const leadAt = i => { const t = nrm2(sub2(L[(i + 1) % n], L[i])); return sub2(add2(L[i], mul2(nrmAt(t), rho)), mul2(t, useArc ? rho : 0)); };
       if (path.closed && outsideLoop && !c.sp && !c.start && pen(leadAt(0)) > 0) {      // no start picked: enter where the stock is thinnest (the side of a block, not its corner)
         let bi = 0, bp = pen(leadAt(0));
         for (let k = 1, N = Math.min(n, 96); k < N; k++) { const i = Math.floor(k * n / N), v = pen(leadAt(i)); if (v < bp - 0.01) { bp = v; bi = i; } }
         if (bi) L = path.pts = [...L.slice(bi), ...L.slice(0, bi)];
       }
       const t0 = nrm2(sub2(L[1], L[0])), nside = nrmAt(t0);
-      const arcIn = k => { const C = add2(L[0], mul2(nside, rho)), phi = Math.PI / 2 * k / 8; return sub2(C, mul2(add2(mul2(t0, Math.cos(phi)), mul2(nside, Math.sin(phi))), rho)); };
+      const arcIn = k => { const C = add2(L[0], mul2(nside, rh)), phi = Math.PI / 2 * k / 8; return sub2(C, mul2(add2(mul2(t0, Math.cos(phi)), mul2(nside, Math.sin(phi))), rh)); };
       const eEnd = path.closed ? L[0] : L[n - 1], tE = path.closed ? t0 : nrm2(sub2(L[n - 1], L[n - 2])), nE = path.closed ? nside : P2(-tE.y * (toolSide === 'left' ? 1 : -1), tE.x * (toolSide === 'left' ? 1 : -1));
-      const arcOut = k => { const C = add2(eEnd, mul2(nE, rho)), phi = Math.PI / 2 * k / 8; return sub2(C, mul2(add2(mul2(tE, Math.cos(phi)), mul2(nE, Math.sin(phi))), rho)); };
+      const arcOut = k => { const C = add2(eEnd, mul2(nE, rh)), phi = Math.PI / 2 * k / 8; return sub2(C, mul2(add2(mul2(tE, Math.cos(phi)), mul2(nE, Math.sin(phi))), rh)); };
+      if (useArc && path.closed && !outsideLoop && side !== 'on') {       // inside a narrow opening a full-size lead arc swings through the far wall: shrink it to fit, or go straight in
+        const loop = cP(L), fits = () => [0, 2, 4, 6, 8].every(k => ClipperLib.Clipper.PointInPolygon(cP([arcIn(k)])[0], loop) !== 0 && ClipperLib.Clipper.PointInPolygon(cP([arcOut(8 + k)])[0], loop) !== 0);
+        while (rh > 0.3 && !fits()) rh *= 0.7;
+        if (!fits()) useArc = false;
+      }
       const S = useArc ? arcIn(0) : L[0], ext = outsideLoop && path.closed ? pen(S) : 0;
       const Sx = ext > 0 ? add2(S, mul2(nside, ext + 0.5)) : S;            // go down clear of the stock and feed in, rather than plunge into it
       zs.forEach((z, li) => {
