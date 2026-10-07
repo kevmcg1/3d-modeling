@@ -9443,8 +9443,13 @@ function setBusy(on, req, ctx) {
   el.classList.remove('working');
   if (req && ctx) el.dataset.info = ctx.bodies.length ? `${Kernel.worker ? 'worker' : 'main'} · ${(performance.now() - req.t0).toFixed(0)} ms · chord ${fmt(req.tol, 4)} mm` : '';
 }
+let appliedKey = null;
 function applyModel(ctx, req) {
   const tol = req.tol, coarse = req.coarse;
+  // the same model only tessellated finer or coarser for the zoom (both meshes full detail): what was derived from the
+  // geometry stays. Zooming in Manufacture used to rebuild every toolpath and re-run the air-move pass (2.6 fps at 4x CPU throttle).
+  const key = coarse ? null : camModelKey(), lodOnly = key !== null && key === appliedKey && shownTol > 0;
+  appliedKey = key;
   shownTol = coarse ? -1 : tol;
   MODEL = ctx; PLANES = { ...PLANES, ...ctx.planes };
   for (const m of bodyMeshes) { bodyGroup.remove(m.group); m.me.geometry.dispose(); m.group.children[1].geometry.dispose(); }
@@ -9469,7 +9474,7 @@ function applyModel(ctx, req) {
   if (typeof lookShadowUpdate === 'function') lookShadowUpdate();
   refreshUI();
   clearHover3D();
-  if (typeof camModelChanged === 'function') camModelChanged();
+  if (typeof camModelChanged === 'function' && !lodOnly) camModelChanged();
   if (firstFit) { firstFit = false; fitAll(false); }
   requestDraw();
 }
