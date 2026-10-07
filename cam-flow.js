@@ -251,12 +251,7 @@
   const centroid = c => { let x = 0, y = 0; c.pts.forEach(p => { x += p[0]; y += p[1]; }); return [x / c.pts.length, y / c.pts.length]; };
   function circleOf(c) {
     if (!c.closed || c.pts.length < 8) return null;
-    // least-squares circle: the points of a chain read off the mesh are not evenly spaced, so their average is off centre
-    let [cx, cy] = centroid(c), sxx = 0, sxy = 0, syy = 0, sxz = 0, syz = 0;
-    for (const p of c.pts) { const x = p[0] - cx, y = p[1] - cy, z = x * x + y * y; sxx += x * x; sxy += x * y; syy += y * y; sxz += x * z; syz += y * z; }
-    const det = sxx * syy - sxy * sxy;
-    if (Math.abs(det) > 1e-12) { const ux = (sxz * syy - syz * sxy) / (2 * det), uy = (syz * sxx - sxz * sxy) / (2 * det); cx += ux; cy += uy; }
-    const rs = c.pts.map(p => Math.hypot(p[0] - cx, p[1] - cy)), r = rs.reduce((a, b) => a + b, 0) / rs.length;
+    const f = circleFit(c.pts.map(p => P2(p[0], p[1]))), cx = f.x, cy = f.y, rs = f.rs, r = f.d / 2;      // least squares: unevenly spaced points average off centre
     return rs.every(x => Math.abs(x - r) < 0.02 * r + 0.01) ? { x: cx, y: cy, d: 2 * r } : null;
   }
   // what is just inside and just outside the loop: a pocket floor has the floor level inside and a wall outside, a boss top the reverse
@@ -288,7 +283,17 @@
   }
   const sameZ = (a, b) => Math.abs(a - b) < 0.02;
   CF.selectors = {
-    holes: () => { const seen = new Map(); for (const c of allChains()) { const o = circleOf(c); if (!o || bossOf(c, o)) continue; const k = Math.round(o.x * 50) + ',' + Math.round(o.y * 50) + ',' + Math.round(o.d * 50); const e = seen.get(k); if (!e || c.z > e.c.z) seen.set(k, { c, o }); } return [...seen.values()]; },
+    // one entry per hole (its top edge): the edges of one hole at other heights (a counterbore's floor) and sizes a
+    // hundredth apart read off the mesh are the same hole
+    holes: () => {
+      const out = [];
+      for (const c of allChains()) {
+        const o = circleOf(c); if (!o || bossOf(c, o)) continue;
+        const e = out.find(h => Math.hypot(h.o.x - o.x, h.o.y - o.y) < 0.1 && Math.abs(h.o.d - o.d) < 0.1);
+        if (!e) out.push({ c, o }); else if (c.z > e.c.z) { e.c = c; e.o = o; }
+      }
+      return out;
+    },
     floors: () => allChains().filter(c => !circleOf(c) && c.z < camPart().z1 - 0.01 && sides(c).floor),
     // every pocket floor, with the islands (bosses) standing on it, so the pocket clears round them instead of through them
     pockets: () => {
@@ -311,7 +316,7 @@
     const S = CF.selectors, circ = op.cm === 'drill' || op.cm === 'circle', btns = [];
     if (circ) {
       const by = new Map();
-      for (const h of S.holes()) { const k = +h.o.d.toFixed(2); by.set(k, (by.get(k) || 0) + 1); }
+      for (const h of S.holes()) { const k = [...by.keys()].find(d => Math.abs(d - h.o.d) < 0.05) ?? +h.o.d.toFixed(2); by.set(k, (by.get(k) || 0) + 1); }   // 6.59 and 6.60 read off the mesh are one size
       [...by.entries()].sort((a, b) => a[0] - b[0]).forEach(([d, n]) => btns.push(`<button class="chip" data-cfsel="hole:${d}">All Ø${fmtLs(d)} holes <small>×${n}</small></button>`));
     } else {
       const np = S.floors().length;
@@ -325,7 +330,7 @@
   function doSelect(op, what) {
     const S = CF.selectors;
     if (what === 'clear') { const before = snap(); op.chains = []; if (typeof camAutoTool === 'function') camAutoTool(op); record(`${op.name}: clear`, before); camRefresh(); return; }
-    if (what.startsWith('hole:')) { const d = +what.slice(5); setChains(op, S.holes().filter(h => Math.abs(h.o.d - d) < 0.02).map(h => h.c), `all Ø${fmtLs(d)} holes`); return; }
+    if (what.startsWith('hole:')) { const d = +what.slice(5); setChains(op, S.holes().filter(h => Math.abs(h.o.d - d) < 0.05).map(h => h.c), `all Ø${fmtLs(d)} holes`); return; }
     if (what === 'pockets') { setChains(op, S.pockets(), 'all pockets'); return; }
     if (what === 'outline') { setChains(op, S.outline(), 'part outline'); return; }
     if (what === 'samez') {
