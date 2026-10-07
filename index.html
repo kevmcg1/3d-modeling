@@ -15895,10 +15895,12 @@ function chainTravel(c) {
 }
 // Grow a run of connected, level edges out of one edge: at every vertex take the one that continues most smoothly.
 // whole = false gives just that one edge. Returns { z, closed, pts, eks } or null when the edge is not level.
-function buildChain(mesh, seed, whole) {
-  if (!chainFlat(seed)) return null;
-  const z = seed.pts[0][1], pt = p => P2(p[0], -p[2]);
-  const flat = edgeChains(mesh).filter(c => chainFlat(c) && Math.abs(c.pts[0][1] - z) < CHAIN_Z_TOL);
+function buildChain(mesh, seed, whole, fid) {
+  // a level edge grows only through level edges at its height; any other edge (sloped, curved in 3D, an edge of a
+  // slanted face) is projected flat onto XY like a Mastercam 2D chain, at the height of its highest point
+  const level = chainFlat(seed), pt = p => P2(p[0], -p[2]);
+  const z0 = level ? seed.pts[0][1] : Math.max(...seed.pts.map(p => p[1]));
+  const flat = edgeChains(mesh).filter(c => (fid == null || c.fa === fid || c.fb === fid) && (!level || (chainFlat(c) && Math.abs(c.pts[0][1] - z0) < CHAIN_Z_TOL)));
   let seq = seed.pts.map(p => p), eks = [chainEdgeKey(seed)], closed = !!seed.closed;
   const k0 = chainKey(seq[0]);
   if (closed && chainKey(seq[seq.length - 1]) === k0) seq.pop();
@@ -15939,6 +15941,7 @@ function buildChain(mesh, seed, whole) {
   for (const p of seq) { const q = [+p[0].toFixed(4), +(-p[2]).toFixed(4)]; const l = out[out.length - 1]; if (!l || Math.hypot(l[0] - q[0], l[1] - q[1]) > 1e-5) out.push(q); }
   if (closed && out.length > 1 && Math.hypot(out[0][0] - out[out.length - 1][0], out[0][1] - out[out.length - 1][1]) < 1e-5) out.pop();
   if (out.length < 2) return null;
+  const z = level ? z0 : Math.max(...seq.map(p => p[1]));
   return { z: +z.toFixed(4), closed, pts: out, eks };
 }
 const chainLength = c => { const p = chainTravel(c); let L = 0; for (let i = 1; i < p.length; i++) L += dst2(p[i - 1], p[i]); if (c.closed) L += dst2(p[p.length - 1], p[0]); return L; };
@@ -16363,10 +16366,17 @@ const isDrillOp = op => op.type === 'drill' || (op.type === 'chain' && op.cm ===
 const CHAINUI = { mode: 'single', hover: null, hoverKey: '', startFor: null };
 function chainPickAt(x, y) {
   const e = pickEdge(x, y, visibleBodies(), 8);
-  return e && chainFlat(e.ch) ? e : null;
+  if (e) return e;
+  // no edge under the pointer: any face (flat, sloped, curved) offers its outline, like clicking a surface in Mastercam
+  const h = pick3D(x, y, { faces: true });
+  if (!h || h.kind !== 'face') return null;
+  const cs = edgeChains(h.mesh).filter(c => c.fa === h.fid || c.fb === h.fid);
+  if (!cs.length) return null;
+  const ch = cs.reduce((a, b) => (b.len > a.len ? b : a));
+  return { mesh: h.mesh, ch, fid: h.fid };
 }
 function chainAdd(op, e, whole, additive) {
-  const key = chainEdgeKey(e.ch), nc = buildChain(e.mesh, e.ch, whole);
+  const key = chainEdgeKey(e.ch), nc = buildChain(e.mesh, e.ch, whole || (e.fid != null && !chainIsCircle(op)), e.fid);
   if (!nc) return;
   const before = snap(), cur = (op.chains || []).slice();
   const hit = cur.findIndex(c => (c.eks || []).includes(key));
@@ -16392,16 +16402,16 @@ function chainClick(op, x, y, ev) {
     camRefresh(); return;
   }
   const e = chainPickAt(x, y);
-  if (!e) { toast('Click an edge that lies flat (at one height). Sloped and vertical edges are not part of a 2.5D chain.'); return; }
+  if (!e) { toast('Click an edge or a face of the part to chain it.'); return; }
   const add = ev && (ev.shiftKey || ev.ctrlKey || ev.metaKey) || chainIsCircle(op);
   chainAdd(op, e, CHAINUI.mode === 'chain' && !chainIsCircle(op), add);
 }
 function chainMove(op, x, y) {
   if (CHAINUI.startFor != null) { setHover3D(null); ov.className = 'pointer'; return; }
-  const e = chainPickAt(x, y), key = e ? chainEdgeKey(e.ch) + CHAINUI.mode : '';
+  const e = chainPickAt(x, y), key = e ? chainEdgeKey(e.ch) + CHAINUI.mode + (e.fid ?? '') : '';
   if (key !== CHAINUI.hoverKey) {
     CHAINUI.hoverKey = key;
-    CHAINUI.hover = e ? buildChain(e.mesh, e.ch, CHAINUI.mode === 'chain' && !chainIsCircle(op)) : null;
+    CHAINUI.hover = e ? buildChain(e.mesh, e.ch, !chainIsCircle(op) && (CHAINUI.mode === 'chain' || e.fid != null), e.fid) : null;
     requestDraw();
   }
   setHover3D(null);
