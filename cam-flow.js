@@ -251,7 +251,12 @@
   const centroid = c => { let x = 0, y = 0; c.pts.forEach(p => { x += p[0]; y += p[1]; }); return [x / c.pts.length, y / c.pts.length]; };
   function circleOf(c) {
     if (!c.closed || c.pts.length < 8) return null;
-    const [cx, cy] = centroid(c), rs = c.pts.map(p => Math.hypot(p[0] - cx, p[1] - cy)), r = rs.reduce((a, b) => a + b, 0) / rs.length;
+    // least-squares circle: the points of a chain read off the mesh are not evenly spaced, so their average is off centre
+    let [cx, cy] = centroid(c), sxx = 0, sxy = 0, syy = 0, sxz = 0, syz = 0;
+    for (const p of c.pts) { const x = p[0] - cx, y = p[1] - cy, z = x * x + y * y; sxx += x * x; sxy += x * y; syy += y * y; sxz += x * z; syz += y * z; }
+    const det = sxx * syy - sxy * sxy;
+    if (Math.abs(det) > 1e-12) { const ux = (sxz * syy - syz * sxy) / (2 * det), uy = (syz * sxx - sxz * sxy) / (2 * det); cx += ux; cy += uy; }
+    const rs = c.pts.map(p => Math.hypot(p[0] - cx, p[1] - cy)), r = rs.reduce((a, b) => a + b, 0) / rs.length;
     return rs.every(x => Math.abs(x - r) < 0.02 * r + 0.01) ? { x: cx, y: cy, d: 2 * r } : null;
   }
   // what is just inside and just outside the loop: a pocket floor has the floor level inside and a wall outside, a boss top the reverse
