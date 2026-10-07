@@ -55,4 +55,6 @@
   const tabsTo = (k, from, text) => g => { g.view2d(); const names = ['Design', 'Manufacture', 'Setup Sheet'], xs = [38, 100, 168], a = g.seg(0.04, 0.42), kk = g.t < 0.46 ? from : k; tabs(g, names, kk); g.in2d(0, 0, 1, () => { g.text(120, 120, text[kk], 'k', 9); g.fill([[60, 92], [180, 92], [180, 100], [60, 100]], 'n', { a: 0.5 }); g.fill([[60, 92], [60 + 120 * g.seg(0.5, 0.9), 92], [60 + 120 * g.seg(0.5, 0.9), 100], [60, 100]], 'a', { a: 0.6 }); g.cursor(lerp(190, xs[k], a), lerp(130, 58, a), pr(g, 0.42)); }); };
   const txt = ['Sketch and model the part', 'Toolpaths, simulation, G-code', 'Setup sheet for the shop'];
   S('ws:design', tabsTo(0, 1, txt)); S('ws:cam', tabsTo(1, 0, txt)); S('ws:sheet', tabsTo(2, 1, txt));
+// the pointer travels in early, so the card is already moving when someone hovers for a moment
+  A.touch(['btnTheme'], 120, 88, 0.45, [175, 135]);
 })(typeof window !== 'undefined' ? window : this);

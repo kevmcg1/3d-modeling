@@ -236,4 +236,6 @@
   S('f:fixture', g => {
     bigView(g, 138, 2.6); g.box(-24, -12, 0, 48, 24, 3, 'k'); const u = g.seg(0.2, 0.55), v = g.seg(0.6, 0.85); g.box(-8, -6, 3 + 14 * (1 - u), 16, 12, 8, 'a'); const c = lerp(10, 0, v); g.box(-20 - 0, -12, 3, 6 + 0, 24, 10, 'm'); g.box(14 + c, -12, 3, 6, 24, 10, 'm'); g.box(-8 - 0, -6, 3 + 0, 0.01, 0.01, 0.01, 'n');
   });
+// the pointer travels in early, so the card is already moving when someone hovers for a moment
+  A.touch(['f:draft', 'p:mirror', 'i:props'], 120, 92, 0.4, [185, 140]);
 })(typeof window !== 'undefined' ? window : this);

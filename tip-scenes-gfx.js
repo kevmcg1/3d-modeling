@@ -99,4 +99,6 @@
   // the pointer travels to the control and the change follows the click
   A.touch(['g:show / hide'], 62, 93, 0.5, [150, 150]); A.touch(['g:lock'], 182, 50, 0.5, [150, 140]); A.touch(['g:swap'], 140, 72, 0.52, [190, 130]); A.touch(['g:default colors'], 134, 116, 0.52, [200, 150]);
   A.touch(['g:add layer mask'], 161, 47, 0.45, [205, 120]);
+// the pointer travels in early, so the card is already moving when someone hovers for a moment
+  A.touch(['g:undo', 'g:redo'], 120, 100, 0.4, [185, 140]); A.touch(['g:light / dark theme'], 120, 88, 0.45, [175, 135]); A.touch(['g:foreground color', 'g:background color'], 84, 64, 0.4, [180, 130]); A.touch(['g:new raster layer', 'g:new vector layer', 'g:new adjustment layer', 'g:duplicate layer', 'g:delete layer'], 120, 96, 0.4, [190, 140]);
 })(typeof window !== 'undefined' ? window : this);

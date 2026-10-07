@@ -123,4 +123,6 @@
       const c = g.seg(0.0, 0.28); g.cursor(lerp(215, 60, c), lerp(120, 30, c), g.lin(0.26, 0.33) > 0 && g.lin(0.26, 0.33) < 1 ? 1 - g.lin(0.26, 0.33) : 0);
     });
   });
+// the pointer travels in early, so the card is already moving when someone hovers for a moment
+  A.touch(['print:reset'], 120, 92, 0.4, [185, 140]);
 })(typeof window !== 'undefined' ? window : this);
