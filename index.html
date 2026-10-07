@@ -7983,8 +7983,8 @@ SHOP.cClamp = {
 
 // ── Vises and dovetail fixtures ──
 SHOP.vise = {
-  name: 'Machine vise', grp: 'Vises', parts: [['Base', SHOP_COL.blue], ['Fixed jaw', SHOP_COL.blue], ['Fixed jaw plate', SHOP_COL.ground], ['Moving jaw', SHOP_COL.blue], ['Moving jaw plate', SHOP_COL.ground], ['Lead screw', SHOP_COL.black], ['Handle', SHOP_COL.black]],
-  p: [['W', 'Jaw width', 6 * INCH, 'len'], ['open', 'Jaw opening now', 70, 'len'], ['maxOpen', 'Maximum opening', 6 * INCH, 'len'], ['H', 'Jaw height', 45, 'len'], ['sd', 'Screw Ø', 26, 'len'], ['hl', 'Handle length', 160, 'len']],
+  name: 'Machine vise', grp: 'Vises', parts: [['Base', SHOP_COL.blue], ['Fixed jaw', SHOP_COL.blue], ['Fixed jaw plate', SHOP_COL.ground], ['Moving jaw', SHOP_COL.blue], ['Moving jaw plate', SHOP_COL.ground], ['Lead screw', SHOP_COL.black], ['Handle', SHOP_COL.black], ['Parallels', SHOP_COL.ground]],
+  p: [['W', 'Jaw width', 6 * INCH, 'len'], ['open', 'Jaw opening now', 70, 'len'], ['maxOpen', 'Maximum opening', 6 * INCH, 'len'], ['H', 'Jaw height', 45, 'len'], ['sd', 'Screw Ø', 26, 'len'], ['hl', 'Handle length', 160, 'len'], ['par', 'Parallels on the bed', true, 'chk'], ['parH', 'Parallel height', 19.05, 'len'], ['parT', 'Parallel thickness', 6.35, 'len']],
   build(P, K) {
     const W = P.W / 2, bh = 30, jt = 40, pl = 8, x0 = -pl - jt - 20, x1 = P.maxOpen + pl + jt + 100, g = Math.min(P.open, P.maxOpen), sz = bh + 14, mj = g + pl;
     let base = K.add(K.box(x0, x1, -W, W, 0, bh), K.box(x0, x0 + 90, -W - 26, W + 26, 0, 16), K.box(x1 - 130, x1 - 40, -W - 26, W + 26, 0, 16), K.box(x1 - 60, x1 - 10, -34, 34, bh, sz + P.sd / 2 + 10));
@@ -7993,9 +7993,18 @@ SHOP.vise = {
     return [base, K.box(-pl - jt, -pl, -W, W, bh, bh + P.H), K.box(-pl, 0, -W + 6, W - 6, bh + 6, bh + P.H - 4),
       K.box(mj, mj + jt + 10, -W, W, bh, bh + P.H), K.box(g, g + pl, -W + 6, W - 6, bh + 6, bh + P.H - 4),
       K.turnX(0, sz, mj + jt + 10, [[0, 0], [P.sd / 2, 0], [P.sd / 2, hx - mj - jt - 10], [0, hx - mj - jt - 10]]),
-      K.add(K.cylY(hx, sz, 7, -P.hl / 2, P.hl / 2), K.turnY(hx, sz, P.hl / 2, [[0, 0], [11, 4], [11, 20], [0, 24]]), K.turnY(hx, sz, -P.hl / 2, [[0, 0], [11, -4], [11, -20], [0, -24]]))];
+      K.add(K.cylY(hx, sz, 7, -P.hl / 2, P.hl / 2), K.turnY(hx, sz, P.hl / 2, [[0, 0], [11, 4], [11, 20], [0, 24]]), K.turnY(hx, sz, -P.hl / 2, [[0, 0], [11, -4], [11, -20], [0, -24]])),
+      // two parallels standing on the bed between the jaw plates, along the jaw length, so a part rests on them
+      P.par && g > 2 * P.parT + 4 ? K.add(...[[pl + 2, pl + 2 + P.parT], [g - 2 - P.parT, g - 2]].map(([a, b]) => K.box(a, b, -W + 10, W - 10, bh, bh + P.parH))) : null];
   },
 };
+// Kurt vises: the same model at catalog sizes (jaw width, largest opening, jaw height), opened to about two thirds
+const KURT = [['Kurt DX4 (4 in)', 4, 5, 1.25], ['Kurt DX6 (6 in)', 6, 8, 1.75], ['Kurt D688 (6 in)', 6, 8.75, 1.75], ['Kurt DX8 (8 in)', 8, 10, 2]];
+KURT.forEach(([name, w, mo, h]) => {
+  SHOP['kurt' + name.match(/D\w?\d+/)[0]] = {
+    ...SHOP.vise, name, p: SHOP.vise.p.map(q => q[0] === 'W' ? [q[0], q[1], w * INCH, q[3]] : q[0] === 'maxOpen' ? [q[0], q[1], mo * INCH, q[3]] : q[0] === 'open' ? [q[0], q[1], Math.round(mo * INCH * 0.6), q[3]] : q[0] === 'H' ? [q[0], q[1], h * INCH, q[3]] : q),
+  };
+});
 // a dovetail groove (female) in a jaw face at x = face, running along y: width wo at the face, flaring to wb at depth dg (dir +1: the jaw lies at x < face)
 const dovetailPts = (face, dir, zc, wo, dg, ang) => { const wb = wo + 2 * dg * Math.tan(ang * Math.PI / 180); return [[face + dir * 0.01, zc - wo / 2], [face - dir * dg, zc - wb / 2], [face - dir * dg, zc + wb / 2], [face + dir * 0.01, zc + wo / 2]]; };
 SHOP.dovetailVise = {
@@ -9111,9 +9120,9 @@ const Kernel = {
   cam3d(params, tol) {
     if (!this.worker) {
       const c = evaluate(tol, activeLimit());
-      return Promise.resolve(camParallel(c.bodies.filter(b => !(doc.hidden && doc.hidden[b.id])).map(b => meshOfPolys(b.polys).pos), params));
+      return Promise.resolve(camParallel(c.bodies.filter(b => !(doc.hidden && doc.hidden[b.id]) && !isTooling(b)).map(b => meshOfPolys(b.polys).pos), params));
     }
-    return this.post({ kind: 'cam3d', docStr: snap(), tol, limit: activeLimit(), hidden: doc.hidden || {}, params }).then(r => {
+    return this.post({ kind: 'cam3d', docStr: snap(), tol, limit: activeLimit(), hidden: camHiddenMap(), params }).then(r => {
       if (r.retry) return this.cam3d(params, tol);
       if (!r.ok) throw new Error(r.error);
       return r.result;
@@ -9122,9 +9131,9 @@ const Kernel = {
   camMesh(tol) {
     if (!this.worker) {
       const c = evaluate(tol, activeLimit());
-      return Promise.resolve(c.bodies.filter(b => !(doc.hidden && doc.hidden[b.id])).map(b => meshOfPolys(b.polys).pos));
+      return Promise.resolve(c.bodies.filter(b => !(doc.hidden && doc.hidden[b.id]) && !isTooling(b)).map(b => meshOfPolys(b.polys).pos));
     }
-    return this.post({ kind: 'camMesh', docStr: snap(), tol, limit: activeLimit(), hidden: doc.hidden || {} }).then(r => {
+    return this.post({ kind: 'camMesh', docStr: snap(), tol, limit: activeLimit(), hidden: camHiddenMap() }).then(r => {
       if (r.retry) return this.camMesh(tol);
       if (!r.ok) throw new Error(r.error);
       return [r.result];
@@ -11103,20 +11112,52 @@ function arrowGeom() {
   const base = planeTo3(pl, f.pts[0], z), s0 = toScreen(base), s1 = toScreen(add3(base, mul3(pl.n, sg)));
   let d = sub2(s1, s0), perUnit = len2(d);
   if (perUnit < ppu() * 0.15) { d = P2(0, -1); perUnit = 0; } else d = nrm2(d);
-  return { s0, tip: add2(s0, mul2(d, 46)), dir: d, perUnit, sg };
+  return { s0, tip: add2(s0, mul2(d, 92)), dir: d, perUnit, sg };
+}
+// A big drag handle: a thick bright arrow with a white halo and a round grab knob, readable over any model. Shared by every drag handle.
+const HANDLE_COL = '#ff6a00', HANDLE_HOT = '#ff8a2b';
+let arrowHot = false;
+function drawHandle(s0, tip, dir, hot, text) {
+  const n = rot90(dir), L = Math.hypot(tip.x - s0.x, tip.y - s0.y), headL = 26, headW = 17, shaft = hot ? 6 : 5, col = hot ? HANDLE_HOT : HANDLE_COL;
+  const neck = P2(tip.x - dir.x * headL, tip.y - dir.y * headL);
+  const path = () => {
+    og.beginPath();
+    og.moveTo(s0.x + n.x * shaft / 2, s0.y + n.y * shaft / 2); og.lineTo(neck.x + n.x * shaft / 2, neck.y + n.y * shaft / 2);
+    og.lineTo(neck.x + n.x * headW, neck.y + n.y * headW); og.lineTo(tip.x, tip.y); og.lineTo(neck.x - n.x * headW, neck.y - n.y * headW);
+    og.lineTo(neck.x - n.x * shaft / 2, neck.y - n.y * shaft / 2); og.lineTo(s0.x - n.x * shaft / 2, s0.y - n.y * shaft / 2); og.closePath();
+  };
+  og.save(); og.lineJoin = 'round'; og.lineCap = 'round';
+  og.shadowColor = 'rgba(15,20,30,.55)'; og.shadowBlur = hot ? 14 : 8; og.shadowOffsetY = 2;
+  path(); og.strokeStyle = '#fff'; og.lineWidth = 6; og.stroke(); og.shadowColor = 'transparent';
+  path(); og.fillStyle = col; og.fill(); og.strokeStyle = '#7a2e00'; og.lineWidth = 1.5; og.stroke();
+  if (hot) { path(); og.strokeStyle = 'rgba(255,255,255,.9)'; og.lineWidth = 1; og.stroke(); }
+  // anchor ring where the arrow leaves the profile
+  og.beginPath(); og.arc(s0.x, s0.y, 6, 0, Math.PI * 2); og.fillStyle = '#fff'; og.fill(); og.beginPath(); og.arc(s0.x, s0.y, 3.5, 0, Math.PI * 2); og.fillStyle = col; og.fill();
+  // grab knob mid-shaft: the obvious thing to take hold of
+  const m = P2(s0.x + dir.x * L * 0.42, s0.y + dir.y * L * 0.42);
+  og.beginPath(); og.arc(m.x, m.y, hot ? 11 : 10, 0, Math.PI * 2); og.fillStyle = '#fff'; og.shadowColor = 'rgba(15,20,30,.5)'; og.shadowBlur = 6; og.fill(); og.shadowColor = 'transparent';
+  og.beginPath(); og.arc(m.x, m.y, hot ? 8 : 7, 0, Math.PI * 2); og.fillStyle = col; og.fill();
+  og.strokeStyle = '#fff'; og.lineWidth = 1.8; og.beginPath(); og.moveTo(m.x - dir.x * 3.2 - n.x * 0, m.y - dir.y * 3.2); og.lineTo(m.x + dir.x * 3.2, m.y + dir.y * 3.2); og.stroke();
+  og.restore();
+  if (text) {
+    og.font = '500 11.5px Inter, system-ui, sans-serif';
+    const w = og.measureText(text).width + 10, lx = tip.x + n.x * (headW + 6) + (n.x < 0 ? -w - 4 : 4), ly = tip.y + n.y * (headW + 6) + 4;
+    label(text, Math.max(8, Math.min(ov.clientWidth - w - 8, lx)), Math.max(22, Math.min(ov.clientHeight - 8, ly)), col);   // kept inside the view
+  }
 }
 function drawArrow() {
   const g = arrowGeom();
   if (!g) return;
-  og.strokeStyle = COL.accent; og.fillStyle = COL.accent; og.lineWidth = 2;
-  og.beginPath(); og.moveTo(g.s0.x, g.s0.y); og.lineTo(g.tip.x, g.tip.y); og.stroke();
-  const n = rot90(g.dir);
-  og.beginPath(); og.moveTo(g.tip.x + g.dir.x * 10, g.tip.y + g.dir.y * 10);
-  og.lineTo(g.tip.x + n.x * 6, g.tip.y + n.y * 6); og.lineTo(g.tip.x - n.x * 6, g.tip.y - n.y * 6); og.closePath(); og.fill();
   const f = CMD.f, me = f.extent && f.extent !== 'dist' && MODEL.ext[f.id];
-  label(me ? (f.extent === 'next' ? 'to next · ' : f.extent === 'to' ? 'to point · ' : 'thru all · ') + fmtL(me.z1 - me.z0) : fmtL(f.dist), g.tip.x + 14, g.tip.y + 4);
+  drawHandle(g.s0, g.tip, g.dir, arrowHot || !!arrowDrag, me ? (f.extent === 'next' ? 'to next · ' : f.extent === 'to' ? 'to point · ' : 'thru all · ') + fmtL(me.z1 - me.z0) : fmtL(f.dist));
 }
-function hitArrow(x, y) { const g = CMD && CMD.type === 'extrude' && arrowGeom(); return g && dst2(P2(x, y), g.tip) < 16; }
+function hitArrow(x, y) {
+  const g = CMD && CMD.type === 'extrude' && arrowGeom(); if (!g) return false;
+  const p = P2(x, y), d = sub2(g.tip, g.s0), l2 = d.x * d.x + d.y * d.y, t = l2 ? Math.max(0, Math.min(1, dot2(sub2(p, g.s0), d) / l2)) : 0;
+  return dst2(p, P2(g.s0.x + d.x * t, g.s0.y + d.y * t)) < 17;
+}
+ov.addEventListener('pointerleave', () => { if (arrowHot) { arrowHot = false; requestDraw(); } });
+function setArrowHot(x, y) { const h = hitArrow(x, y); if (h !== arrowHot) { arrowHot = h; requestDraw(); } return h; }
 
 function solidMove(x, y) {
   if (CMD && CMD_HANDLERS[CMD.type]) { CMD_HANDLERS[CMD.type].move(x, y); return; }
@@ -11129,7 +11170,8 @@ function solidMove(x, y) {
   else o = { profiles: true };
   const h = pick3D(x, y, o);
   setHover3D(h);
-  ov.className = h || hitArrow(x, y) ? 'pointer' : 'default';
+  const onArrow = setArrowHot(x, y);
+  ov.className = h || onArrow ? 'pointer' : 'default';
 }
 function solidClick(x, y, ev) {
   const h = hover3D;
@@ -11171,6 +11213,10 @@ function solidClick(x, y, ev) {
 // ═══════════════════════════════════════════════════════════════════
 const selEdges = [];                      // idle-mode edge selection [{body, ch, ref}]
 const visibleBodies = () => MODEL.bodies.filter(b => !b.hole && !(doc.hidden && doc.hidden[b.id]));
+// Workholding from the shop library (vises, parallels, clamps, plates) is equipment, not the part: Manufacture leaves it out of the part, the stock box and the toolpaths
+const isTooling = b => { const f = byId(Math.floor(b.id)); return !!f && f.type === 'shop'; };
+const camBodies = () => visibleBodies().filter(b => !isTooling(b));
+const camHiddenMap = () => { const h = { ...(doc.hidden || {}) }; for (const b of MODEL.bodies) if (isTooling(b)) h[b.id] = true; return h; };
 const viewDepth = P => -dot3(sub3(P, A3(camera.position)), backDir());
 // Depth of the first surface under a pixel (for hiding picks behind solids).
 function surfaceDepthAt(x, y) {
@@ -13101,7 +13147,7 @@ const toolName = t => t.wire ? `Wire Ø${fmtLs(t.d)}` : `T${t.n} · ${isIn() ? `
 
 // ── Part, stock and work origin (CAM absolute coordinates) ─────────
 function camPart() {
-  const bs = visibleBodies();
+  const bs = camBodies();
   if (!bs.length) return null;
   // the exact CAM mesh once it is here: the display mesh's chords fall short of a
   // round part's true top and sides by up to the zoom's tolerance
@@ -13158,7 +13204,7 @@ const orient = (path, ccw) => (cArea(path) > 0) === ccw ? path : path.slice().re
 let camGeomCache = { model: null };
 function camGeom() {
   if (camGeomCache.model === MODEL) return camGeomCache;
-  const bodies = visibleBodies(), pos = bodies.map(b => bodyMesh(b).pos);
+  const bodies = camBodies(), pos = bodies.map(b => bodyMesh(b).pos);
   camGeomCache = { model: MODEL, G: binTriangles(camTriangles(pos), 4), pos, faces: null, holes: null };
   // the exact mesh (fixed 0.02 mm chords) for heights and outlines, once it has arrived
   camGeomCache.fineG = camFine.G && camFine.key === camModelKey() ? camFine.G : null;
@@ -13214,7 +13260,7 @@ function horizFaces() {
   const g = camGeom();
   if (g.faces) return g.faces;
   const out = [];
-  for (const b of visibleBodies()) {
+  for (const b of camBodies()) {
     const mesh = bodyMesh(b);
     for (const fid of new Set(mesh.PL.map(p => p.f))) {
       const s = Surf.list[fid];
@@ -13290,7 +13336,7 @@ function camHoles() {
   const g = camGeom();
   if (g.holes) return g.holes;
   const map = new Map();
-  for (const b of visibleBodies()) {
+  for (const b of camBodies()) {
     const mesh = bodyMesh(b);
     for (const fid of new Set(mesh.PL.map(p => p.f))) {
       const s = Surf.list[fid];
@@ -20460,7 +20506,7 @@ function autoDetect() {
   const holes = new Map(), threads = new Map(), needs = [];
   let minCornerR = Infinity, minConcave3D = Infinity, freeform = 0;
   const floors = [], cutoutFaces = [], dovetails = [];
-  for (const b of visibleBodies()) {
+  for (const b of camBodies()) {
     const mesh = bodyMesh(b), fids = [...new Set(mesh.PL.map(p => p.f))], skipFacet = new Set();
     const dts = detectDovetails(mesh, part), dtF = new Set(dts.flatMap(g => g.fids));
     dovetails.push(...dts);
@@ -22803,7 +22849,7 @@ function roundAxis() {
   const part = camPart();
   if (!part) return null;
   let best = null;
-  for (const b of visibleBodies()) {
+  for (const b of camBodies()) {
     const mesh = bodyMesh(b);
     for (const fid of new Set(mesh.triF)) {
       const s = Surf.list[fid];
@@ -29424,7 +29470,7 @@ function jawMats() {
 // pt / dir map machine points / directions (into the jaw frame); none: as modeled.
 function jawPartMesh(pt, dir) {
   const P = [], N = [], E = [], m2 = (a, i) => [a[i], -a[i + 2], a[i + 1]];            // world (Y up) → machine
-  for (const b of visibleBodies()) {
+  for (const b of camBodies()) {
     const m = bodyMesh(b);
     for (let i = 0; i < m.pos.length; i += 3) { const q = m2(m.pos, i), n = m2(m.nor, i), a = pt ? pt(q) : q, d = dir ? dir(n) : n; P.push(...toW(a[0], a[1], a[2])); N.push(...toW(d[0], d[1], d[2])); }
     for (let i = 0; i < m.edgePos.length; i += 3) { const q = m2(m.edgePos, i), a = pt ? pt(q) : q; E.push(...toW(a[0], a[1], a[2])); }
@@ -33284,7 +33330,7 @@ SAMPLES.push({ axes: 'model', name: 'Fastener assortment', desc: 'Screws, nuts a
 } });
 SAMPLES.push({ axes: 'model', name: 'Workholding table', desc: 'A 6 in vise, 1-2-3 blocks, toe clamps and a dovetail fixture: everything in a manual room, parametric.', make() {
   const k = sampleKit();
-  [['vise', 0, 0], ['block123', -170, 10], ['toeClamp', 140, 0], ['dovetailFixture', 0, 110], ['parallels', -170, 80], ['cClamp', 170, 90]].forEach(([kd, x, y], i) => k.features.push({ id: k.nid(), type: 'shop', name: kd + (i + 1), ...FEATS.shop.init(), kind: kd, cx: x, cy: y }));
+  [['kurtDX6', 0, 0], ['block123', -170, 10], ['toeClamp', 140, 0], ['dovetailFixture', 0, 110], ['parallels', -170, 80], ['cClamp', 170, 90]].forEach(([kd, x, y], i) => k.features.push({ id: k.nid(), type: 'shop', name: kd + (i + 1), ...FEATS.shop.init(), ...shopDefaults(kd), kind: kd, cx: x, cy: y }));
   return k.doc();
 } });
 SAMPLES.push({ axes: 'model', name: 'Deform gallery', desc: 'The same bar bent, twisted, tapered and warped. Edit any deform to change its angle, axis or range.', make() {
@@ -35894,6 +35940,48 @@ ${D2} .rb-panel .rb-col > .rb-sm { padding: 0 4px 0 3px; gap: 4px; font-size: 10
 })();
 </script>
 <!-- RIB3-END -->
+<!-- UIFIT-START -->
+<style id="uifit-css">
+/* Shared control layout: every ribbon button, segmented control and panel button is centered, evenly sized and never wraps or clips. */
+.ribbon .rb-panel .rb-big, .ribbon[data-dens] .rb-panel .rb-big { flex: none; width: auto; min-width: 62px; max-width: 86px; padding: 5px 6px 3px; align-items: center; justify-content: flex-start; box-sizing: border-box; }
+.ribbon .rb-panel .rb-big > span, .ribbon[data-dens] .rb-panel .rb-big > span { width: 100%; text-align: center; text-wrap: balance; overflow-wrap: normal; word-break: keep-all; hyphens: none; }
+.ribbon .rb-panel .rb-big svg { margin: 0 auto; }
+.ribbon::after { content: ''; flex: 0 0 34px; }
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); grid-template-columns: var(--seg-cols, none); gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 7px; overflow: hidden; }
+.seg[data-fit] { grid-auto-flow: row; }
+.seg button { display: flex; align-items: center; justify-content: center; min-height: 30px; padding: 5px 6px; text-align: center; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border: 0; background: var(--panel-2); }
+.seg button + button { border-left: 0; }
+.seg button.on, .seg button.on.cut { background: var(--panel); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-align: center; }
+</style>
+<script>
+// Segmented controls: one even row when every label fits on one line, else an even grid of two (or more) rows.
+(() => {
+  const fit = seg => {
+    const bs = [...seg.children].filter(b => b.tagName === 'BUTTON');
+    if (bs.length < 2 || !seg.clientWidth) return false;
+    seg.style.setProperty('--seg-cols', 'none'); seg.removeAttribute('data-fit');
+    seg.style.gridAutoColumns = 'max-content';
+    const need = Math.max(...bs.map(b => Math.ceil(b.scrollWidth) + 1)); seg.style.gridAutoColumns = '';
+    const W = seg.clientWidth - 2; let cols = bs.length;
+    while (cols > 1 && cols * need + (cols - 1) > W) cols--;
+    bs.forEach(b => { b.style.gridColumn = ''; });
+    if (cols < bs.length) {
+      cols = Math.ceil(bs.length / Math.ceil(bs.length / cols));
+      seg.setAttribute('data-fit', ''); seg.style.setProperty('--seg-cols', `repeat(${cols}, minmax(0, 1fr))`);
+      const rem = bs.length % cols; if (rem) bs[bs.length - 1].style.gridColumn = `span ${cols - rem + 1}`;   // a short last row fills the width
+    }
+    seg.dataset.segN = bs.length; seg.dataset.segW = W; return true;
+  };
+  let queued = false;
+  const pass = all => { queued = false; document.querySelectorAll('.seg').forEach(s => { if (all || s.dataset.segW !== String(Math.max(0, s.clientWidth - 2)) || s.dataset.segN !== String(s.children.length)) fit(s); }); };
+  const q = all => { if (!queued) { queued = true; requestAnimationFrame(() => pass(all)); } };
+  new MutationObserver(() => q(false)).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'hidden'] });
+  addEventListener('resize', () => q(true)); q(true);
+  window.fitSegs = () => pass(true);
+})();
+</script>
+<!-- UIFIT-END -->
 <script>
 // ═══ Animated dropdowns ═══
 // Every <select> keeps its look, focus and change events; only its popup is swapped for an animated one.
@@ -36350,6 +36438,8 @@ function gsPick(i) {
 <script src="cam-mc.js"></script>
 <script src="cam-autotool.js"></script>
 <script src="cam-flow.js"></script>
+<script src="cam-origin.js"></script>
+<script src="cam-vise.js"></script>
 <script src="heatmap.js"></script>
 <script src="slicer.js"></script>
 <script src="costing.js"></script>

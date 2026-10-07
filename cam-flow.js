@@ -450,7 +450,7 @@
     CF.FLOW.id = null;
     CHAINUI.startFor = null; CHAINUI.hover = null;
     CAMUI.view = 'cat'; CAMUI.cat = typeof catOf === 'function' ? catOf(op) : 'manual';
-    camRefresh();
+    camRefresh(); updateHint();
     toast(`${done} is in the program. Press N for another toolpath.`);
   }
   function cancelFresh(op) {
@@ -587,6 +587,163 @@
   const camRefresh0 = camRefresh;
   void camRefresh0;
 
+
+  // ═══ Operations manager: the program list in the browser (drag to reorder, duplicate, regenerate, enable, show, stale marker) ═══
+  // A toolpath is stale when the model changed after its geometry was picked: it still cuts what was picked, which may no longer be there.
+  const geoKey = op => JSON.stringify([(op.chains || []).map(c => [c.eks, c.rev, c.start, c.pts.length]), op.faces || [], op.diams || []]);
+  const modelKey = () => { try { return typeof camModelKey === 'function' ? camModelKey() : ''; } catch (e) { return ''; } };
+  function staleOf(op, mk) {
+    if (!(op.chains || []).length && !(op.faces || []).length) return false;
+    const gk = geoKey(op);
+    if (op._gk !== gk) { op._gk = gk; op._gsig = mk; }                 // geometry just picked (or first seen): fresh
+    return op._gsig !== mk;
+  }
+  CF.isStale = op => staleOf(op, modelKey());
+  // pick the same geometry again from the model as it is now; whatever no longer exists is dropped
+  function regenerate(op, quiet) {
+    const before = snap(), all = new Map();
+    for (const b of visibleBodies()) { const m = bodyMesh(b); for (const ch of edgeChains(m)) if (chainFlat(ch)) all.set(chainEdgeKey(ch), { m, ch }); }
+    let lost = 0;
+    if ((op.chains || []).length) {
+      const keep = [];
+      for (const c of op.chains) {
+        const hit = (c.eks || []).map(k => all.get(k)).find(Boolean), nc = hit && buildChain(hit.m, hit.ch, (c.eks || []).length > 1 || c.closed);
+        if (!nc) { lost++; continue; }
+        if (nc.pts.length !== c.pts.length) c.start = 0;
+        Object.assign(c, { z: nc.z, closed: nc.closed, pts: nc.pts, eks: nc.eks });
+        keep.push(c);
+      }
+      op.chains = keep;
+    }
+    if ((op.faces || []).length) { const n = op.faces.length; op.faces = op.faces.filter(r => findFace(visibleBodies(), r)); lost += n - op.faces.length; }
+    if (typeof camAutoTool === 'function') camAutoTool(op);
+    op._gk = geoKey(op); op._gsig = modelKey(); TP.delete(op.id);
+    record(`Regenerate ${op.name}`, before);
+    camRefresh();
+    if (!quiet) toast(lost ? `${op.name}: ${lost} piece${lost > 1 ? 's' : ''} of geometry no longer in the model were dropped.` : `${op.name} is up to date.`);
+    return lost;
+  }
+  CF.regenerate = regenerate;
+  function duplicate(op) {
+    const C = cam(), before = snap(), c = JSON.parse(JSON.stringify(op, (k, v) => k[0] === '_' ? undefined : v));
+    c.id = C.next++; c.name = uniqueName(op.name.replace(/ copy( \d+)?$/, '') + ' copy');
+    C.ops.splice(C.ops.indexOf(op) + 1, 0, c);
+    record('Duplicate ' + op.name, before);
+    camRefresh();
+    return c;
+  }
+  function removeOp(op) {
+    const C = cam(), before = snap();
+    C.ops.splice(C.ops.indexOf(op), 1); TP.delete(op.id);
+    if (CAMUI.op === op.id && CAMUI.view === 'op') CAMUI.view = 'overview';
+    record('Delete ' + op.name, before);
+    camRefresh();
+  }
+  function moveOp(op, ref, after) {
+    const C = cam(), i = C.ops.indexOf(op), before = snap();
+    if (op === ref) return;
+    C.ops.splice(i, 1);
+    let j = C.ops.indexOf(ref) + (after ? 1 : 0);
+    if (j < 0) j = C.ops.length;
+    C.ops.splice(j, 0, op);
+    if (C.ops.indexOf(op) === i) return;
+    record(`Move ${op.name}`, before);
+    camRefresh();
+  }
+  CF.moveOp = moveOp; CF.duplicate = duplicate;
+  const ICO = {
+    grip: '<path d="M7 5h.01M7 10h.01M7 15h.01M13 5h.01M13 10h.01M13 15h.01" stroke-width="2.4"/>',
+    dup: '<rect x="7" y="7" width="9" height="9" rx="1.6"/><path d="M4 12.5V5.6A1.6 1.6 0 0 1 5.6 4h6.9"/>',
+    regen: '<path d="M16 10a6 6 0 1 1-1.8-4.3"/><path d="M16 3.5v3.2h-3.2"/>',
+    del: '<path d="M5.5 6l9 9M14.5 6l-9 9"/>',
+    off: '<path d="M2 10s3-5.5 8-5.5S18 10 18 10s-3 5.5-8 5.5S2 10 2 10z"/><path d="M3 17L17 3"/>',
+  };
+  const ic = (k, extra) => `<svg viewBox="0 0 20 20">${ICO[k] || IC[k] || ''}</svg>${extra || ''}`;
+  function opmHTML() {
+    const C = cam(), nums = camOpNums(), mk = modelKey();
+    let stale = 0;
+    const rows = C.ops.map(op => {
+      let P = null, t = '';
+      try { P = toolpath(op); if (P && !P.pending) t = fmtTime(pathStats(P).min); else if (P && P.pending) t = 'computing…'; } catch (e) { /* shown without time */ }
+      const st = staleOf(op, mk), warn = P && P.warn && P.warn.length, tool = (() => { try { return 'T' + toolOf(op.tool).n; } catch (e) { return ''; } })();
+      if (st) stale++;
+      const info = OP_INFO[op.type] || {};
+      return `<li class="opm-row ${CAMUI.op === op.id && CAMUI.view === 'op' ? 'sel' : ''} ${op.sup ? 'off' : ''} ${op.hide ? 'hid' : ''}" draggable="true" data-opm="${op.id}">
+        <span class="grip" data-tip="Drag to change the order">${ic('grip')}</span>
+        <input type="checkbox" class="opm-on" data-opm-on ${op.sup ? '' : 'checked'} aria-label="Include in the program">
+        <span class="num">${op.sup ? '' : nums.get(op.id)}</span>
+        <span class="body"><span class="nm">${esc(op.name)}</span><span class="sub">${[tool, t, op.auto ? 'auto' : ''].filter(Boolean).join(' · ')}</span></span>
+        ${warn ? '<i class="opm-warn" data-tip="This toolpath has a warning">!</i>' : ''}${st ? '<button class="opm-stale" data-opm-regen data-tip="The model changed after this geometry was picked. Click to pick it again from the model.">Stale</button>' : ''}
+        <span class="acts"><button data-opm-eye class="${op.hide ? 'on' : ''}" data-tip="${op.hide ? 'Show' : 'Hide'} this toolpath in the view">${ic(op.hide ? 'off' : 'eye')}</button><button data-opm-dup data-tip="Duplicate">${ic('dup')}</button><button data-opm-regen data-tip="Regenerate from the model">${ic('regen')}</button><button data-opm-del data-tip="Delete">${ic('del')}</button></span></li>`;
+    }).join('');
+    return `<div class="sec-title opm-head">Operations <span>${C.ops.length || ''}</span><span class="sp"></span>${stale ? `<button class="opm-all" data-opm-regenall>Regenerate ${stale} stale</button>` : ''}<button class="opm-new" data-cfnew="1" data-tip="New toolpath (N)">${ic('camnew')}</button></div>
+      <ul class="opm" data-opm-list>${rows || '<li class="empty">Nothing programmed yet. Press N to start a toolpath, or run Auto Detect.</li>'}</ul>`;
+  }
+  const camTree0 = camTree;
+  camTree = function () {
+    const h = camTree0(), i = h.indexOf('<div class="sec-title">Operations');
+    return i < 0 ? h : h.slice(0, i) + opmHTML();
+  };
+  function opmMenu(op, x, y) {
+    const C = cam(), i = C.ops.indexOf(op);
+    showMenu([
+      { label: 'Edit ' + op.name, run: () => { CAMUI.view = 'op'; CAMUI.op = op.id; camRefresh(); } },
+      { label: 'Duplicate', run: () => duplicate(op) },
+      { label: 'Regenerate from the model', run: () => regenerate(op) },
+      { label: op.sup ? 'Include in program' : 'Leave out of program', run: () => camEdit(op, 'sup', !op.sup) },
+      { label: op.hide ? 'Show in the view' : 'Hide in the view', run: () => camEdit(op, 'hide', !op.hide) },
+      null,
+      i > 0 ? { label: 'Move to the top', run: () => moveOp(op, C.ops[0], false) } : undefined,
+      i < C.ops.length - 1 ? { label: 'Move to the end', run: () => moveOp(op, C.ops[C.ops.length - 1], true) } : undefined,
+      null,
+      { label: 'Delete', danger: true, run: () => removeOp(op) },
+    ].filter(x2 => x2 !== undefined), x, y);
+  }
+  const bindCamTree0 = bindCamTree;
+  bindCamTree = function (el) {
+    bindCamTree0(el);
+    const list = el.querySelector('[data-opm-list]');
+    if (!list) return;
+    const C = cam(), opOf = n => C.ops.find(o => o.id === +n.closest('[data-opm]').dataset.opm);
+    list.addEventListener('click', e => {
+      const row = e.target.closest('[data-opm]');
+      if (!row) return;
+      const op = opOf(row), q = s => e.target.closest(s);
+      if (q('[data-opm-on]')) { camEdit(op, 'sup', !e.target.closest('[data-opm-on]').checked); return; }
+      if (q('[data-opm-eye]')) { camEdit(op, 'hide', !op.hide); return; }
+      if (q('[data-opm-dup]')) { duplicate(op); return; }
+      if (q('[data-opm-regen]')) { regenerate(op); return; }
+      if (q('[data-opm-del]')) { removeOp(op); return; }
+      if (SIM.on) simStop();
+      CAMUI.view = 'op'; CAMUI.op = op.id; camRefresh();
+    });
+    list.addEventListener('contextmenu', e => { const row = e.target.closest('[data-opm]'); if (row) { e.preventDefault(); opmMenu(opOf(row), e.clientX, e.clientY); } });
+    let drag = null;
+    const clear = () => list.querySelectorAll('.drop-before, .drop-after, .dragging').forEach(r => r.classList.remove('drop-before', 'drop-after', 'dragging'));
+    list.addEventListener('dragstart', e => { const row = e.target.closest('[data-opm]'); if (!row) return; drag = opOf(row); row.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(drag.id)); });
+    list.addEventListener('dragover', e => {
+      const row = e.target.closest('[data-opm]');
+      if (!drag || !row) return;
+      e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+      const r = row.getBoundingClientRect(), after = e.clientY > r.top + r.height / 2;
+      list.querySelectorAll('.drop-before, .drop-after').forEach(x => x.classList.remove('drop-before', 'drop-after'));
+      row.classList.add(after ? 'drop-after' : 'drop-before');
+    });
+    list.addEventListener('drop', e => {
+      const row = e.target.closest('[data-opm]');
+      if (!drag || !row) return;
+      e.preventDefault();
+      const r = row.getBoundingClientRect(), op = drag; drag = null; clear();
+      moveOp(op, opOf(row), e.clientY > r.top + r.height / 2);
+    });
+    list.addEventListener('dragend', () => { drag = null; clear(); });
+    const all = el.querySelector('[data-opm-regenall]');
+    if (all) all.addEventListener('click', () => { let lost = 0; const mk = modelKey(); for (const op of cam().ops.slice()) if (staleOf(op, mk)) lost += regenerate(op, true); toast(lost ? `Regenerated. ${lost} piece${lost > 1 ? 's' : ''} of geometry no longer in the model were dropped.` : 'Every toolpath is up to date.'); });
+  };
+  // a model change refreshes the list so the stale marker shows at once
+  const camModelChanged0 = camModelChanged;
+  camModelChanged = function () { camModelChanged0.apply(this, arguments); };
+
   // ═══ Look ═══
   const css = document.createElement('style');
   css.textContent = `
@@ -653,6 +810,40 @@
 .cf-bar .btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
 .cf-bar .btn.ghost:hover { color: var(--danger); }
 @media (prefers-reduced-motion: reduce) { .cf-card, #cfPicker, .cf-pane { transition: none; animation: none; } }
+`;
+  css.textContent += `
+.opm { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.opm .empty { padding: 8px 4px; font-size: 12px; color: var(--muted); }
+.opm-head { display: flex; align-items: center; gap: 6px; }
+.opm-head .sp { flex: 1; }
+.opm-head button { border: 1px solid var(--rule); background: var(--panel-2); border-radius: 7px; color: var(--ink-2); cursor: pointer; font: 600 10.5px var(--font, Inter, system-ui, sans-serif); padding: 2px 7px; transition: border-color .15s ease, color .15s ease; }
+.opm-head .opm-new { padding: 2px 4px; line-height: 0; }
+.opm-head .opm-new svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; }
+.opm-head button:hover { border-color: var(--accent); color: var(--accent); }
+.opm-head .opm-all { border-color: #d9a441; color: #a8741a; text-transform: none; letter-spacing: 0; }
+.opm-row { position: relative; display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 2px; border: 1px solid transparent; border-radius: 9px; cursor: pointer; font-size: 12px; color: var(--ink); transition: background .15s ease, border-color .15s ease, opacity .2s ease; }
+.opm-row:hover { background: var(--panel-2); }
+.opm-row.sel { background: var(--accent-soft); border-color: var(--accent); }
+.opm-row.off { opacity: .55; }
+.opm-row.hid .nm { font-style: italic; }
+.opm-row .grip { cursor: grab; color: var(--muted); display: grid; place-items: center; width: 14px; flex: none; }
+.opm-row .grip svg, .opm-row .acts svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.opm-row .num { font: 600 10px var(--mono, ui-monospace, monospace); color: var(--muted); min-width: 14px; text-align: right; }
+.opm-row .body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.opm-row .nm { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.opm-row .sub { font-size: 10.5px; color: var(--muted); }
+.opm-row .acts { display: none; gap: 1px; }
+.opm-row:hover .acts, .opm-row.sel .acts { display: flex; }
+.opm-row .acts button { border: 0; background: transparent; padding: 3px; border-radius: 6px; color: var(--muted); cursor: pointer; line-height: 0; }
+.opm-row .acts button:hover { background: var(--panel); color: var(--accent); }
+.opm-row .acts button.on { color: var(--accent); }
+.opm-row .acts [data-opm-del]:hover { color: var(--danger); }
+.opm-stale { border: 1px solid #d9a441; background: color-mix(in srgb, #d9a441 14%, var(--panel)); color: #a8741a; border-radius: 99px; font: 700 9px var(--font, Inter, system-ui, sans-serif); letter-spacing: .05em; text-transform: uppercase; padding: 1px 6px; cursor: pointer; }
+.opm-warn { font-style: normal; font: 700 10px var(--font, Inter, system-ui, sans-serif); width: 15px; height: 15px; border-radius: 50%; display: grid; place-items: center; background: var(--danger); color: #fff; }
+.opm-row.dragging { opacity: .4; }
+.opm-row.drop-before::before, .opm-row.drop-after::after { content: ''; position: absolute; left: 6px; right: 6px; height: 2px; border-radius: 2px; background: var(--accent); }
+.opm-row.drop-before::before { top: -2px; } .opm-row.drop-after::after { bottom: -2px; }
+.opm-on { margin: 0; accent-color: var(--accent); }
 `;
   document.head.appendChild(css);
 })();
