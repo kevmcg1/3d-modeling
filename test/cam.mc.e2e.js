@@ -114,6 +114,15 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
       assert(r.n > 5 && r.holes > 0 && r.line.includes(g) && (!word || r.line.includes(' ' + word)), JSON.stringify(r));
     });
   }
+  await ok('Back bore G87: goes through shifted, cuts upward to the top of the hole, posts Z above R', async () => {
+    const r = await page.evaluate(() => {
+      const C = cam(); C.ops = []; camAddOp('drill'); const op = C.ops[0]; op.mode = 'back'; op.shift = 0.3;
+      const P = toolpath(op), text = postGcode().text, line = text.split('\n').find(l => /G87 X/.test(l)) || '', z = +(/Z(-?[\d.]+)/.exec(line) || [])[1], R = +(/R(-?[\d.]+)/.exec(line) || [])[1];
+      const feeds = P.m.filter(m => !m.r), up = feeds.filter((m, i) => i && m.z > feeds[i - 1].z + 0.01).length;
+      return { n: P.m.length, warn: P.warn, holes: (P.holes || []).length, line, z, R, up };
+    });
+    assert(r.holes > 0 && r.line.includes(' Q') && r.z > r.R && r.up > 0, JSON.stringify(r));
+  });
   await ok('3D Rough Pocket: levels reach the floors, stay out of the part and keep the stock on', async () => {
     const r = await page.evaluate(() => {
       const C = cam(); C.ops = []; camAddOp('zrough'); const op = C.ops[0], P = toolpath(op), cut = P.m.filter(m => !m.r), part = camPart(), t = toolOf(op.tool);

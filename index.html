@@ -13746,6 +13746,7 @@ const DRILL_CYCLES = {
   bore: { g: 'G86', name: 'Bore, stop the spindle, rapid out', what: 'Feeds in, stops the spindle at the bottom and lifts out at rapid. For boring bars when a light drag mark on the wall is acceptable (roughing a bore).' },
   bored: { g: 'G89', name: 'Bore, pause at the bottom, feed out', what: 'Feeds in, waits at the bottom so the floor cleans up, then feeds back out at the same slow speed. Good for boring a blind hole or a counterbore to a clean floor.' },
   fine: { g: 'G76', name: 'Fine bore (shift off the wall, lift out)', what: 'Feeds in, stops the spindle in a set position, shifts the boring bar off the wall and lifts out at rapid, so the finished wall is never scratched. Needs a machine with spindle orient.' },
+  back: { g: 'G87', name: 'Back bore (through the hole, cut upward)', what: 'The boring bar shifts off the wall, rapids down through the hole, shifts back to center and bores upward to the top of the hole, then shifts off the wall and lifts out. For bores that must be finished from the far side (a bar that cannot turn around). Needs a through hole and spindle orient.' },
   tap: { g: 'G84', name: 'Cut threads', what: 'Goes in exactly one thread-width per turn, reverses at the bottom and winds back out.' },
 };
 // The op's cycle and its numbers, all in mm and seconds. Missing values take the Haas defaults.
@@ -13758,8 +13759,8 @@ function drillSpec(op, tool) {
     i: pecking ? Math.max(0, op.peckFirst || 0) : 0,                // I: first peck (0: use Q)
     j: pecking ? Math.max(0, op.peckReduce || 0) : 0,               // J: take this off each later peck
     k: pecking ? Math.max(0, op.peckMin || 0) : 0,                  // K: never peck less than this
-    p: mode === 'spot' || mode === 'peck' || mode === 'bored' || mode === 'fine' ? Math.max(0, op.dwell || 0) : 0,     // P: dwell at the bottom, seconds
-    shift: mode === 'fine' ? Math.max(0.01, op.shift == null ? 0.2 : op.shift) : 0,                 // Q on G76: how far the bar shifts off the wall
+    p: mode === 'spot' || mode === 'peck' || mode === 'bored' || mode === 'fine' || mode === 'back' ? Math.max(0, op.dwell || 0) : 0,     // P: dwell at the bottom, seconds
+    shift: mode === 'fine' || mode === 'back' ? Math.max(0.01, op.shift == null ? 0.2 : op.shift) : 0,                 // Q on G76: how far the bar shifts off the wall
     ret: op.retPlane === 'r' ? 'G99' : 'G98',
     rpl: op.rPlane == null ? cam().retract : Math.max(0.2, op.rPlane),           // R plane above the stock
     s22: op.chipBack == null ? 1.27 : Math.max(0.01, op.chipBack),             // Setting 22 (0.050")
@@ -13785,6 +13786,13 @@ function drillCycleMoves(P, cy, pt, R, bottom, init, tool, tap) {
   if (cy.mode === 'fine') {                                                                          // G76: feed in, orient, shift off the wall, rapid out, shift back
     go(P.feed, bottom, tool.plunge); dwell(cy.p);
     const q = pt(bottom), u = pt(R); P.rapid(q[0] + cy.shift, q[1], q[2]); P.rapid(u[0] + cy.shift, u[1], u[2]); P.rapid(u[0], u[1], u[2]);
+    if (cy.ret === 'G98') go(P.rapid, init); return;
+  }
+  if (cy.mode === 'back') {                                                                          // G87: shift, rapid through to the far side, shift back, feed up to the top of the hole, shift, rapid out
+    const top = cy.topAt == null ? R - cy.rpl : cy.topAt, q = pt(bottom), u = pt(top), r0 = pt(R);
+    P.rapid(r0[0] + cy.shift, r0[1], r0[2]); P.rapid(q[0] + cy.shift, q[1], q[2]); P.rapid(q[0], q[1], q[2]);
+    P.feed(u[0], u[1], u[2], tool.plunge); dwell(cy.p);
+    P.rapid(u[0] + cy.shift, u[1], u[2]); P.rapid(r0[0] + cy.shift, r0[1], r0[2]); P.rapid(r0[0], r0[1], r0[2]);
     if (cy.ret === 'G98') go(P.rapid, init); return;
   }
   if (cy.mode === 'ream') { go(P.feed, bottom, tool.plunge); go(P.feed, R, tool.plunge); if (cy.ret === 'G98') go(P.rapid, init); return; }
@@ -14287,12 +14295,14 @@ const GEN = {
       let bottom = through ? h.bot - (op.through == null ? 1 : op.through) - tip : h.bot;
       if (tap && !through) bottom = h.bot + 2 * pitch;          // leave room for the tap's lead
       if (op.depth > 0) bottom = Math.max(bottom, h.top - op.depth);           // depth into the hole, from its top
-      P.holes.push({ x: h.x, y: h.y, z: bottom, r: R, q: cy.q, mi: P.m.length });
+      const back = cy.mode === 'back';
+      if (back && !through) { P.warn.push(`Back bore needs a through hole: skipped the hole at X${fmtLs(h.x)} Y${fmtLs(h.y)}.`); continue; }
+      P.holes.push(back ? { x: h.x, y: h.y, z: h.top, r: bottom, q: cy.q, mi: P.m.length } : { x: h.x, y: h.y, z: bottom, r: R, q: cy.q, mi: P.m.length });   // G87: Z is the top of the cut, R the far side
       // G98 goes back to the start height between holes; G99 stays at the R plane
       if (!P.cur || cy.ret !== 'G99') P.rapid(h.x, h.y, safe);
       if (cy.ret === 'G99' && P.cur && P.cur[2] > R + 1e-9 && P.m.length > 1) P.rapid(P.cur[0], P.cur[1], R);
       P.rapid(h.x, h.y, R);
-      drillCycleMoves(P, cy, d => [h.x, h.y, d], R, bottom, safe, tool, tap);
+      drillCycleMoves(P, back ? { ...cy, topAt: h.top } : cy, d => [h.x, h.y, d], R, bottom, safe, tool, tap);
     }
     P.rapid(P.cur[0], P.cur[1], safe);
   },
@@ -15560,7 +15570,7 @@ function postGcode() {
       continue;
     }
     if (isDrillOp(op) && P.holes && !grbl) {
-      const hs = P.holes, first = hs[0], rr = N(Math.max(...hs.map(h => h.r)) - o[2]), cy = P.cycle || drillSpec(op, t);
+      const hs = P.holes, cy = P.cycle || drillSpec(op, t), first = hs[0], rr = N((cy.mode === 'back' ? Math.min : Math.max)(...hs.map(h => h.r)) - o[2]);
       L.push(...cycleNotes(cy, P, N));
       const holeEnd = k => (hs[k + 1] ? hs[k + 1].mi : P.m.length) - 1;       // a hole's line covers every move of its cycle
       SRC = { op: op.id, mi: holeEnd(0) };
@@ -15643,7 +15653,7 @@ function postGcode() {
 function cycleWords(cy, N) {
   let w = '';
   if (cy.mode === 'peck' || cy.mode === 'chip') w += cy.i > 0 ? ` I${N(cy.i)} J${N(cy.j)} K${N(cy.k > 0 ? cy.k : Math.min(cy.i, cy.q))}` : ` Q${N(cy.q)}`;
-  if (cy.mode === 'fine') w += ` Q${N(cy.shift)}`;
+  if (cy.mode === 'fine' || cy.mode === 'back') w += ` Q${N(cy.shift)}`;
   if (cy.p > 0) { const v = +cy.p.toFixed(3); w += ` P${Number.isInteger(v) ? v + '.' : v}`; }
   return w;
 }
@@ -15652,6 +15662,7 @@ function cycleNotes(cy, P, N) {
   const u = isIn() ? ' IN' : ' MM', out = [];
   if (cy.mode === 'tap') out.push(`(RIGID TAP G84 - PITCH ${fmtLs(P.tap.pitch, 4)}, F = RPM X PITCH${cy.tapJ > 1 ? `, J${cy.tapJ} RETRACTS ${cy.tapJ}X FASTER` : ''})`);
   if (cy.mode === 'fine') out.push(`(G76 FINE BORE - Q${N(cy.shift)} SHIFTS THE BAR OFF THE WALL, THE SPINDLE ORIENTS FIRST - CHECK SETTING 27 FOR THE SHIFT DIRECTION)`);
+  if (cy.mode === 'back') out.push(`(G87 BACK BORE - Q${N(cy.shift)} SHIFTS THE BAR OFF THE WALL, R IS THE FAR SIDE, Z IS THE TOP OF THE CUT - THE SPINDLE ORIENTS FIRST, CHECK SETTING 27 FOR THE SHIFT DIRECTION)`);
   if (cy.mode === 'bore') out.push('(G86 BORE - THE SPINDLE STOPS AT THE BOTTOM, THEN RAPID OUT)');
   if (cy.mode === 'chip') out.push(`(G73 BACKS OFF SETTING 22 = ${N(cy.s22)}${u} BETWEEN PECKS - CHECK SETTING 22)`);
   if (cy.mode === 'peck') out.push(`(G83 STOPS ITS RAPID SETTING 22 = ${N(cy.s22)}${u} ABOVE THE LAST PECK${cy.s52 > 0 ? `, RETRACTS SETTING 52 = ${N(cy.s52)}${u} ABOVE R` : ''} - CHECK THE SETTINGS)`);
@@ -16657,8 +16668,8 @@ function drillCycleFields(op) {
     if (cy.i > 0) h += fld(`<div class="row2">${num('opPkJ', op.peckReduce || 0, 'How much smaller each bite?', 0.1, 'min="0"')}${num('opPkK', op.peckMin || 0, 'Smallest bite allowed', 0.1, 'min="0"')}</div>`,
       'Chips pack tighter the deeper the hole gets, so each bite after the first is a little smaller. It never goes smaller than the smallest bite.');
   }
-  if (m === 'fine') h += fld(`<div class="row2">${num('opShift', cy.shift, 'Shift off the wall', 0.05, 'min="0.01"')}</div>`, 'How far the boring bar moves away from the wall before it lifts out (the Q word). The direction is the machine\'s own setting.');
-  if (m === 'spot' || m === 'peck' || m === 'bored' || m === 'fine') h += fld(`<div class="row2"><label class="field"><span>Wait at the bottom for how long? (seconds)</span><input type="number" id="opDwell" data-cam-input="1" step="0.1" min="0" value="${+(op.dwell || 0).toFixed(3)}"></label></div>`,
+  if (m === 'fine' || m === 'back') h += fld(`<div class="row2">${num('opShift', cy.shift, 'Shift off the wall', 0.05, 'min="0.01"')}</div>`, 'How far the boring bar moves away from the wall before it lifts out (the Q word). The direction is the machine\'s own setting.');
+  if (m === 'spot' || m === 'peck' || m === 'bored' || m === 'fine' || m === 'back') h += fld(`<div class="row2"><label class="field"><span>Wait at the bottom for how long? (seconds)</span><input type="number" id="opDwell" data-cam-input="1" step="0.1" min="0" value="${+(op.dwell || 0).toFixed(3)}"></label></div>`,
     'A short pause at the bottom lets the point clean up the floor. 0 means no pause.');
   h += fld(`<div class="row2">${num('opRpl', cy.rpl, 'Where does the slow drilling start? (height above the part)', 0.5, 'min="0.2"')}<div class="field"><span>How much to retract after each hole?</span><div class="seg"><button data-opset="retPlane:init" class="${cy.ret === 'G98' ? 'on' : ''}" title="Lift all the way up to the safe height before moving on">All the way up</button><button data-opset="retPlane:r" class="${cy.ret === 'G99' ? 'on' : ''}" title="Lift only to the slow-drilling height before moving on">Just a little</button></div></div></div>`,
     'The machine moves fast down to the starting height, then drills slowly from there. <b>All the way up</b> lifts to the safe height between holes, which is safe over clamps. <b>Just a little</b> only lifts to the starting height, which is faster, but only use it if nothing sticks up between the holes.');
