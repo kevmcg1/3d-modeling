@@ -21416,7 +21416,8 @@ async function verifyProgram(onProgress) {
     }
     // flat end mills should never go down into solid material steeper than 15°
     if (!sg.ax && (tool.type === 'flat' || tool.type === 'bull' || tool.type === 'face') && b.z < a.z - 0.05 && (a.z - b.z) > L * Math.tan(15 * Math.PI / 180)) {
-      const top = model.topAt(b.x, b.y);
+      let top = model.topAt(b.x, b.y);
+      if (top > b.z + 0.05 && since) { model.flush(); since = 0; top = model.topAt(b.x, b.y); }      // the cuts not yet applied may have cleared it
       if (top > b.z + 0.05) add('plunge', sg, b.x, b.y, b.z, { depth: top - b.z });
     }
     if (!sg.fin) model.cut(sg.a, sg.b, tool, undefined, sg.ax);
