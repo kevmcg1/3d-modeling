@@ -13286,8 +13286,12 @@ function faceRegion(mesh, fid) {
       const p = mesh.pos, a = [p[i * 9], -p[i * 9 + 2]], b = [p[i * 9 + 3], -p[i * 9 + 5]], c = [p[i * 9 + 6], -p[i * 9 + 8]];
       const ar = Math.abs((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1]));
       if (ar < 1e-9) continue;
-      const ri = arr.faceAt(P2((a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3));
-      if (ri >= 0) area.set(ri, (area.get(ri) || 0) + ar);
+      // a long thin triangle of a ring floor can have its centroid inside the ring's hole: vote with points near each corner too
+      const cx = (a[0] + b[0] + c[0]) / 3, cy = (a[1] + b[1] + c[1]) / 3;
+      for (const q of [[cx, cy], ...[a, b, c].map(v => [cx + (v[0] - cx) * 0.8, cy + (v[1] - cy) * 0.8])]) {
+        const ri = arr.faceAt(P2(q[0], q[1]));
+        if (ri >= 0) area.set(ri, (area.get(ri) || 0) + ar / 4);
+      }
     }
     const parts = [...area.entries()].filter(([, ar]) => ar > 1e-4).sort((a, b) => b[1] - a[1])
       .map(([ri]) => { const r = arr.regions[ri]; return { outer: tessLoop(r.outer, 0.002).pts, holes: r.holes.map(h => tessLoop(h, 0.002).pts) }; });
@@ -13301,7 +13305,12 @@ function faceRegion(mesh, fid) {
   return res;
 }
 // A small round floor with nothing in it: the bottom of a drilled blind hole.
-function drillBottom(rg) { const rl = isRoundLoop(rg.outer); return rl.round && !rg.holes.length && rl.r <= 8.001; }
+// A blind hole shallower than its drill's 118° point is deep (the point alone is ~0.6 of the radius): the drill would never reach full size, so it is milled as a pocket.
+function shallowWell(x, y, d) {
+  const tip = d / 2 / Math.tan(59 * Math.PI / 180) + 0.5;
+  return camHoles().some(h => Math.hypot(h.x - x, h.y - y) < 0.01 && Math.abs(h.d - d) < 0.02 && !holeThrough(h, camPart()) && !innerHole(h) && h.top - h.bot < tip);
+}
+function drillBottom(rg) { const rl = isRoundLoop(rg.outer); return rl.round && !rg.holes.length && rl.r <= 8.001 && !shallowWell(rl.c.x, rl.c.y, 2 * rl.r); }
 // A floor with material straight above most of it (the sill of a window in a wall).
 function floorShaded(rg, z) {
   const area = cDiff([orient(cP(rg.outer), true)], rg.holes.map(h => orient(cP(h), true))), total = area.reduce((a, p) => a + cArea(p), 0);
@@ -13377,8 +13386,8 @@ function camHoles() {
   // Only holes that open upward can be drilled from the top; one opening
   // underneath (material above it) is left for another setup.
   // open to the sky across its whole mouth, not just at the center (a cavity under a
-  // wall with a small hole in the middle is not a hole drilled from the top)
-  for (const h of out) h.fromTop = [[0, 0], [0.7, 0], [-0.7, 0], [0, 0.7], [0, -0.7]].every(([u, v]) => partTopAt(h.x + u * h.d / 2, h.y + v * h.d / 2) <= h.top + 0.01);
+  // wall with a small hole in the middle is not a hole drilled from the top). Nor is the outer wall of a ring groove: its centre stands up.
+  for (const h of out) h.fromTop = [[0, 0], [0.7, 0], [-0.7, 0], [0, 0.7], [0, -0.7]].every(([u, v]) => partTopAt(h.x + u * h.d / 2, h.y + v * h.d / 2) <= h.bot + 0.01);
   return (g.holes = out.filter(h => h.fromTop));
 }
 // A smaller hole carrying on down from this one's floor (the hole of a counterbore)?
@@ -20804,7 +20813,7 @@ function autoPlan(R) {
       tool: dtool, faces: wallRefs, op: { grooves: [gOp] }, covered: coveredBy(o => o.type === 'dovetail') });
   });
   // 3 · holes from the top: spot, drill (per size), tap
-  const topHoles = R.holes.filter(h => h.fromTop && h.d <= 16.001);
+  const topHoles = R.holes.filter(h => h.fromTop && h.d <= 16.001 && !shallowWell(h.s.p[0], -h.s.p[2], h.d));
   const tapped = new Set();
   for (const t of R.threads) if (!t.external) for (const h of topHoles) { const w = sub3(h.s.p, t.p); if (len3(sub3(w, mul3(t.dir, dot3(w, t.dir)))) < 0.05 && Math.abs(dot3(h.s.dir, t.dir)) > 0.999) tapped.add(h); }
   if (topHoles.length) {
@@ -21341,7 +21350,12 @@ function measurePart(res) {
     if (!all) continue;
     const parts = all.parts.filter(q => floorPartMachinable(q, f.z));
     for (const rg of parts.slice(0, 8)) {
-      const q = camRegionPoint(rg), got = q ? model.topAt(q.x, q.y) : -Infinity;
+      let q = camRegionPoint(rg);
+      if (q && Math.abs(partTopAt(q.x, q.y) - f.z) > 0.05) {          // the region the mesh gave is not this floor (a pocket that breaks out through the stock edge): probe a triangle of the floor face itself
+        q = null;
+        for (let i = 0; i < f.mesh.triF.length && !q; i += 1) if (f.mesh.triF[i] === f.fid) { const p = f.mesh.pos, c = P2((p[i * 9] + p[i * 9 + 3] + p[i * 9 + 6]) / 3, -(p[i * 9 + 2] + p[i * 9 + 5] + p[i * 9 + 8]) / 3); if (Math.abs(partTopAt(c.x, c.y) - f.z) < 0.05) q = c; }
+      }
+      const got = q ? model.topAt(q.x, q.y) : -Infinity;
       const at = parts.length > 1 && q ? ` at X${fmtL(q.x - camOrigin()[0]).split(' ')[0]} Y${fmtL(q.y - camOrigin()[1]).split(' ')[0]}` : '';
       if (isFinite(got)) row(`Floor at ${fmtLs(part.z1 - f.z)} deep${at}`, part.z1 - f.z, part.z1 - got, 'len', [[q.x, q.y, part.z1], [q.x, q.y, got]]);
     }
