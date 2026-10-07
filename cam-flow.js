@@ -260,7 +260,7 @@
   // what is just inside and just outside the loop: a pocket floor has the floor level inside and a wall outside, a boss top the reverse
   function sides(c) {
     const p = chainTravel(c), n = p.length, inLeft = cArea(cP(p)) > 0;
-    let floor = 0, rim = 0, isl = 0, outer = 0, s = 0;
+    let floor = 0, rim = 0, isl = 0, outer = 0, open = 0, s = 0;
     const N = Math.min(24, n);
     for (let k = 0; k < N; k++) {
       const i = Math.floor((k + 0.5) * n / N), a = p[i], b = p[(i + 1) % n], t = nrm2(sub2(b, a)), m = lerp2(a, b, 0.5), nl = P2(-t.y * (inLeft ? 1 : -1), t.x * (inLeft ? 1 : -1));
@@ -269,9 +269,10 @@
       if (Math.abs(tin - c.z) < 0.05 && tout > c.z + 0.05) floor++;
       else if (Math.abs(tin - c.z) < 0.05 && tout < c.z - 0.05) rim++;
       else if (Math.abs(tout - c.z) < 0.05 && tin > c.z + 0.05) isl++;
-      if (tin > c.z - 0.05 && tout < c.z - 0.05) outer++;          // material inside, open air outside (a top rim, or the bottom edge of a wall)
+      if (tin > c.z - 0.05 && tout < c.z - 0.05) outer++;
+      if (tin < camPart().z0 + 0.01 && Math.abs(tout - c.z) < 0.05) open++;            // air all the way down inside, the top of the material outside: a through opening          // material inside, open air outside (a top rim, or the bottom edge of a wall)
     }
-    return { floor: s && floor / s > 0.7, outline: s && rim / s > 0.7, island: s && isl / s > 0.7, outer: s && outer / s > 0.7 };
+    return { floor: s && floor / s > 0.7, outline: s && rim / s > 0.7, island: s && isl / s > 0.7, outer: s && outer / s > 0.7, open: s && open / s > 0.7 };
   }
   const area = c => Math.abs(cArea(cP(chainTravel(c))));
   // a circle with material just inside it up to its height and no wall rising outside it is a boss (its top edge, or
@@ -309,6 +310,16 @@
     },
     // the part's outside (a round part's is a circle): the biggest loop with open air all round it; a step or a flange makes a loop part way up that is
     // smaller than the bottom edge, and of loops the same size (straight walls) the lowest one takes the whole wall
+    // through openings that are not plain holes (a keyed bore, a slot, a window): their top edge, once each
+    cutouts: () => {
+      const out = [];
+      for (const c of allChains().filter(c => sides(c).open).sort((a, b) => b.z - a.z)) {
+        const o = circleOf(c); if (o && !bossOf(c, o)) continue;              // a round one is a hole: Drill or Circle Mill
+        const m = centroid(c), A = area(c);
+        if (!out.some(e => { const n = centroid(e); return Math.hypot(n[0] - m[0], n[1] - m[1]) < 0.5 && Math.abs(area(e) - A) < 0.05 * A; })) out.push(c);
+      }
+      return out;
+    },
     outline: () => { const l = allChains().filter(c => sides(c).outer); l.sort((a, b) => (area(b) - area(a)) || (a.z - b.z)); const top = l[0]; return top ? [l.filter(c => area(c) > area(top) * 0.999).sort((a, b) => a.z - b.z)[0]] : []; },
   };
   function setChains(op, list, label) {
@@ -331,6 +342,7 @@
       if (np) btns.push(`<button class="chip" data-cfsel="pockets">All pockets <small>×${np}</small></button>`);
       if ((op.chains || []).some(c => c.closed)) btns.push('<button class="chip" data-cfsel="samez">Floors at the same depth</button>');
       if (S.outline().length) btns.push('<button class="chip" data-cfsel="outline">Part outline</button>');
+      const nc = S.cutouts().length; if (nc) btns.push(`<button class="chip" data-cfsel="cutouts">All cut-outs <small>×${nc}</small></button>`);
     }
     if ((op.chains || []).length) btns.push('<button class="chip" data-cfsel="clear">Clear</button>');
     return btns.length ? `<div class="field cf-sel"><span>Select by feature</span><div class="chips">${btns.join('')}</div></div>` : '';
@@ -341,6 +353,7 @@
     if (what.startsWith('hole:')) { const d = +what.slice(5); setChains(op, S.holes().filter(h => Math.abs(h.o.d - d) < 0.05).map(h => h.c), `all Ø${fmtLs(d)} holes`); return; }
     if (what === 'pockets') { setChains(op, S.pockets(), 'all pockets'); return; }
     if (what === 'outline') { setChains(op, S.outline(), 'part outline'); return; }
+    if (what === 'cutouts') { setChains(op, S.cutouts(), 'all cut-outs'); return; }
     if (what === 'samez') {
       const zs = (op.chains || []).filter(c => c.closed).map(c => c.z), pk2 = S.pockets().filter(c => zs.some(z => sameZ(z, c.z)));
       const have = (op.chains || []).slice(), add = pk2.filter(c => !have.some(h => (h.eks || []).some(k => (c.eks || []).includes(k))));
