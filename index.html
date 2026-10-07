@@ -25700,12 +25700,14 @@ function camOptimizeAll() {
   const t0 = performance.now();
   // the stock, sliced at every level the program cuts to
   const segs = [];
-  raws.forEach((P, k) => { for (let i = 1; i < P.m.length; i++) segs.push({ a: P.m[i - 1], b: P.m[i], r: P.m[i].r, tool: P.tool, ax: opAxis(ops[k]) }); });
+  raws.forEach((P, k) => { if (mcFin(ops[k])) return; for (let i = 1; i < P.m.length; i++) segs.push({ a: P.m[i - 1], b: P.m[i], r: P.m[i].r, tool: P.tool, ax: opAxis(ops[k]) }); });
   const model = new StockModel(st, stockLevels(st, segs));
   const out = new Map(), ret = st.z1 + cam().retract, inStock = p => p.x >= st.x0 && p.x <= st.x1 && p.y >= st.y0 && p.y <= st.y1;
   ops.forEach((op, k) => {
     const P = raws[k], tool = P.tool, ax = opAxis(op), m0 = P.m;
-    const fixed = !!ax || isDrillOp(op) || !!op.safeLinks || !flatBottom(tool) && tool.type !== 'ball' && tool.type !== 'chamfer';
+    // a surface finish (3D parallel and the like) follows the part: it is left as programmed and takes only its skin off
+    // the stock, so it is not replayed move by move (a raster of thousands of moves froze the page for 45 s)
+    const fin = mcFin(op), fixed = fin || !!ax || isDrillOp(op) || !!op.safeLinks || !flatBottom(tool) && tool.type !== 'ball' && tool.type !== 'chamfer';
     let m = m0.map(x => ({ ...x }));
     let airLen = 0, feedLen = 0, lowered = 0, n = 0, restLost = 0;
     if (!fixed && m.length) {                                       // an op with nothing to cut (no faces picked yet) has no moves to walk
@@ -25761,7 +25763,7 @@ function camOptimizeAll() {
       model.flush();
       for (let q = 0; q < m.length; q++) if (m[q].g12) { const nq = mp[q] == null ? q : mp[q], g = m[q].g12; outM[nq].g12 = { ...g, end: mp[g.end] == null ? g.end : mp[g.end] }; }
       m = outM; restLost = restDrop;
-    } else {
+    } else if (!fin) {
       for (let i = 1; i < m.length; i++) { const a = m[i - 1], b = m[i]; if (!b.r) model.cut(a, b, tool, false, ax); if (++n % 48 === 0) model.flush(); }
       model.flush();
     }
