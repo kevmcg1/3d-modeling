@@ -9107,9 +9107,9 @@ const Kernel = {
   cam3d(params, tol) {
     if (!this.worker) {
       const c = evaluate(tol, activeLimit());
-      return Promise.resolve(camParallel(c.bodies.filter(b => !(doc.hidden && doc.hidden[b.id])).map(b => meshOfPolys(b.polys).pos), params));
+      return Promise.resolve(camParallel(c.bodies.filter(b => !(doc.hidden && doc.hidden[b.id]) && !isTooling(b)).map(b => meshOfPolys(b.polys).pos), params));
     }
-    return this.post({ kind: 'cam3d', docStr: snap(), tol, limit: activeLimit(), hidden: doc.hidden || {}, params }).then(r => {
+    return this.post({ kind: 'cam3d', docStr: snap(), tol, limit: activeLimit(), hidden: camHiddenMap(), params }).then(r => {
       if (r.retry) return this.cam3d(params, tol);
       if (!r.ok) throw new Error(r.error);
       return r.result;
@@ -9118,9 +9118,9 @@ const Kernel = {
   camMesh(tol) {
     if (!this.worker) {
       const c = evaluate(tol, activeLimit());
-      return Promise.resolve(c.bodies.filter(b => !(doc.hidden && doc.hidden[b.id])).map(b => meshOfPolys(b.polys).pos));
+      return Promise.resolve(c.bodies.filter(b => !(doc.hidden && doc.hidden[b.id]) && !isTooling(b)).map(b => meshOfPolys(b.polys).pos));
     }
-    return this.post({ kind: 'camMesh', docStr: snap(), tol, limit: activeLimit(), hidden: doc.hidden || {} }).then(r => {
+    return this.post({ kind: 'camMesh', docStr: snap(), tol, limit: activeLimit(), hidden: camHiddenMap() }).then(r => {
       if (r.retry) return this.camMesh(tol);
       if (!r.ok) throw new Error(r.error);
       return [r.result];
@@ -11200,6 +11200,10 @@ function solidClick(x, y, ev) {
 // ═══════════════════════════════════════════════════════════════════
 const selEdges = [];                      // idle-mode edge selection [{body, ch, ref}]
 const visibleBodies = () => MODEL.bodies.filter(b => !b.hole && !(doc.hidden && doc.hidden[b.id]));
+// Workholding from the shop library (vises, parallels, clamps, plates) is equipment, not the part: Manufacture leaves it out of the part, the stock box and the toolpaths
+const isTooling = b => { const f = byId(Math.floor(b.id)); return !!f && f.type === 'shop'; };
+const camBodies = () => visibleBodies().filter(b => !isTooling(b));
+const camHiddenMap = () => { const h = { ...(doc.hidden || {}) }; for (const b of MODEL.bodies) if (isTooling(b)) h[b.id] = true; return h; };
 const viewDepth = P => -dot3(sub3(P, A3(camera.position)), backDir());
 // Depth of the first surface under a pixel (for hiding picks behind solids).
 function surfaceDepthAt(x, y) {
@@ -13118,7 +13122,7 @@ const toolName = t => t.wire ? `Wire Ø${fmtLs(t.d)}` : `T${t.n} · ${isIn() ? `
 
 // ── Part, stock and work origin (CAM absolute coordinates) ─────────
 function camPart() {
-  const bs = visibleBodies();
+  const bs = camBodies();
   if (!bs.length) return null;
   // the exact CAM mesh once it is here: the display mesh's chords fall short of a
   // round part's true top and sides by up to the zoom's tolerance
@@ -13175,7 +13179,7 @@ const orient = (path, ccw) => (cArea(path) > 0) === ccw ? path : path.slice().re
 let camGeomCache = { model: null };
 function camGeom() {
   if (camGeomCache.model === MODEL) return camGeomCache;
-  const bodies = visibleBodies(), pos = bodies.map(b => bodyMesh(b).pos);
+  const bodies = camBodies(), pos = bodies.map(b => bodyMesh(b).pos);
   camGeomCache = { model: MODEL, G: binTriangles(camTriangles(pos), 4), pos, faces: null, holes: null };
   // the exact mesh (fixed 0.02 mm chords) for heights and outlines, once it has arrived
   camGeomCache.fineG = camFine.G && camFine.key === camModelKey() ? camFine.G : null;
@@ -13231,7 +13235,7 @@ function horizFaces() {
   const g = camGeom();
   if (g.faces) return g.faces;
   const out = [];
-  for (const b of visibleBodies()) {
+  for (const b of camBodies()) {
     const mesh = bodyMesh(b);
     for (const fid of new Set(mesh.PL.map(p => p.f))) {
       const s = Surf.list[fid];
@@ -13307,7 +13311,7 @@ function camHoles() {
   const g = camGeom();
   if (g.holes) return g.holes;
   const map = new Map();
-  for (const b of visibleBodies()) {
+  for (const b of camBodies()) {
     const mesh = bodyMesh(b);
     for (const fid of new Set(mesh.PL.map(p => p.f))) {
       const s = Surf.list[fid];
@@ -20477,7 +20481,7 @@ function autoDetect() {
   const holes = new Map(), threads = new Map(), needs = [];
   let minCornerR = Infinity, minConcave3D = Infinity, freeform = 0;
   const floors = [], cutoutFaces = [], dovetails = [];
-  for (const b of visibleBodies()) {
+  for (const b of camBodies()) {
     const mesh = bodyMesh(b), fids = [...new Set(mesh.PL.map(p => p.f))], skipFacet = new Set();
     const dts = detectDovetails(mesh, part), dtF = new Set(dts.flatMap(g => g.fids));
     dovetails.push(...dts);
@@ -22815,7 +22819,7 @@ function roundAxis() {
   const part = camPart();
   if (!part) return null;
   let best = null;
-  for (const b of visibleBodies()) {
+  for (const b of camBodies()) {
     const mesh = bodyMesh(b);
     for (const fid of new Set(mesh.triF)) {
       const s = Surf.list[fid];
@@ -29436,7 +29440,7 @@ function jawMats() {
 // pt / dir map machine points / directions (into the jaw frame); none: as modeled.
 function jawPartMesh(pt, dir) {
   const P = [], N = [], E = [], m2 = (a, i) => [a[i], -a[i + 2], a[i + 1]];            // world (Y up) → machine
-  for (const b of visibleBodies()) {
+  for (const b of camBodies()) {
     const m = bodyMesh(b);
     for (let i = 0; i < m.pos.length; i += 3) { const q = m2(m.pos, i), n = m2(m.nor, i), a = pt ? pt(q) : q, d = dir ? dir(n) : n; P.push(...toW(a[0], a[1], a[2])); N.push(...toW(d[0], d[1], d[2])); }
     for (let i = 0; i < m.edgePos.length; i += 3) { const q = m2(m.edgePos, i), a = pt ? pt(q) : q; E.push(...toW(a[0], a[1], a[2])); }
@@ -36404,6 +36408,8 @@ function gsPick(i) {
 <script src="cam-mc.js"></script>
 <script src="cam-autotool.js"></script>
 <script src="cam-flow.js"></script>
+<script src="cam-origin.js"></script>
+<script src="cam-vise.js"></script>
 <script src="heatmap.js"></script>
 <script src="slicer.js"></script>
 <script src="costing.js"></script>
