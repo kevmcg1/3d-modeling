@@ -100,8 +100,112 @@
     }),
   };
 
+
+  // ── Heidenhain TNC conversational (Klartext) ──
+  // Blocks are L (line), CC + C (circle by center and end point) and CYCL DEF; the tool length comes from the tool table, so a
+  // TOOL CALL is the whole tool change. Drilling, reaming, boring and rigid tapping use the 200 series cycles, called with M99
+  // at each hole; the other cycles post as plain moves.
+  const HH_CYCLES = ['drill', 'spot', 'peck', 'chip', 'ream', 'bore', 'bored', 'tap'];
+  function buildHeidenhain() {
+    const C = cam(), pf = C.post, st0 = camStock(), part = camPart(), inch = isIn(), dp = inch ? 4 : 3, k = inch ? 1 / 25.4 : 1;
+    const N = v => { v *= k; const t = (Math.abs(v) < 0.5 * Math.pow(10, -dp) ? 0 : v).toFixed(dp).replace(/0+$/, '').replace(/\.$/, ''); return (+t >= 0 ? '+' : '') + (t === '' || t === '-' ? '0' : t); };
+    const Fd = f => (inch ? (f * k).toFixed(1).replace(/\.0$/, '') : String(Math.round(f)));
+    const L = [], MAP = []; let SRC = null;
+    const out = (line) => { L.push(line); MAP.push(SRC); };
+    const unit = inch ? 'INCH' : 'MM', name = String(pf.program);
+    const o0 = camOrigin();
+    out(`BEGIN PGM ${name} ${unit}`);
+    out(`; DATUM - HEIDENHAIN, GENERATED ${new Date().toISOString().slice(0, 10)}`);
+    out(`; WCS G54: ${wcsName(C)}`);
+    if (st0) {
+      out(`BLK FORM 0.1 Z X${N(st0.x0 - o0[0])} Y${N(st0.y0 - o0[1])} Z${N(st0.z0 - o0[2])}`);
+      out(`BLK FORM 0.2 X${N(st0.x1 - o0[0])} Y${N(st0.y1 - o0[1])} Z${N(st0.z1 - o0[2])}`);
+    }
+    let wcsNow = 54, lastTool = null, totalMin = 0;
+    const ops = C.ops.filter(op => !op.sup);
+    for (const op of ops) {
+      const P = toolpath(op), o = opOrigin(op);
+      if (!P || P.pending || P.m.length < 2) { out(`; ${op.name}: skipped - ${P && P.pending ? 'still computing' : 'no toolpath'}`); continue; }
+      if (opAxis(op)) { out(`; ${op.name}: skipped - needs the part turned or tilted; Heidenhain output is 3-axis`); continue; }
+      totalMin += pathStats(P).min;
+      const t = P.tool, safe = N(camStock().z1 + C.safe - o[2]);
+      SRC = { op: op.id, mi: 0 };
+      out(`; ${op.name} - ${toolName(t)}`);
+      const wn = 54 + Math.max(0, Math.min(5, (op.wcs | 0) || 0));
+      if (wn !== wcsNow || (lastTool === null && wn !== 54)) { out('CYCL DEF 7.0 DATUM SHIFT'); out(`CYCL DEF 7.1 #${wn - 53}`); wcsNow = wn; }
+      if (lastTool !== t.n) {
+        if (lastTool !== null) { if (pf.optStop) out('M1'); }
+        out(`TOOL CALL ${t.n} Z S${Math.round(t.rpm)}`);
+        out(`L Z${safe} R0 FMAX M3${pf.coolant ? ' M8' : ''}`);
+        lastTool = t.n;
+      }
+      const rel = m => [m.x - o[0], m.y - o[1], m.z - o[2]];
+      const cur = { x: null, y: null, z: null, f: null };
+      const line = (rapid, x, y, z, f) => {
+        const w = [], nx = x == null ? null : N(x), ny = y == null ? null : N(y), nz = z == null ? null : N(z);
+        if (nx !== null && nx !== cur.x) w.push('X' + nx); if (ny !== null && ny !== cur.y) w.push('Y' + ny); if (nz !== null && nz !== cur.z) w.push('Z' + nz);
+        if (!w.length) return;
+        out(`L ${w.join(' ')} R0 ${rapid ? 'FMAX' : 'F' + Fd(f)}`);
+        if (nx !== null) cur.x = nx; if (ny !== null) cur.y = ny; if (nz !== null) cur.z = nz;
+      };
+      const m0 = rel(P.m[0]); line(true, m0[0], m0[1], null); line(true, null, null, m0[2]);
+      const cyc = isDrillOp(op) && P.holes ? (P.cycle || drillSpec(op, t)) : null;
+      if (cyc && HH_CYCLES.includes(cyc.mode)) {
+        const hs = P.holes, R = Math.max(...hs.map(h => h.r)) - o[2], rfp = R - cyc.rpl, clr = cyc.rpl, sd = camStock().z1 + C.safe - o[2];
+        const dwell = cyc.p > 0 ? +cyc.p.toFixed(2) : 0, bottom0 = hs[0].z - o[2];
+        let curDepth = null;
+        for (const [i, h] of hs.entries()) {
+          const bottom = h.z - o[2];
+          if (curDepth === null || Math.abs(bottom - curDepth) > 1e-6) {
+            curDepth = bottom; SRC = { op: op.id, mi: h.mi };
+            const dep = bottom - rfp, base = [`Q200=${N(clr)} ;SET-UP CLEARANCE`, `Q201=${N(dep)} ;DEPTH`];
+            const tail = [`Q203=${N(rfp)} ;SURFACE COORDINATE`, `Q204=${N(sd - rfp)} ;2ND SET-UP CLEARANCE`];
+            const cyl = (n, title, params) => { out(`CYCL DEF ${n} ${title} ~`); params.forEach((q, j) => out(`    ${q}${j < params.length - 1 ? ' ~' : ''}`)); };
+            if (cyc.mode === 'drill' || cyc.mode === 'spot') cyl(200, 'DRILLING', [...base, `Q206=${Fd(t.plunge)} ;FEED RATE FOR PLUNGING`, `Q202=${N(Math.abs(dep))} ;PLUNGING DEPTH`, 'Q210=0 ;DWELL TIME AT TOP', ...tail, `Q211=${dwell} ;DWELL TIME AT DEPTH`, 'Q395=0 ;DEPTH REFERENCE']);
+            else if (cyc.mode === 'peck' || cyc.mode === 'chip') cyl(205, 'UNIVERSAL PECKING', [...base, `Q206=${Fd(t.plunge)} ;FEED RATE FOR PLUNGING`, `Q202=${N(cyc.i > 0 ? cyc.i : cyc.q)} ;PLUNGING DEPTH`, ...tail, `Q212=${N(cyc.i > 0 ? cyc.j : 0)} ;DECREMENT`, `Q205=${N(cyc.k > 0 ? cyc.k : 0)} ;MIN. PLUNGING DEPTH`, 'Q258=0.5 ;UPPER ADV STOP DIST', 'Q259=0.5 ;LOWER ADV STOP DIST', `Q257=${cyc.mode === 'chip' ? N(cyc.i > 0 ? cyc.i : cyc.q) : 0} ;DEPTH FOR CHIP BREAKING`, `Q256=${cyc.mode === 'chip' ? N(cyc.s22) : 0.2} ;DIST FOR CHIP BRKNG`, `Q211=${dwell} ;DWELL TIME AT DEPTH`, 'Q379=0 ;STARTING POINT', 'Q253=750 ;F PRE-POSITIONING', `Q208=${Fd(t.plunge * 4)} ;RETRACTION FEED RATE`, 'Q395=0 ;DEPTH REFERENCE']);
+            else if (cyc.mode === 'ream') cyl(201, 'REAMING', [...base, `Q206=${Fd(t.plunge)} ;FEED RATE FOR PLUNGING`, `Q211=${dwell} ;DWELL TIME AT DEPTH`, `Q208=${Fd(t.plunge)} ;RETRACTION FEED RATE`, ...tail]);
+            else if (cyc.mode === 'tap') cyl(207, 'RIGID TAPPING', [...base, `Q239=${N(P.tap.pitch)} ;THREAD PITCH`, ...tail]);
+            else cyl(202, 'BORING', [...base, `Q206=${Fd(t.plunge)} ;FEED RATE FOR PLUNGING`, `Q211=${dwell} ;DWELL TIME AT DEPTH`, `Q208=${Fd(t.plunge)} ;RETRACTION FEED RATE`, ...tail, 'Q214=0 ;DISENGAGING DIRECTION', 'Q336=0 ;ANGLE OF SPINDLE']);
+          }
+          SRC = { op: op.id, mi: (hs[i + 1] ? hs[i + 1].mi : P.m.length) - 1 };
+          out(`L X${N(h.x - o[0])} Y${N(h.y - o[1])} R0 FMAX M99`);
+        }
+        SRC = { op: op.id, mi: P.m.length - 1 };
+        out(`L Z${safe} R0 FMAX`);
+        continue;
+      }
+      if (cyc) out(`; ${DRILL_CYCLES[cyc.mode].g} has no Heidenhain cycle here: posted as moves`);
+      let i = 1;
+      while (i < P.m.length) {
+        const m = P.m[i]; SRC = { op: op.id, mi: i };
+        if (m.hold) { if (m.dw) { out('CYCL DEF 9.0 DWELL TIME'); out(`CYCL DEF 9.1 DWELL ${+m.dw.toFixed(2)}`); } i++; continue; }
+        if (m.r) { const p = rel(m); line(true, p[0], p[1], p[2]); i++; continue; }
+        let j = i;
+        while (j + 1 < P.m.length && !P.m[j + 1].r && !P.m[j + 1].hold && !P.m[j + 1].tool && !P.m[j + 1].code && Math.abs(P.m[j + 1].z - m.z) < 1e-9 && P.m[j + 1].f === m.f && Math.abs(P.m[i - 1].z - m.z) < 1e-9) j++;
+        if (pf.arcs && j - i >= 3) {
+          const pts = [P.m[i - 1], ...P.m.slice(i, j + 1)].map(q => P2(q.x - o[0], q.y - o[1]));
+          for (const sg of fitArcs(pts, 0.003)) {
+            SRC = { op: op.id, mi: i - 1 + sg.k };
+            if (!sg.arc) { line(false, sg.p.x, sg.p.y, m.z - o[2], m.f); continue; }
+            out(`CC X${N(sg.c.x)} Y${N(sg.c.y)}`);
+            out(`C X${N(sg.p.x)} Y${N(sg.p.y)} DR${sg.ccw ? '+' : '-'} R0 F${Fd(m.f)}`);
+            cur.x = N(sg.p.x); cur.y = N(sg.p.y);
+          }
+          i = j + 1;
+        } else { const p = rel(m); line(false, p[0], p[1], p[2], m.f); i++; }
+      }
+    }
+    SRC = null;
+    out(`L Z${N(camStock().z1 + C.safe - o0[2])} R0 FMAX M5${pf.coolant ? ' M9' : ''}`);
+    out('M30');
+    out(`END PGM ${name} ${unit}`);
+    const text = L.map((l, i) => `${i} ${l}`).join('\n');
+    return { text, ext: 'h', ctrl: 'Heidenhain TNC', lines: L.length, min: totalMin + (ops.length ? 0.15 * new Set(ops.map(x => x.tool)).size : 0), part, map: MAP };
+  }
+  POSTS.heidenhain = iso({ id: 'heidenhain', name: 'Heidenhain TNC', ext: 'h', build: buildHeidenhain, canned: () => false });
+
   window.POSTS = POSTS;
-  window.POST_ORDER = ['haas', 'fanuc', 'mach3', 'grbl', 'siemens'];
+  window.POST_ORDER = ['haas', 'fanuc', 'mach3', 'grbl', 'siemens', 'heidenhain'];
   window.postProfile = pf => POSTS[pf && pf.ctrl] || POSTS.haas;
   window.postFileName = () => { const C = cam(), P = postProfile(C.post), n = P.id === 'siemens' ? 'DATUM' + C.post.program : 'datum-O' + C.post.program; return `${n}.${P.ext}`; };
 
