@@ -5,6 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Datum Modeler</title>
 <script>try { document.documentElement.setAttribute("data-theme", localStorage.getItem("datum.theme") === "dark" ? "dark" : "light"); } catch (e) { document.documentElement.setAttribute("data-theme", "light"); }   // light unless the user chose dark</script>
+<script>
+// Early capture for the exported log: errors, rejections and console warnings/errors from page load, before the trace module exists.
+(function () {
+  var q = window.__early = [], hook = null, cw = console.warn, ce = console.error;
+  function add(kind, what, level) { if (kind === 'console' && typeof Trace !== 'undefined' && Trace.busy) return; var e = { ts: Date.now(), kind: kind, what: String(what).slice(0, 300), level: level }; if (hook) hook(e); else if (q.length < 200) q.push(e); }
+  function fmt(a) { return Array.prototype.map.call(a, function (x) { try { return x instanceof Error ? x.message : typeof x === 'object' ? JSON.stringify(x) : String(x); } catch (e) { return '[object]'; } }).join(' '); }
+  console.warn = function () { add('console', 'warn: ' + fmt(arguments), 'warn'); return cw.apply(console, arguments); };
+  console.error = function () { add('console', 'error: ' + fmt(arguments), 'error'); return ce.apply(console, arguments); };
+  window.addEventListener('error', function (ev) { add('error', ev.message + ' (' + String(ev.filename || '').split('/').pop() + ':' + ev.lineno + ':' + ev.colno + ')' + (ev.error && ev.error.stack ? '\n' + String(ev.error.stack).split('\n').slice(0, 6).join('\n') : ''), 'error'); });
+  window.addEventListener('unhandledrejection', function (ev) { var r = ev.reason; add('error', 'Unhandled promise rejection: ' + (r && r.message || r) + (r && r.stack ? '\n' + String(r.stack).split('\n').slice(0, 6).join('\n') : ''), 'error'); });
+  window.__earlyHook = function (h) { hook = h; var l = q.splice(0); l.forEach(h); };
+})();
+</script>
 <style>
 /* Boot gate: the app is one big page that builds its toolbars and panels as it parses, so show a calm splash until it is all in place and reveal it in one frame (no unstyled flash, no tabs popping in, no layout jumps). */
 html.booting { background: #e9ecf0; }
@@ -7970,8 +7983,8 @@ SHOP.cClamp = {
 
 // ── Vises and dovetail fixtures ──
 SHOP.vise = {
-  name: 'Machine vise', grp: 'Vises', parts: [['Base', SHOP_COL.blue], ['Fixed jaw', SHOP_COL.blue], ['Fixed jaw plate', SHOP_COL.ground], ['Moving jaw', SHOP_COL.blue], ['Moving jaw plate', SHOP_COL.ground], ['Lead screw', SHOP_COL.black], ['Handle', SHOP_COL.black]],
-  p: [['W', 'Jaw width', 6 * INCH, 'len'], ['open', 'Jaw opening now', 70, 'len'], ['maxOpen', 'Maximum opening', 6 * INCH, 'len'], ['H', 'Jaw height', 45, 'len'], ['sd', 'Screw Ø', 26, 'len'], ['hl', 'Handle length', 160, 'len']],
+  name: 'Machine vise', grp: 'Vises', parts: [['Base', SHOP_COL.blue], ['Fixed jaw', SHOP_COL.blue], ['Fixed jaw plate', SHOP_COL.ground], ['Moving jaw', SHOP_COL.blue], ['Moving jaw plate', SHOP_COL.ground], ['Lead screw', SHOP_COL.black], ['Handle', SHOP_COL.black], ['Parallels', SHOP_COL.ground]],
+  p: [['W', 'Jaw width', 6 * INCH, 'len'], ['open', 'Jaw opening now', 70, 'len'], ['maxOpen', 'Maximum opening', 6 * INCH, 'len'], ['H', 'Jaw height', 45, 'len'], ['sd', 'Screw Ø', 26, 'len'], ['hl', 'Handle length', 160, 'len'], ['par', 'Parallels on the bed', true, 'chk'], ['parH', 'Parallel height', 19.05, 'len'], ['parT', 'Parallel thickness', 6.35, 'len']],
   build(P, K) {
     const W = P.W / 2, bh = 30, jt = 40, pl = 8, x0 = -pl - jt - 20, x1 = P.maxOpen + pl + jt + 100, g = Math.min(P.open, P.maxOpen), sz = bh + 14, mj = g + pl;
     let base = K.add(K.box(x0, x1, -W, W, 0, bh), K.box(x0, x0 + 90, -W - 26, W + 26, 0, 16), K.box(x1 - 130, x1 - 40, -W - 26, W + 26, 0, 16), K.box(x1 - 60, x1 - 10, -34, 34, bh, sz + P.sd / 2 + 10));
@@ -7980,9 +7993,18 @@ SHOP.vise = {
     return [base, K.box(-pl - jt, -pl, -W, W, bh, bh + P.H), K.box(-pl, 0, -W + 6, W - 6, bh + 6, bh + P.H - 4),
       K.box(mj, mj + jt + 10, -W, W, bh, bh + P.H), K.box(g, g + pl, -W + 6, W - 6, bh + 6, bh + P.H - 4),
       K.turnX(0, sz, mj + jt + 10, [[0, 0], [P.sd / 2, 0], [P.sd / 2, hx - mj - jt - 10], [0, hx - mj - jt - 10]]),
-      K.add(K.cylY(hx, sz, 7, -P.hl / 2, P.hl / 2), K.turnY(hx, sz, P.hl / 2, [[0, 0], [11, 4], [11, 20], [0, 24]]), K.turnY(hx, sz, -P.hl / 2, [[0, 0], [11, -4], [11, -20], [0, -24]]))];
+      K.add(K.cylY(hx, sz, 7, -P.hl / 2, P.hl / 2), K.turnY(hx, sz, P.hl / 2, [[0, 0], [11, 4], [11, 20], [0, 24]]), K.turnY(hx, sz, -P.hl / 2, [[0, 0], [11, -4], [11, -20], [0, -24]])),
+      // two parallels standing on the bed between the jaw plates, along the jaw length, so a part rests on them
+      P.par && g > 2 * P.parT + 4 ? K.add(...[[pl + 2, pl + 2 + P.parT], [g - 2 - P.parT, g - 2]].map(([a, b]) => K.box(a, b, -W + 10, W - 10, bh, bh + P.parH))) : null];
   },
 };
+// Kurt vises: the same model at catalog sizes (jaw width, largest opening, jaw height), opened to about two thirds
+const KURT = [['Kurt DX4 (4 in)', 4, 5, 1.25], ['Kurt DX6 (6 in)', 6, 8, 1.75], ['Kurt D688 (6 in)', 6, 8.75, 1.75], ['Kurt DX8 (8 in)', 8, 10, 2]];
+KURT.forEach(([name, w, mo, h]) => {
+  SHOP['kurt' + name.match(/D\w?\d+/)[0]] = {
+    ...SHOP.vise, name, p: SHOP.vise.p.map(q => q[0] === 'W' ? [q[0], q[1], w * INCH, q[3]] : q[0] === 'maxOpen' ? [q[0], q[1], mo * INCH, q[3]] : q[0] === 'open' ? [q[0], q[1], Math.round(mo * INCH * 0.6), q[3]] : q[0] === 'H' ? [q[0], q[1], h * INCH, q[3]] : q),
+  };
+});
 // a dovetail groove (female) in a jaw face at x = face, running along y: width wo at the face, flaring to wb at depth dg (dir +1: the jaw lies at x < face)
 const dovetailPts = (face, dir, zc, wo, dg, ang) => { const wb = wo + 2 * dg * Math.tan(ang * Math.PI / 180); return [[face + dir * 0.01, zc - wo / 2], [face - dir * dg, zc - wb / 2], [face - dir * dg, zc + wb / 2], [face + dir * 0.01, zc + wo / 2]]; };
 SHOP.dovetailVise = {
@@ -9098,9 +9120,9 @@ const Kernel = {
   cam3d(params, tol) {
     if (!this.worker) {
       const c = evaluate(tol, activeLimit());
-      return Promise.resolve(camParallel(c.bodies.filter(b => !(doc.hidden && doc.hidden[b.id])).map(b => meshOfPolys(b.polys).pos), params));
+      return Promise.resolve(camParallel(c.bodies.filter(b => !(doc.hidden && doc.hidden[b.id]) && !isTooling(b)).map(b => meshOfPolys(b.polys).pos), params));
     }
-    return this.post({ kind: 'cam3d', docStr: snap(), tol, limit: activeLimit(), hidden: doc.hidden || {}, params }).then(r => {
+    return this.post({ kind: 'cam3d', docStr: snap(), tol, limit: activeLimit(), hidden: camHiddenMap(), params }).then(r => {
       if (r.retry) return this.cam3d(params, tol);
       if (!r.ok) throw new Error(r.error);
       return r.result;
@@ -9109,9 +9131,9 @@ const Kernel = {
   camMesh(tol) {
     if (!this.worker) {
       const c = evaluate(tol, activeLimit());
-      return Promise.resolve(c.bodies.filter(b => !(doc.hidden && doc.hidden[b.id])).map(b => meshOfPolys(b.polys).pos));
+      return Promise.resolve(c.bodies.filter(b => !(doc.hidden && doc.hidden[b.id]) && !isTooling(b)).map(b => meshOfPolys(b.polys).pos));
     }
-    return this.post({ kind: 'camMesh', docStr: snap(), tol, limit: activeLimit(), hidden: doc.hidden || {} }).then(r => {
+    return this.post({ kind: 'camMesh', docStr: snap(), tol, limit: activeLimit(), hidden: camHiddenMap() }).then(r => {
       if (r.retry) return this.camMesh(tol);
       if (!r.ok) throw new Error(r.error);
       return [r.result];
@@ -11191,6 +11213,10 @@ function solidClick(x, y, ev) {
 // ═══════════════════════════════════════════════════════════════════
 const selEdges = [];                      // idle-mode edge selection [{body, ch, ref}]
 const visibleBodies = () => MODEL.bodies.filter(b => !b.hole && !(doc.hidden && doc.hidden[b.id]));
+// Workholding from the shop library (vises, parallels, clamps, plates) is equipment, not the part: Manufacture leaves it out of the part, the stock box and the toolpaths
+const isTooling = b => { const f = byId(Math.floor(b.id)); return !!f && f.type === 'shop'; };
+const camBodies = () => visibleBodies().filter(b => !isTooling(b));
+const camHiddenMap = () => { const h = { ...(doc.hidden || {}) }; for (const b of MODEL.bodies) if (isTooling(b)) h[b.id] = true; return h; };
 const viewDepth = P => -dot3(sub3(P, A3(camera.position)), backDir());
 // Depth of the first surface under a pixel (for hiding picks behind solids).
 function surfaceDepthAt(x, y) {
@@ -11599,9 +11625,9 @@ const MOUSE_SVG = hot => `<svg viewBox="0 0 16 22"><rect class="body" x="1" y="1
 function renderMouseLegend() {
   const el = document.getElementById('mouseLegend');
   const dr = MOUSE.left === 'orbit' ? 'orbit' : MOUSE.left;
-  const left = S.sk ? 'Draw · select' : UIX.ws === 'cam' ? `Pick · drag to ${dr}` : CMD ? 'Pick' : `Select · drag to ${dr}`;
-  const right = S.sk ? `${MOUSE_ACT[MOUSE.right]} · click: end line` : `${MOUSE_ACT[MOUSE.right]} · click: menu`;
-  el.innerHTML = [['l', left], ['m', `${MOUSE_ACT[MOUSE.middle]} · wheel ${MOUSE.invertWheel ? 'zooms (reversed)' : 'zooms'}`], ['r', right]].map(([k, t]) => `<span class="ml">${MOUSE_SVG(k)}${t}</span>`).join('');
+  const left = S.sk ? 'Draw · select' : UIX.ws === 'cam' ? `Pick${MOUSE.left === 'none' ? '' : ' · drag to ' + dr}` : CMD ? 'Pick' : `Select${MOUSE.left === 'none' ? '' : ' · drag to ' + dr}`;
+  const right = S.sk ? `${MOUSE_ACT[MOUSE.right]} · click: end line` : `${MOUSE_ACT[MOUSE.right]} · click: ${MOUSE.rightClick === 'none' ? 'nothing' : 'menu'}`;
+  el.innerHTML = [['l', left], ['m', `${MOUSE_ACT[MOUSE.middle]} · wheel ${MOUSE.wheel === 'none' ? 'off' : MOUSE.wheel === 'zoom' ? (MOUSE.invertWheel ? 'zooms (reversed)' : 'zooms') : MOUSE.wheel + 's'}`], ['r', right]].map(([k, t]) => `<span class="ml">${MOUSE_SVG(k)}${t}</span>`).join('');
 }
 function action(a) {
   if (S.sk && [...SKETCH_TOOLS.flat(), ...SKETCH_XF].some(t => t[0] === a)) { setTool(a); return; }
@@ -12413,8 +12439,15 @@ function zoomAt(mx, my, f) {
   requestDraw(); scheduleLevelCheck();
 }
 // ── Mouse and navigation settings: what each button does, how the orbit feels ──
-const MOUSE = Object.assign({ left: 'orbit', middle: 'pan', right: 'orbit', pivot: 'cursor', sens: 1, invertOrbit: false, invertWheel: false }, (() => { try { return JSON.parse(localStorage.getItem('datum.mouse') || '{}'); } catch (e) { return {}; } })());
+const MOUSE_DEF = { left: 'orbit', middle: 'pan', right: 'orbit', midShift: 'orbit', midCtrl: 'same', rightShift: 'pan', rightCtrl: 'same', rightClick: 'menu', midClick: 'none', wheel: 'zoom', wheelAt: 'cursor', wheelSpeed: 1, pivot: 'cursor', sens: 1, invertOrbit: false, invertWheel: false };
+const MOUSE = Object.assign({}, MOUSE_DEF, (() => { try { return JSON.parse(localStorage.getItem('datum.mouse') || '{}'); } catch (e) { return {}; } })());
 const MOUSE_ACT = { orbit: 'Orbit', pan: 'Pan', zoom: 'Zoom', none: 'Nothing' };
+// What a middle or right drag does, with Shift or Ctrl held ('same' = the plain assignment).
+function mouseAct(btn, e) {
+  const k = btn === 1 ? 'mid' : 'right', plain = btn === 1 ? MOUSE.middle : MOUSE.right;
+  const m = e.shiftKey ? MOUSE[k + 'Shift'] : e.ctrlKey || e.metaKey ? MOUSE[k + 'Ctrl'] : 'same';
+  return !m || m === 'same' ? plain : m;
+}
 function mouseSave() { try { localStorage.setItem('datum.mouse', JSON.stringify(MOUSE)); } catch (e) { /* storage unavailable */ } renderMouseLegend(); }
 function openMouseSettings() {
   const card = document.getElementById('modalCard'), sel = (k, opts) => `<select data-ms="${k}">${opts.map(([v, l]) => `<option value="${v}" ${MOUSE[k] === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
@@ -12437,7 +12470,7 @@ function openMouseSettings() {
     const t = e.target.closest('[data-ms]'); if (!t) return;
     MOUSE[t.dataset.ms] = t.type === 'checkbox' ? t.checked : t.type === 'range' ? +t.value : t.value; mouseSave();
   };
-  card.querySelector('[data-ms-reset]').addEventListener('click', () => { Object.assign(MOUSE, { left: 'orbit', middle: 'pan', right: 'orbit', pivot: 'cursor', sens: 1, invertOrbit: false, invertWheel: false }); mouseSave(); openMouseSettings(); });
+  card.querySelector('[data-ms-reset]').addEventListener('click', () => { Object.assign(MOUSE, MOUSE_DEF); mouseSave(); openMouseSettings(); });
 }
 ov.addEventListener('contextmenu', e => e.preventDefault());
 ov.addEventListener('pointerdown', e => {
@@ -12450,8 +12483,7 @@ ov.addEventListener('pointerdown', e => {
   ptr.pivot = MOUSE.pivot === 'center' ? null : orbitPivotAt(x, y);
   if (e.button === 1) e.preventDefault();
   if (e.button === 1 || e.button === 2) {
-    const act = e.button === 1 ? MOUSE.middle : MOUSE.right;
-    ptr.nav = act === 'none' ? null : e.shiftKey && (act === 'orbit' || act === 'pan') ? (act === 'orbit' ? 'pan' : 'orbit') : act;
+    ptr.nav = mouseAct(e.button, e) || 'none';   // 'none' still lets a click through (menu / fit view) without moving the view
     return;
   }
   if (e.button !== 0) return;
@@ -12472,11 +12504,12 @@ ov.addEventListener('pointermove', e => {
     const dx = x - ptr.x, dy = y - ptr.y;
     ptr.x = x; ptr.y = y;
     if (Math.hypot(x - ptr.x0, y - ptr.y0) > 3) ptr.moved = true;
+    if (ptr.nav === 'none') return;
     if (ptr.nav) {
       ov.classList.add('nav');
       const now = performance.now(), dt = Math.max(1, now - ptr.t), a = Math.min(1, dt / 40);
       ptr.vx = ptr.vx * (1 - a) + (dx / dt) * a; ptr.vy = ptr.vy * (1 - a) + (dy / dt) * a; ptr.t = now;
-      if (ptr.nav === 'orbit') orbitAbout(dx, dy, ptr.pivot); else if (ptr.nav === 'zoom') zoomAt(ptr.x0, ptr.y0, Math.exp(dy * 0.008)); else pan(dx, dy);
+      if (ptr.nav === 'orbit') orbitAbout(dx, dy, ptr.pivot); else if (ptr.nav === 'zoom') zoomAt(ptr.x0, ptr.y0, Math.exp(dy * 0.008)); else if (ptr.nav === 'pan') pan(dx, dy);
       return;
     }
     if (arrowDrag) {
@@ -12520,7 +12553,8 @@ ov.addEventListener('pointerup', e => {
     const idle = performance.now() - was.t;
     if (was.nav === 'orbit' && was.moved && idle < 60 && Math.hypot(was.vx, was.vy) > 0.05 && !REDUCED()) { view.spin = { vx: was.vx, vy: was.vy, pivot: was.pivot }; requestDraw(); }
     if (was.nav === 'pan' && was.moved && idle < 60 && Math.hypot(was.vx, was.vy) > 0.05 && !REDUCED()) { view.glide = { vx: was.vx, vy: was.vy }; requestDraw(); }
-    if (!was.moved && was.btn === 2) { if (S.sk) { if (S.tool === 'select' && S.sel.size && !LIVE.on) contextSketch(e); else if (!sketchCancel()) contextSketch(e); } else if (CMD) cancelCmd(); }
+    if (!was.moved && was.btn === 1 && MOUSE.midClick !== 'none' && !S.sk) { if (MOUSE.midClick === 'home') { animateView({ quat: ISO() }); setTimeout(() => fitAll(), 0); } else fitAll(); }
+    if (!was.moved && was.btn === 2 && MOUSE.rightClick !== 'none') { if (S.sk) { if (S.tool === 'select' && S.sel.size && !LIVE.on) contextSketch(e); else if (!sketchCancel()) contextSketch(e); } else if (CMD) cancelCmd(); }
     scheduleLevelCheck();
     return;
   }
@@ -12541,7 +12575,11 @@ ov.addEventListener('pointerleave', () => { if (!ptr.down) { setHover3D(null); S
 ov.addEventListener('wheel', e => {
   e.preventDefault();
   const { x, y } = local(e);
-  const lg = e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0015) * (MOUSE.invertWheel ? -1 : 1);
+  const lg = e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0015) * (MOUSE.invertWheel ? -1 : 1) * (MOUSE.wheelSpeed || 1);
+  if (MOUSE.wheel === 'none') return;
+  if (MOUSE.wheel === 'orbit') { orbitAbout(e.deltaX * 0.25, e.deltaY * 0.25 * (e.deltaMode === 1 ? 16 : 1), MOUSE.pivot === 'center' ? null : orbitPivotAt(x, y)); return; }
+  if (MOUSE.wheel === 'pan') { pan(-e.deltaX, -e.deltaY * (e.deltaMode === 1 ? 16 : 1)); return; }
+  if (MOUSE.wheelAt === 'center') { zoomAt(W / 2, H / 2, Math.exp(lg)); return; }
   if (REDUCED()) { zoomAt(x, y, Math.exp(lg)); return; }
   view.zq = { x, y, log: (view.zq ? view.zq.log : 0) + lg };
   requestDraw();
@@ -13109,7 +13147,7 @@ const toolName = t => t.wire ? `Wire Ø${fmtLs(t.d)}` : `T${t.n} · ${isIn() ? `
 
 // ── Part, stock and work origin (CAM absolute coordinates) ─────────
 function camPart() {
-  const bs = visibleBodies();
+  const bs = camBodies();
   if (!bs.length) return null;
   // the exact CAM mesh once it is here: the display mesh's chords fall short of a
   // round part's true top and sides by up to the zoom's tolerance
@@ -13166,7 +13204,7 @@ const orient = (path, ccw) => (cArea(path) > 0) === ccw ? path : path.slice().re
 let camGeomCache = { model: null };
 function camGeom() {
   if (camGeomCache.model === MODEL) return camGeomCache;
-  const bodies = visibleBodies(), pos = bodies.map(b => bodyMesh(b).pos);
+  const bodies = camBodies(), pos = bodies.map(b => bodyMesh(b).pos);
   camGeomCache = { model: MODEL, G: binTriangles(camTriangles(pos), 4), pos, faces: null, holes: null };
   // the exact mesh (fixed 0.02 mm chords) for heights and outlines, once it has arrived
   camGeomCache.fineG = camFine.G && camFine.key === camModelKey() ? camFine.G : null;
@@ -13222,7 +13260,7 @@ function horizFaces() {
   const g = camGeom();
   if (g.faces) return g.faces;
   const out = [];
-  for (const b of visibleBodies()) {
+  for (const b of camBodies()) {
     const mesh = bodyMesh(b);
     for (const fid of new Set(mesh.PL.map(p => p.f))) {
       const s = Surf.list[fid];
@@ -13298,7 +13336,7 @@ function camHoles() {
   const g = camGeom();
   if (g.holes) return g.holes;
   const map = new Map();
-  for (const b of visibleBodies()) {
+  for (const b of camBodies()) {
     const mesh = bodyMesh(b);
     for (const fid of new Set(mesh.PL.map(p => p.f))) {
       const s = Surf.list[fid];
@@ -19732,7 +19770,7 @@ function bodyExportMenu(id, x, y) {
   ov.addEventListener('pointerup', e => {
     if (!rc || e.button !== 2) return;
     const { x, y } = local(e), r0 = rc; rc = null;
-    if (Math.hypot(x - r0.x, y - r0.y) > 3 || !live()) return;
+    if (Math.hypot(x - r0.x, y - r0.y) > 3 || !live() || MOUSE.rightClick === 'none') return;
     const h = pick3D(x, y, { faces: true });
     if (!h || h.body == null) return;
     if (SELMODE === 'body' && !(sel3D && sel3D.kind === 'body' && sel3D.body === h.body)) { sel3D = { kind: 'body', body: h.body, fid: h.fid, mesh: h.mesh, point: h.point }; selProfiles.length = 0; selEdges.length = 0; rebuildHighlights(); refreshPanel(); requestDraw(); }
@@ -20478,7 +20516,7 @@ function autoDetect() {
   const holes = new Map(), threads = new Map(), needs = [];
   let minCornerR = Infinity, minConcave3D = Infinity, freeform = 0;
   const floors = [], cutoutFaces = [], dovetails = [];
-  for (const b of visibleBodies()) {
+  for (const b of camBodies()) {
     const mesh = bodyMesh(b), fids = [...new Set(mesh.PL.map(p => p.f))], skipFacet = new Set();
     const dts = detectDovetails(mesh, part), dtF = new Set(dts.flatMap(g => g.fids));
     dovetails.push(...dts);
@@ -22665,7 +22703,7 @@ function simToolTo(t) {
 //  the console prints the last 300 steps as a table.
 // ═══════════════════════════════════════════════════════════════════
 const Trace = {
-  on: true, buf: [], t0: performance.now(),
+  on: false, buf: [], t0: performance.now(), t0w: Date.now(), busy: false, cap: 4000,
   ctx() {
     const c = { ws: typeof UIX !== 'undefined' ? UIX.ws : '' };
     if (typeof S !== 'undefined' && S.sk) { c.sketch = S.sk.name; c.tool = S.tool; }
@@ -22674,15 +22712,19 @@ const Trace = {
     return c;
   },
   log(kind, what, data, level) {
-    const e = { t: +((performance.now() - this.t0) / 1000).toFixed(2), kind, what: String(what).slice(0, 120), ...this.ctx() };
-    this.buf.push(e); if (this.buf.length > 300) this.buf.shift();
-    if (!this.on && level !== 'error') return;
+    const e = { t: +((performance.now() - this.t0) / 1000).toFixed(2), ts: Date.now(), kind, what: String(what).slice(0, 200), ...this.ctx() };
+    if (data !== undefined) { try { e.data = data instanceof Error ? data.message : JSON.stringify(data).slice(0, 300); } catch (x) { e.data = '[unserializable]'; } }
+    if (level) e.level = level;
+    this.n = (this.n || 0) + 1;
+    this.buf.push(e); if (this.buf.length > this.cap * 1.25) this.buf.splice(0, this.buf.length - this.cap);   // ring buffer: cheap, never grows
+    if (!this.on || this.busy) return;
+    this.busy = true;
     const col = { click: '#2460c8', key: '#8b4fd0', call: '#1d8656', field: '#b46a00', view: '#0f7c8c', perf: '#c0392f', feature: '#c0392f', error: '#c0392f' }[kind] || '#778291';
     const args = [`%c[Datum ${e.t}s]%c ${kind}%c ${e.what}`, 'color:#778291', `color:${col};font-weight:600`, 'color:inherit'];
     const ctx = this.ctx();
     if (data !== undefined) args.push(data);
     if (Object.keys(ctx).length > 1 || ctx.ws !== 'design') args.push(ctx);
-    (level === 'error' ? console.error : level === 'warn' ? console.warn : console.log)(...args);
+    try { (level === 'error' ? console.error : level === 'warn' ? console.warn : console.log)(...args); } finally { this.busy = false; }
   },
   toggle() {
     this.on = !this.on;
@@ -22691,8 +22733,9 @@ const Trace = {
     if (typeof toast === 'function') toast('Debug log ' + (this.on ? 'on (browser console)' : 'off'));
   },
 };
-try { Trace.on = localStorage.getItem('datum.trace') !== '0'; } catch (e) { /* default on */ }
-window.datumTrace = () => { console.table(Trace.buf); return Trace.buf.length + ' steps'; };
+try { Trace.on = localStorage.getItem('datum.trace') === '1'; } catch (e) { /* default off: the log is kept in memory and exported from the top bar */ }
+if (window.__earlyHook) window.__earlyHook(ev => Trace.buf.push({ t: +((ev.ts - Trace.t0w) / 1000).toFixed(2), ts: ev.ts, kind: ev.kind, what: ev.what, level: ev.level, ws: 'design' }));
+window.datumTrace = () => { console.table(Trace.buf.slice(-300)); return Trace.buf.length + ' steps'; };
 
 (() => {
   const short = s => String(s || '').replace(/\s+/g, ' ').trim().slice(0, 60);
@@ -22715,7 +22758,7 @@ window.datumTrace = () => { console.table(Trace.buf); return Trace.buf.length + 
     const el = ev.target;
     if (!el.matches || !el.matches('input, select, textarea')) return;
     const key = el.id || Object.entries(el.dataset).map(([k, v]) => k + '=' + v).join(' ') || el.name || el.type;
-    Trace.log('field', key, el.type === 'checkbox' ? el.checked : el.value);
+    Trace.log('field', key, el.type === 'checkbox' ? el.checked : el.type === 'password' || /pass|secret|token|key\b/i.test(key) ? '[hidden]' : el.value);
   }, true);
   window.addEventListener('keydown', ev => {
     const ae = document.activeElement, typing = ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA');
@@ -22764,8 +22807,8 @@ window.datumTrace = () => { console.table(Trace.buf); return Trace.buf.length + 
 
   // errors, with the steps that led to them
   const trail = () => Trace.buf.slice(-25).map(e => `${e.t}s ${e.kind}: ${e.what}${e.cmd ? ' [' + e.cmd + ']' : ''}`).join('\n');
-  window.addEventListener('error', ev => { Trace.log('error', `${ev.message} (${(ev.filename || '').split('/').pop()}:${ev.lineno})`, undefined, 'error'); console.error('[Datum] steps before the error:\n' + trail()); });
-  window.addEventListener('unhandledrejection', ev => { Trace.log('error', 'Unhandled promise rejection: ' + (ev.reason && ev.reason.message || ev.reason), ev.reason, 'error'); console.error('[Datum] steps before the error:\n' + trail()); });
+  // errors and rejections are recorded by the early capture script (page load onwards); show the steps that led to them in the console
+  window.addEventListener('error', () => { if (Trace.on) console.error('[Datum] steps before the error:\n' + trail()); }); window.addEventListener('unhandledrejection', () => { if (Trace.on) console.error('[Datum] steps before the error:\n' + trail()); });
 
   // feature errors as they appear in the timeline
   let lastErr = {};
@@ -22816,7 +22859,7 @@ function roundAxis() {
   const part = camPart();
   if (!part) return null;
   let best = null;
-  for (const b of visibleBodies()) {
+  for (const b of camBodies()) {
     const mesh = bodyMesh(b);
     for (const fid of new Set(mesh.triF)) {
       const s = Surf.list[fid];
@@ -29437,7 +29480,7 @@ function jawMats() {
 // pt / dir map machine points / directions (into the jaw frame); none: as modeled.
 function jawPartMesh(pt, dir) {
   const P = [], N = [], E = [], m2 = (a, i) => [a[i], -a[i + 2], a[i + 1]];            // world (Y up) → machine
-  for (const b of visibleBodies()) {
+  for (const b of camBodies()) {
     const m = bodyMesh(b);
     for (let i = 0; i < m.pos.length; i += 3) { const q = m2(m.pos, i), n = m2(m.nor, i), a = pt ? pt(q) : q, d = dir ? dir(n) : n; P.push(...toW(a[0], a[1], a[2])); N.push(...toW(d[0], d[1], d[2])); }
     for (let i = 0; i < m.edgePos.length; i += 3) { const q = m2(m.edgePos, i), a = pt ? pt(q) : q; E.push(...toW(a[0], a[1], a[2])); }
@@ -33297,7 +33340,7 @@ SAMPLES.push({ axes: 'model', name: 'Fastener assortment', desc: 'Screws, nuts a
 } });
 SAMPLES.push({ axes: 'model', name: 'Workholding table', desc: 'A 6 in vise, 1-2-3 blocks, toe clamps and a dovetail fixture: everything in a manual room, parametric.', make() {
   const k = sampleKit();
-  [['vise', 0, 0], ['block123', -170, 10], ['toeClamp', 140, 0], ['dovetailFixture', 0, 110], ['parallels', -170, 80], ['cClamp', 170, 90]].forEach(([kd, x, y], i) => k.features.push({ id: k.nid(), type: 'shop', name: kd + (i + 1), ...FEATS.shop.init(), kind: kd, cx: x, cy: y }));
+  [['kurtDX6', 0, 0], ['block123', -170, 10], ['toeClamp', 140, 0], ['dovetailFixture', 0, 110], ['parallels', -170, 80], ['cClamp', 170, 90]].forEach(([kd, x, y], i) => k.features.push({ id: k.nid(), type: 'shop', name: kd + (i + 1), ...FEATS.shop.init(), ...shopDefaults(kd), kind: kd, cx: x, cy: y }));
   return k.doc();
 } });
 SAMPLES.push({ axes: 'model', name: 'Deform gallery', desc: 'The same bar bent, twisted, tapered and warped. Edit any deform to change its angle, axis or range.', make() {
@@ -36405,6 +36448,8 @@ function gsPick(i) {
 <script src="cam-mc.js"></script>
 <script src="cam-autotool.js"></script>
 <script src="cam-flow.js"></script>
+<script src="cam-origin.js"></script>
+<script src="cam-vise.js"></script>
 <script src="heatmap.js"></script>
 <script src="slicer.js"></script>
 <script src="costing.js"></script>
@@ -36437,5 +36482,7 @@ function gsPick(i) {
 </script>
 <!-- Fusion-style modeling (construction planes, Inspect tools): own file, loaded last so it can extend the toolbar, panels and help cards -->
 <script src="fusion-tools.js"></script>
+<!-- Export log, settings cog, mouse and keyboard layouts: own file so it can be loaded last -->
+<script src="input-settings.js"></script>
 </body>
 </html>
