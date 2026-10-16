@@ -134,8 +134,11 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 
 | Fusion tool | Status | Notes |
 |---|---|---|
-| Joint (rigid, revolute, slider, cylindrical, pin-slot, planar, ball), As-built Joint, Motion Link, Drive Joints, Contact Sets, Motion Study | 🔜 10 | Needs bodies as components with a transform plus a small joint solver |
-| Rigid Group, Enable Contact | 🔜 10 | |
+| Joint: rigid, revolute, slider, cylindrical, planar, ball | ✅ | batch 14 (assembly.js): the moving bodies sit at the joint position, with limits; no solver, so a joint moves its own bodies only |
+| Drive Joints, Motion Study | ✅ | Animate drives a joint between its limits |
+| As-built Joint | ✅ | A joint at value 0 leaves the bodies where they are |
+| Rigid Group | ✅ | Pick several bodies in one Joint or Move |
+| Pin-slot Joint, Motion Link, Contact Sets, Enable Contact | 🔜 10 | Interference shows overlaps; no contact solver |
 
 ## Environment
 
@@ -156,6 +159,7 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | 2 ✅ | Pipe, Pattern on Path, Ellipse, Slot |
 | 3 ✅ | Rib, Web, Spline, Overall Slot, Center Point Slot |
 | 4 | ✅ two-distance chamfer, Boundary Fill. Still open: variable and setback fillets, Split Face, Delete Face, planar Emboss |
+| 14 ✅ | Joints and motion study (assembly.js) |
 | 13 ✅ | Sheet metal Base Flange and Flat Pattern (sheet-metal.js) |
 | 12 ✅ | User parameters and expressions (parameters.js) |
 | 11 ✅ | Bounding Box, Cavity, Sketch Driven Pattern, Draft Analysis, Wall Thickness, Undercut Analysis (more-tools.js) |
@@ -212,7 +216,8 @@ Same legend as above. SolidWorks tools that are the same as a Fusion tool above 
 | Sheet Metal: edge flange, miter flange, hem, jog, fold, corner relief | 🔜 9 | Need picking a sheet edge |
 | Weldments (structural members, gussets, end cap, trim/extend) | 🔜 9 | Pipe covers round and square tubing along a path |
 | Mold tools (parting line, shut-off, core/cavity split) | 🟡 | Cavity, Split Body, Boundary Fill and Draft Analysis cover the main steps |
-| Mates and assemblies | 🔜 10 | |
+| Mates (angle, distance, hinge, slider, cylindrical, planar, ball) | 🟡 | Joint feature positions the moving bodies; coincident / concentric mates that solve between two bodies 🔜 10 |
+| Assemblies | 🟡 | Bodies in one model; no nested components | |
 | Evaluate: Measure | ✅ | |
 | Evaluate: Mass Properties | ✅ | Physical Properties |
 | Evaluate: Interference Detection | ✅ | |
