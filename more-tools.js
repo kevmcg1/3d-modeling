@@ -5,7 +5,7 @@
 //
 //    Create:   Bounding Box   Cavity
 //    Pattern:  Sketch Driven Pattern
-//    Inspect:  Draft Analysis · Wall Thickness
+//    Inspect:  Draft Analysis · Wall Thickness · Undercut Analysis
 // ═══════════════════════════════════════════════════════════════════
 (() => {
   if (typeof FEATS === 'undefined' || !window.FUSION1) return;
@@ -150,6 +150,7 @@
   const polyArea = p => { let a = 0; for (let q = 1; q + 1 < p.v.length; q++) a += len3(crs3(sub3(p.v[q], p.v[0]), sub3(p.v[q + 1], p.v[0]))) / 2; return a; };
   const DR = { ax: 'Z', angle: 3, flip: false, both: false, res: null };
   const TH = { min: 2, res: null, paintKey: null };
+  const UC = { ax: 'Z', res: null };
 
   function paintGrp(items) {                                           // items: [{p, c:[r,g,b]}]
     INSP.clearGrp();
@@ -213,6 +214,51 @@
   }
   INSP.rayThickness = rayThickness;
 
+  // undercuts: a face that can be seen from neither end of the pull line cannot be formed by a two-part mold
+  function classifyUndercut(a) {
+    const d = AX[a.ax], items = [], area = { ok: 0, under: 0 };
+    for (const b of visibleBodies()) {
+      const polys = INSP.bodyPolys(b), tris = [];
+      polys.forEach(p => { for (let q = 1; q + 1 < p.v.length; q++) tris.push({ a: p.v[0], e1: sub3(p.v[q], p.v[0]), e2: sub3(p.v[q + 1], p.v[0]), p }); });
+      const blocked = (o, dir, self) => {
+        for (const t of tris) {
+          if (t.p === self) continue;
+          const h = crs3(dir, t.e2), det = dot3(t.e1, h);
+          if (Math.abs(det) < 1e-12) continue;
+          const inv = 1 / det, s0 = sub3(o, t.a), u = dot3(s0, h) * inv;
+          if (u < -1e-9 || u > 1 + 1e-9) continue;
+          const qv = crs3(s0, t.e1), v = dot3(dir, qv) * inv;
+          if (v < -1e-9 || u + v > 1 + 1e-9) continue;
+          if (dot3(t.e2, qv) * inv > 1e-6) return true;
+        }
+        return false;
+      };
+      for (const p of polys) {
+        const c = mul3(p.v.reduce((s, v) => add3(s, v), [0, 0, 0]), 1 / p.v.length), o = add3(c, mul3(p.n, 1e-3)), A = polyArea(p);
+        const k = blocked(o, d, p) && blocked(o, mul3(d, -1), p) ? 'under' : 'ok';
+        area[k] += A; items.push({ p, c: k === 'under' ? COLS.neg : COLS.pos, k });
+      }
+    }
+    return { ...area, total: area.ok + area.under, items, model: MODEL, key: a.ax };
+  }
+  INSP.classifyUndercut = classifyUndercut;
+  function undercutData() {
+    if (!(UC.res && UC.res.model === MODEL && UC.res.key === UC.ax)) { UC.res = classifyUndercut(UC); paintGrp(UC.res.items); }
+    return UC.res;
+  }
+  INSP.titleOf.under = 'Undercut Analysis'; INSP.tagOf.under = 'mold release';
+  INSP.open.under = () => { UC.res = null; };
+  INSP.body.under = () => {
+    const R = undercutData();
+    if (!R.items.length) return '<p class="note">There are no visible bodies to analyze.</p>';
+    return `<div class="field"><span>Pull direction</span><div class="seg">${[['X', 'X'], ['Y', 'Y'], ['Z', 'Z (up)']].map(([v, l]) => `<button data-an-set="ax" data-v="${v}" class="${UC.ax === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>`
+      + `<div class="an-bar">${['ok', 'under'].map(k => `<span style="width:${100 * R[k] / (R.total || 1)}%;background:${k === 'ok' ? HEX.pos : HEX.neg}"></span>`).join('')}</div>`
+      + `<div class="an-key"><i style="background:${HEX.pos}"></i>Can be formed<b>${num(R.total ? 100 * R.ok / R.total : 0, 1)}%</b></div><div class="an-key"><i style="background:${HEX.neg}"></i>Undercut<b>${num(R.total ? 100 * R.under / R.total : 0, 1)}%</b></div>`
+      + '<p class="note">A face is an undercut when something blocks the view of it from both ends of the pull line, so a two-part mold cannot form it. Red faces need a side action, a split, or a change of shape. Nothing in the model changes.</p>';
+  };
+  INSP.bind.under = pn => pn.querySelectorAll('[data-an-set]').forEach(b => b.addEventListener('click', () => { UC[b.dataset.anSet] = b.dataset.v; refreshPanel(); requestDraw(); }));
+  INSP.hint.under = k => `<b>Undercut Analysis:</b> red faces cannot be seen from either end of the pull line. ${k('Esc')} closes.`;
+
   const unitIn = () => (isIn() ? 'in' : 'mm');
   const keyRow = (k, label, a, tot) => `<div class="an-key"><i style="background:${HEX[k]}"></i>${label}<b>${num(tot ? 100 * a / tot : 0, 1)}% · ${isIn() ? num(a / 645.16, 2) + ' in²' : num(a / 100, 2) + ' cm²'}</b></div>`;
   function draftData() {
@@ -262,8 +308,8 @@
     pn.querySelectorAll('[data-an-num="min"]').forEach(i => i.addEventListener('change', () => { const v = parseFloat(i.value); if (isFinite(v) && v >= 0) TH.min = fromU(v); refreshPanel(); requestDraw(); }));
   };
   INSP.hint.thick = k => `<b>Wall Thickness:</b> red faces are thinner than your limit. Type a new limit in the panel. ${k('Esc')} closes.`;
-  INSP.stale = kind => { if (kind === 'draft') DR.res = null; if (kind === 'thick') TH.res = null; };
-  window.MORE_TOOLS = { DR, TH, skPoints };                         // handle for the tests
+  INSP.stale = kind => { if (kind === 'draft') DR.res = null; if (kind === 'thick') TH.res = null; if (kind === 'under') UC.res = null; };
+  window.MORE_TOOLS = { DR, TH, UC, skPoints };                         // handle for the tests
 
   // ── Toolbar, icons, help ───────────────────────────────────────────
   Object.assign(IC, {
@@ -271,13 +317,14 @@
     cavity: '<rect x="2.5" y="3.5" width="15" height="13" rx="1.2" opacity=".6"/><path d="M6.5 8.5h7v7h-7z"/><path d="M6.5 8.5l2-2h7M13.5 8.5l2-2" opacity=".7"/>',
     skpat: '<circle cx="5" cy="5" r="1.7"/><circle cx="14" cy="5" r="1.7"/><circle cx="5" cy="14" r="1.7"/><circle cx="14" cy="14" r="1.7" opacity=".5"/><path d="M8 5h3M5 8v3M8 14h3" opacity=".5" stroke-dasharray="1.5 1.5"/>',
     draft: '<path d="M4 17V8l6-5 6 5v9z" opacity=".5"/><path d="M4 17h12"/><path d="M10 3v14" stroke-dasharray="2 1.6"/><path d="M10 3l6 5"/>',
+    under: '<path d="M4 4h12v4H9v4h7v4H4z" opacity=".7"/><path d="M13 10h5" stroke-dasharray="2 1.5"/>',
     thick: '<path d="M3 5h14v10H3z" opacity=".5"/><path d="M3 9h14v2H3z"/><path d="M10 5v4M10 11v4" opacity=".7"/>',
   });
-  Object.assign(FA_MAP, { bbox: 'border-all', cavity: 'cubes', skpat: 'grip', draft: 'arrows-up-to-line', thick: 'ruler-vertical' });
-  Object.assign(MENU_IC, { 'f:bbox': 'bbox', 'f:cavity': 'cavity', 'f:skpat': 'skpat', 'i:draft': 'draft', 'i:thick': 'thick' });
+  Object.assign(FA_MAP, { bbox: 'border-all', cavity: 'cubes', skpat: 'grip', draft: 'arrows-up-to-line', thick: 'ruler-vertical', under: 'magnifying-glass-minus' });
+  Object.assign(MENU_IC, { 'f:bbox': 'bbox', 'f:cavity': 'cavity', 'f:skpat': 'skpat', 'i:draft': 'draft', 'i:thick': 'thick', 'i:under': 'under' });
   TB_MENUS.create.push(['f:bbox', 'Bounding Box', ''], ['f:cavity', 'Cavity', '']);
   TB_MENUS.pattern.push(['f:skpat', 'Sketch Driven Pattern', '']);
-  TB_MENUS.construct.push(['i:draft', 'Draft Analysis', ''], ['i:thick', 'Wall Thickness', '']);
+  TB_MENUS.construct.push(['i:draft', 'Draft Analysis', ''], ['i:thick', 'Wall Thickness', ''], ['i:under', 'Undercut Analysis', '']);
 
   const ins = k => CMD && CMD.type === 'inspect' && CMD.kind === k;
   const modelToolbar2 = modelToolbarHTML;
@@ -285,7 +332,7 @@
     let h = modelToolbar2.apply(this, arguments);
     h = rbAppend(h, 'Create', [['f:bbox', 'Bounding Box', '', 'bbox', cmdIs('bbox')], ['f:cavity', 'Cavity', '', 'cavity', cmdIs('cavity')]]);
     h = rbAppend(h, 'Pattern', [['f:skpat', 'Sketch Driven', '', 'skpat', cmdIs('skpat')]]);
-    return rbAppend(h, 'Inspect', [['i:draft', 'Draft Analysis', '', 'draft', ins('draft')], ['i:thick', 'Wall Thickness', '', 'thick', ins('thick')]]);
+    return rbAppend(h, 'Inspect', [['i:draft', 'Draft Analysis', '', 'draft', ins('draft')], ['i:thick', 'Wall Thickness', '', 'thick', ins('thick')], ['i:under', 'Undercut', '', 'under', ins('under')]]);
   };
 
   Object.assign(TIP_TXT, {
@@ -293,6 +340,7 @@
     'f:cavity': ['Press a body into another and leave its shape behind, like a mold cavity.', ['Click the body to cut into.', 'Click the tool bodies.', 'Scale the cavity for clearance or shrink, then OK.']],
     'f:skpat': ['Copy bodies to every circle center (or corner) of a sketch.', ['Click the bodies to copy.', 'Click any curve of the sketch that marks the points.', 'OK. The body sitting on the nearest point is the original.']],
     'i:draft': ['See which faces will release from a mold and which need draft.', ['Pick the pull direction.', 'Set the draft the part needs.', 'Green releases, yellow needs draft, red is an undercut.']],
+    'i:under': ['Find faces a two-part mold cannot form.', ['Click it.', 'Pick the pull direction.', 'Red faces are hidden from both ends: they are undercuts.']],
     'i:thick': ['Find walls that are too thin to mold, print or machine.', ['Click it.', 'Type the thinnest wall you allow.', 'Red faces are thinner than that.']],
   });
   const gi = GD.inspect;
@@ -300,6 +348,7 @@
     GD.inspect = [gi[0], () => {
       const k = CMD && CMD.kind;
       if (k === 'draft') return [gS('Pick the pull direction', 'The way the two halves of the mold part.', () => true), gS('Set the required draft', 'Faces closer to parallel than this need draft.', () => true), gS('Read the colors', 'Green releases, yellow needs draft, red is an undercut. Esc to close.', null, true)];
+      if (k === 'under') return [gS('Pick the pull direction', 'The line the two mold halves move along.', () => true), gS('Look for red faces', 'They are hidden from both ends. Esc to close.', null, true)];
       if (k === 'thick') return [gS('Type the thinnest wall allowed', 'Walls under it turn red.', () => true), gS('Look for red faces', 'Thicken them or change the design. Esc to close.', null, true)];
       return gi[1]();
     }];
@@ -318,6 +367,7 @@
       'f:cavity': [iso(() => box(-20, -12, 0, 40, 24, 16) + box(-6, -5, 20, 12, 10, 8, 'a'), 60, 56, 1.3), iso(() => box(-20, -12, 0, 40, 24, 16) + box(-6, -5, 12, 12, 10, 8, 'a') + dot(P(0, 0, 16), C.warn, 3), 60, 56, 1.3)],
       'f:skpat': [iso(() => box(-24, -8, 0, 8, 8, 8, 'a') + dot(P(0, 6, 0), C.warn, 2.5) + dot(P(20, -4, 0), C.warn, 2.5), 60, 54, 1.4), iso(() => box(-24, -8, 0, 8, 8, 8, 'a') + box(-4, 2, 0, 8, 8, 8, 'a') + box(16, -8, 0, 8, 8, 8, 'a'), 60, 54, 1.4)],
       'i:draft': [iso(() => box(-14, -10, 0, 28, 20, 16), 60, 54, 1.4), iso(() => box(-14, -10, 0, 28, 20, 16) + poly([P(-14, -10, 16), P(14, -10, 16), P(14, 10, 16), P(-14, 10, 16)], 'rgba(47,168,79,.55)', C.sk, 1.2), 60, 54, 1.4)],
+      'i:under': [iso(() => box(-14, -10, 0, 28, 20, 6) + box(-14, -10, 6, 8, 20, 10) + box(-4, -10, 12, 18, 20, 4), 60, 54, 1.4), iso(() => box(-14, -10, 0, 28, 20, 6) + box(-14, -10, 6, 8, 20, 10) + box(-4, -10, 12, 18, 20, 4) + poly([P(-4, -10, 12), P(14, -10, 12), P(14, 10, 12), P(-4, 10, 12)], 'rgba(229,72,77,.6)', C.sk, 1.2), 60, 54, 1.4)],
       'i:thick': [iso(() => box(-16, -10, 0, 32, 20, 12), 60, 54, 1.4), iso(() => box(-16, -10, 0, 32, 20, 12) + poly([P(-16, -10, 12), P(16, -10, 12), P(16, -6, 12), P(-16, -6, 12)], 'rgba(229,72,77,.6)', C.sk, 1.2), 60, 54, 1.4)],
     });
   }
@@ -352,6 +402,11 @@
       g.prism(R(24, 18), 0, 14, 'n'); g.fill([[-12, -9, 14], [12, -9, 14], [12, 9, 14], [-12, 9, 14]], 'g', { a: 0.55 * k, stroke: 'g', w: 1.4 });
       g.fill([[12, -9, 0], [12, 9, 0], [12, 9, 14], [12, -9, 14]], 'y', { a: 0.55 * k, stroke: 'y', w: 1.4 });
       g.arrow([0, 0, 18], [0, 0, 26], 'r', 1.5); if (k > 0.6) label(g, [14, 0, 7], 'needs draft', 'a');
+    });
+    S('i:under', g => {
+      bigView(g, 134, 3); const k = g.seg(0.3, 0.8);
+      g.box(-14, -9, 0, 28, 18, 5, 'n'); g.box(-14, -9, 5, 7, 18, 11, 'n'); g.box(-7, -9, 11, 21, 18, 5, 'n');
+      g.fill([[-7, -9, 11], [14, -9, 11], [14, 9, 11], [-7, 9, 11]], 'r', { a: 0.6 * k, stroke: 'r', w: 1.4 }); if (k > 0.5) g.chip('Undercut', 'r');
     });
     S('i:thick', g => {
       bigView(g, 134, 3); const k = g.seg(0.25, 0.75);

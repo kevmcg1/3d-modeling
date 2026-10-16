@@ -61,8 +61,19 @@ const close = (a, b, tol, what) => assert(Math.abs(a - b) <= tol, `${what}: ${a}
     });
     close(r.a, 10, 0.01, 'solid box'); close(r.b, 2, 0.01, 'cup wall'); assert(r.html && r.grp > 0, JSON.stringify(r));
   });
+  await ok('undercut analysis: a plain box has none, a block with a side tunnel does', async () => {
+    const r = await page.evaluate(() => {
+      const P = (id, op, cx, off, w, d, h) => ({ id, type: 'primitive', name: 'B' + id, shape: 'box', base: 'XY', cx, cy: 0, off, op, w, d, h, dia: 10, dia2: 0, tube: 6, center: true, sit: true });
+      loadDoc({ features: [P(10, 'new', 0, 0, 10, 10, 10)], next: 200 }, 'x'); applyModel(evaluate(0.05), { tol: 0.05 }); setWorkspace('model');
+      const a = FUSION1.classifyUndercut({ ax: 'Z' });
+      loadDoc({ features: [P(10, 'new', 0, 0, 20, 20, 20), { id: 11, type: 'primitive', name: 'T', shape: 'box', base: 'XY', cx: 0, cy: 0, off: 7, op: 'cut', w: 30, d: 6, h: 6, dia: 10, dia2: 0, tube: 6, center: true, sit: true }], next: 200 }, 'x'); applyModel(evaluate(0.05), { tol: 0.05 });
+      document.querySelector('[data-act="i:under"]').click(); const b = FUSION1.classifyUndercut({ ax: 'Y' }), open = CMD && CMD.kind === 'under', grp = FUSION1.grp.children.length; cancelCmd();
+      return { a: a.under, b: b.under, open, grp };
+    });
+    assert.strictEqual(r.a, 0); assert(r.open && r.grp > 0, JSON.stringify(r)); assert(r.b > 0, 'tunnel along X pulled along Y should show undercut faces: ' + JSON.stringify(r));
+  });
   await ok('every new button exists and its hover card has text', async () => {
-    const r = await page.evaluate(() => { setWorkspace('model'); return ['f:bbox', 'f:cavity', 'f:skpat', 'i:draft', 'i:thick'].map(a => [a, !!document.querySelector(`[data-act="${a}"]`), !!TIP_TXT[a]]); });
+    const r = await page.evaluate(() => { setWorkspace('model'); return ['f:bbox', 'f:cavity', 'f:skpat', 'i:draft', 'i:thick', 'i:under'].map(a => [a, !!document.querySelector(`[data-act="${a}"]`), !!TIP_TXT[a]]); });
     for (const [a, b, t] of r) assert(b && t, a + ' button/tip missing');
   });
   await ok('no page errors', async () => assert.deepStrictEqual(errs, []));
