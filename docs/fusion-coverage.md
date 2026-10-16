@@ -159,6 +159,7 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | 2 ✅ | Pipe, Pattern on Path, Ellipse, Slot |
 | 3 ✅ | Rib, Web, Spline, Overall Slot, Center Point Slot |
 | 4 | ✅ two-distance chamfer, Boundary Fill. Still open: variable and setback fillets, Split Face, Delete Face, planar Emboss |
+| 15 ✅ | Weldment structural members (weldment.js) |
 | 14 ✅ | Joints and motion study (assembly.js) |
 | 13 ✅ | Sheet metal Base Flange and Flat Pattern (sheet-metal.js) |
 | 12 ✅ | User parameters and expressions (parameters.js) |
@@ -214,7 +215,8 @@ Same legend as above. SolidWorks tools that are the same as a Fusion tool above 
 | Surfaces (extruded, revolved, lofted, planar, offset, knit, trim, extend) | ⛔ | No surface bodies in this kernel |
 | Sheet Metal: Base Flange (open profile, bend radius), Unfold / Flat Pattern with K-factor | ✅ **new** | batch 13 (sheet-metal.js) |
 | Sheet Metal: edge flange, miter flange, hem, jog, fold, corner relief | 🔜 9 | Need picking a sheet edge |
-| Weldments (structural members, gussets, end cap, trim/extend) | 🔜 9 | Pipe covers round and square tubing along a path |
+| Weldments: structural members | ✅ **new** | Rectangular tube, bar, angle, channel, I-beam, T and round tube along a sketch path with mitered corners (batch 15, weldment.js) |
+| Weldments: gussets, end caps, trim/extend, cut list | 🔜 9 | Trim with Combine → Cut today |
 | Mold tools (parting line, shut-off, core/cavity split) | 🟡 | Cavity, Split Body, Boundary Fill and Draft Analysis cover the main steps |
 | Mates (angle, distance, hinge, slider, cylindrical, planar, ball) | 🟡 | Joint feature positions the moving bodies; coincident / concentric mates that solve between two bodies 🔜 10 |
 | Assemblies | 🟡 | Bodies in one model; no nested components | |

@@ -9199,6 +9199,41 @@ function evalJoint(f, ctx) {
 }
 FEATX.joint = evalJoint;
 
+// ── Weldments, kernel half (panels in weldment.js): Structural Member along a sketch path ──
+const STRUCT_TYPES = { rtube: 'Rectangular tube', rbar: 'Solid bar', angle: 'Angle', channel: 'Channel', ibeam: 'I-beam', ttube: 'Round tube', tbar: 'T-bar' };
+function structRegion(f) {
+  const s = +f.s, hh = +f.h, t = +f.t, ty = f.stype;
+  if (!(s > 0) || !(hh > 0)) throw new Error('The profile size has to be positive');
+  if (ty !== 'rbar' && !(t > 0)) throw new Error('The wall thickness has to be positive');
+  const rot = (+f.rot || 0) * Math.PI / 180, cs = Math.cos(rot), sn = Math.sin(rot), cx = s / 2, cy = hh / 2;
+  const area = ps => { let a = 0; for (let i = 0; i < ps.length; i++) { const p = ps[i], q = ps[(i + 1) % ps.length]; a += p[0] * q[1] - q[0] * p[1]; } return a / 2; };
+  // a polygon about the middle of the profile's box, turned by the rotation, wound counter-clockwise (outer) or clockwise (hole)
+  const mk = (pts, ccw, src0) => {
+    const ps = (area(pts) > 0) === ccw ? pts : pts.slice().reverse();
+    return loopOf(ps.map(p => P2((p[0] - cx) * cs - (p[1] - cy) * sn, (p[0] - cx) * sn + (p[1] - cy) * cs)), src0);
+  };
+  const box = (w, d) => [[0, 0], [w, 0], [w, d], [0, d]];
+  if (ty === 'ttube') {
+    if (t >= s / 2) throw new Error('The wall has to be thinner than the radius');
+    return { outer: [{ k: 'A', c: P2(0, 0), r: s / 2, t0: 0, s: TAU, a: P2(s / 2, 0), b: P2(s / 2, 0), src: 1 }], holes: [pipeHole(s / 2 - t)] };
+  }
+  if (ty === 'rtube') { if (2 * t >= Math.min(s, hh)) throw new Error('The wall has to be thinner than half the tube'); return { outer: mk(box(s, hh), true, 1), holes: [mk([[t, t], [s - t, t], [s - t, hh - t], [t, hh - t]], false, 10)] }; }
+  if (ty === 'rbar') return { outer: mk(box(s, hh), true, 1), holes: [] };
+  if (ty === 'angle') { if (t >= Math.min(s, hh)) throw new Error('The leg thickness has to be less than the leg length'); return { outer: mk([[0, 0], [s, 0], [s, t], [t, t], [t, hh], [0, hh]], true, 1), holes: [] }; }
+  if (ty === 'channel') { if (2 * t >= hh || t >= s) throw new Error('The thickness is too large for the channel'); return { outer: mk([[0, 0], [s, 0], [s, t], [t, t], [t, hh - t], [s, hh - t], [s, hh], [0, hh]], true, 1), holes: [] }; }
+  if (ty === 'ibeam') { if (2 * t >= hh || t >= s) throw new Error('The thickness is too large for the beam'); const a = (s - t) / 2; return { outer: mk([[0, 0], [s, 0], [s, t], [a + t, t], [a + t, hh - t], [s, hh - t], [s, hh], [0, hh], [0, hh - t], [a, hh - t], [a, t], [0, t]], true, 1), holes: [] }; }
+  if (ty === 'tbar') { if (t >= hh || t >= s) throw new Error('The thickness is too large for the T'); const a = (s - t) / 2; return { outer: mk([[a, 0], [a + t, 0], [a + t, hh - t], [s, hh - t], [s, hh], [0, hh], [0, hh - t], [a, hh - t]], true, 1), holes: [] }; }
+  throw new Error('Unknown profile');
+}
+const pipeHole = r => [{ k: 'A', c: P2(0, 0), r, t0: 0, s: -TAU, a: P2(r, 0), b: P2(r, 0), src: 10 }];
+function evalStruct(f, ctx, tol) {
+  const region = structRegion(f), { segs } = pathSegments(f.path, ctx), P0 = segs[0].at(0), T = nrm3(segs[0].tan(0));
+  const u = nrm3(crs3(T, Math.abs(T[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0])), pp = { o: P0, u, v: crs3(T, u), n: T };
+  const plan = sweepPlan(f.path, ctx, pp, P0, 0, 1, Math.hypot(+f.s, +f.h) / 2, tol);
+  finishTool(f, ctx, sweepBuild(region, pp, plan.secs, plan.kinds, plan.closed, tol, f.id));
+}
+FEATX.struct = evalStruct;
+
 // ── Rib / Web: thin walls from open sketch curves, extruded square to the sketch plane ──
 // A chain of lines and arcs is sampled, thickened to a flat-ended strip (mitered at bends) and extruded; several chains make a web.
 function ribLoops(pts, closed, h) {
@@ -37427,6 +37462,7 @@ function gsPick(i) {
 <script src="parameters.js"></script>
 <script src="sheet-metal.js"></script>
 <script src="assembly.js"></script>
+<script src="weldment.js"></script>
 <!-- Export log, settings cog, mouse and keyboard layouts: own file so it can be loaded last -->
 <script src="input-settings.js"></script>
 </body>
