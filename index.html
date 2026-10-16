@@ -3642,12 +3642,24 @@ return {
 html, body { height: 100%; margin: 0; }
 body {
   background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font);
-  display: grid; grid-template-rows: auto 1fr; overflow: hidden;
+  display: grid; grid-template-rows: auto auto 1fr auto; overflow: hidden;
   -webkit-font-smoothing: antialiased; font-feature-settings: "cv11", "ss01"; font-variant-numeric: tabular-nums;
 }
 button, input, select { font: inherit; color: inherit; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 [hidden] { display: none !important; }
+/* the portfolio header and footer, the same as Shop Tool Sim's */
+header.site-head,footer.site-foot{box-sizing:border-box;flex:none;width:100%;margin:0;background:#08090a;font-family:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-style:normal;font-weight:400;line-height:normal;letter-spacing:normal;text-transform:none;animation:none}
+header.site-head{padding:0;border:0;border-bottom:1px solid #222428;font-size:12.5px;text-align:center}
+header.site-head a{box-sizing:border-box;display:block;width:100%;padding:6px 14px;color:#ececee;text-decoration:none;transition:color .2s ease,background-color .2s ease}
+header.site-head a:hover,header.site-head a:focus-visible{color:#5b93ea;background:rgba(255,255,255,.04);text-decoration:underline;text-underline-offset:3px;outline:none}
+footer.site-foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:6px 18px;padding:8px 14px;border:0;border-top:1px solid #222428;font-size:12px;color:#8a8f97;text-align:center}
+footer.site-foot a{color:#ececee;text-decoration:none;border-bottom:1px solid transparent}
+footer.site-foot a:hover,footer.site-foot a:focus-visible{color:#5b93ea;border-bottom-color:currentColor;outline:none}
+@media (max-width:640px){footer.site-foot{padding:8px 10px}}
+/* they take the first and last rows of the page grid; the top bar and the open workspace fill the rows between */
+header.site-head{grid-row:1}
+footer.site-foot{grid-row:4}
 
 /* ── Top bar: brand, workspaces and file buttons; the ribbon of tools under it ── */
 #topbar { display: flex; flex-direction: column; background: var(--panel); border-bottom: 1px solid var(--rule); min-width: 0; }
@@ -4372,6 +4384,7 @@ html.calm *, html.calm *::before, html.calm *::after { transition: none !importa
 </style>
 </head>
 <body>
+<header class="site-head" role="banner"><a href="https://kevmcg1.github.io/portfolio" target="_top" aria-label="Back to the portfolio at kevmcg1.github.io">KEVMCG1.GITHUB.IO</a></header>
 <header id="topbar">
   <div class="top-row">
   <div class="brand">
@@ -4462,6 +4475,7 @@ html.calm *, html.calm *::before, html.calm *::after { transition: none !importa
 <div id="ctxmenu" hidden></div>
 <div id="modal" hidden><div class="card" id="modalCard"></div></div>
 <div id="dropHint" hidden>Drop a 3D file to import it</div>
+<footer class="site-foot"><span>Datum Modeler is released under GitHub’s <a href="https://github.com/github/choosealicense.com/blob/gh-pages/_licenses/cc0-1.0.txt" target="_blank" rel="license noopener noreferrer">Creative Commons Zero v1.0 Universal</a> license. All rights reserved.</span></footer>
 <input type="file" id="fileIn" multiple hidden>
 <script data-kernel>
 'use strict';
