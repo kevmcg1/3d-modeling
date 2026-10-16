@@ -22,19 +22,6 @@
   const num = (v, d = 2) => (isFinite(v) ? v.toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: 0 }) : '—');
 
   // ── Bounding Box: a box body that exactly encloses the picked bodies ──
-  function evalBoundingBox(f, ctx, tol) {
-    const src = bodiesById(f.bodies, ctx);
-    if (!src.length) throw new Error('Pick the bodies to enclose');
-    const pad = Math.max(0, +f.pad || 0), lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
-    for (const b of src) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], b.bb[k]); hi[k] = Math.max(hi[k], b.bb[k + 3]); }
-    const w = hi[0] - lo[0] + 2 * pad, d = hi[1] - lo[1] + 2 * pad, h = hi[2] - lo[2] + 2 * pad;
-    if (!(w > 1e-9 && d > 1e-9 && h > 1e-9)) throw new Error('The bodies have no volume to enclose');
-    const pl = { o: [lo[0] - pad, lo[1] - pad, lo[2] - pad], u: [1, 0, 0], v: [0, 1, 0], n: [0, 0, 1] };
-    const box = prism({ outer: loopOf([P2(0, 0), P2(w, 0), P2(w, d), P2(0, d)], 1), holes: [] }, pl, 0, h, tol, f.id);
-    ctx.bodies = [...ctx.bodies, mkBody(f.id, box)];
-    ctx.hl[f.id] = [f.id];
-  }
-  FEATX.bbox = evalBoundingBox;
   FEATS.bbox = bodyTool({
     label: 'Bounding Box', home: 'bodies', need: 'Pick the bodies to enclose.',
     init: () => ({ bodies: [], pad: 0 }),
@@ -45,23 +32,6 @@
   });
 
   // ── Cavity: the picked tool bodies are cut out of the target, optionally scaled (shrink allowance) ──
-  function evalCavity(f, ctx) {
-    const T = ctx.bodies.find(b => b.id === f.target);
-    if (!T) throw new Error('Pick the body to cut the cavity in');
-    const tools = bodiesById(f.tools, ctx).filter(b => b !== T);
-    if (!tools.length) throw new Error('Pick the tool bodies that make the cavity');
-    const k = (+f.pct) / 100;
-    if (!(k > 0)) throw new Error('The scale has to be positive');
-    let polys = T.polys;
-    tools.forEach((t, j) => {
-      const sc = Math.abs(k - 1) < 1e-9 ? t.polys : xformPolys(t.polys, XF.scale(bbCenter([t]), k), f.id + ':' + j, { feat: f.id });
-      polys = CSG.subtract(polys, sc);
-    });
-    if (!polys.length) throw new Error('The tools remove the whole body');
-    ctx.bodies = ctx.bodies.filter(b => b === T || f.keep !== false || !tools.includes(b)).map(b => b === T ? mkBody(T.id, polys) : b);
-    ctx.hl[f.id] = [T.id];
-  }
-  FEATX.cavity = evalCavity;
   FEATS.cavity = {
     label: 'Cavity', home: 'target', before: true, need: 'Pick the body to cut into, then the tool bodies.',
     init: () => ({ target: null, tools: [], pct: 100, keep: true }),
@@ -87,35 +57,11 @@
   // ── Sketch Driven Pattern: copies of the bodies at the circle centers (or corners) of a sketch ──
   // The body counts as sitting on the nearest point; every other point gets a copy.
   const skPoints = (sk, ctx) => {
-    const pl = (ctx && ctx.planes[sk.id]) || planeOf(sk), circles = sk.ents.filter(e => e.type === 'circle');
+    const pl = (ctx && ctx.planes[sk.id]) || sk.plane, circles = sk.ents.filter(e => e.type === 'circle');
     const pts2 = circles.map(e => e.c);
     if (!pts2.length) for (const e of sk.ents) for (const p of G.ends(e)) if (!pts2.some(q => dst2(p, q) < 1e-6)) pts2.push(p);
     return pts2.map(p => planeTo3(pl, p));
   };
-  function evalSketchPattern(f, ctx) {
-    const src = bodiesById(f.bodies, ctx), sk = f.sk != null && byId(f.sk);
-    if (!src.length) throw new Error('Pick bodies to copy');
-    if (!sk) throw new Error('Pick the sketch that holds the points');
-    const pts = skPoints(sk, ctx);
-    if (pts.length < 2) throw new Error('The sketch needs at least two circles (or corners)');
-    const c0 = bbCenter(src);
-    let seed = 0;
-    pts.forEach((p, i) => { if (dist3(p, c0) < dist3(pts[seed], c0)) seed = i; });
-    const made = [];
-    let k = 0;
-    pts.forEach((p, i) => {
-      if (i === seed) return;
-      const M = XF.trans(sub3(p, pts[seed]));
-      k++;
-      src.forEach((b, j) => {
-        const id = f.id + (k * src.length + j) / 1000, polys = xformPolys(b.polys, M, f.id + ':' + k + ':' + j, { feat: f.id, inst: k });
-        if (f.join) combineTool({ id, op: 'join' }, ctx, polys); else { ctx.bodies = [...ctx.bodies, mkBody(id, polys)]; made.push(id); }
-      });
-    });
-    if (f.join) made.push(...src.map(b => b.id));
-    ctx.hl[f.id] = made;
-  }
-  FEATX.skpat = evalSketchPattern;
   const skEntIds = id => { const sk = byId(id); return sk ? sk.ents.map(e => e.id) : []; };
   FEATS.skpat = bodyTool({
     label: 'Sketch Driven Pattern', home: 'bodies', need: 'Pick the bodies and a sketch of points.',
