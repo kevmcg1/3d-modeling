@@ -9172,6 +9172,33 @@ function evalSMFlat(f, ctx, tol) {
 }
 FEATX.smflat = evalSMFlat;
 
+// ── Joints (panels in assembly.js): the moving bodies sit at the joint's current position ──
+function evalJoint(f, ctx) {
+  const src = bodiesById(f.bodies, ctx);
+  if (!src.length) throw new Error('Pick the moving bodies');
+  const ids = src.map(b => b.id);
+  if (f.jtype === 'rigid') { ctx.hl[f.id] = ids; return; }
+  const lim = v => Math.min(isFinite(+f.max) && f.max !== '' ? +f.max : Infinity, Math.max(isFinite(+f.min) && f.min !== '' ? +f.min : -Infinity, v));
+  const v1 = lim(+f.value || 0), v2 = +f.value2 || 0, rad = Math.PI / 180;
+  let M = XF.I();
+  if (f.jtype === 'ball') {
+    const p = bbCenter(src);
+    for (const [k, a] of [['rx', 'X'], ['ry', 'Y'], ['rz', 'Z']]) if (+f[k]) M = XF.mul(XF.rot(p, WORLD_AX[a], f[k] * rad), M);
+  } else {
+    const ax = resolveAxis(f.axis, ctx), p = f.axis.k === 'world' && f.pivot !== 'origin' ? bbCenter(src) : ax.p, d = ax.dir;
+    if (f.jtype === 'revolute' || f.jtype === 'cylindrical') M = XF.rot(p, d, v1 * rad);
+    if (f.jtype === 'slider') M = XF.trans(mul3(d, v1));
+    if (f.jtype === 'cylindrical') M = XF.mul(XF.trans(mul3(d, v2)), M);
+    if (f.jtype === 'planar') {
+      const u = nrm3(Math.abs(d[1]) < 0.9 ? crs3(d, [0, 1, 0]) : crs3(d, [1, 0, 0])), w = crs3(d, u);
+      M = XF.trans(add3(mul3(u, v1), mul3(w, v2)));
+    }
+  }
+  ctx.bodies = ctx.bodies.map(b => src.includes(b) ? mkBody(b.id, xformPolys(b.polys, M, f.id + ':' + b.id, { feat: f.id })) : b);
+  ctx.hl[f.id] = ids;
+}
+FEATX.joint = evalJoint;
+
 // ── Rib / Web: thin walls from open sketch curves, extruded square to the sketch plane ──
 // A chain of lines and arcs is sampled, thickened to a flat-ended strip (mitered at bends) and extruded; several chains make a web.
 function ribLoops(pts, closed, h) {
@@ -37399,6 +37426,7 @@ function gsPick(i) {
 <script src="more-tools.js"></script>
 <script src="parameters.js"></script>
 <script src="sheet-metal.js"></script>
+<script src="assembly.js"></script>
 <!-- Export log, settings cog, mouse and keyboard layouts: own file so it can be loaded last -->
 <script src="input-settings.js"></script>
 </body>
