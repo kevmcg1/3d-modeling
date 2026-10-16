@@ -85,7 +85,42 @@
       ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0] - ux * h * 0.7, q[1] - uy * h * 0.7); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(q[0], q[1]); ctx.lineTo(q[0] - ux * h - uy * h * 0.55, q[1] - uy * h + ux * h * 0.55); ctx.lineTo(q[0] - ux * h + uy * h * 0.55, q[1] - uy * h - ux * h * 0.55); ctx.closePath(); ctx.fill(); ctx.restore();
     };
-    g.text = (x, y, s, c = 'k', size = 8, align = 'center') => { ctx.save(); ctx.font = `650 ${size}px Inter, system-ui, sans-serif`; ctx.fillStyle = shade(c, 1); ctx.textAlign = align; ctx.fillText(s, x, y); ctx.restore(); };
+    // labels are queued and drawn last (flushText), so no shape paints over one, and each is nudged a few pixels to a clear spot
+    // (off lines, edges, the mouse pointer and other labels) when where it was asked for is busy
+    g.q = [];
+    g.text = (x, y, s, c = 'k', size = 8, align = 'center') => { g.q.push({ x, y, s, c, size, align, tf: ctx.getTransform(), a: ctx.globalAlpha }); };
+    g.drawLabel = (x, y, s, c, size, align) => { ctx.save(); ctx.font = `650 ${size}px Inter, system-ui, sans-serif`; ctx.fillStyle = shade(c, 1); ctx.textAlign = align; ctx.fillText(s, x, y); ctx.restore(); };
+    const NUDGE = (() => { const o = [[0, 0]]; for (let r = 3; r <= 21; r += 3) { const n = Math.max(8, Math.round(r * 1.3)); for (let k = 0; k < n; k++) { const a = Math.PI * 2 * k / n; o.push([Math.round(r * Math.cos(a) * 1.25), Math.round(r * Math.sin(a))]); } } return o; })();
+    g.flushText = () => {
+      const q = g.q; g.q = []; if (!q.length) return;
+      const cv = ctx.canvas, k = cv.width / AW; let img = null; try { img = ctx.getImageData(0, 0, cv.width, cv.height).data; } catch (e) { /* unreadable: no nudging */ }
+      const placed = [];
+      // the share of a rectangle (picture units) that is not its most common colour: lines, edges, the pointer, other shapes
+      const busy = r => {
+        const x0 = Math.max(0, Math.floor(r.x * k)), y0 = Math.max(0, Math.floor(r.y * k)), x1 = Math.min(cv.width, Math.ceil((r.x + r.w) * k)), y1 = Math.min(cv.height, Math.ceil((r.y + r.h) * k)), bins = new Map(); let n = 0, top = '', tn = 0;
+        for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = (y * cv.width + x) * 4, key = (img[i] >> 4) + ',' + (img[i + 1] >> 4) + ',' + (img[i + 2] >> 4), c = (bins.get(key) || 0) + 1; bins.set(key, c); n++; if (c > tn) { tn = c; top = key; } }
+        if (!n) return 0; const t = top.split(',').map(Number); let far = 0;
+        for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = (y * cv.width + x) * 4; if (Math.abs((img[i] >> 4) - t[0]) + Math.abs((img[i + 1] >> 4) - t[1]) + Math.abs((img[i + 2] >> 4) - t[2]) > 3) far++; }
+        return far / n;
+      };
+      for (const L of q) {
+        ctx.save(); ctx.setTransform(L.tf); ctx.font = `650 ${L.size}px Inter, system-ui, sans-serif`; const w = ctx.measureText(L.s).width; ctx.restore();
+        const base = { x: L.align === 'center' ? L.x - w / 2 : L.align === 'right' ? L.x - w : L.x, y: L.y - L.size * 0.8, w, h: L.size };
+        let best = [0, 0], bc = Infinity;
+        if (img && L.tf.a === ctx.canvas.width / AW && L.tf.b === 0 && L.tf.e === 0) {
+          for (const [dx, dy] of NUDGE) {
+            const r = { x: base.x + dx, y: base.y + dy, w, h: L.size };
+            if (r.x < 2 || r.y < 2 || r.x + r.w > AW - 2 || r.y + r.h > AH - 2) continue;
+            let cost = busy(r) + Math.hypot(dx, dy) * 0.004;
+            if (g.cur.some(p => r.x < p.x + p.w && p.x < r.x + r.w && r.y < p.y + p.h && p.y < r.y + r.h)) cost += 1;
+            if (placed.some(p => r.x < p.x + p.w + 1 && p.x < r.x + r.w + 1 && r.y < p.y + p.h + 1 && p.y < r.y + r.h + 1)) cost += 1;
+            if (cost < bc) { bc = cost; best = [dx, dy]; if (cost < 0.01) break; }
+          }
+        }
+        placed.push({ x: base.x + best[0], y: base.y + best[1], w, h: L.size });
+        ctx.save(); ctx.setTransform(L.tf); ctx.globalAlpha = L.a; g.drawLabel(L.x + best[0], L.y + best[1], L.s, L.c, L.size, L.align); ctx.restore();
+      }
+    };
     g.chip = (s, c = 'a') => { ctx.save(); ctx.font = '650 9px Inter, system-ui, sans-serif'; const w = ctx.measureText(s).width + 12; ctx.fillStyle = 'rgba(255,255,255,.86)'; ctx.strokeStyle = shade(c, 1); ctx.lineWidth = 0.8; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(7, AH - 21, w, 15, 7) : ctx.rect(7, AH - 21, w, 15); ctx.fill(); ctx.stroke(); ctx.fillStyle = shade(c, 0.8); ctx.textAlign = 'left'; ctx.fillText(s, 13, AH - 10.5); ctx.restore(); };
     g.ground = (w = 40, d = 30, z = 0, c = 'n') => g.fill([[-w / 2, -d / 2, z], [w / 2, -d / 2, z], [w / 2, d / 2, z], [-w / 2, d / 2, z]], c, { a: 0.55, stroke: 'm', w: 0.6 });
     g.grid2 = (step = 10, ex = 40) => { for (let v = -ex; v <= ex; v += step) { g.line([[v, -ex], [v, ex]], 'n', 0.8); g.line([[-ex, v], [ex, v]], 'n', 0.8); } };
@@ -94,7 +129,10 @@
     g.ring = (cx, cy, z, r, c = 'k', w = 1.2, o = {}) => g.line(ngon(cx, cy, r, 28).map(p => [p[0], p[1], z]), c, w, { close: true, ...o });
     g.disc = (cx, cy, z, r, c = 'a', o = {}) => g.fill(ngon(cx, cy, r, 28).map(p => [p[0], p[1], z]), c, o);
     // a mouse pointer in screen pixels
+    g.cur = [];
     g.cursor = (x, y, press) => {
+      x = clamp(x, 1, AW - 11); y = clamp(y, 1, AH - 17);   // the pointer never runs off the picture, even as it glides in
+      g.cur.push({ x, y, w: 10, h: 15.5 });
       ctx.save(); ctx.translate(x, y); if (press) ctx.scale(0.88, 0.88); ctx.fillStyle = '#fff'; ctx.strokeStyle = '#1f2a37'; ctx.lineWidth = 1.2; ctx.lineJoin = 'round';
       ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 13); ctx.lineTo(3.4, 9.8); ctx.lineTo(6, 15.5); ctx.lineTo(8.3, 14.4); ctx.lineTo(5.8, 8.9); ctx.lineTo(10, 8.7); ctx.closePath(); ctx.fill(); ctx.stroke();
       if (press) { ctx.strokeStyle = shade('a', 1); ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(0, 0, 6 + press * 4, 0, 7); ctx.globalAlpha = 1 - press; ctx.stroke(); }
@@ -267,13 +305,14 @@
   // draw one frame of a scene at progress t (0..1) onto any canvas; the player and the audit both use this
   function drawScene(key, cv, t, time) {
     const sc = SCENES.get(key); if (!sc) return false;
-    const ctx = cv.getContext('2d'); ctx.setTransform(cv.width / AW, 0, 0, cv.width / AW, 0, 0);
+    const ctx = cv.getContext('2d', { willReadFrequently: true }); ctx.setTransform(cv.width / AW, 0, 0, cv.width / AW, 0, 0);
     ctx.clearRect(0, 0, AW, AH);
     const bg = ctx.createLinearGradient(0, 0, 0, AH); bg.addColorStop(0, '#f8fafc'); bg.addColorStop(1, '#eef2f7'); ctx.fillStyle = bg; ctx.fillRect(0, 0, AW, AH);
     const st = cv.__g || (cv.__g = makeG(ctx)); st.ctx = ctx;
     if (st.lastT != null && t < st.lastT - 0.2) st.mem = {};                      // the loop restarted: start the scene fresh
     st.lastT = t; st.t = t; st.time = time == null ? t * sc.dur : time; st.X = null; st.flat = false; st.view(120, 122, 2.8);
-    try { sc.fn(st); } catch (e) { ctx.fillStyle = '#d9443a'; ctx.font = '10px sans-serif'; ctx.fillText('scene error: ' + e.message, 8, 14); if (root.console) console.warn('TipAnim scene ' + key + ': ' + e.message); return false; }
+    st.q = []; st.cur = [];
+    try { sc.fn(st); st.flushText(); } catch (e) { ctx.fillStyle = '#d9443a'; ctx.font = '10px sans-serif'; ctx.fillText('scene error: ' + e.message, 8, 14); if (root.console) console.warn('TipAnim scene ' + key + ': ' + e.message); return false; }
     return true;
   }
   function start(rootEl) {
