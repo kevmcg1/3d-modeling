@@ -76,6 +76,22 @@ const close = (a, b, tol, what) => assert(Math.abs(a - b) <= tol, `${what}: ${a}
     const r = await page.evaluate(() => { setWorkspace('model'); return ['f:bbox', 'f:cavity', 'f:skpat', 'i:draft', 'i:thick', 'i:under'].map(a => [a, !!document.querySelector(`[data-act="${a}"]`), !!TIP_TXT[a]]); });
     for (const [a, b, t] of r) assert(b && t, a + ' button/tip missing');
   });
+  await ok('the model worker (when it can load) evaluates the new features too', async () => {
+    const ctx = await browser.newContext(), p2 = await ctx.newPage(); const e2 = []; p2.on('pageerror', e => e2.push(e.message));
+    await ctx.route(/cdnjs.*three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
+    await p2.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
+    await p2.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' }));
+    await p2.goto('file://' + path.resolve(__dirname, '..', 'index.html')); await p2.waitForTimeout(2500);
+    const r = await p2.evaluate(async F => {
+      if (!Kernel.worker) return { worker: false };
+      loadDoc({ features: F, next: 200 }, 'x');
+      const c = await Kernel.evalAsync(0.05, doc.features.length);
+      return { worker: true, errors: c.errors, n: c.bodies.length };
+    }, [box(10, 'new', 0, 0, 0, 10, 10, 10), { id: 12, type: 'bbox', name: 'BB', bodies: [10], pad: 1 }]);
+    await ctx.close();
+    if (!r.worker) { console.log('   (worker could not start offline; skipped)'); return; }
+    assert.deepStrictEqual(r.errors, {}); assert.strictEqual(r.n, 2, JSON.stringify(r));
+  });
   await ok('no page errors', async () => assert.deepStrictEqual(errs, []));
   await browser.close();
   console.log(`\n${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

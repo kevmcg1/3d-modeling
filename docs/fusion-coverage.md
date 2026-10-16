@@ -48,7 +48,7 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | Delete Face | 🔜 4 | Healing by extending the neighbours is the hard part |
 | Replace Face | 🔜 6 | |
 | Physical Material | 🟡 | Per-body color exists; materials with density arrive with Physical Properties (batch 1) |
-| Change Parameters | 🟡 | Every feature keeps its own numbers and the history re-evaluates; no named parameter table (🔜 7) |
+| Change Parameters | ✅ | Parameters panel (Modify): named values with units and formulas; the ƒ beside any length or angle field takes an expression (batch 12). Sketch dimensions do not take expressions yet |
 
 ## Solid → Pattern and Mirror
 
@@ -143,7 +143,7 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | Parametric timeline (rollback, reorder, edit any step, suppress) | ✅ | Timeline and History |
 | Direct modeling alongside the history | ✅ | Push / Pull, Stretch, Align, Delete Body |
 | Components and browser tree | 🟡 | Bodies, planes and sketches in a tree; no nested components (🔜 10) |
-| User parameters and expressions in fields | 🔜 7 | |
+| User parameters and expressions in fields | ✅ | batch 12 (parameters.js) |
 | Render, Animation, Simulation, Generative design | 🟡 | Render look modes exist; cloud simulation and generative design are ⛔. Manufacture is the CAM tab, tracked separately |
 
 ## Batch plan
@@ -155,6 +155,7 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | 2 ✅ | Pipe, Pattern on Path, Ellipse, Slot |
 | 3 ✅ | Rib, Web, Spline, Overall Slot, Center Point Slot |
 | 4 | ✅ two-distance chamfer, Boundary Fill. Still open: variable and setback fillets, Split Face, Delete Face, planar Emboss |
+| 12 ✅ | User parameters and expressions (parameters.js) |
 | 11 ✅ | Bounding Box, Cavity, Sketch Driven Pattern, Draft Analysis, Wall Thickness, Undercut Analysis (more-tools.js) |
 | 5 | Sweep and Loft rails, mesh-only non-uniform Scale |
 | 6 | Standalone axes, tangent and two-edge planes, analysis overlays, Silhouette Split, Replace Face, Insert SVG / DXF |
@@ -218,6 +219,7 @@ Same legend as above. SolidWorks tools that are the same as a Fusion tool above 
 | Evaluate: Undercut Analysis | ✅ **new** | Faces hidden from both ends of the pull line |
 | Evaluate: Curvature, Zebra Stripes, Check, Geometry Analysis | 🔜 6 | |
 | Simulation, Flow Simulation | 🟡 | Stress / fixturing study ✅; fluid flow ⛔ |
-| Equations, Global Variables, Configurations, Design Tables | 🔜 7 | |
+| Equations, Global Variables | ✅ | Parameters panel |
+| Configurations, Design Tables | 🔜 7 | |
 
 Honest status: this app does not yet have every Fusion and SolidWorks 3D tool. The ⛔ rows need a different kernel (surface bodies, NURBS, T-splines), and the 🔜 rows are queued in the batch plan above.
