@@ -3642,9 +3642,19 @@ return {
 html, body { height: 100%; margin: 0; }
 body {
   background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font);
-  display: grid; grid-template-rows: auto 1fr; overflow: hidden;
+  display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; overflow: hidden;
   -webkit-font-smoothing: antialiased; font-feature-settings: "cv11", "ss01"; font-variant-numeric: tabular-nums;
 }
+/* site header and footer, matching Shop Tool Sim: a strip linking back to the portfolio above the app, the license line below it */
+.site-head { grid-row: 1; background: var(--panel); border-bottom: 1px solid var(--rule); font-size: 12.5px; }
+.site-head a { display: block; width: 100%; padding: 6px 14px; text-align: center; color: var(--ink); text-decoration: none; transition: color .2s ease, background-color .2s ease; }
+.site-head a:hover, .site-head a:focus-visible { color: var(--accent); background: var(--accent-soft); text-decoration: underline; text-underline-offset: 3px; outline: none; }
+#topbar { grid-row: 2; }
+#main, #sheetWs, #drawWs, #houseWs { grid-row: 3; }
+.foot { grid-row: 4; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 18px; padding: 8px 14px; background: var(--panel); border-top: 1px solid var(--rule); font-size: 12px; color: var(--muted); text-align: center; }
+.foot a { color: var(--ink); text-decoration: none; border-bottom: 1px solid transparent; }
+.foot a:hover, .foot a:focus-visible { color: var(--accent); border-bottom-color: currentColor; outline: none; }
+@media (max-width: 640px) { .foot { padding: 8px 10px; } }
 button, input, select { font: inherit; color: inherit; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 [hidden] { display: none !important; }
@@ -4372,6 +4382,7 @@ html.calm *, html.calm *::before, html.calm *::after { transition: none !importa
 </style>
 </head>
 <body>
+<header class="site-head" role="banner"><a href="https://kevmcg1.github.io/portfolio" target="_top" aria-label="Back to the portfolio at kevmcg1.github.io">KEVMCG1.GITHUB.IO</a></header>
 <header id="topbar">
   <div class="top-row">
   <div class="brand">
@@ -4459,6 +4470,7 @@ html.calm *, html.calm *::before, html.calm *::after { transition: none !importa
 <div id="sheetWs"><iframe id="ssgFrame" title="Setup sheet"></iframe></div>
 <div id="drawWs"><iframe id="d2dFrame" title="2D drawing" allow="clipboard-read; clipboard-write"></iframe></div>
 <div id="houseWs"><iframe id="houseFrame" title="House design" allow="clipboard-read; clipboard-write"></iframe></div>
+<footer class="foot"><span>Datum is released under GitHub’s <a href="https://github.com/github/choosealicense.com/blob/gh-pages/_licenses/cc0-1.0.txt" target="_blank" rel="license noopener noreferrer">Creative Commons Zero v1.0 Universal</a> license. All rights reserved.</span></footer>
 <div id="ctxmenu" hidden></div>
 <div id="modal" hidden><div class="card" id="modalCard"></div></div>
 <div id="dropHint" hidden>Drop a 3D file to import it</div>
