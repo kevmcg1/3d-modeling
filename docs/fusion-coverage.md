@@ -109,7 +109,8 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 
 | Fusion tool | Status | Notes |
 |---|---|---|
-| Flange, Bend, Unfold, Refold, Flat Pattern, Rip, Corner Relief | 🔜 9 | Needs a sheet-metal body type with bend allowance; the flat pattern would export to the 2D Drawing tab |
+| Flange (Base), Unfold / Flat Pattern | ✅ | batch 13: Base Flange from an open sketch profile with real bends; Flat Pattern body with true flat length and bend table |
+| Edge Flange, Bend, Refold, Rip, Corner Relief | 🔜 9 | Needs a sheet-metal body type with bend allowance; the flat pattern would export to the 2D Drawing tab |
 
 ## Form (T-spline sculpt)
 
@@ -155,6 +156,7 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | 2 ✅ | Pipe, Pattern on Path, Ellipse, Slot |
 | 3 ✅ | Rib, Web, Spline, Overall Slot, Center Point Slot |
 | 4 | ✅ two-distance chamfer, Boundary Fill. Still open: variable and setback fillets, Split Face, Delete Face, planar Emboss |
+| 13 ✅ | Sheet metal Base Flange and Flat Pattern (sheet-metal.js) |
 | 12 ✅ | User parameters and expressions (parameters.js) |
 | 11 ✅ | Bounding Box, Cavity, Sketch Driven Pattern, Draft Analysis, Wall Thickness, Undercut Analysis (more-tools.js) |
 | 5 | Sweep and Loft rails, mesh-only non-uniform Scale |
@@ -206,7 +208,8 @@ Same legend as above. SolidWorks tools that are the same as a Fusion tool above 
 | Bounding Box | ✅ **new** | Box body enclosing the picked bodies, with padding |
 | Curves: Projected, Composite, Split Line, Through XYZ, Helix/Spiral | 🟡 | Coil makes helical solids; curve features 🔜 6 |
 | Surfaces (extruded, revolved, lofted, planar, offset, knit, trim, extend) | ⛔ | No surface bodies in this kernel |
-| Sheet Metal (base flange, edge flange, miter, hem, jog, fold, unfold, flatten) | 🔜 9 | |
+| Sheet Metal: Base Flange (open profile, bend radius), Unfold / Flat Pattern with K-factor | ✅ **new** | batch 13 (sheet-metal.js) |
+| Sheet Metal: edge flange, miter flange, hem, jog, fold, corner relief | 🔜 9 | Need picking a sheet edge |
 | Weldments (structural members, gussets, end cap, trim/extend) | 🔜 9 | Pipe covers round and square tubing along a path |
 | Mold tools (parting line, shut-off, core/cavity split) | 🟡 | Cavity, Split Body, Boundary Fill and Draft Analysis cover the main steps |
 | Mates and assemblies | 🔜 10 | |

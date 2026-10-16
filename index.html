@@ -9109,6 +9109,69 @@ function evalSketchPattern(f, ctx) {
 }
 FEATX.skpat = evalSketchPattern;
 
+// ── Sheet metal, kernel half (panels in sheet-metal.js): Base Flange from an open profile, and the Flat Pattern body ──
+// The profile is the middle line of the sheet. Corners sharper than 20° get a bend: a tangent arc whose inner radius is f.r.
+function smPoints(ch, ctx, tol) {
+  const sk = byId(ch.sketch);
+  if (!sk) throw new Error('The profile sketch was deleted');
+  const pl = ctx.planes[sk.id] || sk.plane, { segs, closed } = pathSegments(ch, ctx), pts = [];
+  segs.forEach((g, gi) => {
+    const m = g.k === 'L' ? 1 : Math.max(4, Math.ceil(circleN(g.r, tol) * g.len / (TAU * g.r)));
+    for (let i = gi === 0 ? 0 : 1; i <= m; i++) { const q = g.at(g.len * i / m); pts.push(P2(dot3(sub3(q, pl.o), pl.u), dot3(sub3(q, pl.o), pl.v))); }
+  });
+  const clean = pts.filter((p, i) => !i || dst2(p, pts[i - 1]) > 1e-9);
+  if (closed) throw new Error('A sheet metal profile has to be open');
+  if (clean.length < 2) throw new Error('The profile is too short');
+  return { pl, pts: clean };
+}
+function smBend(pts, r, t, kf, tol) {
+  const rc = r + t / 2, n = pts.length, dirs = [], trim = new Array(n).fill(0), out = [pts[0]], bends = [];
+  for (let i = 0; i + 1 < n; i++) dirs.push(nrm2(sub2(pts[i + 1], pts[i])));
+  for (let i = 1; i + 1 < n; i++) {
+    const a = dirs[i - 1], b = dirs[i], th = Math.acos(Math.max(-1, Math.min(1, dot2(a, b))));
+    if (th < 0.35) { out.push(pts[i]); continue; }
+    const lim = 0.49 * Math.min(dst2(pts[i - 1], pts[i]), dst2(pts[i], pts[i + 1])), T = Math.min(rc * Math.tan(th / 2), lim), rce = T / Math.tan(th / 2);
+    const s = (a.x * b.y - a.y * b.x) > 0 ? 1 : -1, p0 = sub2(pts[i], mul2(a, T)), c = add2(p0, mul2(P2(-a.y, a.x), s * rce)), a0 = Math.atan2(p0.y - c.y, p0.x - c.x);
+    const step = Math.max(0.05, 2 * Math.acos(Math.max(0, 1 - tol / (rce + t / 2)))), m = Math.min(64, Math.max(3, Math.ceil(th / step)));
+    out.push(p0);
+    for (let k = 1; k < m; k++) { const ang = a0 + s * th * k / m; out.push(P2(c.x + rce * Math.cos(ang), c.y + rce * Math.sin(ang))); }
+    out.push(add2(pts[i], mul2(b, T)));
+    trim[i] = T; bends.push({ ang: th, r: rce - t / 2, ba: th * (rce - t / 2 + kf * t) });
+  }
+  out.push(pts[n - 1]);
+  let straight = 0;
+  for (let i = 0; i + 1 < n; i++) straight += dst2(pts[i], pts[i + 1]) - trim[i] - trim[i + 1];
+  return { pts: out, bends, straight, flat: straight + bends.reduce((s, b) => s + b.ba, 0) };
+}
+function evalSMBase(f, ctx, tol) {
+  const t = +f.t, w = +f.width;
+  if (!(t > 0)) throw new Error('The sheet thickness has to be positive');
+  if (!(w > 0)) throw new Error('The sheet width has to be positive');
+  if (!(+f.r >= 0)) throw new Error('The bend radius cannot be negative');
+  if (!f.chain) throw new Error('Pick the profile curves');
+  const { pl, pts } = smPoints(f.chain, ctx, tol), bent = smBend(pts, +f.r, t, +f.kf, tol);
+  const z0 = f.sym ? -w / 2 : 0, z1 = f.sym ? w / 2 : w;
+  finishTool(f, ctx, prism(ribLoops(bent.pts, false, t / 2), pl, z0, z1, tol, f.id));
+}
+FEATX.smbase = evalSMBase;
+function smFlatInfo(f, ctx, tol) {
+  const src = doc.features.find(x => x.id === f.src && x.type === 'smbase');
+  if (!src) throw new Error('Pick the sheet metal base flange to unfold');
+  const { pts } = smPoints(src.chain, ctx, tol), b = smBend(pts, +src.r, +src.t, +src.kf, tol);
+  return { src, len: b.flat, bends: b.bends, width: +src.width, t: +src.t };
+}
+function evalSMFlat(f, ctx, tol) {
+  const i = smFlatInfo(f, ctx, tol);
+  let x1 = -Infinity, y0 = Infinity, z0 = Infinity;
+  for (const b of ctx.bodies) { x1 = Math.max(x1, b.bb[3]); y0 = Math.min(y0, b.bb[1]); z0 = Math.min(z0, b.bb[2]); }
+  if (!isFinite(x1)) { x1 = 0; y0 = 0; z0 = 0; }
+  const pl = { o: [x1 + (+f.gap || 0), y0 + i.t, z0], u: [1, 0, 0], v: [0, 0, 1], n: [0, -1, 0] };
+  const flat = prism({ outer: loopOf([P2(0, 0), P2(i.len, 0), P2(i.len, i.width), P2(0, i.width)], 1), holes: [] }, pl, 0, i.t, tol, f.id);
+  ctx.bodies = [...ctx.bodies, mkBody(f.id, flat)];
+  ctx.hl[f.id] = [f.id];
+}
+FEATX.smflat = evalSMFlat;
+
 // ── Rib / Web: thin walls from open sketch curves, extruded square to the sketch plane ──
 // A chain of lines and arcs is sampled, thickened to a flat-ended strip (mitered at bends) and extruded; several chains make a web.
 function ribLoops(pts, closed, h) {
@@ -37335,6 +37398,7 @@ function gsPick(i) {
 <script src="fusion-tools.js"></script>
 <script src="more-tools.js"></script>
 <script src="parameters.js"></script>
+<script src="sheet-metal.js"></script>
 <!-- Export log, settings cog, mouse and keyboard layouts: own file so it can be loaded last -->
 <script src="input-settings.js"></script>
 </body>
