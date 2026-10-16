@@ -155,9 +155,68 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | 2 ✅ | Pipe, Pattern on Path, Ellipse, Slot |
 | 3 ✅ | Rib, Web, Spline, Overall Slot, Center Point Slot |
 | 4 | ✅ two-distance chamfer, Boundary Fill. Still open: variable and setback fillets, Split Face, Delete Face, planar Emboss |
+| 11 ✅ | Bounding Box, Cavity, Sketch Driven Pattern, Draft Analysis, Wall Thickness (more-tools.js) |
 | 5 | Sweep and Loft rails, mesh-only non-uniform Scale |
 | 6 | Standalone axes, tangent and two-edge planes, analysis overlays, Silhouette Split, Replace Face, Insert SVG / DXF |
 | 7 | Sketch constraints and user parameters |
 | 8 | Mesh tools |
 | 9 | Sheet metal |
 | 10 | Components and joints |
+
+## SolidWorks 3D modeling: coverage
+
+Same legend as above. SolidWorks tools that are the same as a Fusion tool above point to it. "New" marks tools added in batch 11 (`more-tools.js`).
+
+| SolidWorks feature | Status | Notes |
+|---|---|---|
+| Extruded Boss/Base, Extruded Cut | ✅ | Extrude (New / Join / Cut / Intersect, to object, through all) |
+| Revolved Boss/Base, Revolved Cut | ✅ | Revolve |
+| Swept Boss/Base, Swept Cut | 🟡 | Sweep, no guide curves yet (batch 5) |
+| Lofted Boss/Base, Lofted Cut | 🟡 | Loft, no guide curves yet (batch 5) |
+| Boundary Boss/Base | ⛔ | Needs surface bodies |
+| Fillet (constant) | ✅ | Variable, face and full-round fillets 🔜 4 |
+| Chamfer | ✅ | Distance-distance and distance-angle |
+| Shell | ✅ | Open faces, uniform wall; multi-thickness 🔜 4 |
+| Draft | ✅ | Neutral plane |
+| Rib | ✅ | Rib / Web |
+| Wrap | ⛔ | Needs face-parametric projection onto curved faces |
+| Dome | 🔜 6 | |
+| Hole Wizard | ✅ | Simple, counterbore, countersink, tapped (Hole) |
+| Simple Hole | ✅ | Hole |
+| Thread | ✅ | Modeled threads |
+| Linear Pattern, Circular Pattern | ✅ | Rectangular and Circular Pattern |
+| Curve Driven Pattern | ✅ | Pattern on Path |
+| Sketch Driven Pattern | ✅ **new** | Copies to every circle center (or corner) of a sketch |
+| Table Driven, Fill Pattern, Variable Pattern | 🔜 6 | |
+| Mirror (features, bodies) | ✅ | |
+| Move/Copy Body, Rotate Body | ✅ | Move / Copy, Rotate |
+| Scale | 🟡 | Uniform only |
+| Indent, Flex | 🟡 | Deform covers bend, twist, taper and warp; Indent 🔜 6 |
+| Cavity | ✅ **new** | Tool bodies cut from a target, with a % scale for clearance or shrink |
+| Combine (Add, Subtract, Common) | ✅ | Combine |
+| Split | ✅ | Split Body by plane or face; Split Line 🔜 4 |
+| Intersect | ✅ | Combine → Intersect, Boundary Fill |
+| Delete Face, Delete/Keep Body | 🟡 | Delete Body ✅; Delete Face 🔜 4 |
+| Move Face, Offset Face | ✅ | Push / Pull |
+| Replace Face | 🔜 6 | |
+| Reference Geometry: Plane (offset, angle, 3 points, mid-plane) | ✅ | |
+| Reference Geometry: Plane (tangent, on surface, two edges), Axis, Coordinate System | 🔜 6 | |
+| Reference Geometry: Point | ✅ | |
+| Bounding Box | ✅ **new** | Box body enclosing the picked bodies, with padding |
+| Curves: Projected, Composite, Split Line, Through XYZ, Helix/Spiral | 🟡 | Coil makes helical solids; curve features 🔜 6 |
+| Surfaces (extruded, revolved, lofted, planar, offset, knit, trim, extend) | ⛔ | No surface bodies in this kernel |
+| Sheet Metal (base flange, edge flange, miter, hem, jog, fold, unfold, flatten) | 🔜 9 | |
+| Weldments (structural members, gussets, end cap, trim/extend) | 🔜 9 | Pipe covers round and square tubing along a path |
+| Mold tools (parting line, shut-off, core/cavity split) | 🟡 | Cavity, Split Body, Boundary Fill and Draft Analysis cover the main steps |
+| Mates and assemblies | 🔜 10 | |
+| Evaluate: Measure | ✅ | |
+| Evaluate: Mass Properties | ✅ | Physical Properties |
+| Evaluate: Interference Detection | ✅ | |
+| Evaluate: Section View | ✅ | Section Analysis |
+| Evaluate: Draft Analysis | ✅ **new** | Positive, negative and needs-draft faces for a pull direction; one-way or two-part mold |
+| Evaluate: Thickness Analysis | ✅ **new** | Ray-based wall thickness with a flag limit |
+| Evaluate: Undercut, Curvature, Zebra Stripes, Check, Geometry Analysis | 🔜 6 | |
+| Simulation, Flow Simulation | 🟡 | Stress / fixturing study ✅; fluid flow ⛔ |
+| Equations, Global Variables, Configurations, Design Tables | 🔜 7 | |
+
+Honest status: this app does not yet have every Fusion and SolidWorks 3D tool. The ⛔ rows need a different kernel (surface bodies, NURBS, T-splines), and the 🔜 rows are queued in the batch plan above.
