@@ -155,7 +155,7 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | 2 ✅ | Pipe, Pattern on Path, Ellipse, Slot |
 | 3 ✅ | Rib, Web, Spline, Overall Slot, Center Point Slot |
 | 4 | ✅ two-distance chamfer, Boundary Fill. Still open: variable and setback fillets, Split Face, Delete Face, planar Emboss |
-| 11 ✅ | Bounding Box, Cavity, Sketch Driven Pattern, Draft Analysis, Wall Thickness (more-tools.js) |
+| 11 ✅ | Bounding Box, Cavity, Sketch Driven Pattern, Draft Analysis, Wall Thickness, Undercut Analysis (more-tools.js) |
 | 5 | Sweep and Loft rails, mesh-only non-uniform Scale |
 | 6 | Standalone axes, tangent and two-edge planes, analysis overlays, Silhouette Split, Replace Face, Insert SVG / DXF |
 | 7 | Sketch constraints and user parameters |
@@ -215,7 +215,8 @@ Same legend as above. SolidWorks tools that are the same as a Fusion tool above 
 | Evaluate: Section View | ✅ | Section Analysis |
 | Evaluate: Draft Analysis | ✅ **new** | Positive, negative and needs-draft faces for a pull direction; one-way or two-part mold |
 | Evaluate: Thickness Analysis | ✅ **new** | Ray-based wall thickness with a flag limit |
-| Evaluate: Undercut, Curvature, Zebra Stripes, Check, Geometry Analysis | 🔜 6 | |
+| Evaluate: Undercut Analysis | ✅ **new** | Faces hidden from both ends of the pull line |
+| Evaluate: Curvature, Zebra Stripes, Check, Geometry Analysis | 🔜 6 | |
 | Simulation, Flow Simulation | 🟡 | Stress / fixturing study ✅; fluid flow ⛔ |
 | Equations, Global Variables, Configurations, Design Tables | 🔜 7 | |
 
