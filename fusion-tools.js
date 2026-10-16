@@ -109,7 +109,7 @@
 
   // ── Inspect: Physical Properties, Interference, Section Analysis ───
   const MATS = [['Steel (1018)', 7.87], ['Stainless 304', 8.0], ['Aluminum 6061', 2.7], ['Brass', 8.5], ['Copper', 8.96], ['Titanium Gr 5', 4.43], ['Cast iron', 7.2], ['ABS', 1.04], ['PLA', 1.24], ['Nylon', 1.15], ['Delrin (acetal)', 1.41]];
-  const INSP = { mat: 0, sec: { w: 'XZ', pos: null, flip: false }, props: null, interf: null, secData: null, planeArr: null, clipOn: false, grp: new THREE.Group(), key: '' };
+  const INSP = { mat: 0, sec: { w: 'XZ', pos: null, flip: false }, props: null, interf: null, secData: null, body: {}, bind: {}, hint: {}, open: {}, planeArr: null, clipOn: false, grp: new THREE.Group(), key: '' };
   scene.add(INSP.grp);
   window.FUSION1 = INSP;                                           // handle for the tests
   const SEC_PLANES = [['XZ', 'Top'], ['XY', 'Front'], ['YZ', 'Side']];
@@ -123,6 +123,7 @@
     if (!r) { const m = bodyMesh(b), VP = m.VP; r = m.PL.map(p => CSG.poly(p.ids.map(i => VP[i]), 0)); POLYS.set(b, r); }
     return r;
   };
+  INSP.bodyPolys = bodyPolys;
   // volume, area, centroid of a closed polygon solid (signed tetrahedra against the origin)
   function polyStats(ps) {
     let V = 0, A = 0, cx = 0, cy = 0, cz = 0;
@@ -222,15 +223,18 @@
     if (kind === 'props') INSP.props = computeProps();
     if (kind === 'interf') { INSP.interf = computeInterf(); buildInterfGrp(INSP.interf); }
     if (kind === 'section') { const [lo, hi] = secRange(); INSP.sec.pos = (lo + hi) / 2; updateSection(); }
+    if (INSP.open[kind]) { clearGrp(); INSP.open[kind](); }          // inspect kinds added by other files (more-tools.js)
     refreshUI(); requestDraw();
   }
   function updateSection() { setClip(true); INSP.secData = computeSection(); buildSecGrp(INSP.secData); requestDraw(); }
   CMD_HANDLERS.inspect = { move() { ov.className = 'default'; }, click() {} };
 
+  INSP.titleOf = {}; INSP.tagOf = {}; INSP.clearGrp = clearGrp;
   const titleOf = { props: 'Physical Properties', interf: 'Interference', section: 'Section Analysis' };
   const tagOf = { props: 'mass · volume', interf: 'overlaps', section: 'cut plane' };
   function inspectBody() {
     const k = CMD.kind;
+    if (INSP.body[k]) return INSP.body[k]();
     if (k === 'props') {
       const P = INSP.props && INSP.props.model === MODEL ? INSP.props : (INSP.props = computeProps()), mat = MATS[INSP.mat];
       if (!P.rows.length) return '<p class="note">There are no visible bodies to measure.</p>';
@@ -267,9 +271,10 @@
       + '<p class="note">Everything on the far side of the plane is hidden; the orange outline is where it cuts. Nothing in the model changes.</p>';
   }
   function inspectPanel() {
-    return `<div class="pn-head"><h2>${titleOf[CMD.kind]}</h2><span class="tag">${tagOf[CMD.kind]}</span></div><div class="pn-body">${inspectBody()}<div class="btns"><button class="btn primary" data-do="cancel">Done</button></div></div>`;
+    return `<div class="pn-head"><h2>${titleOf[CMD.kind] || INSP.titleOf[CMD.kind]}</h2><span class="tag">${tagOf[CMD.kind] || INSP.tagOf[CMD.kind]}</span></div><div class="pn-body">${inspectBody()}<div class="btns"><button class="btn primary" data-do="cancel">Done</button></div></div>`;
   }
   function bindInspect() {
+    if (INSP.bind[CMD.kind]) INSP.bind[CMD.kind](panel);
     panel.querySelectorAll('[data-insp="mat"]').forEach(s => s.addEventListener('change', () => { INSP.mat = +s.value; refreshPanel(); }));
     panel.querySelectorAll('[data-insp-do="recheck"]').forEach(b => b.addEventListener('click', () => { INSP.interf = null; refreshPanel(); requestDraw(); }));
     panel.querySelectorAll('[data-insp-set]').forEach(b => b.addEventListener('click', () => { INSP.sec[b.dataset.inspSet] = b.dataset.v; const [lo, hi] = secRange(); INSP.sec.pos = (lo + hi) / 2; updateSection(); refreshPanel(); }));
@@ -314,7 +319,7 @@
     const k = s => `<span class="kbd">${s}</span>`;
     hintEl.innerHTML = { props: `<b>Physical Properties:</b> pick a material to see the mass. The marker is the center of mass. ${k('Esc')} closes.`,
       interf: `<b>Interference:</b> overlaps between bodies show in red. ${k('Esc')} closes.`,
-      section: `<b>Section Analysis:</b> drag the slider to move the cut plane. Nothing in the model changes. ${k('Esc')} closes.` }[CMD.kind];
+      section: `<b>Section Analysis:</b> drag the slider to move the cut plane. Nothing in the model changes. ${k('Esc')} closes.` }[CMD.kind] || (INSP.hint[CMD.kind] ? INSP.hint[CMD.kind](k) : '');
   };
   const drawMeasurements0 = drawMeasurements;
   drawMeasurements = function () {
@@ -332,7 +337,7 @@
   const applyModel0 = applyModel;
   applyModel = function () {
     const r = applyModel0.apply(this, arguments);
-    if (CMD && CMD.type === 'inspect') { if (CMD.kind === 'interf') INSP.interf = null; if (CMD.kind === 'props') INSP.props = null; }
+    if (CMD && CMD.type === 'inspect') { if (CMD.kind === 'interf') INSP.interf = null; if (CMD.kind === 'props') INSP.props = null; if (INSP.stale) INSP.stale(CMD.kind); }
     return r;
   };
   const action0 = action;
