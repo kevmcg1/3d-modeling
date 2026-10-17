@@ -93,7 +93,7 @@
     })));
     const table = () => { const P = doc.params || [], C = cfgs(); return [['parameter', ...C.map(c => c.name)], ...P.map(p => [p.name, ...C.map(c => (c.vals && p.name in c.vals ? c.vals[p.name] : p.expr))])]; };
     const q = v => (/[",\n]/.test(v) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v));
-    pn.querySelectorAll('[data-cf-csv]').forEach(b => b.addEventListener('click', () => { INSP.lastCsv = table().map(r => r.map(q).join(',')).join('\n'); try { navigator.clipboard.writeText(INSP.lastCsv); } catch (e) { /* not available */ } toast('Design table copied'); }));
+    pn.querySelectorAll('[data-cf-csv]').forEach(b => b.addEventListener('click', () => { INSP.lastCsv = table().map(r => r.map(q).join(',')).join('\n'); let ok = true; try { navigator.clipboard.writeText(INSP.lastCsv).catch(() => toast('Could not copy the design table')); } catch (e) { ok = false; } toast(ok ? 'Design table copied' : 'Could not copy the design table'); }));
     pn.querySelectorAll('[data-cf-load]').forEach(b => b.addEventListener('click', () => {
       const ta = pn.querySelector('[data-cf-paste]'); if (ta) loadCsv(ta.value);
     }));

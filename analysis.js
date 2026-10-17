@@ -32,7 +32,7 @@
     const mat = new THREE.ShaderMaterial({
       uniforms: { uAxis: { value: new THREE.Vector3(a[0], a[1], a[2]) }, uFreq: { value: 1 / (ZB.width * 0.01) } },
       vertexShader: 'varying vec3 vN; varying vec3 vP; void main(){ vN = normalize(normalMatrix * normal); vec4 mv = modelViewMatrix * vec4(position,1.0); vP = mv.xyz; gl_Position = projectionMatrix * mv; }',
-      fragmentShader: 'uniform vec3 uAxis; uniform float uFreq; varying vec3 vN; varying vec3 vP; void main(){ vec3 n = normalize(vN); if(!gl_FrontFacing) n = -n; vec3 I = projectionMatrix[3][3] == 1.0 ? vec3(0.0,0.0,-1.0) : normalize(vP); vec3 R = reflect(I, n); vec3 ax = normalize(mat3(viewMatrix) * uAxis); float t = dot(R, ax) * uFreq * 0.5; float band = step(0.5, fract(t)); vec3 c = mix(vec3(0.07,0.08,0.1), vec3(0.96,0.97,0.98), band); gl_FragColor = vec4(c, 1.0); }',
+      fragmentShader: 'uniform mat4 projectionMatrix; uniform vec3 uAxis; uniform float uFreq; varying vec3 vN; varying vec3 vP; void main(){ vec3 n = normalize(vN); if(!gl_FrontFacing) n = -n; vec3 I = projectionMatrix[3][3] == 1.0 ? vec3(0.0,0.0,-1.0) : normalize(vP); vec3 R = reflect(I, n); vec3 ax = normalize(mat3(viewMatrix) * uAxis); float t = dot(R, ax) * uFreq * 0.5; float band = step(0.5, fract(t)); vec3 c = mix(vec3(0.07,0.08,0.1), vec3(0.96,0.97,0.98), band); gl_FragColor = vec4(c, 1.0); }',
       side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
     });
     const m = new THREE.Mesh(g, mat); m.renderOrder = 19; m.userData.zebra = true; INSP.grp.add(m);
