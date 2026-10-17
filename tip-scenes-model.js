@@ -108,8 +108,8 @@
     g.dot([8 * k, 7 * k, 10 * k], 'r', 3); g.cursorAt([8 * k + 4, 7 * k + 4, 10 * k], 0);
   });
   S('f:stretch', g => {
-    bigView(g, 138, 2.6); const L = 12 + 20 * g.seg(0.3, 0.8); dashBox(g, -8, -7, 0, 16, 14, 10); g.box(-8, -7, 0, L + 4, 14, 10, 'a');
-    g.fill([[L - 4, -7, 0], [L - 4, 7, 0], [L - 4, 7, 10], [L - 4, -7, 10]], 'c', { a: 0.4, stroke: 'c' }); g.arrow([L - 4, 0, 5], [L + 8, 0, 5], 'r', 1.6); g.cursorAt([L + 8, 0, 5], 0);
+    bigView(g, 124, 2.6); const L = 10 + 14 * g.seg(0.3, 0.8); dashBox(g, -8, -7, 0, 16, 14, 10); g.box(-8, -7, 0, L + 4, 14, 10, 'a');
+    g.fill([[L - 4, -7, 0], [L - 4, 7, 0], [L - 4, 7, 10], [L - 4, -7, 10]], 'c', { a: 0.4, stroke: 'c' }); g.arrow([L - 4, 0, 5], [L + 6, 0, 5], 'r', 1.6); g.cursorAt([L + 6, 0, 5], 0);
   });
   S('f:delbody', g => {
     bigView(g, 136, 2.7); g.box(-24, -7, 0, 16, 14, 10, 'n'); const u = g.seg(0.55, 0.8), sel = g.t > 0.25;
@@ -139,15 +139,21 @@
   });
 
   /* ── modify ── */
-  const edgeBlock = (g, kind, p) => {
-    const r = 5, cx = 15 - r, cz = 14 - r, arc = kind === 'round' ? Array.from({ length: 8 }, (_, i) => [cx + r * Math.cos(Math.PI / 2 * i / 7), cz + r * Math.sin(Math.PI / 2 * i / 7)]) : [[15, cz], [cx, 14]];
-    const prof = [[-15, 0], [15, 0], ...arc, [-15, 14]].map(q => [q[0] * 0.6, q[1] * 0.7]), sharp = [[-9, 0], [9, 0], [9, 9.8], [-9, 9.8]], xr = -12 + 24 * p;
-    g.axisPrism('x', prof.map(q => [q[0], q[1]]), -12, Math.max(0.01, xr + 12), 'n', { smooth: kind === 'round' });
-    if (xr < 12) g.axisPrism('x', sharp, xr, 12 - xr, 'n'); return xr;
+  // the whole edge rounds (or bevels) at once: the size grows from nothing, measured in from the edge, and nothing slides along the part
+  const edgeGrow = (g, kind) => {
+    bigView(g, 138, 3);
+    const W = 9, Hh = 9.8, u = g.seg(0.25, 0.85), r = Math.max(0.01, 5 * u), cy = W - r, cz = Hh - r;
+    const arc = kind === 'round' ? Array.from({ length: 9 }, (_, i) => [cy + r * Math.cos(Math.PI / 2 * i / 8), cz + r * Math.sin(Math.PI / 2 * i / 8)]) : [[W, cz], [cy, Hh]];
+    g.axisPrism('x', [[-W, 0], [W, 0], ...arc, [-W, Hh]], -12, 24, 'n', { smooth: kind === 'round' });
+    if (g.t < 0.3) g.line([[-12, W, Hh], [12, W, Hh]], 'a', 2.2);   // the edge that gets picked
+    if (u > 0.02) {   // the size, drawn on the end face from the edge inwards: two legs and the corner they leave
+      g.line([[12, W, cz], [12, W - r, cz]], 'r', 1.2, { dash: [2, 1.5] }); g.line([[12, cy, Hh], [12, cy, cz]], 'r', 1.2, { dash: [2, 1.5] });
+      label(g, [28, W - 4, Hh + 16], (Math.round(r * 10) / 10) + ' mm');
+    }
+    g.cursorAt([-6, W, Hh], pulse(g, 0.1, 0.22));
   };
-  const edgeRoll = (g, kind) => { bigView(g, 138, 3); const xr = edgeBlock(g, kind, g.seg(0.2, 0.85)); if (kind === 'round') g.sphere(xr, 3.4, 7.5, 3, 'a'); else g.cone(xr, 3.4, 6, 0.1, 4, 4, 'a'); g.line([[-12, 9, 9.8], [12, 9, 9.8]], 'a', 0); g.cursorAt([xr, 9, 11], 0); };
-  S('fillet3', g => edgeRoll(g, 'round'));
-  S('chamfer3', g => edgeRoll(g, 'flat'));
+  S('fillet3', g => edgeGrow(g, 'round'));
+  S('chamfer3', g => edgeGrow(g, 'flat'));
   S('f:shell', g => {
     bigView(g, 134, 3); const u = g.seg(0.4, 0.85), top = [[-12, -9, 12], [12, -9, 12], [12, 9, 12], [-12, 9, 12]];
     g.prism(R(24, 18), 0, 12, 'n', { holes: [{ pts: R(24 - 5, 18 - 5), depth: 9.5 * u }] });

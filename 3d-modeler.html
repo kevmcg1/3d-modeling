@@ -6,6 +6,7 @@
 <link rel="preload" href="fonts/inter-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 
 <meta charset="UTF-8">
+<meta name="robots" content="noai, noimageai">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>3D Modeler</title>
 <script>try { document.documentElement.setAttribute("data-theme", localStorage.getItem("datum.theme") === "dark" ? "dark" : "light"); } catch (e) { document.documentElement.setAttribute("data-theme", "light"); }   // light unless the user chose dark</script>
@@ -3770,11 +3771,15 @@ body.col-drag { cursor: col-resize; user-select: none; }
   background: linear-gradient(180deg, var(--view-top), var(--view-bot)); touch-action: none; }
 #gl, #ov { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 /* Shaded mode "studio look": a light vignette backdrop (warm white centre, cool grey edges); sketch ink and grid use the light-theme set so they read on it in either UI theme */
-:root[data-look="shaded"] { --look-a: #fbf7f4; --look-b: #e6e5e7; --look-c: #bcc2cd;
+:root[data-look="shaded"] { --look-a: #fbf7f4; --look-b: #e6e5e7; --look-c: #bcc2cd; --edge: #1c232d; --body: #b4bec9; }
+/* light theme: sketch ink and grid use the dark set so they read on the pale backdrop */
+:root[data-look="shaded"]:not([data-theme="dark"]) {
   --sk-line: #17202c; --sk-cons: #d9792a; --sk-proj: #8b4fd0; --sk-sel: #2460c8; --sk-hot: #3d7cf0; --sk-pt: #17202c;
   --sk-profile: rgba(236, 166, 52, .20); --sk-profile-hot: rgba(236, 166, 52, .42); --sk-profile-sel: rgba(36, 96, 200, .30);
-  --sk-dim: rgba(23, 32, 44, .45); --grid-minor: rgba(35, 52, 76, .07); --grid-major: rgba(35, 52, 76, .15); --edge: #1c232d; --body: #b4bec9;
+  --sk-dim: rgba(23, 32, 44, .45); --grid-minor: rgba(35, 52, 76, .07); --grid-major: rgba(35, 52, 76, .15);
   --axis-u: #cf4236; --axis-v: #2b9650; --snap: #e2630f; --face-hot: #3d7cf0; --plane: #6f9be8; }
+/* dark theme: a dark studio backdrop (cool charcoal centre, near-black edges) and the dark theme's light ink */
+:root[data-look="shaded"][data-theme="dark"] { --look-a: #3a414c; --look-b: #262b33; --look-c: #111317; --edge: #0b0e12; --body: #9aa6b4; }
 :root[data-look="shaded"] #viewport, :root[data-look="shaded"] body.ws-cam #viewport { background:
   radial-gradient(ellipse 90% 80% at 42% 38%, var(--look-a) 0%, var(--look-b) 58%, var(--look-c) 100%); }
 #ov { cursor: crosshair; }
@@ -5657,7 +5662,7 @@ function clipHalf(vs, n, w, cut) {
 // ── Straight-edge corner tool (fillet or chamfer) ──────────────────
 // E0,E1 edge ends; t1,t2 unit directions along each face away from the
 // edge. Returns closed polygons of the corner region to remove or add.
-function cornerProfile(t1, t2, kind, size, tol, chm) {
+function cornerProfile(t1, t2, kind, size, tol, chm, nForce) {
   // Profile of the corner region as 3D offsets from the edge point E.
   // It is pushed a little past both faces (into air for cuts, into
   // material for fills) so the tool never lies exactly on a body face —
@@ -5676,7 +5681,7 @@ function cornerProfile(t1, t2, kind, size, tol, chm) {
   }
   const s = size / Math.tan(al / 2), bis = nrm3(add3(t1, t2)), C = mul3(bis, size / Math.sin(al / 2));
   const T1 = mul3(t1, s), T2 = mul3(t2, s), a = nrm3(sub3(T1, C)), b = nrm3(sub3(T2, C));
-  const sweep = Math.acos(clamp(dot3(a, b), -1, 1)), n = Math.max(2, Math.ceil(circleN(size, tol) * sweep / TAU));
+  const sweep = Math.acos(clamp(dot3(a, b), -1, 1)), n = nForce || Math.max(2, Math.ceil(circleN(size, tol) * sweep / TAU));
   const pts = [P0, add3(T1, mul3(e1, dl)), T1];
   const c = nrm3(sub3(b, mul3(a, dot3(a, b))));
   for (let i = 1; i < n; i++) { const t = sweep * i / n; pts.push(add3(C, mul3(add3(mul3(a, Math.cos(t)), mul3(c, Math.sin(t))), size))); }
@@ -5707,6 +5712,34 @@ function linearCornerTool(E0, E1, t1, t2, kind, size, tol, meta, chm) {
     if (isArc(i, j)) { f = Surf.cyl(add3(E0, pr.arc.C), d, size, -1); Surf.addMeta(f, meta); }
     else { const p = CSG.poly(quad, 0); f = Surf.plane(p.n, p.w); if (isFace(i, j)) Surf.addMeta(f, meta); }
     polys.push(CSG.poly(quad, f));
+  }
+  return polys;
+}
+// Variable-radius fillet on a straight edge: the corner profile at radius r0 lofted to radius r1.
+// The sides between the two sections are skewed, so every strip is split into triangles on planes of their own.
+function varCornerTool(E0, E1, t1, t2, r0, r1, tol, meta) {
+  const al = Math.acos(clamp(dot3(t1, t2), -1, 1));
+  if (al < 1e-3 || al > Math.PI - 1e-3) return null;
+  const sw = Math.PI - al, rm = Math.max(r0, r1), n = Math.max(3, Math.ceil(circleN(rm, tol) * sw / TAU));
+  const pa = cornerProfile(t1, t2, 'fillet', r0, tol, null, n), pb = cornerProfile(t1, t2, 'fillet', r1, tol, null, n);
+  if (!pa || !pb || pa.pts.length !== pb.pts.length) return null;
+  const d = nrm3(sub3(E1, E0)), P0 = pa.pts.map(p => add3(E0, p)), P1 = pb.pts.map(p => add3(E1, p));
+  const polys = [], m = P0.length, idx = [...Array(m).keys()];
+  if (dot3(newellN(P0), d) > 0) idx.reverse();
+  const capA = Surf.plane(neg3(d), -dot3(d, E0)), capB = Surf.plane(d, dot3(d, E1));
+  for (const t of fan(fromP0(idx.map(i => P0[i]), P0[0]))) polys.push(CSG.poly(t, capA, neg3(d), -dot3(d, E0)));
+  for (const t of fan(fromP0(idx.slice().reverse().map(i => P1[i]), P1[0]))) polys.push(CSG.poly(t, capB, d, dot3(d, E1)));
+  const from = pa.arc.from, to = pa.arc.to;
+  for (let k = 0; k < m; k++) {
+    const i = idx[k], j = idx[(k + 1) % m], onArc = Math.abs(i - j) === 1 && Math.min(i, j) >= from && Math.max(i, j) <= to;
+    const isFace = Math.min(i, j) === pa.face?.[0] && Math.max(i, j) === pa.face?.[1];
+    const quad = [P0[i], P1[i], P1[j], P0[j]], flat = Math.abs(dot3(nrm3(crs3(sub3(quad[1], quad[0]), sub3(quad[3], quad[0]))), sub3(quad[2], quad[0]))) < 1e-7 * (1 + len3(sub3(quad[2], quad[0])));
+    const tris = flat ? [quad] : [[quad[0], quad[1], quad[2]], [quad[0], quad[2], quad[3]]];
+    for (const tq of tris) {
+      const p = CSG.poly(tq, 0); if (!p) continue;
+      const f = Surf.plane(p.n, p.w); if (onArc || isFace) Surf.addMeta(f, meta);
+      polys.push(CSG.poly(tq, f));
+    }
   }
   return polys;
 }
@@ -5950,7 +5983,7 @@ function edgeTool(body, mesh, ch, kind, size, tol, meta, chm) {
     const t1 = perp(cA), t2 = perp(cB);
     // Exact: an edge is convex when face A's outward normal points away from face B.
     const convex = dot3(Surf.list[ch.fa].n, t2) < 0;
-    const polys = linearCornerTool(g.a, g.b, t1, t2, kind, size, tol, meta, chm);
+    const polys = kind === 'fillet' && chm && chm.rEnd > 0 ? (chm.flip ? varCornerTool(g.a, g.b, t1, t2, chm.rEnd, size, tol, meta) : varCornerTool(g.a, g.b, t1, t2, size, chm.rEnd, tol, meta)) : linearCornerTool(g.a, g.b, t1, t2, kind, size, tol, meta, chm);
     if (!polys) return { err: 'Faces are tangent — nothing to round' };
     return { pieces: [polys], op: convex ? 'sub' : 'add' };
   }
@@ -6102,13 +6135,25 @@ function resolvePoint(ref, bodies, fallback) {
 // ── Feature evaluation for the new feature types ───────────────────
 function evalEdgeFeature(f, ctx, tol) {
   const kind = f.type === 'chamfer' ? 'chamfer' : 'fillet';
-  if (!(f.size > 0)) throw new Error('Size must be positive');
+  let size = f.size;
+  if (kind === 'fillet' && f.full) {
+    // full round: the two picked edges are the two sides of a narrow face; the radius is half the gap between them
+    if (f.edges.length !== 2) throw new Error('Full round needs exactly two edges');
+    const ra = findChain(ctx.bodies, f.edges[0]), rb = findChain(ctx.bodies, f.edges[1]);
+    if (!ra || !rb) throw new Error('An edge no longer exists');
+    const ga = chainGeom(ra.ch), gb = chainGeom(rb.ch);
+    if (ga.k !== 'line' || gb.k !== 'line' || len3(crs3(ga.d, gb.d)) > 1e-3) throw new Error('Full round needs two parallel straight edges');
+    const w = sub3(gb.mid, ga.mid), gap = len3(sub3(w, mul3(ga.d, dot3(w, ga.d))));
+    if (!(gap > 1e-3)) throw new Error('The two edges are on top of each other');
+    size = gap * 0.499;
+  }
+  if (!(size > 0)) throw new Error('Size must be positive');
   const jobs = [];
   f.edges.forEach((ref, i) => {
     const r = findChain(ctx.bodies, ref);
     if (!r) throw new Error(`Edge ${i + 1} no longer exists`);
-    const chm = kind !== 'chamfer' ? null : f.cmode === 'angle' && f.angle > 0 ? { ang: f.angle, flip: !!f.flip } : f.cmode === 'two' && f.size2 > 0 ? { d2: f.size2, flip: !!f.flip } : null;
-    const t = edgeTool(r.body, r.mesh, r.ch, kind, f.size, tol, { feat: f.id, edge: i }, chm);
+    const chm = kind === 'fillet' ? (f.vr > 0 && !f.full ? { rEnd: f.vr, flip: !!f.flip } : null) :  f.cmode === 'angle' && f.angle > 0 ? { ang: f.angle, flip: !!f.flip } : f.cmode === 'two' && f.size2 > 0 ? { d2: f.size2, flip: !!f.flip } : null;
+    const t = edgeTool(r.body, r.mesh, r.ch, kind, size, tol, { feat: f.id, edge: i }, chm);
     if (t.err) throw new Error(t.err);
     jobs.push({ body: r.body, ...t });
   });
@@ -9283,7 +9328,8 @@ function evalJoint(f, ctx) {
     for (const [k, a] of [['rx', 'X'], ['ry', 'Y'], ['rz', 'Z']]) if (+f[k]) M = XF.mul(XF.rot(p, WORLD_AX[a], f[k] * rad), M);
   } else {
     const ax = resolveAxis(f.axis, ctx), p = f.axis.k === 'world' && f.pivot !== 'origin' ? bbCenter(src) : ax.p, d = ax.dir;
-    if (f.jtype === 'revolute' || f.jtype === 'cylindrical') M = XF.rot(p, d, v1 * rad);
+    if (f.jtype === 'revolute' || f.jtype === 'cylindrical' || f.jtype === 'pinslot') M = XF.rot(p, d, v1 * rad);
+    if (f.jtype === 'pinslot') M = XF.mul(XF.trans(mul3(nrm3(Math.abs(d[1]) < 0.9 ? crs3(d, [0, 1, 0]) : crs3(d, [1, 0, 0])), v2)), M);
     if (f.jtype === 'slider') M = XF.trans(mul3(d, v1));
     if (f.jtype === 'cylindrical') M = XF.mul(XF.trans(mul3(d, v2)), M);
     if (f.jtype === 'planar') {
@@ -9402,6 +9448,40 @@ function evalMate(f, ctx) {
 }
 FEATX.mate = evalMate;
 
+// ── Gusset (panel in extras.js): a triangular web in the corner where two faces meet ──
+function evalGusset(f, ctx, tol) {
+  if (!f.a || !f.b) throw new Error('Pick the two faces that make the corner');
+  const ha = findFace(ctx.bodies, f.a), hb = findFace(ctx.bodies, f.b);
+  if (!ha || !hb) throw new Error('A picked face no longer exists');
+  const A = mateFrame(ha), B = mateFrame(hb), d1 = +f.d1, d2 = +f.d2, t = +f.t;
+  if (!A || !B || A.t !== 'P' || B.t !== 'P') throw new Error('Gussets go between two flat faces');
+  if (!(d1 > 0 && d2 > 0)) throw new Error('The gusset legs have to be longer than zero');
+  if (!(t > 0)) throw new Error('The gusset thickness has to be positive');
+  const e = crs3(A.n, B.n), el = len3(e);
+  if (el < 0.1) throw new Error('The two faces are parallel: pick the faces of a corner');
+  const ê = mul3(e, 1 / el);
+  const triple = dot3(A.n, crs3(B.n, e)), dAw = dot3(A.n, A.p), dBw = dot3(B.n, B.p);
+  const x = mul3(add3(add3(mul3(crs3(B.n, e), dAw), mul3(crs3(e, A.n), dBw)), [0, 0, 0]), 1 / triple);
+  const rng = h => { let lo = Infinity, hi = -Infinity; for (const p of h.body.polys) if (p.f === h.fid) for (const v of p.v) { const s = dot3(v, ê); lo = Math.min(lo, s); hi = Math.max(hi, s); } return [lo, hi]; };
+  const ra = rng(ha), rb = rng(hb), lo = Math.max(ra[0], rb[0]), hi = Math.min(ra[1], rb[1]);
+  if (hi - lo < t - 1e-9) throw new Error('The corner is shorter than the gusset is thick');
+  const fr = Math.min(1, Math.max(0, f.frac === undefined ? 0.5 : +f.frac)), s = lo + t / 2 + fr * (hi - lo - t);
+  const C = add3(x, mul3(ê, s - dot3(x, ê)));
+  // legs: along face A away from the corner (toward B's outward normal), and up face B (toward A's outward normal)
+  const uA = (() => { const c = crs3(A.n, ê); return dot3(c, B.n) >= 0 ? c : mul3(c, -1); })(), vB = (() => { const c = crs3(B.n, ê); return dot3(c, A.n) >= 0 ? c : mul3(c, -1); })();
+  const fr3 = { o: C, u: nrm3(uA), v: nrm3(vB) }; fr3.n = crs3(fr3.u, fr3.v);
+  const m = 0.01, tool = prism({ outer: loopOf([P2(-m, -m), P2(d1, -m), P2(-m, d2)], 1), holes: [] }, fr3, -t / 2, t / 2, tol, f.id);
+  if (!tool.length) throw new Error('The gusset came out empty');
+  ctx.tools[f.id] = { polys: tool, op: 'join' };
+  ctx.bodies = ctx.bodies.map(b => b === ha.body ? mkBody(b.id, CSG.union(b.polys, tool)) : b);
+  if (hb.body !== ha.body) { /* the web also touches the second body: join it in */
+    const merged = ctx.bodies.find(b => b.id === ha.body.id);
+    ctx.bodies = ctx.bodies.filter(b => b !== hb.body).map(b => b === merged ? mkBody(b.id, CSG.union(b.polys, hb.body.polys)) : b);
+  }
+  ctx.hl[f.id] = [ha.body.id];
+}
+FEATX.gusset = evalGusset;
+
 // ── Axes, tangent planes, two-edge planes and points (panels in construct.js) ──
 function cylFrame(dir) {
   const a = Math.abs(dir[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0], u = nrm3(sub3(a, mul3(dir, dot3(a, dir))));
@@ -9468,6 +9548,372 @@ function evalAxisFeature(f, ctx) {
   ctx.ext[f.id] = { axis: ax };
 }
 FEATX.axis = evalAxisFeature;
+
+// ── Plane along a path, point through three planes, separate shells (panels in reference.js) ──
+CP_EXTRA.planepath = (f, ctx) => {
+  const { segs } = pathSegments(f.path, ctx), total = segs.reduce((a, g) => a + g.len, 0);
+  if (!(total > 0)) throw new Error('The path has no length');
+  let s = Math.min(1, Math.max(0, (+f.pos || 0) / 100)) * total, g = segs[0];
+  if (f.rev) s = total - s;
+  for (const q of segs) { g = q; if (s <= q.len + 1e-9) break; s -= q.len; }
+  s = Math.min(g.len, Math.max(0, s));
+  return cpFrame(g.tan(s), g.at(s));
+};
+const evalCPoint0 = evalCPoint;
+evalCPoint = function (f, ctx) {
+  if (f.cp !== 'pt3pl') return evalCPoint0(f, ctx);
+  const A = resolveMirrorPlane(f.p1, ctx), B = resolveMirrorPlane(f.p2, ctx), C = resolveMirrorPlane(f.p3, ctx), det = dot3(A.n, crs3(B.n, C.n));
+  if (Math.abs(det) < 1e-9) throw new Error('The three planes do not meet at one point: two of them are parallel, or all three share a line');
+  return mul3(add3(add3(mul3(crs3(B.n, C.n), A.w), mul3(crs3(C.n, A.n), B.w)), mul3(crs3(A.n, B.n), C.w)), 1 / det);
+};
+function shellsOf(polys) {
+  const key = v => v.map(x => Math.round(x * 1e4)).join(','), par = polys.map((_, i) => i), first = new Map();
+  const find = i => { while (par[i] !== i) { par[i] = par[par[i]]; i = par[i]; } return i; };
+  polys.forEach((p, i) => { for (const v of p.v) { const k = key(v), j = first.get(k); if (j === undefined) first.set(k, i); else par[find(i)] = find(j); } });
+  const groups = new Map();
+  polys.forEach((p, i) => { const r = find(i); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(p); });
+  return [...groups.values()].sort((a, b) => b.length - a.length);
+}
+function evalSeparate(f, ctx) {
+  const src = bodiesById(f.bodies, ctx);
+  if (!src.length) throw new Error('Pick the body to separate');
+  let n = 0;
+  const out = [];
+  for (const b of ctx.bodies) {
+    if (!src.includes(b)) { out.push(b); continue; }
+    const sh = shellsOf(b.polys);
+    sh.forEach((polys, i) => { out.push(mkBody(i === 0 ? b.id : +(f.id + (++n) / 100).toFixed(2), polys)); });
+  }
+  if (!n) throw new Error('That body is one piece: there is nothing to separate');
+  ctx.bodies = out;
+  ctx.hl[f.id] = out.map(b => b.id);
+}
+FEATX.separate = evalSeparate;
+
+// ── Table driven and fill patterns (panels in patterns2.js) ──
+function copyBodies(f, ctx, src, mats) {
+  const made = [];
+  mats.forEach((M, k) => {
+    src.forEach((b, j) => {
+      const id = +(f.id + ((k + 1) * src.length + j) / 1000).toFixed(3), polys = xformPolys(b.polys, M, f.id + ':' + (k + 1) + ':' + j, { feat: f.id, inst: k + 1 });
+      if (f.join) combineTool({ id, op: 'join' }, ctx, polys); else { ctx.bodies = [...ctx.bodies, mkBody(id, polys)]; made.push(id); }
+    });
+  });
+  if (f.join) made.push(...src.map(b => b.id));
+  ctx.hl[f.id] = made;
+}
+function evalTablePattern(f, ctx) {
+  const src = bodiesById(f.bodies, ctx), rows = f.rows || [];
+  if (!src.length) throw new Error('Pick bodies to copy');
+  if (!rows.length) throw new Error('Add at least one row to the table');
+  if (rows.length > 400) throw new Error('That is too many copies');
+  const c0 = bbCenter(src);
+  copyBodies(f, ctx, src, rows.map(r => {
+    let M = XF.I();
+    if (+r.rz) M = XF.rot(c0, WORLD_AX.Z, (+r.rz) * Math.PI / 180);
+    return XF.mul(XF.trans([+r.dx || 0, +r.dz || 0, -(+r.dy || 0)]), M);
+  }));
+}
+FEATX.tabpat = evalTablePattern;
+function evalFillPattern(f, ctx) {
+  const src = bodiesById(f.bodies, ctx), hit = f.face && findFace(ctx.bodies, f.face);
+  if (!src.length) throw new Error('Pick bodies to copy');
+  if (!hit) throw new Error('Pick the flat face to fill');
+  const fr = mateFrame(hit), sx = +f.sx, sy = f.kind === 'hex' ? +f.sx * Math.sqrt(3) / 2 : +f.sy, mg = Math.max(0, +f.margin || 0);
+  if (!fr || fr.t !== 'P') throw new Error('Fill patterns go on a flat face');
+  if (!(sx > 0 && sy > 0)) throw new Error('The spacing has to be larger than zero');
+  const n = fr.n, u = cylFrame(n).u, v = crs3(n, u), face = hit.body.polys.filter(p => p.f === hit.fid);
+  const to2 = p => P2(dot3(sub3(p, fr.p), u), dot3(sub3(p, fr.p), v)), tris = face.map(p => p.v.map(to2));
+  // outline edges: used by one polygon only
+  const q = a => Math.round(a.x * 1e4) + ',' + Math.round(a.y * 1e4), cnt = new Map(), edges = [];
+  for (const t of tris) for (let i = 0; i < t.length; i++) { const a = t[i], b = t[(i + 1) % t.length], k = [q(a), q(b)].sort().join('|'); const e = cnt.get(k); if (e) e.n++; else { const o = { a, b, n: 1 }; cnt.set(k, o); edges.push(o); } }
+  const outline = edges.filter(e => e.n === 1);
+  const inside = pt => tris.some(t => { let pos = 0, neg = 0; for (let i = 0; i < t.length; i++) { const a = t[i], b = t[(i + 1) % t.length], c = (b.x - a.x) * (pt.y - a.y) - (b.y - a.y) * (pt.x - a.x); if (c > 1e-9) pos++; else if (c < -1e-9) neg++; } return !(pos && neg); });
+  const segDist = (pt, a, b) => { const dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy || 1e-12, t = Math.max(0, Math.min(1, ((pt.x - a.x) * dx + (pt.y - a.y) * dy) / l2)); return Math.hypot(pt.x - a.x - dx * t, pt.y - a.y - dy * t); };
+  const c0 = bbCenter(src), o2 = to2(sub3(c0, mul3(n, dot3(sub3(c0, fr.p), n)))), mats = [];
+  let xs = [], ys = [];
+  for (const t of tris) for (const p of t) { xs.push(p.x); ys.push(p.y); }
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const i0 = Math.floor((x0 - o2.x) / sx) - 1, i1 = Math.ceil((x1 - o2.x) / sx) + 1, j0 = Math.floor((y0 - o2.y) / sy) - 1, j1 = Math.ceil((y1 - o2.y) / sy) + 1;
+  if ((i1 - i0) * (j1 - j0) > 40000) throw new Error('The spacing is too small for this face');
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+    if (i === 0 && j === 0) continue;
+    const pt = P2(o2.x + i * sx + (f.kind === 'hex' && (((j % 2) + 2) % 2) ? sx / 2 : 0), o2.y + j * sy);
+    if (!inside(pt) || outline.some(e => segDist(pt, e.a, e.b) < mg - 1e-9)) continue;
+    mats.push(XF.trans(add3(mul3(u, pt.x - o2.x), mul3(v, pt.y - o2.y))));
+    if (mats.length > 400) throw new Error('That would make more than 400 copies');
+  }
+  if (!mats.length) throw new Error('No copy fits on the face: lower the spacing or the margin');
+  copyBodies(f, ctx, src, mats);
+}
+FEATX.fillpat = evalFillPattern;
+
+// ── Face edits: Replace Face, Delete Face (heal), Split Face ───────
+function faceVertIncidence(mesh) { const inc = mesh.VP.map(() => new Set()); for (const p of mesh.PL) for (const i of p.ids) inc[i].add(p.f); return inc; }
+// Closed outlines of a set of faces: the edges used by one of their triangles only, chained into loops (null if they branch).
+function boundaryLoops(mesh, fidSet) {
+  const cnt = new Map();
+  for (const p of mesh.PL) if (fidSet.has(p.f)) for (let i = 0; i < p.ids.length; i++) {
+    const a = p.ids[i], b = p.ids[(i + 1) % p.ids.length], k = a < b ? a + ':' + b : b + ':' + a;
+    cnt.set(k, (cnt.get(k) || 0) + 1);
+  }
+  const adj = new Map(), push = (a, b) => { if (!adj.has(a)) adj.set(a, []); adj.get(a).push(b); };
+  for (const [k, c] of cnt) if (c === 1) { const [a, b] = k.split(':').map(Number); push(a, b); push(b, a); }
+  for (const l of adj.values()) if (l.length !== 2) return null;
+  const loops = [], seen = new Set();
+  for (const s of adj.keys()) {
+    if (seen.has(s)) continue;
+    const loop = [s]; seen.add(s); let prev = -1, cur = s;
+    for (;;) { const nx = adj.get(cur).find(x => x !== prev && !seen.has(x)); if (nx === undefined) break; loop.push(nx); seen.add(nx); prev = cur; cur = nx; }
+    loops.push(loop);
+  }
+  return loops;
+}
+// Rebuild a body from its mesh with moved vertices: W maps a vertex id to its new place, drop is a set of faces to leave out.
+function polysFromMesh(mesh, W, drop) {
+  const out = [];
+  for (const p of mesh.PL) {
+    if (drop && drop.has(p.f)) continue;
+    const vs = p.ids.map(i => (W ? W[i] : mesh.VP[i]));
+    for (let i = 1; i + 1 < vs.length; i++) {
+      const tri = [vs[0], vs[i], vs[i + 1]];
+      if (len3(crs3(sub3(tri[1], tri[0]), sub3(tri[2], tri[0]))) < 1e-12) continue;
+      const pp = CSG.poly(tri, 0);
+      out.push(CSG.poly(tri, p.f, pp.n, pp.w));
+    }
+  }
+  return out;
+}
+const flatFace = s => s.t === 'P' && s.patch === undefined;
+function evalReplaceFace(f, ctx) {
+  const { body, fids } = pickedFaces(f, ctx), P = resolveMirrorPlane(f.plane, ctx), n0 = nrm3(P.n), plans = new Map();
+  for (const fid of fids) {
+    const s = Surf.list[fid];
+    if (!flatFace(s)) throw new Error('Only flat faces can be replaced');
+    const sg = dot3(n0, s.n) < 0 ? -1 : 1, n = mul3(n0, sg);
+    if (Math.abs(dot3(n, s.n)) < 0.05) throw new Error('A picked face is at a right angle to the target plane, so it cannot meet it');
+    plans.set(fid, { n, d: sg * (P.w / len3(P.n) + (+f.off || 0)) });
+  }
+  const bb = body.bb, diag = Math.hypot(bb[3] - bb[0], bb[4] - bb[1], bb[5] - bb[2]);
+  const polys = moveFacesOf(body, f, fid => plans.get(fid) || null, diag * 0.5);
+  ctx.bodies = ctx.bodies.map(b => b === body ? mkBody(b.id, polys) : b);
+  ctx.hl[f.id] = [body.id];
+}
+FEATX.repface = evalReplaceFace;
+// A chamfer or fillet strip between two flat faces: the two faces grow until they meet.
+function healStrip(body, fid) {
+  const mesh = bodyMesh(body), VP = mesh.VP, inc = faceVertIncidence(mesh), s = Surf.list[fid], F = new Set([fid]);
+  let d;
+  if (s.t === 'C') d = nrm3(s.dir);
+  else if (flatFace(s)) {
+    const loops = boundaryLoops(mesh, F);
+    if (!loops || loops.length !== 1) throw new Error('This face is not a simple chamfer strip');
+    let best = 0;
+    const L = loops[0];
+    for (let i = 0; i < L.length; i++) { const e = sub3(VP[L[(i + 1) % L.length]], VP[L[i]]); if (len3(e) > best) { best = len3(e); d = nrm3(e); } }
+  } else throw new Error('Only a flat chamfer or a round fillet face can be deleted this way');
+  const verts = new Set(); for (const p of mesh.PL) if (p.f === fid) for (const i of p.ids) verts.add(i);
+  const nb = new Set(); for (const i of verts) for (const g of inc[i]) if (g !== fid) nb.add(g);
+  const side = [], ends = new Set();
+  for (const g of nb) {
+    const sg = Surf.list[g];
+    if (!flatFace(sg)) throw new Error('The face is next to a curved face, so it cannot be healed');
+    const c = Math.abs(dot3(sg.n, d));
+    if (c < 0.2) side.push(g); else if (c > 0.8) ends.add(g); else throw new Error('An end of the strip meets a slanted face, so it cannot be healed');
+  }
+  if (side.length !== 2) throw new Error('A chamfer or fillet needs a flat face on each side');
+  const A = Surf.list[side[0]], B = Surf.list[side[1]];
+  if (len3(crs3(A.n, B.n)) < 1e-3) throw new Error('The two side faces are parallel, so they never meet');
+  const W = VP.slice();
+  for (const i of verts) {
+    const e = [...inc[i]].find(g => ends.has(g)), t = e !== undefined ? { n: Surf.list[e].n, w: Surf.list[e].d } : { n: d, w: dot3(d, VP[i]) };
+    const q = solveLin([A.n, B.n, t.n], [A.d, B.d, t.w]);
+    if (!q) throw new Error('The side faces and the end do not meet in one point');
+    W[i] = q;
+  }
+  const polys = polysFromMesh(mesh, W, F);
+  return polys;
+}
+// Hole faces: both outlines are closed up. The flat face a hole opens into gets a lid; a floor or ledge inside the hole goes away.
+function fillHoles(body, fids) {
+  const mesh = bodyMesh(body), VP = mesh.VP, inc = faceVertIncidence(mesh), loops = boundaryLoops(mesh, fids);
+  if (!loops || !loops.length) throw new Error('This face has no clean outline to close');
+  const area = ids => len3(newellVec(ids.map(i => VP[i]))), faceArea = g => { let a = 0; for (const p of mesh.PL) if (p.f === g) for (let i = 1; i + 1 < p.ids.length; i++) a += len3(crs3(sub3(VP[p.ids[i]], VP[p.ids[0]]), sub3(VP[p.ids[i + 1]], VP[p.ids[0]]))) / 2; return a; };
+  const byG = new Map();
+  for (const loop of loops) {
+    let cand = null;
+    for (const i of loop) { const st = new Set([...inc[i]].filter(x => !fids.has(x))); cand = cand ? new Set([...cand].filter(x => st.has(x))) : st; }
+    const gs = [...cand].filter(g => flatFace(Surf.list[g]));
+    if (gs.length !== 1) throw new Error('A hole edge has to meet exactly one flat face');
+    if (!byG.has(gs[0])) byG.set(gs[0], []);
+    byG.get(gs[0]).push(loop);
+  }
+  const drop = new Set(fids), extra = [], key = l => [...l].sort((a, b) => a - b).join(',');
+  const picked = new Set(loops.map(key));
+  for (const [g, ls] of byG) {
+    if (faceArea(g) <= Math.max(...ls.map(area)) * (1 + 1e-6)) {
+      for (const gl of boundaryLoops(mesh, new Set([g])) || []) if (!picked.has(key(gl))) throw new Error('The bottom of this hole also touches other faces: pick those too');
+      drop.add(g); continue;
+    }
+    const sg = Surf.list[g];
+    for (const loop of ls) {
+      for (let i = 1; i + 1 < loop.length; i++) {
+        let tri = [VP[loop[0]], VP[loop[i]], VP[loop[i + 1]]];
+        const pp = CSG.poly(tri, 0); if (!pp) continue;
+        if (dot3(pp.n, sg.n) < 0) tri = [tri[0], tri[2], tri[1]];
+        if (dot3(crs3(sub3(tri[1], tri[0]), sub3(tri[2], tri[0])), sg.n) < -1e-9) throw new Error('The hole outline is not a convex shape, so it cannot be capped');
+        const q = CSG.poly(tri, 0);
+        extra.push(CSG.poly(tri, g, q.n, q.w));
+      }
+    }
+  }
+  return polysFromMesh(mesh, null, drop).concat(extra);
+}
+function evalDeleteFace(f, ctx) {
+  const { body, fids } = pickedFaces(f, ctx);
+  let cur = body;
+  const holes = new Set(), strips = [];
+  for (const fid of fids) {
+    const loops = boundaryLoops(bodyMesh(body), new Set([fid]));
+    if (loops && loops.length >= 2) holes.add(fid); else strips.push(fid);
+  }
+  for (const fid of strips) cur = mkBody(cur.id, healStrip(cur, fid));
+  if (holes.size) cur = mkBody(cur.id, fillHoles(cur, holes));
+  let vol = 0;
+  for (const p of cur.polys) for (let i = 1; i + 1 < p.v.length; i++) vol += dot3(p.v[0], crs3(p.v[i], p.v[i + 1]));
+  if (!(vol > 1e-9)) throw new Error('Deleting that face turns the part inside out');
+  ctx.bodies = ctx.bodies.map(b => b === body ? cur : b);
+  ctx.hl[f.id] = [body.id];
+}
+FEATX.delface = evalDeleteFace;
+function evalSplitFace(f, ctx) {
+  const { body, fids } = pickedFaces(f, ctx), P = resolveMirrorPlane(f.plane, ctx), n = nrm3(P.n), w = P.w / len3(P.n);
+  const mesh = bodyMesh(body), VP = mesh.VP, eps = 1e-6, polys = [], neg = new Map();
+  let above = 0, below = 0;
+  const surfNeg = fid => {
+    if (!neg.has(fid)) {
+      const s = Surf.list[fid];
+      if (!flatFace(s)) throw new Error('Only flat faces can be split');
+      const r = Surf.facet(s.n, s.d, 'sf' + f.id + ':' + fid); Surf.addMeta(r, { feat: f.id, src: (s.metas || [])[0] || fid }); neg.set(fid, r);
+    }
+    return neg.get(fid);
+  };
+  const emit = (vs, sf) => {
+    for (let i = 1; i + 1 < vs.length; i++) {
+      const tri = [vs[0], vs[i], vs[i + 1]];
+      if (len3(crs3(sub3(tri[1], tri[0]), sub3(tri[2], tri[0]))) < 1e-12) continue;
+      const pp = CSG.poly(tri, 0); polys.push(CSG.poly(tri, sf, pp.n, pp.w));
+    }
+  };
+  for (const p of mesh.PL) {
+    const vs = p.ids.map(i => VP[i]);
+    if (!fids.has(p.f)) { emit(vs, p.f); continue; }
+    const ds = vs.map(v => dot3(n, v) - w), pos = [], ng = [];
+    for (let i = 0; i < vs.length; i++) {
+      const a = vs[i], b = vs[(i + 1) % vs.length], da = ds[i], db = ds[(i + 1) % vs.length];
+      if (da >= -eps) pos.push(a);
+      if (da <= eps) ng.push(a);
+      if ((da > eps && db < -eps) || (da < -eps && db > eps)) { const t = da / (da - db), m = add3(a, mul3(sub3(b, a), t)); pos.push(m); ng.push(m); }
+    }
+    const big = ds.some(d => d > eps), sml = ds.some(d => d < -eps);
+    if (big && !sml) { above++; emit(vs, p.f); } else if (sml && !big) { below++; emit(vs, surfNeg(p.f)); }
+    else if (!big && !sml) emit(vs, p.f);
+    else { above++; below++; emit(pos, p.f); emit(ng, surfNeg(p.f)); }
+  }
+  if (!above || !below) throw new Error('The plane does not cross the picked face');
+  ctx.bodies = ctx.bodies.map(b => b === body ? mkBody(b.id, polys) : b);
+  ctx.hl[f.id] = [body.id];
+}
+FEATX.splitface = evalSplitFace;
+
+// ── Mesh tools: Reverse Normal (turn bodies inside out) and Reduce (merge vertices closer than a size) ──
+function evalReverseNormal(f, ctx) {
+  const src = bodiesById(f.bodies, ctx);
+  if (!src.length) throw new Error('Pick the bodies to turn inside out');
+  ctx.bodies = ctx.bodies.map(b => {
+    if (!src.includes(b)) return b;
+    const polys = [];
+    for (const p of bodyMesh(b).PL) {
+      const vs = p.ids.map(i => bodyMesh(b).VP[i]).reverse();
+      for (let i = 1; i + 1 < vs.length; i++) {
+        const tri = [vs[0], vs[i], vs[i + 1]];
+        if (len3(crs3(sub3(tri[1], tri[0]), sub3(tri[2], tri[0]))) < 1e-12) continue;
+        const pp = CSG.poly(tri, 0), s = Surf.facet(pp.n, pp.w, 'rv' + f.id);
+        polys.push(CSG.poly(tri, s, pp.n, pp.w));
+      }
+    }
+    return mkBody(b.id, polys);
+  });
+  ctx.hl[f.id] = src.map(b => b.id);
+}
+FEATX.revnorm = evalReverseNormal;
+function evalReduceMesh(f, ctx) {
+  const src = bodiesById(f.bodies, ctx), cell = +f.size;
+  if (!src.length) throw new Error('Pick the bodies to simplify');
+  if (!(cell > 0)) throw new Error('The merge size has to be positive');
+  let before = 0, after = 0;
+  ctx.bodies = ctx.bodies.map(b => {
+    if (!src.includes(b)) return b;
+    const mesh = bodyMesh(b), VP = mesh.VP, acc = new Map(), to = new Array(VP.length);
+    VP.forEach((v, i) => {
+      const k = v.map(x => Math.floor(x / cell)).join(',');
+      let a = acc.get(k); if (!a) { a = { s: [0, 0, 0], n: 0 }; acc.set(k, a); }
+      a.s = add3(a.s, v); a.n++; to[i] = a;
+    });
+    const polys = [], seen = new Set();
+    const pt = a => mul3(a.s, 1 / a.n), id = new Map(); let nid = 0;
+    const idOf = a => { if (!id.has(a)) id.set(a, nid++); return id.get(a); };
+    for (const p of mesh.PL) {
+      before++;
+      for (let i = 1; i + 1 < p.ids.length; i++) {
+        const a = to[p.ids[0]], c = to[p.ids[i]], d = to[p.ids[i + 1]];
+        if (a === c || c === d || a === d) continue;
+        const key = [idOf(a), idOf(c), idOf(d)].sort((x, y) => x - y).join(',');
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const tri = [pt(a), pt(c), pt(d)];
+        if (len3(crs3(sub3(tri[1], tri[0]), sub3(tri[2], tri[0]))) < 1e-12) continue;
+        const pp = CSG.poly(tri, 0), s = Surf.facet(pp.n, pp.w, 'rd' + f.id);
+        polys.push(CSG.poly(tri, s, pp.n, pp.w)); after++;
+      }
+    }
+    let vol = 0;
+    for (const p of polys) for (let i = 1; i + 1 < p.v.length; i++) vol += dot3(p.v[0], crs3(p.v[i], p.v[i + 1]));
+    if (!polys.length || !(vol > 1e-9)) throw new Error('That size is too coarse for this body: use a smaller one');
+    return mkBody(b.id, polys);
+  });
+  ctx.hl[f.id] = src.map(b => b.id);
+}
+FEATX.reducemesh = evalReduceMesh;
+function evalSmoothMesh(f, ctx) {
+  const src = bodiesById(f.bodies, ctx), it = Math.max(1, Math.min(50, Math.round(+f.iter || 1))), lam = +f.amount;
+  if (!src.length) throw new Error('Pick the bodies to smooth');
+  if (!(lam > 0 && lam <= 1)) throw new Error('The amount has to be between 0 and 1');
+  ctx.bodies = ctx.bodies.map(b => {
+    if (!src.includes(b)) return b;
+    const mesh = bodyMesh(b);
+    let V = mesh.VP.map(v => v.slice());
+    const nb = V.map(() => new Set());
+    for (const p of mesh.PL) for (let i = 0; i < p.ids.length; i++) { const a = p.ids[i], c = p.ids[(i + 1) % p.ids.length]; nb[a].add(c); nb[c].add(a); }
+    for (let k = 0; k < it; k++) V = V.map((v, i) => { if (!nb[i].size) return v; let s = [0, 0, 0]; for (const j of nb[i]) s = add3(s, V[j]); return add3(v, mul3(sub3(mul3(s, 1 / nb[i].size), v), lam)); });
+    const polys = [];
+    for (const p of mesh.PL) {
+      const vs = p.ids.map(i => V[i]);
+      for (let i = 1; i + 1 < vs.length; i++) {
+        const tri = [vs[0], vs[i], vs[i + 1]];
+        if (len3(crs3(sub3(tri[1], tri[0]), sub3(tri[2], tri[0]))) < 1e-12) continue;
+        const pp = CSG.poly(tri, 0), s = Surf.facet(pp.n, pp.w, 'sm' + f.id);
+        polys.push(CSG.poly(tri, s, pp.n, pp.w));
+      }
+    }
+    let vol = 0;
+    for (const p of polys) for (let i = 1; i + 1 < p.v.length; i++) vol += dot3(p.v[0], crs3(p.v[i], p.v[i + 1]));
+    if (!(vol > 1e-9)) throw new Error('Smoothing that much collapses the body: use less');
+    return mkBody(b.id, polys);
+  });
+  ctx.hl[f.id] = src.map(b => b.id);
+}
+FEATX.smoothmesh = evalSmoothMesh;
 
 // ── Rib / Web: thin walls from open sketch curves, extruded square to the sketch plane ──
 // A chain of lines and arcs is sampled, thickened to a flat-ended strip (mitered at bends) and extruded; several chains make a web.
@@ -12332,7 +12778,7 @@ function featSub(f) {
   switch (f.type) {
     case 'sketch': return f.ents.length + ' curve' + (f.ents.length === 1 ? '' : 's');
     case 'extrude': return `${f.op === 'hole' ? '⌀ hole' : OP_SIGN[f.op] || ''} ${f.extent === 'next' ? 'to next' : f.extent === 'all' ? 'thru all' : f.extent === 'to' ? 'to point' : fmtLs(Math.abs(f.dist))}${f.mode === 'sym' && f.op !== 'hole' ? ' sym' : ''}`.trim();
-    case 'fillet': return 'R' + fmtLs(f.size);
+    case 'fillet': return f.full ? 'full round' : f.vr > 0 ? 'R' + fmtLs(f.size) + '→' + fmtLs(f.vr) : 'R' + fmtLs(f.size);
     case 'chamfer': return f.cmode === 'two' && f.size2 > 0 ? '× ' + fmtLs(f.size) + ' × ' + fmtLs(f.size2) : f.cmode === 'angle' && f.angle > 0 ? '× ' + fmtLs(f.size) + ' @ ' + f.angle + '°' : '× ' + fmtLs(f.size);
     case 'plane': return fmtLs(f.off);
     case 'thread': return f.internal === true ? 'internal' : f.internal === false ? 'external' : '';
@@ -12732,6 +13178,7 @@ function edgePanel() {
     <div class="field"><span>Edges</span><div class="pick ${n ? '' : 'empty'}"><span>${n ? 'Click an edge again to remove it' : 'Click straight or circular edges'}</span><span class="n">${n}</span></div></div>
     ${f.type === 'chamfer' ? `<div class="field"><span>Chamfer type</span><div class="seg"><button data-cm="eq" class="${!f.cmode || f.cmode === 'eq' ? 'on' : ''}">Equal</button><button data-cm="two" class="${f.cmode === 'two' ? 'on' : ''}">Two distances</button><button data-cm="angle" class="${f.cmode === 'angle' ? 'on' : ''}">Distance + angle</button></div></div>` : ''}
     <div class="field"><span>${f.type === 'fillet' ? 'Radius' : f.cmode === 'two' ? 'Distance 1' : 'Distance'} (${uName()})</span><input type="number" id="edgeSize" data-live="1" min="0" step="${isIn() ? 0.01 : 0.5}" value="${uval(f.size)}"></div>
+    ${f.type === 'fillet' ? `<label class="chk"><input type="checkbox" id="edgeFull" ${f.full ? 'checked' : ''}> Full round <small>(pick the two long sides of a narrow face)</small></label>${f.full ? '' : `<label class="chk"><input type="checkbox" id="edgeVar" ${f.vr > 0 ? 'checked' : ''}> Variable radius <small>(straight edges: grows from the radius above to the end radius)</small></label>`}${f.vr > 0 && !f.full ? `<div class="row2"><label class="field"><span>End radius (${uName()})</span><input type="number" id="edgeVr" data-live="1" min="0" step="${isIn() ? 0.01 : 0.5}" value="${uval(f.vr)}"></label><button class="btn" data-do="cmflip" title="Swap which end gets which radius">Flip ⇅</button></div>` : ''}` : ''}
     ${f.type === 'chamfer' && f.cmode === 'two' ? `<div class="field"><span>Distance 2 (${uName()})</span><input type="number" id="edgeSize2" data-live="1" min="0" step="${isIn() ? 0.01 : 0.5}" value="${uval(f.size2 || f.size)}"></div>` : ''}
     ${f.type === 'chamfer' && f.cmode === 'angle' ? `<div class="field"><span>Angle (°)</span><input type="number" id="edgeAngle" data-live="1" min="1" max="89" step="1" value="${f.angle || 45}"></div>` : ''}
     ${f.type === 'chamfer' && f.cmode && f.cmode !== 'eq' ? `<div class="field"><span>Direction</span><button class="btn" data-do="cmflip" title="Swap which face gets distance 1">Flip ⇅</button></div>` : ''}
@@ -12907,6 +13354,12 @@ function bindPanel() {
   const es = document.getElementById('edgeSize');
   if (es) es.addEventListener('input', () => { const v = fromU(parseFloat(es.value)); if (v > 0) { CMD.f.size = v; modelChanged(); } });
   if (es) es.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); es.blur(); edgeOK(); } });
+  const efl = document.getElementById('edgeFull');
+  if (efl) efl.addEventListener('change', () => { CMD.f.full = efl.checked; if (efl.checked) CMD.f.vr = 0; modelChanged(); refreshPanel(); });
+  const evr0 = document.getElementById('edgeVar');
+  if (evr0) evr0.addEventListener('change', () => { CMD.f.vr = evr0.checked ? (CMD.f.size * 2 || 4) : 0; modelChanged(); refreshPanel(); });
+  const evr = document.getElementById('edgeVr');
+  if (evr) evr.addEventListener('input', () => { const v = fromU(parseFloat(evr.value)); if (v > 0) { CMD.f.vr = v; modelChanged(); } });
   const es2 = document.getElementById('edgeSize2');
   if (es2) es2.addEventListener('input', () => { const v = fromU(parseFloat(es2.value)); if (v > 0) { CMD.f.size2 = v; modelChanged(); } });
   const ea = document.getElementById('edgeAngle');
@@ -17409,7 +17862,7 @@ function bindCamTree(el) {
     li.addEventListener('click', () => { if (SIM.on) simStop(); CAMUI.view = 'op'; CAMUI.op = op.id; camRefresh(); });
     li.addEventListener('contextmenu', ev => { ev.preventDefault(); camOpMenu(op, ev.clientX, ev.clientY); });
   });
-  el.querySelectorAll('[data-ophide]').forEach(b => b.addEventListener('click', ev => { ev.stopPropagation(); const op = opById(+b.dataset.ophide); op.hide = !op.hide; saveLocal(); camRefresh(); }));
+  el.querySelectorAll('[data-ophide]').forEach(b => b.addEventListener('click', ev => { ev.stopPropagation(); const op = opById(+b.dataset.ophide); if (!op) return; op.hide = !op.hide; saveLocal(); camRefresh(); }));
   el.querySelectorAll('[data-automenu]').forEach(b => b.addEventListener('click', ev => { ev.stopPropagation(); const r = b.getBoundingClientRect(); autoCardMenu(r.left, r.bottom + 4); }));
 }
 function camOpMenu(op, x, y) {
@@ -24186,6 +24639,21 @@ function dimSetPending(d, v) {
   // a dimension drives the sketch the moment it is set (and the extrudes follow); only a conflict leaves it pending
   if (!dimUpdate(true, true)) { refreshPanel(); refreshToolbar(); requestDraw(); }
 }
+// A typed dimension: a plain number, or (with parameters.js) an expression that is kept with the dimension.
+function dimCommitText(d, text) {
+  text = String(text).trim();
+  const old = d.expr, plain = /^-?(\d+\.?\d*|\.\d+)$/.test(text);
+  let v;
+  if (plain) { const n = parseFloat(text); v = isAng(d) ? n * Math.PI / 180 : fromU(n); }
+  else {
+    if (!window.PARAMS) return;
+    try { v = PARAMS.evalText(text); } catch (e) { toast('Expression: ' + e.message); return; }
+    if (isAng(d)) v = v * Math.PI / 180;
+  }
+  if (plain) delete d.expr; else d.expr = text;        // set first: the sketch is solved (and expressions re-read) while the value is applied
+  dimSetPending(d, v);
+  if (d.pend !== undefined) { if (old === undefined) delete d.expr; else d.expr = old; }
+}
 function dimDelete(d) {
   pushUndo('Delete dimension');
   S.sk.dims = S.sk.dims.filter(q => q !== d);
@@ -24307,7 +24775,7 @@ function dimOpenEditor(d) {
   if (!S.sk || d.driven) { if (d.driven) toast('Driven (reference) dimensions follow the sketch. Delete one of the others to make it driving.'); return; }
   const h = DIM.hits.find(q => q.d === d);
   const cur = d.pend !== undefined ? d.pend : d.value, shown = isAng(d) ? +(cur * 180 / Math.PI).toFixed(4) : +toU(cur).toFixed(isIn() ? 5 : 4);
-  dimEdit.innerHTML = `<input type="number" step="any" value="${shown}" aria-label="Dimension value"><span>${isAng(d) ? '°' : uName()}</span><button data-de="ok" title="Set (Enter)">✓</button><button data-de="x" title="Cancel (Esc)">✕</button>`;
+  dimEdit.innerHTML = `<input type="text" inputmode="decimal" autocomplete="off" spellcheck="false" value="${d.expr || shown}" title="A number, or an expression such as width/2 + 3 mm" aria-label="Dimension value"><span>${isAng(d) ? '°' : uName()}</span><button data-de="ok" title="Set (Enter)">✓</button><button data-de="x" title="Cancel (Esc)">✕</button>`;
   dimEdit.hidden = false;
   const x = h ? (h.x0 + h.x1) / 2 : W / 2, y = h ? h.y1 + 6 : H / 2;
   dimEdit.style.left = clamp(x - 80, 6, W - 200) + 'px'; dimEdit.style.top = clamp(y, 6, H - 50) + 'px';
@@ -24316,7 +24784,7 @@ function dimOpenEditor(d) {
   const done = ok => {
     if (DIM.edit !== d) return;
     DIM.edit = null; dimEdit.hidden = true;
-    if (ok) { const v = parseFloat(inp.value); if (isFinite(v)) dimSetPending(d, isAng(d) ? v * Math.PI / 180 : fromU(v)); }
+    if (ok) dimCommitText(d, inp.value);
     requestDraw();
   };
   inp.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter') { ev.preventDefault(); done(true); } if (ev.key === 'Escape') { ev.preventDefault(); done(false); } });
@@ -24416,13 +24884,13 @@ function dimsPanel() {
   const name = d => ({ dist: 'Length', hdist: 'Horizontal', vdist: 'Vertical', ptline: 'Distance', dia: 'Diameter', rad: 'Radius', ang: 'Angle' })[d.type];
   const val = d => { const v = d.pend !== undefined ? d.pend : d.value; return isAng(d) ? +(v * 180 / Math.PI).toFixed(4) : +toU(v).toFixed(isIn() ? 5 : 4); };
   const np = dimsPending(sk).length;
-  return `<div class="divider"></div><div class="field"><span>Dimensions (${isIn() ? 'in' : 'mm'} · °)</span><ul class="dimlist">${sk.dims.map(d => `<li class="${d.pend !== undefined ? 'pend' : ''} ${DIM.sel === d ? 'sel' : ''}"><span class="${d.driven ? 'drv' : ''}">${name(d)}${d.driven ? ' (driven)' : ''}</span><input type="number" step="any" data-dimv="${d.id}" value="${val(d)}" ${d.driven ? 'disabled' : ''}><button data-dimx="${d.id}" title="Delete dimension">×</button></li>`).join('')}</ul></div>
+  return `<div class="divider"></div><div class="field"><span>Dimensions (${isIn() ? 'in' : 'mm'} · °)</span><ul class="dimlist">${sk.dims.map(d => `<li class="${d.pend !== undefined ? 'pend' : ''} ${DIM.sel === d ? 'sel' : ''}"><span class="${d.driven ? 'drv' : ''}">${name(d)}${d.driven ? ' (driven)' : ''}</span><input type="text" inputmode="decimal" autocomplete="off" spellcheck="false" data-dimv="${d.id}" value="${d.expr ? String(d.expr).replace(/"/g, '&quot;') : val(d)}" title="A number, or an expression such as width/2 + 3 mm" ${d.driven ? 'disabled' : ''}><button data-dimx="${d.id}" title="Delete dimension">×</button></li>`).join('')}</ul></div>
     <button class="btn ${np ? 'primary' : ''}" data-do="dimupd" ${np ? '' : 'disabled'}>Update sketch${np ? ` (${np} change${np > 1 ? 's' : ''})` : ''}</button>`;
 }
 function bindDimsPanel() {
   panel.querySelectorAll('[data-dimv]').forEach(inp => {
     const d = S.sk.dims.find(q => q.id === +inp.dataset.dimv);
-    inp.addEventListener('change', () => { const v = parseFloat(inp.value); if (d && isFinite(v)) dimSetPending(d, isAng(d) ? v * Math.PI / 180 : fromU(v)); });
+    inp.addEventListener('change', () => { if (d) dimCommitText(d, inp.value); });
     inp.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter') { ev.preventDefault(); inp.blur(); } });
   });
   panel.querySelectorAll('[data-dimx]').forEach(b => b.addEventListener('click', () => { const d = S.sk.dims.find(q => q.id === +b.dataset.dimx); if (d) dimDelete(d); }));
@@ -26607,7 +27075,7 @@ openBlueprint = function () {
   const sp = el.querySelector('.bp-sp');
   const chip = document.createElement('button'); chip.className = 'btn bp-check'; chip.id = 'bpCheck'; chip.textContent = 'Check…';
   chip.addEventListener('click', () => { const p = document.getElementById('bpCheckList'); if (p) p.hidden = !p.hidden; });
-  sp.after(chip);
+  if (sp) sp.after(chip); else el.appendChild(chip);
   const list = document.createElement('div'); list.id = 'bpCheckList'; list.className = 'bp-checklist'; list.hidden = true;
   el.querySelector('.bp-stage').appendChild(list);
 };
@@ -32180,9 +32648,13 @@ const TIP_TXT = {
   const place = () => {
     if (!el) return;
     const r = el.getBoundingClientRect(), w = card.offsetWidth, h = card.offsetHeight;
-    let x = r.left + r.width / 2 - w / 2, y = r.bottom + 8;
-    if (y + h > innerHeight - 8) y = Math.max(8, r.top - h - 8);
-    card.style.left = clamp(x, 8, innerWidth - w - 8) + 'px'; card.style.top = y + 'px';
+    // below the control, else above, else to its right, else to its left: the first that lies inside the window and leaves the control uncovered
+    const cx = r.left + r.width / 2 - w / 2, cy = r.top + r.height / 2 - h / 2, gap = 8;
+    const spots = [[cx, r.bottom + gap], [cx, r.top - h - gap], [r.right + gap, cy], [r.left - w - gap, cy]];
+    const fits = ([x, y]) => x >= 8 && y >= 8 && x + w <= innerWidth - 8 && y + h <= innerHeight - 8;
+    const c = clamp;
+    let [x, y] = spots.find(fits) || spots.map(([x, y]) => [c(x, 8, Math.max(8, innerWidth - w - 8)), c(y, 8, Math.max(8, innerHeight - h - 8))]).find(([x, y]) => x + w <= r.left || x >= r.right || y + h <= r.top || y >= r.bottom) || [c(cx, 8, innerWidth - w - 8), c(r.bottom + gap, 8, innerHeight - h - 8)];
+    card.style.left = clamp(x, 8, Math.max(8, innerWidth - w - 8)) + 'px'; card.style.top = clamp(y, 8, Math.max(8, innerHeight - h - 8)) + 'px';
   };
   const show = () => {
     if (!el || !document.contains(el)) return;
@@ -37728,11 +38200,19 @@ function gsPick(i) {
 <script src="mates.js"></script>
 <script src="construct.js"></script>
 <script src="sheet-flange.js"></script>
+<script src="analysis.js"></script>
+<script src="reference.js"></script>
+<script src="patterns2.js"></script>
+<script src="faceedit.js"></script>
+<script src="sketch2.js"></script>
+<script src="mesh2.js"></script>
 <!-- Export log, settings cog, mouse and keyboard layouts: own file so it can be loaded last -->
 <script src="input-settings.js"></script>
 <script src="cam-premium.js"></script>
 <!-- Early-access release: hides tabs and export formats, shows the notice (release-config.js lists what is hidden) -->
 <script src="release-config.js"></script>
 <script src="release.js"></script>
+<!-- Dev mode: press ` to open the self-test panel (stress-tests every workspace, control and kind of modeling, and grades smoothness) -->
+<script src="dev-mode.js"></script>
 </body>
 </html>

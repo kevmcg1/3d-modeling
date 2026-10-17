@@ -96,6 +96,24 @@
         try { const v = parseExpr(text, lookup); if (f[k] !== v) f[k] = v; } catch (e) { errs[f.id] = k + ': ' + e.message; }
       }
     }
+    // sketch dimensions with an expression: the sketch is solved again when the value changes
+    for (const sk of doc.features) {
+      if (sk.type !== 'sketch' || !sk.dims) continue;
+      const targets = new Map();
+      for (const d of sk.dims) {
+        if (!d.expr || d.driven) continue;
+        try {
+          let v = parseExpr(d.expr, lookup); if (d.type === 'ang') v = v * Math.PI / 180;
+          if (Math.abs(v - d.value) > 1e-9) targets.set(d, v);
+        } catch (e) { errs[sk.id] = 'dimension: ' + e.message; }
+      }
+      if (!targets.size) continue;
+      const r = skSolve(sk, { targets });
+      if (!r.ok) { errs[sk.id] = r.why; continue; }
+      skWrite(sk, r.V, r.x);
+      for (const [d, v] of targets) d.value = v;
+      touch(sk); dimsSync(sk);
+    }
     exprErrors = errs;
   }
   const modelChanged0 = modelChanged;
@@ -196,6 +214,7 @@
         p.name = nm;
         for (const q of list) q.expr = String(q.expr).replace(new RegExp('\\b' + old + '\\b', 'g'), nm);
         for (const f of doc.features) if (f.expr) for (const k of Object.keys(f.expr)) f.expr[k] = String(f.expr[k]).replace(new RegExp('\\b' + old + '\\b', 'g'), nm);
+        for (const f of doc.features) if (f.dims) for (const d of f.dims) if (d.expr) d.expr = String(d.expr).replace(new RegExp('\\b' + old + '\\b', 'g'), nm);
       } else p.expr = inp.value;
       setParams(list, 'Parameter edited');
     }));

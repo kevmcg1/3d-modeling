@@ -43,6 +43,21 @@ const close = (a, b, tol, what) => assert(Math.abs(a - b) <= tol, `${what}: ${a}
     });
     assert(/flat/i.test(r.e1) && /height/i.test(r.e2), JSON.stringify(r));
   });
+  await ok('gusset: a web in the corner of an L bracket adds ½ · d1 · d2 · t and is one body; errors are clear', async () => {
+    const r = await page.evaluate(([vs]) => {
+      const P = (id, op, cy, d, h) => ({ id, type: 'primitive', name: 'P' + id, shape: 'box', base: 'XY', cx: 0, cy, off: 0, op, w: 40, d, h, dia: 10, dia2: 0, tube: 6, center: true, sit: true });
+      const F0 = [P(10, 'new', 0, 40, 5), P(11, 'join', -17.5, 5, 30)];
+      loadDoc({ features: F0, next: 200 }, 'x'); const c0 = evaluate(0.05), b = c0.bodies[0], vol = eval(vs), m = bodyMesh(b);
+      const ref = p => faceRef(m, p.f, faceInfo(m, p.f).on);
+      const base = b.polys.find(p => p.n[2] > 0.99 && Math.abs(p.v[0][2] - 5) < 1e-6), wall = b.polys.find(p => p.n[1] > 0.99 && Math.abs(p.v[0][1] + 15) < 1e-6);
+      const G = o => ({ id: 12, type: 'gusset', name: 'G', a: ref(base), b: ref(wall), d1: 10, d2: 12, t: 4, frac: 0.5, ...o });
+      const run = o => { loadDoc({ features: [...F0, G(o)], next: 200 }, 'x'); const c = evaluate(0.05); return { errors: c.errors, n: c.bodies.length, v: c.bodies[0] && vol(c.bodies[0]), bb: c.bodies[0] && c.bodies[0].bb }; };
+      return { v0: vol(b), a: run({}), end: run({ frac: 1 }), bad: run({ b: ref(base) }), thick: run({ t: 100 }), zero: run({ d1: 0 }) };
+    }, [vol]);
+    assert.deepStrictEqual(r.a.errors, {}, JSON.stringify(r.a)); assert.strictEqual(r.a.n, 1);
+    close(r.a.v - r.v0, 0.5 * 10 * 12 * 4, 0.5, 'gusset volume'); close(r.end.v - r.v0, 240, 0.5, 'at the end of the corner');
+    assert(/parallel/i.test(r.bad.errors[12]) && /shorter/i.test(r.thick.errors[12]) && /legs/i.test(r.zero.errors[12]), JSON.stringify([r.bad.errors, r.thick.errors, r.zero.errors]));
+  });
   await ok('end caps add plates of the right thickness to the ends of a structural member', async () => {
     const L = (id, x1, y1, x2, y2) => ({ id, type: 'line', a: { x: x1, y: y1 }, b: { x: x2, y: y2 } });
     const mk = o => [{ id: 1, type: 'sketch', name: 'P', ref: { k: 'origin', w: 'XY' }, plane: null, ents: [L(2, 0, 0, 100, 0)], vis: true }, { id: 10, type: 'struct', name: 'M', path: { sketch: 1, ents: [2] }, stype: 'rtube', s: 20, h: 10, t: 2, rot: 0, cap0: false, cap1: false, ct: 3, op: 'new', ...o }];
@@ -64,7 +79,7 @@ const close = (a, b, tol, what) => assert(Math.abs(a - b) <= tol, `${what}: ${a}
     assert(r.rows.some(x => x[0] === 2 && x[1] === 10) && r.rows.some(x => x[0] === 1 && x[1] === 20), JSON.stringify(r.rows)); assert(/^Qty,Part/.test(r.csv) && r.csv.split('\n').length === 3, r.csv);
   });
   await ok('Dome and Cut List have ribbon buttons and hover cards', async () => {
-    const r = await page.evaluate(() => { setWorkspace('model'); return ['f:dome', 'i:cutlist'].map(a => [a, !!document.querySelector(`[data-act="${a}"]`), !!TIP_TXT[a]]); });
+    const r = await page.evaluate(() => { setWorkspace('model'); return ['f:dome', 'f:gusset', 'i:cutlist'].map(a => [a, !!document.querySelector(`[data-act="${a}"]`), !!TIP_TXT[a]]); });
     for (const [a, b, t] of r) assert(b && t, a + ' button/tip missing');
   });
   await ok('no page errors', async () => assert.deepStrictEqual(errs, []));

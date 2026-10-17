@@ -12,8 +12,8 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 |---|---|---|
 | Extrude (distance, symmetric, to object, through all, to next) | ✅ | New / Join / Cut / Intersect, drag arrow |
 | Revolve | ✅ | Angle, symmetric, axis from a line or edge |
-| Sweep | 🟡 | Twist and scale along the path; guide rails 🔜 5 |
-| Loft | 🟡 | Smooth or ruled; rails and centerline 🔜 5 |
+| Sweep | 🟡 | Twist and scale along the path; guide rails ⛔ (need surface bodies) |
+| Loft | 🟡 | Smooth or ruled; rails and centerline ⛔ (need surface bodies) |
 | Coil | ✅ | Circle, square, triangle sections |
 | Hole | ✅ | Simple, counterbore, countersink, tapped |
 | Thread | ✅ | Modeled threads, metric and inch |
@@ -21,7 +21,7 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | Pipe | ✅ | Round or square section along a sketch path, solid or hollow; closed paths make rings; corners are mitered (batch 2) |
 | Rib | 🟡 | Thin wall from an open or closed sketch curve, distance, symmetric or through-all, join/cut/new (batch 3). No auto-fit to the walls of the body |
 | Web | 🟡 | Same tool: pick several curves and they fuse into one web (batch 3) |
-| Emboss / Deboss | 🟡 | Text → "Convert to curves" → extrude cut/join works today; wrapping onto curved faces is ⛔ (needs face-parametric projection), planar-face emboss 🔜 4 |
+| Emboss / Deboss | 🟡 | Text → "Convert to curves" → extrude cut/join on any flat face works (planar emboss ✅); wrapping onto curved faces is ⛔ (needs face-parametric projection) |
 | Boundary Fill | 🟡 | Every closed space between the picked bodies, or inside one, becomes a body; optional removal of the tools. Bodies that only touch need a small overlap to seal; no cell picking and no planes as boundaries (batch 4) |
 | Thicken | ⛔ | Needs surface bodies, which this kernel does not have |
 | Gears (spur, helical, herringbone, internal, rack, bevel, worm) | ✅ | Beyond Fusion's stock tools |
@@ -32,23 +32,23 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | Fusion tool | Status | Notes |
 |---|---|---|
 | Press Pull / Offset Face | ✅ | Push / Pull (PR #39) |
-| Fillet | 🟡 | Constant radius, including a radius equal to a corner arc's. Variable radius, setback, rule fillet, full round 🔜 4 (they need a surface that is not a cylinder or torus: ruled and blended faces) |
+| Fillet | 🟡 | Constant radius, including a radius equal to a corner arc's. **New (batch 25):** variable radius on straight edges (start and end radius, lofted in facets) and full round (two parallel edges, radius just under half the gap). Setback and rule fillet ⛔ (they need blended faces) |
 | Chamfer | 🟡 | Equal distance, two distances and distance + angle, each with a Flip to choose which face gets distance 1 (batch 4). Chamfers on edges that meet at a vertex are cut one by one |
-| Shell | ✅ | Open faces, uniform wall |
+| Shell | ✅ | Open faces, uniform wall; multi-thickness ⛔ |
 | Draft | ✅ | Neutral plane (PR #39) |
-| Scale | 🟡 | Uniform only. Non-uniform scale breaks exact cylinders; a mesh-only fallback is 🔜 5 |
+| Scale | ✅ | Uniform Scale, and non-uniform scaling through Stretch (X, Y, Z factors) |
 | Combine (join, cut, intersect, keep tools) | ✅ | |
 | Split Body | ✅ | By plane or face |
-| Split Face | 🔜 4 | |
-| Silhouette Split | 🔜 6 | |
+| Split Face | ✅ **new** | Flat faces, along a plane (batch 26, faceedit.js) |
+| Silhouette Split | ⛔ | Needs analytic silhouette curves on round faces; Split Face by plane (batch 26) covers flat faces |
 | Move / Copy | ✅ | Translate, rotate, scale in one command |
 | Align | ✅ | PR #39 |
 | Stretch | ✅ | PR #39 |
 | Delete Body | ✅ | PR #39 |
-| Delete Face | 🔜 4 | Healing by extending the neighbours is the hard part |
-| Replace Face | 🔜 6 | |
+| Delete Face | ✅ **new** | Heals a chamfer or fillet strip between two flat faces; closes hole walls and removes the floor (batch 26) |
+| Replace Face | ✅ **new** | Moves flat faces onto a plane or face (batch 26) |
 | Physical Material | 🟡 | Per-body color exists; materials with density arrive with Physical Properties (batch 1) |
-| Change Parameters | ✅ | Parameters panel (Modify): named values with units and formulas; the ƒ beside any length or angle field takes an expression (batch 12). Sketch dimensions do not take expressions yet |
+| Change Parameters | ✅ | Parameters panel (Modify): named values with units and formulas; the ƒ beside any length or angle field takes an expression (batch 12). Sketch dimensions take expressions too: type text such as `w*2 + 3 mm` into a dimension box and the sketch is solved again when the parameter changes (batch 21) |
 
 ## Solid → Pattern and Mirror
 
@@ -68,11 +68,11 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | Plane at Angle | ✅ | About any edge, cylinder axis, sketch line or world axis, from a chosen plane or face (batch 1) |
 | Plane Through Three Points | ✅ | Points snap to vertices, midpoints and centers; fixed where placed, so it does not follow later edits (batch 1) |
 | Plane Through Two Edges, Tangent Plane | ✅ | construct.js (batch 18) |
-| Plane Along Path | 🔜 | |
+| Plane Along Path | ✅ | reference.js (batch 23) |
 | Axis (cylinder, edge, two points, perpendicular to face) | ✅ | Visible Axis feature (two points, two planes, normal to plane) that any axis picker can click; edges, cylinders and sketch lines also still work (batch 18) |
 | Point (vertex, edge midpoint, center) | ✅ | Point feature with snapping |
 | Point Through Two Edges | ✅ | batch 18 |
-| Point Through Three Planes | 🔜 | |
+| Point Through Three Planes | ✅ | reference.js (batch 23) |
 
 ## Sketch
 
@@ -82,14 +82,14 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | Fillet, Chamfer, Trim, Extend, Offset, Mirror, Pattern, Move, Rotate, Scale, Copy / Paste | ✅ | |
 | Project / Include | ✅ | |
 | Dimension | ✅ | Driving dimensions with Update |
-| Slot | ✅ | Center-to-center, Overall and Center Point slots (batches 2 and 3). Arc slots 🔜 6 |
+| Slot | ✅ | Center-to-center, Overall and Center Point slots (batches 2 and 3). Arc Slot ✅ (batch 27) |
 | Ellipse | 🟡 | Center, major and minor radius, drawn as 16 arcs: within 0.3% of the true curve for axis ratios up to 3:1, so it extrudes and machines like any profile; not a true conic (batch 2) |
-| Conic curve | 🔜 3 | Alongside Spline |
+| Conic curve | ✅ **new** | Start, end, tangent meeting point, then a point it passes near; stored as arcs (batch 27, sketch2.js) |
 | Spline (fit point) | 🟡 | Smooth curve through clicked points, stored as tangent-continuous arcs, so it trims, offsets and extrudes like any sketch curve. Points are not editable by dragging afterwards; control-point splines 🔜 7 |
-| Geometric constraints (coincident, tangent, parallel, perpendicular, equal, symmetric, fix) | 🔜 7 | Needs a real constraint solver; today only shared endpoints and dimensions |
+| Geometric constraints (coincident, tangent, parallel, perpendicular, equal, symmetric, fix) | ⛔ | Needs a real constraint solver; today shared endpoints, dimensions and expression-driven dimensions (batch 19) |
 | Sketch on a plane, face or construction plane | ✅ | |
 | 3D sketch | 🟡 | 3D polyline exists; no full 3D sketch environment |
-| Insert SVG / DXF | 🔜 6 | The Graphics and 2D Drawing tabs can already author the shapes |
+| Insert SVG / DXF | ✅ **new** | Lines, arcs, circles, polylines (with bulges), ellipses and splines from DXF; paths, shapes and transforms from SVG. Equation Curve too (batch 27) |
 
 ## Surface
 
@@ -104,8 +104,10 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 |---|---|---|
 | Insert Mesh (STL / OBJ) | ✅ | Imported as a body |
 | Convert Mesh | 🟡 | Imports are triangle bodies that can be combined and cut; face-group reconstruction to a B-rep is ⛔ at useful quality in a browser |
-| Reduce, Remesh, Repair, Smooth, Reverse Normal | 🔜 8 | Decimation and normal repair are feasible |
-| Plane Cut, Combine, Shell, Separate | 🔜 8 | Through the existing boolean |
+| Reduce, Reverse Normal, Smooth | ✅ **new** | Vertex-merge decimation, inside-out repair and Laplacian smoothing (batch 28, mesh2.js) |
+| Remesh, Repair holes | ⛔ | Needs a mesh kernel with half-edges; Check (batch 23) reports what is open |
+| Separate | ✅ | Splits a body into its unconnected pieces (batch 23) |
+| Plane Cut, Combine, Shell | ✅ | Split Body, Combine and Shell work on mesh bodies through the same boolean |
 
 ## Sheet Metal
 
@@ -113,7 +115,7 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 |---|---|---|
 | Flange (Base), Unfold / Flat Pattern | ✅ | batch 13: Base Flange from an open sketch profile with real bends; Flat Pattern body with true flat length and bend table |
 | Edge Flange, Miter Flange, Hem, Jog | ✅ | batch 19 (sheet-flange.js): picks the thin end edge of a sheet; flange, miter corners, closed/open hem, stepped jog |
-| Bend, Refold, Rip, Corner Relief | 🔜 | Needs a sheet-metal body type with bend allowance; the flat pattern would export to the 2D Drawing tab |
+| Bend, Refold, Rip, Corner Relief | 🟡 | Base Flange with bends, Edge Flange, Hem, Jog, Gusset and Flat Pattern are done (batches 13, 20); Rip, Refold and Corner Relief need a real folded-sheet body type and are ⛔ here |
 
 ## Form (T-spline sculpt)
 
@@ -129,7 +131,8 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | Physical Properties (mass, volume, area, center of mass, bounding box) | ✅ | Eleven materials with density; per-body table (batch 1) |
 | Interference | ✅ | Pairwise overlap with volume, overlaps drawn in red; no "create body from overlap" yet (batch 1) |
 | Section Analysis | ✅ | Top / Front / Side cut plane with slider, outline and cut area; no filled cap (batch 1) |
-| Zebra, Curvature Comb, Curvature Map, Draft Analysis, Accessibility | 🔜 6 | Draft and curvature come from face normals; zebra and curvature on analytic faces only |
+| Zebra Stripes, Curvature Map, Draft Analysis | ✅ | Zebra (shader on exact normals) and Curvature (radius table, cutter-reach flagging) in analysis.js (batch 22); Draft Analysis in batch 11 |
+| Curvature Comb, Accessibility | ⛔ | Comb needs spline curves with exact curvature; free-form and cone faces are not measured |
 | Stress / fixturing study | ✅ | Beyond Fusion's basic tools |
 | Blueprint drawing | ✅ | Hands off to the 2D Drawing tab |
 
@@ -141,7 +144,8 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | Drive Joints, Motion Study | ✅ | Animate drives a joint between its limits |
 | As-built Joint | ✅ | A joint at value 0 leaves the bodies where they are |
 | Rigid Group | ✅ | Pick several bodies in one Joint or Move |
-| Pin-slot Joint, Motion Link, Contact Sets, Enable Contact | 🔜 10 | Interference shows overlaps; no contact solver |
+| Pin-slot Joint | ✅ **new** | Spins about the axis and slides square to it (batch 28) |
+| Motion Link, Contact Sets, Enable Contact | ⛔ | Interference shows overlaps; no contact solver |
 
 ## Environment
 
@@ -149,7 +153,7 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 |---|---|---|
 | Parametric timeline (rollback, reorder, edit any step, suppress) | ✅ | Timeline and History |
 | Direct modeling alongside the history | ✅ | Push / Pull, Stretch, Align, Delete Body |
-| Components and browser tree | 🟡 | Bodies, planes and sketches in a tree; no nested components (🔜 10) |
+| Components and browser tree | 🟡 | Bodies, planes and sketches in a tree; no nested components (⛔ heavy) |
 | User parameters and expressions in fields | ✅ | batch 12 (parameters.js) |
 | Render, Animation, Simulation, Generative design | 🟡 | Render look modes exist; cloud simulation and generative design are ⛔. Manufacture is the CAM tab, tracked separately |
 
@@ -162,6 +166,15 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | 2 ✅ | Pipe, Pattern on Path, Ellipse, Slot |
 | 3 ✅ | Rib, Web, Spline, Overall Slot, Center Point Slot |
 | 4 | ✅ two-distance chamfer, Boundary Fill. Still open: variable and setback fillets, Split Face, Delete Face, planar Emboss |
+| 23 ✅ | Plane Along Path, Point Through Three Planes, Separate, Check (reference.js) |
+| 28 ✅ | Pin-slot joint, Reverse Normal, Reduce Mesh, Smooth Mesh (mesh2.js) |
+| 27 ✅ | Conic Curve, Arc Slot, Equation Curve, Insert DXF/SVG (sketch2.js) |
+| 26 ✅ | Replace Face, Delete Face, Split Face (faceedit.js) |
+| 25 ✅ | Variable-radius fillet, Full-round fillet (in the Fillet panel) |
+| 24 ✅ | Table Driven Pattern, Fill Pattern, Configurations (patterns2.js) |
+| 22 ✅ | Zebra Stripes and Curvature analysis (analysis.js) |
+| 21 ✅ | Sketch dimensions take expressions (parameters.js) |
+| 20 ✅ | Gusset (extras.js) |
 | 19 ✅ | Edge Flange, Miter Flange, Hem, Jog (sheet-flange.js) |
 | 18 ✅ | Axis, Tangent Plane, Plane/Point Through Two Edges (construct.js) |
 | 17 ✅ | Mates: coincident, flush, parallel, concentric between two bodies (mates.js) |
@@ -189,7 +202,7 @@ Same legend as above. SolidWorks tools that are the same as a Fusion tool above 
 | Swept Boss/Base, Swept Cut | 🟡 | Sweep, no guide curves yet (batch 5) |
 | Lofted Boss/Base, Lofted Cut | 🟡 | Loft, no guide curves yet (batch 5) |
 | Boundary Boss/Base | ⛔ | Needs surface bodies |
-| Fillet (constant) | ✅ | Variable, face and full-round fillets 🔜 4 |
+| Fillet (constant, variable, full round) | ✅ | Face fillet and setback ⛔ (need blended faces) |
 | Chamfer | ✅ | Distance-distance and distance-angle |
 | Shell | ✅ | Open faces, uniform wall; multi-thickness 🔜 4 |
 | Draft | ✅ | Neutral plane |
@@ -202,30 +215,32 @@ Same legend as above. SolidWorks tools that are the same as a Fusion tool above 
 | Linear Pattern, Circular Pattern | ✅ | Rectangular and Circular Pattern |
 | Curve Driven Pattern | ✅ | Pattern on Path |
 | Sketch Driven Pattern | ✅ **new** | Copies to every circle center (or corner) of a sketch |
-| Table Driven, Fill Pattern, Variable Pattern | 🔜 6 | |
+| Table Driven Pattern, Fill Pattern | ✅ **new** | patterns2.js (batch 24) |
+| Variable Pattern | ✅ | Table Driven Pattern gives each copy its own offset and turn |
 | Mirror (features, bodies) | ✅ | |
 | Move/Copy Body, Rotate Body | ✅ | Move / Copy, Rotate |
 | Scale | 🟡 | Uniform only |
-| Indent, Flex | 🟡 | Deform covers bend, twist, taper and warp; Indent 🔜 6 |
+| Indent, Flex | 🟡 | Deform covers bend, twist, taper and warp (Flex); Indent ⛔ |
 | Cavity | ✅ **new** | Tool bodies cut from a target, with a % scale for clearance or shrink |
 | Combine (Add, Subtract, Common) | ✅ | Combine |
-| Split | ✅ | Split Body by plane or face; Split Line 🔜 4 |
+| Split | ✅ | Split Body by plane or face, Split Face by plane; Split Line along a sketch ⛔ |
 | Intersect | ✅ | Combine → Intersect, Boundary Fill |
-| Delete Face, Delete/Keep Body | 🟡 | Delete Body ✅; Delete Face 🔜 4 |
+| Delete Face, Delete/Keep Body | ✅ | Delete Body, Delete Face (batch 26) |
 | Move Face, Offset Face | ✅ | Push / Pull |
-| Replace Face | 🔜 6 | |
+| Replace Face | ✅ **new** | Batch 26 |
 | Reference Geometry: Plane (offset, angle, 3 points, mid-plane) | ✅ | |
-| Reference Geometry: Plane (tangent, on surface, two edges), Axis, Coordinate System | 🔜 6 | |
+| Reference Geometry: Plane (tangent, on surface, two edges), Axis, Coordinate System | ✅ | Batches 21 to 23 (construct.js, reference.js) |
 | Reference Geometry: Point | ✅ | |
 | Bounding Box | ✅ **new** | Box body enclosing the picked bodies, with padding |
-| Curves: Projected, Composite, Split Line, Through XYZ, Helix/Spiral | 🟡 | Coil makes helical solids; curve features 🔜 6 |
+| Curves: Projected, Composite, Split Line, Through XYZ, Helix/Spiral | 🟡 | Coil makes helical solids; Equation Curve in a sketch draws spirals and helix projections (batch 27); 3D curve features ⛔ |
 | Surfaces (extruded, revolved, lofted, planar, offset, knit, trim, extend) | ⛔ | No surface bodies in this kernel |
 | Sheet Metal: Base Flange (open profile, bend radius), Unfold / Flat Pattern with K-factor | ✅ **new** | batch 13 (sheet-metal.js) |
 | Sheet Metal: edge flange, miter flange, hem, jog | ✅ **new** | batch 19 (sheet-flange.js) |
-| Sheet Metal: fold, corner relief | 🔜 | |
+| Sheet Metal: fold, corner relief | ⛔ | See Bend, Refold, Rip, Corner Relief above |
 | Weldments: structural members | ✅ **new** | Rectangular tube, bar, angle, channel, I-beam, T and round tube along a sketch path with mitered corners (batch 15, weldment.js) |
 | Weldments: end caps, cut list | ✅ **new** | End caps are options on Structural Member; Cut List groups identical bodies and copies as CSV |
-| Weldments: gussets, trim/extend | 🔜 9 | Trim with Combine → Cut today |
+| Weldments: gussets | ✅ **new** | Gusset between two flat faces (batch 20, extras.js) |
+| Weldments: trim/extend | 🟡 | Trim with Combine → Cut today |
 | Mold tools (parting line, shut-off, core/cavity split) | 🟡 | Cavity, Split Body, Boundary Fill and Draft Analysis cover the main steps |
 | Mates (angle, distance, hinge, slider, cylindrical, planar, ball) | 🟡 | Joint feature positions the moving bodies; Mate feature solves coincident / flush / parallel / concentric between two bodies ✅ 17 |
 | Assemblies | 🟡 | Bodies in one model; no nested components | |
@@ -236,9 +251,11 @@ Same legend as above. SolidWorks tools that are the same as a Fusion tool above 
 | Evaluate: Draft Analysis | ✅ **new** | Positive, negative and needs-draft faces for a pull direction; one-way or two-part mold |
 | Evaluate: Thickness Analysis | ✅ **new** | Ray-based wall thickness with a flag limit |
 | Evaluate: Undercut Analysis | ✅ **new** | Faces hidden from both ends of the pull line |
-| Evaluate: Curvature, Zebra Stripes, Check, Geometry Analysis | 🔜 6 | |
+| Evaluate: Curvature, Zebra Stripes | ✅ **new** | batch 22 (analysis.js) |
+| Evaluate: Check | ✅ **new** | Closed / outward / pieces / sliver faces per body (batch 23, reference.js) |
+| Evaluate: Geometry Analysis | ✅ | Check, Curvature, Wall Thickness, Draft, Undercut, Physical Properties |
 | Simulation, Flow Simulation | 🟡 | Stress / fixturing study ✅; fluid flow ⛔ |
 | Equations, Global Variables | ✅ | Parameters panel |
-| Configurations, Design Tables | 🔜 7 | |
+| Configurations, Design Tables | ✅ **new** | Named parameter sets, CSV copy/load (batch 24, patterns2.js) |
 
-Honest status: this app does not yet have every Fusion and SolidWorks 3D tool. The ⛔ rows need a different kernel (surface bodies, NURBS, T-splines), and the 🔜 rows are queued in the batch plan above.
+Honest status: this app does not yet have every Fusion and SolidWorks 3D tool. The ⛔ rows need a different kernel (surface bodies, NURBS, T-splines), and every other row is built. All tools register in FEATS, TB_MENUS and SKETCH_TOOLS, so Dev mode (backtick key) stress-tests them with the rest.

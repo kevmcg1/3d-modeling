@@ -13,10 +13,10 @@
   };
   Object.assign(FEAT_BASE, { joint: 'Joint' });
   Object.assign(FEAT_IC, { joint: 'joint' });
-  const JT = [['rigid', 'Rigid'], ['revolute', 'Revolute'], ['slider', 'Slider'], ['cylindrical', 'Cylindrical'], ['planar', 'Planar'], ['ball', 'Ball']];
+  const JT = [['rigid', 'Rigid'], ['revolute', 'Revolute'], ['slider', 'Slider'], ['cylindrical', 'Cylindrical'], ['pinslot', 'Pin-slot'], ['planar', 'Planar'], ['ball', 'Ball']];
   const JNAME = Object.fromEntries(JT);
   const isLin = t => t === 'slider' || t === 'planar';
-  const DEF = { revolute: [-180, 180], slider: [-50, 50], cylindrical: [-180, 180], planar: [-50, 50] };
+  const DEF = { revolute: [-180, 180], slider: [-50, 50], cylindrical: [-180, 180], pinslot: [-180, 180], planar: [-50, 50] };
   let timer = null;
   const stop = () => { if (timer) { clearInterval(timer); timer = null; } if (CMD && CMD.type === 'feat' && CMD.kind === 'joint') CMD.playing = false; };
 
@@ -33,10 +33,11 @@
         + (t !== 'rigid' && t !== 'ball' && f.axis && f.axis.k === 'world' ? pf.seg('World axis through', 'pivot', [['center', 'Body center'], ['origin', 'Origin']]) : '')
         + slider
         + (t === 'cylindrical' ? pf.num('Slide along the axis', 'value2', { len: 1, step: isIn() ? 0.05 : 1 }) : '')
+        + (t === 'pinslot' ? pf.num('Slide across the axis', 'value2', { len: 1, step: isIn() ? 0.05 : 1 }) : '')
         + (t === 'planar' ? pf.num('Second direction', 'value2', { len: 1, step: isIn() ? 0.05 : 1 }) : '')
         + (t === 'ball' ? `<div class="field"><span>Rotate about X · Y · Z (°)</span><div class="row3">${['rx', 'ry', 'rz'].map(k => `<input type="number" data-fv="${k}" data-live="1" step="15" value="${+(+f[k] || 0).toFixed(3)}" title="${k.slice(1).toUpperCase()}">`).join('')}</div></div>` : '')
         + (moves && t !== 'ball' ? `<div class="row2">${pf.num('Lower limit', 'min', lin ? { len: 1 } : { step: 5 })}${pf.num('Upper limit', 'max', lin ? { len: 1 } : { step: 5 })}</div><div class="btns"><button class="btn" data-fdo="play">${CMD.playing ? '■ Stop' : '▶ Animate'}</button></div>` : '')
-        + pf.note({ rigid: 'Locks the bodies where they are, as a record of how they are attached.', revolute: 'Spins the bodies about the axis, like a hinge or a wheel.', slider: 'Slides the bodies along the axis, like a drawer.', cylindrical: 'Spins about and slides along the same axis, like a screw or a piston that turns.', planar: 'Slides the bodies in a plane square to the axis.', ball: 'Turns the bodies about X, Y and Z through their center, like a ball joint.' }[t]
+        + pf.note({ rigid: 'Locks the bodies where they are, as a record of how they are attached.', revolute: 'Spins the bodies about the axis, like a hinge or a wheel.', slider: 'Slides the bodies along the axis, like a drawer.', cylindrical: 'Spins about and slides along the same axis, like a screw or a piston that turns.', pinslot: 'Spins about the axis and slides square to it, like a pin riding in a slot.', planar: 'Slides the bodies in a plane square to the axis.', ball: 'Turns the bodies about X, Y and Z through their center, like a ball joint.' }[t]
           + ' Drag the slider to move it. Animate drives the joint between its limits; the model keeps the position you stop at. For a joint on an edge or cylinder, click Pick… and choose it.');
     },
     act: {
