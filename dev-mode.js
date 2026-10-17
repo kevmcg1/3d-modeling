@@ -132,7 +132,7 @@
   }
   const actionsOf = (w, ws) => { const m = w.__devMon; if (!m) return discover(w, ws); if (m.dirty || !m.cache) { m.cache = discover(w, ws); m.dirty = false; } return m.cache; };
   function perform(w, a) {
-    const el = a.get(); if (!el) return;
+    const el = a.get(); if (!el || (el.isConnected === false)) return;   // a control the page has since replaced is gone, as it is for a hand
     if (a.kind === 'click' || a.kind === 'toggle') el.click();
     else if (a.kind === 'slide') {
       const lo = +el.min || 0, hi = el.max === '' ? 100 : +el.max, st = +el.step || 1; let v = lo + (hi - lo) * a.frac; v = Math.round(v / st) * st; el.value = v;
@@ -265,6 +265,7 @@
   function tidy(w) {
     try {
       w.document.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      if (w === window && typeof refreshUI === 'function') refreshUI();   // the panel must follow what Escape just cancelled, as it does for a hand
       if (w === window) { const m = document.getElementById('modal'); if (m && !m.hidden && m.offsetParent) { const c = m.querySelector('[data-do=cancel], [data-mx], .close, button'); if (c) c.click(); } }
     } catch (e) { /* nothing to close */ }
   }
