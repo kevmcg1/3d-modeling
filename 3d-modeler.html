@@ -24017,7 +24017,7 @@ const Trace = {
     this.buf.push(e); if (this.buf.length > this.cap * 1.25) this.buf.splice(0, this.buf.length - this.cap);   // ring buffer: cheap, never grows
     if (!this.on || this.busy) return;
     this.busy = true;
-    const col = { click: '#2460c8', key: '#8b4fd0', call: '#1d8656', field: '#b46a00', view: '#0f7c8c', perf: '#c0392f', feature: '#c0392f', error: '#c0392f', type: '#8b4fd0', change: '#b46a00', verify: '#1d8656', model: '#1d8656', resize: '#0f7c8c', drag: '#0f7c8c', scroll: '#778291', state: '#2460c8', panel: '#2460c8', page: '#778291', dev: '#c0392f' }[kind] || '#778291';
+    const col = { click: '#2460c8', key: '#8b4fd0', call: '#1d8656', field: '#b46a00', view: '#0f7c8c', perf: '#c0392f', feature: '#c0392f', error: '#c0392f', type: '#8b4fd0', change: '#b46a00', verify: '#1d8656', model: '#1d8656', resize: '#0f7c8c', drag: '#0f7c8c', scroll: '#778291', state: '#2460c8', panel: '#2460c8', page: '#778291', dev: '#c0392f', blur: '#0f7c8c' }[kind] || '#778291';
     const args = [`%c[3D Modeler ${e.t}s]%c ${kind}%c ${e.what}`, 'color:#778291', `color:${col};font-weight:600`, 'color:inherit'];
     const ctx = this.ctx();
     if (data !== undefined) args.push(data);
@@ -38254,6 +38254,8 @@ function gsPick(i) {
 <script src="release.js"></script>
 <!-- The deeper debug log: typing, value changes (from → to, with dimensions), the 3D view, resizes, drags, panels -->
 <script src="debug-trace.js"></script>
+<!-- Sharpness check: how blurry the 3D view, text, edges and labels are (dev panel and Export status) -->
+<script src="blur-check.js"></script>
 <!-- Dev mode: press ` to open the self-test panel (stress-tests every workspace, control and kind of modeling, and grades smoothness) -->
 <script src="dev-mode.js"></script>
 </body>

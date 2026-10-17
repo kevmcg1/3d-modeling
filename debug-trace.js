@@ -431,6 +431,7 @@
       ...(m.model.model ? [`${'model'.padEnd(12)} ${dims(m.model.model)} mm overall, ${(m.model.bodies || []).length} bod${(m.model.bodies || []).length === 1 ? 'y' : 'ies'}`] : []),
       ...(m.model.stock ? [`${'stock'.padEnd(12)} ${dims(m.model.stock)} mm`] : []),
     ];
+    try { if (window.__blur) out.push('', '== SHARPNESS (how blurry the 3D view, text, edges and labels are) ' + '='.repeat(6), window.__blur.text()); } catch (e) { out.push('', '== SHARPNESS ==', 'could not be read: ' + e.message); }
     if (prior.length) out.push('', '== BEFORE THE PAGE WAS RELOADED ' + '='.repeat(40), '  step  time          since load  level  kind     who  where   what', ...prior.map(stepLine));
     out.push('', '== STEPS ' + '='.repeat(62), '  step  time          since load  level  kind     who  where   what', ...(b.length ? b.map(stepLine) : ['(nothing yet)']));
     return scrub(out.join('\n') + '\n');
@@ -445,7 +446,7 @@
   function exportStatus(format) {
     let text;
     Trace.log('export', `status exported (${Trace.buf.length + 1} steps, ${format === 'json' ? 'JSON' : 'text'})`);
-    if (format === 'json') text = scrub(JSON.stringify({ ...statusMeta(), beforeReloadSteps: prior, steps: Trace.buf }, null, 1));
+    if (format === 'json') text = scrub(JSON.stringify({ ...statusMeta(), sharpness: window.__blur ? window.__blur.text() : undefined, beforeReloadSteps: prior, steps: Trace.buf }, null, 1));
     else { try { text = buildStatus(); } catch (e) { text = '3D MODELER STATUS\nThe status could not be fully built: ' + e.message + '\n'; } }
     const name = download(text, format === 'json' ? 'application/json' : 'text/plain', format === 'json' ? 'json' : 'txt');
     if (typeof toast === 'function') toast(`Status exported: ${Trace.buf.length} steps (${name})`);

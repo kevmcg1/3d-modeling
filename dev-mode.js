@@ -16,6 +16,7 @@
 // While it runs, the console debug log is on (Trace, plus debug-trace.js): every click, key, value change (from → to, with the model size), view move and
 // resize is written to the browser console, and it is switched off again when the run ends. The panel has a checkbox for it.
 // The status tracker (on by default, also a checkbox) keeps every step a person or the run does, numbered; "Export status" downloads them as a file.
+// The Sharpness line grades how blurry the 3D view, text, edges and labels are (blur-check.js) and goes into the export too.
 //
 // After every step it looks for: a script error or unhandled promise, a console error, a lost 3D context, a stalled frame, "NaN" /
 // "undefined" / "Infinity" on screen. It times every frame to grade each workspace's smoothness, and notes whether each control did anything.
@@ -244,6 +245,8 @@
     '<div class="grid">' + WS.map(t => '<label><input type="checkbox" data-t="' + t.id + '" checked> ' + t.name + '</label>').join('') + '</div>' +
     '<div class="row" style="margin-top:4px"><label class="chk"><input type="checkbox" id="devCtl" checked> Controls</label><label class="chk"><input type="checkbox" id="devCombo" checked> Combinations</label><label class="chk"><input type="checkbox" id="devFlow" checked> Flows</label><label class="chk"><input type="checkbox" id="devPrem"> Lift the Premium lock</label><label class="chk"><input type="checkbox" id="devLog" checked> Debug log in the console</label><label class="chk"><input type="checkbox" id="devTrack" checked> Status tracker</label></div>' +
     '<div class="row"><button id="devExport" title="Downloads every step recorded since the page loaded, numbered: clicks, keys, typed values, changes (from → to), view moves, resizes, panels">Export status</button><button id="devExportJson" title="The same steps as JSON">JSON</button><small id="devSteps"></small></div>' +
+    '<div class="row"><b style="font-size:12.5px">Sharpness</b><span id="devBlurGrade" style="font:600 11.5px Inter,system-ui,sans-serif;padding:2px 8px;border-radius:9px;background:#2a2d31;color:#8a8f97">not checked</span><button id="devBlurNow" title="Draws one frame and reads it back: how many screen pixels each edge is spread over, how big the text really is, whether any canvas is stretched">Check now</button><label class="chk"><input type="checkbox" id="devBlurLive" checked> Live</label></div>' +
+    '<pre id="devBlurText" style="margin:2px 0 6px;white-space:pre-wrap;word-break:break-word;max-height:150px;overflow:auto;font:11px/1.4 ui-monospace,Menlo,monospace;color:#b8bcc2"></pre>' +
     '<div class="row"><select id="devMode">' + Object.keys(MODES).map(k => '<option value="' + k + '"' + (k === 'standard' ? ' selected' : '') + '>' + MODES[k].label + '</option>').join('') + '</select><input type="number" id="devSeed" value="20261016" style="max-width:110px" aria-label="Seed"></div>' +
     '<div class="row"><button class="go" id="devGo">Start</button><button id="devStop" disabled>Stop</button><button id="devSummary">Copy summary</button><button id="devCopy">Copy report</button><button id="devSave">Download</button></div>' +
     '<div class="now" id="devEst"></div><div class="bar"><i id="devBar"></i></div><div class="now" id="devNow"></div><table class="sum" id="devSum"></table><div id="devFeed"></div><div id="devFinds"></div></div>';
@@ -806,8 +809,23 @@
     const steps = () => { if (typeof Trace === 'undefined') return; $d('devSteps').textContent = Trace.track ? Trace.buf.length + ' steps recorded' : 'tracker is off'; };
     $d('devTrack').checked = typeof Trace !== 'undefined' && Trace.track;
     $d('devTrack').addEventListener('change', () => { if (typeof Trace !== 'undefined') Trace.setTrack($d('devTrack').checked); steps(); });
-    $d('devExport').addEventListener('click', () => { if (typeof window.exportStatus === 'function') window.exportStatus(); steps(); });
-    $d('devExportJson').addEventListener('click', () => { if (typeof window.exportStatus === 'function') window.exportStatus('json'); steps(); });
+    // sharpness: the grade and what is wrong, live while the panel is open (a reading draws one frame, so it waits while a run is going)
+    const GRADE = { Sharp: ['#17361f', '#5fd38a'], Soft: ['#3a3014', '#e9c04c'], Blurry: ['#40191a', '#f06a6a'] };
+    let blurBusy = false;
+    const blur = async () => {
+      if (!window.__blur || blurBusy) return; blurBusy = true;
+      try {
+        const res = await window.__blur.measure(), g = $d('devBlurGrade'), c = GRADE[res.grade] || GRADE.Sharp;
+        g.textContent = res.grade; g.style.background = c[0]; g.style.color = c[1];
+        $d('devBlurText').textContent = window.__blur.text();
+      } catch (e) { $d('devBlurText').textContent = 'Could not read the view: ' + e.message; } finally { blurBusy = false; }
+    };
+    $d('devBlurNow').addEventListener('click', blur);
+    setInterval(() => { if (!panel.hidden && $d('devBlurLive').checked && !run.on) blur(); }, 3000);
+    // Export status takes a fresh sharpness reading first, so the file says how the view looks right now
+    const exportNow = async fmt => { if (window.__blur && !run.on) await blur(); if (typeof window.exportStatus === 'function') window.exportStatus(fmt); steps(); };
+    $d('devExport').addEventListener('click', () => exportNow());
+    $d('devExportJson').addEventListener('click', () => exportNow('json'));
     steps(); setInterval(() => { if (!panel.hidden) steps(); }, 1000);
     $d('devStop').addEventListener('click', () => { run.stop = true; $d('devSub').textContent = 'stopping…'; });
     const text = () => JSON.stringify(run.report || {}, (k, v) => (k === 'k' || k === 'sample') ? undefined : v, 2);
