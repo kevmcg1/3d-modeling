@@ -36,7 +36,7 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | Chamfer | 🟡 | Equal distance, two distances and distance + angle, each with a Flip to choose which face gets distance 1 (batch 4). Chamfers on edges that meet at a vertex are cut one by one |
 | Shell | ✅ | Open faces, uniform wall |
 | Draft | ✅ | Neutral plane (PR #39) |
-| Scale | 🟡 | Uniform only. Non-uniform scale breaks exact cylinders; a mesh-only fallback is 🔜 5 |
+| Scale | ✅ | Uniform Scale, and non-uniform scaling through Stretch (X, Y, Z factors) |
 | Combine (join, cut, intersect, keep tools) | ✅ | |
 | Split Body | ✅ | By plane or face |
 | Split Face | ✅ **new** | Flat faces, along a plane (batch 26, faceedit.js) |
@@ -104,7 +104,8 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 |---|---|---|
 | Insert Mesh (STL / OBJ) | ✅ | Imported as a body |
 | Convert Mesh | 🟡 | Imports are triangle bodies that can be combined and cut; face-group reconstruction to a B-rep is ⛔ at useful quality in a browser |
-| Reduce, Remesh, Repair, Smooth, Reverse Normal | 🔜 8 | Decimation and normal repair are feasible |
+| Reduce, Reverse Normal | ✅ **new** | Vertex-merge decimation and inside-out repair (batch 28, mesh2.js) |
+| Remesh, Smooth, Repair holes | 🔜 | |
 | Separate | ✅ | Splits a body into its unconnected pieces (batch 23) |
 | Plane Cut, Combine, Shell | 🔜 8 | Through the existing boolean |
 
@@ -143,7 +144,8 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | Drive Joints, Motion Study | ✅ | Animate drives a joint between its limits |
 | As-built Joint | ✅ | A joint at value 0 leaves the bodies where they are |
 | Rigid Group | ✅ | Pick several bodies in one Joint or Move |
-| Pin-slot Joint, Motion Link, Contact Sets, Enable Contact | 🔜 10 | Interference shows overlaps; no contact solver |
+| Pin-slot Joint | ✅ **new** | Spins about the axis and slides square to it (batch 28) |
+| Motion Link, Contact Sets, Enable Contact | ⛔ | Interference shows overlaps; no contact solver |
 
 ## Environment
 
@@ -165,6 +167,7 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | 3 ✅ | Rib, Web, Spline, Overall Slot, Center Point Slot |
 | 4 | ✅ two-distance chamfer, Boundary Fill. Still open: variable and setback fillets, Split Face, Delete Face, planar Emboss |
 | 23 ✅ | Plane Along Path, Point Through Three Planes, Separate, Check (reference.js) |
+| 28 ✅ | Pin-slot joint, Reverse Normal, Reduce Mesh (mesh2.js) |
 | 27 ✅ | Conic Curve, Arc Slot, Equation Curve, Insert DXF/SVG (sketch2.js) |
 | 26 ✅ | Replace Face, Delete Face, Split Face (faceedit.js) |
 | 25 ✅ | Variable-radius fillet, Full-round fillet (in the Fillet panel) |

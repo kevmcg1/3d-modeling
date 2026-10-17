@@ -39,6 +39,11 @@ const close = (a, b, tol, what) => assert(Math.abs(a - b) <= tol, `${what}: ${a}
     const ba = await run([box, joint({ jtype: 'ball', rx: 30, ry: 20, rz: 10 })]); close(ctr(ba.bb)[0], 10, 1e-6, 'center stays'); assert(Math.abs((ba.bb[3] - ba.bb[0]) - 4) > 0.2, 'it turned');
     const rg = await run([box, joint({ jtype: 'rigid', value: 99 })]); assert.deepStrictEqual(rg.bb, a.bb);
   });
+  await ok('pin-slot turns about the axis and slides square to it', async () => {
+    const a = await run([box, joint({ jtype: 'pinslot', value: 90, value2: 0 })]), ps = await run([box, joint({ jtype: 'pinslot', value: 90, value2: 7 })]);
+    assert.deepStrictEqual(ps.errors, {}); close(ctr(ps.bb)[1], ctr(a.bb)[1], 1e-6, 'stays level (no slide along the axis)');
+    close(Math.hypot(ctr(ps.bb)[0] - ctr(a.bb)[0], ctr(ps.bb)[2] - ctr(a.bb)[2]), 7, 1e-6, 'slid 7 across the axis');
+  });
   await ok('a bad axis or no bodies is an error, not a crash', async () => {
     const r = await run([box, joint({ bodies: [] })]); assert(/Pick the moving bodies/.test(r.errors[11] || ''), JSON.stringify(r.errors));
     const r2 = await run([box, joint({ axis: null })]); assert(/axis/i.test(r2.errors[11] || ''), JSON.stringify(r2.errors));
@@ -53,7 +58,7 @@ const close = (a, b, tol, what) => assert(Math.abs(a - b) <= tol, `${what}: ${a}
       panel.querySelector('[data-fdo="play"]').click(); await new Promise(r => setTimeout(r, 700)); out.moved = CMD.f.value !== 0; out.playing = !!CMD.playing;
       cancelCmd(); await new Promise(r => setTimeout(r, 400)); out.stopped = true; return out;
     }, box);
-    assert(r.btn && r.types === 6 && r.slider && r.moved && r.playing, JSON.stringify(r));
+    assert(r.btn && r.types === 7 && r.slider && r.moved && r.playing, JSON.stringify(r));
   });
   await ok('no page errors', async () => assert.deepStrictEqual(errs, []));
   await browser.close();
