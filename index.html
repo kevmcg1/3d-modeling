@@ -9502,6 +9502,47 @@ function evalAxisFeature(f, ctx) {
 }
 FEATX.axis = evalAxisFeature;
 
+// ── Plane along a path, point through three planes, separate shells (panels in reference.js) ──
+CP_EXTRA.planepath = (f, ctx) => {
+  const { segs } = pathSegments(f.path, ctx), total = segs.reduce((a, g) => a + g.len, 0);
+  if (!(total > 0)) throw new Error('The path has no length');
+  let s = Math.min(1, Math.max(0, (+f.pos || 0) / 100)) * total, g = segs[0];
+  if (f.rev) s = total - s;
+  for (const q of segs) { g = q; if (s <= q.len + 1e-9) break; s -= q.len; }
+  s = Math.min(g.len, Math.max(0, s));
+  return cpFrame(g.tan(s), g.at(s));
+};
+const evalCPoint0 = evalCPoint;
+evalCPoint = function (f, ctx) {
+  if (f.cp !== 'pt3pl') return evalCPoint0(f, ctx);
+  const A = resolveMirrorPlane(f.p1, ctx), B = resolveMirrorPlane(f.p2, ctx), C = resolveMirrorPlane(f.p3, ctx), det = dot3(A.n, crs3(B.n, C.n));
+  if (Math.abs(det) < 1e-9) throw new Error('The three planes do not meet at one point: two of them are parallel, or all three share a line');
+  return mul3(add3(add3(mul3(crs3(B.n, C.n), A.w), mul3(crs3(C.n, A.n), B.w)), mul3(crs3(A.n, B.n), C.w)), 1 / det);
+};
+function shellsOf(polys) {
+  const key = v => v.map(x => Math.round(x * 1e4)).join(','), par = polys.map((_, i) => i), first = new Map();
+  const find = i => { while (par[i] !== i) { par[i] = par[par[i]]; i = par[i]; } return i; };
+  polys.forEach((p, i) => { for (const v of p.v) { const k = key(v), j = first.get(k); if (j === undefined) first.set(k, i); else par[find(i)] = find(j); } });
+  const groups = new Map();
+  polys.forEach((p, i) => { const r = find(i); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(p); });
+  return [...groups.values()].sort((a, b) => b.length - a.length);
+}
+function evalSeparate(f, ctx) {
+  const src = bodiesById(f.bodies, ctx);
+  if (!src.length) throw new Error('Pick the body to separate');
+  let n = 0;
+  const out = [];
+  for (const b of ctx.bodies) {
+    if (!src.includes(b)) { out.push(b); continue; }
+    const sh = shellsOf(b.polys);
+    sh.forEach((polys, i) => { out.push(mkBody(i === 0 ? b.id : +(f.id + (++n) / 100).toFixed(2), polys)); });
+  }
+  if (!n) throw new Error('That body is one piece: there is nothing to separate');
+  ctx.bodies = out;
+  ctx.hl[f.id] = out.map(b => b.id);
+}
+FEATX.separate = evalSeparate;
+
 // ── Rib / Web: thin walls from open sketch curves, extruded square to the sketch plane ──
 // A chain of lines and arcs is sampled, thickened to a flat-ended strip (mitered at bends) and extruded; several chains make a web.
 function ribLoops(pts, closed, h) {
@@ -37776,6 +37817,7 @@ function gsPick(i) {
 <script src="construct.js"></script>
 <script src="sheet-flange.js"></script>
 <script src="analysis.js"></script>
+<script src="reference.js"></script>
 <!-- Export log, settings cog, mouse and keyboard layouts: own file so it can be loaded last -->
 <script src="input-settings.js"></script>
 <script src="cam-premium.js"></script>
