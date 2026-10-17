@@ -71,6 +71,27 @@ const close = (a, b, tol, what) => assert(Math.abs(a - b) <= tol, `${what}: ${a}
     }, box);
     assert(r.open && r.rows === 2 && r.added === 2 && r.name === 'wall' && r.use === 'wall*2' && r.left === 1, JSON.stringify(r));
   });
+  await ok('sketch dimensions take expressions: typed text is kept, follows its parameter, and bad text is refused', async () => {
+    const r = await page.evaluate(() => {
+      const sk = { id: 1, type: 'sketch', name: 'S', ref: { k: 'origin', w: 'XY' }, plane: ORIGIN_PLANES.XY, vis: true, ents: [{ id: 2, type: 'circle', c: { x: 0, y: 0 }, r: 5 }] };
+      loadDoc({ features: [sk], params: [{ name: 'w', expr: '10' }], next: 200 }, 'x');
+      setWorkspace('model'); enterSketch(doc.features[0]);
+      const d = { id: 3, type: 'dia', refs: [{ e: 2 }], value: 10, rel: { x: 0, y: 0 } }; S.sk.dims = [d];
+      dimCommitText(d, 'w*2');                               // typed into the dimension box
+      const a = { r: S.sk.ents[0].r, expr: d.expr, value: d.value };
+      doc.params[0].expr = '7'; PARAMS.applyExprs();
+      const b = { r: S.sk.ents[0].r, value: d.value };
+      dimCommitText(d, '30');                                // a plain number takes the expression off
+      const c = { r: S.sk.ents[0].r, expr: d.expr, want: fromU(30) / 2 };
+      dimCommitText(d, 'nope*2');
+      const e = { expr: d.expr, r: S.sk.ents[0].r };
+      return { a, b, c, e, input: /type="text"/.test(panel.innerHTML) };
+    });
+    close(r.a.r, 10, 1e-6, 'radius from w*2 / 2 (diameter 20)'); assert.strictEqual(r.a.expr, 'w*2');
+    close(r.b.r, 7, 1e-6, 'w = 7 gives diameter 14'); close(r.b.value, 14, 1e-6, 'dimension value');
+    close(r.c.r, r.c.want, 1e-6, 'plain 30 in the display unit'); assert.strictEqual(r.c.expr, undefined);
+    assert.strictEqual(r.e.expr, undefined, 'a bad expression changes nothing'); close(r.e.r, r.c.want, 1e-6, 'radius unchanged'); assert(r.input, 'dimension inputs accept text');
+  });
   await ok('no page errors', async () => assert.deepStrictEqual(errs, []));
   await browser.close();
   console.log(`\n${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

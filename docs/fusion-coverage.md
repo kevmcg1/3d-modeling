@@ -48,7 +48,7 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | Delete Face | 🔜 4 | Healing by extending the neighbours is the hard part |
 | Replace Face | 🔜 6 | |
 | Physical Material | 🟡 | Per-body color exists; materials with density arrive with Physical Properties (batch 1) |
-| Change Parameters | ✅ | Parameters panel (Modify): named values with units and formulas; the ƒ beside any length or angle field takes an expression (batch 12). Sketch dimensions do not take expressions yet |
+| Change Parameters | ✅ | Parameters panel (Modify): named values with units and formulas; the ƒ beside any length or angle field takes an expression (batch 12). Sketch dimensions take expressions too: type text such as `w*2 + 3 mm` into a dimension box and the sketch is solved again when the parameter changes (batch 21) |
 
 ## Solid → Pattern and Mirror
 
@@ -162,6 +162,7 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | 2 ✅ | Pipe, Pattern on Path, Ellipse, Slot |
 | 3 ✅ | Rib, Web, Spline, Overall Slot, Center Point Slot |
 | 4 | ✅ two-distance chamfer, Boundary Fill. Still open: variable and setback fillets, Split Face, Delete Face, planar Emboss |
+| 21 ✅ | Sketch dimensions take expressions (parameters.js) |
 | 20 ✅ | Gusset (extras.js) |
 | 19 ✅ | Edge Flange, Miter Flange, Hem, Jog (sheet-flange.js) |
 | 18 ✅ | Axis, Tangent Plane, Plane/Point Through Two Edges (construct.js) |
