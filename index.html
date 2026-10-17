@@ -9883,6 +9883,35 @@ function evalReduceMesh(f, ctx) {
   ctx.hl[f.id] = src.map(b => b.id);
 }
 FEATX.reducemesh = evalReduceMesh;
+function evalSmoothMesh(f, ctx) {
+  const src = bodiesById(f.bodies, ctx), it = Math.max(1, Math.min(50, Math.round(+f.iter || 1))), lam = +f.amount;
+  if (!src.length) throw new Error('Pick the bodies to smooth');
+  if (!(lam > 0 && lam <= 1)) throw new Error('The amount has to be between 0 and 1');
+  ctx.bodies = ctx.bodies.map(b => {
+    if (!src.includes(b)) return b;
+    const mesh = bodyMesh(b);
+    let V = mesh.VP.map(v => v.slice());
+    const nb = V.map(() => new Set());
+    for (const p of mesh.PL) for (let i = 0; i < p.ids.length; i++) { const a = p.ids[i], c = p.ids[(i + 1) % p.ids.length]; nb[a].add(c); nb[c].add(a); }
+    for (let k = 0; k < it; k++) V = V.map((v, i) => { if (!nb[i].size) return v; let s = [0, 0, 0]; for (const j of nb[i]) s = add3(s, V[j]); return add3(v, mul3(sub3(mul3(s, 1 / nb[i].size), v), lam)); });
+    const polys = [];
+    for (const p of mesh.PL) {
+      const vs = p.ids.map(i => V[i]);
+      for (let i = 1; i + 1 < vs.length; i++) {
+        const tri = [vs[0], vs[i], vs[i + 1]];
+        if (len3(crs3(sub3(tri[1], tri[0]), sub3(tri[2], tri[0]))) < 1e-12) continue;
+        const pp = CSG.poly(tri, 0), s = Surf.facet(pp.n, pp.w, 'sm' + f.id);
+        polys.push(CSG.poly(tri, s, pp.n, pp.w));
+      }
+    }
+    let vol = 0;
+    for (const p of polys) for (let i = 1; i + 1 < p.v.length; i++) vol += dot3(p.v[0], crs3(p.v[i], p.v[i + 1]));
+    if (!(vol > 1e-9)) throw new Error('Smoothing that much collapses the body: use less');
+    return mkBody(b.id, polys);
+  });
+  ctx.hl[f.id] = src.map(b => b.id);
+}
+FEATX.smoothmesh = evalSmoothMesh;
 
 // ── Rib / Web: thin walls from open sketch curves, extruded square to the sketch plane ──
 // A chain of lines and arcs is sampled, thickened to a flat-ended strip (mitered at bends) and extruded; several chains make a web.
