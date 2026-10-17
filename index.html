@@ -9182,6 +9182,91 @@ function evalSMFlat(f, ctx, tol) {
 }
 FEATX.smflat = evalSMFlat;
 
+// ── Edge flange, miter flange, hem and jog (panels in sheet-flange.js) ──
+// What the sheet looks like at a picked straight edge: the big face gives "up", the thin end face gives "out".
+function sheetEdge(ref, ctx) {
+  const r = findChain(ctx.bodies, ref);
+  if (!r) throw new Error('A picked edge no longer exists');
+  const g = chainGeom(r.ch);
+  if (g.k !== 'line') throw new Error('Flanges go on straight edges');
+  const info = fid => {
+    let A = 0, n = null; const vs = [];
+    for (const p of r.body.polys) if (p.f === fid) { n = p.n; for (let q = 1; q + 1 < p.v.length; q++) A += len3(crs3(sub3(p.v[q], p.v[0]), sub3(p.v[q + 1], p.v[0]))) / 2; vs.push(...p.v); }
+    return { A, n: n && nrm3(n), vs };
+  };
+  const a = info(r.ch.fa), b = info(r.ch.fb);
+  if (!a.n || !b.n || Surf.list[r.ch.fa].t !== 'P' || Surf.list[r.ch.fb].t !== 'P') throw new Error('Pick an edge between two flat faces of the sheet');
+  const sheet = a.A >= b.A ? a : b, end = sheet === a ? b : a;
+  if (Math.abs(dot3(sheet.n, end.n)) > 1e-3) throw new Error('Pick the edge where the thin end of the sheet meets its face');
+  let lo = Infinity, hi = -Infinity;
+  for (const v of end.vs) { const h = dot3(v, sheet.n); lo = Math.min(lo, h); hi = Math.max(hi, h); }
+  return { body: r.body, a: g.a, b: g.b, up: sheet.n, out: end.n, t: hi - lo };
+}
+// the centerline of a flange as (u = away from the sheet, v = bend side) points; arcs and lines like a turtle
+function flangePath(segs, rc, tol) {
+  let p = P2(0, 0), h = 0; const pts = [P2(-0.01, 0), p];
+  for (const s of segs) {
+    if (s.line !== undefined) { p = P2(p.x + Math.cos(h) * s.line, p.y + Math.sin(h) * s.line); pts.push(p); continue; }
+    const sg = s.arc >= 0 ? 1 : -1, c = P2(p.x - Math.sin(h) * sg * rc, p.y + Math.cos(h) * sg * rc), a0 = Math.atan2(p.y - c.y, p.x - c.x);
+    const step = Math.max(0.05, 2 * Math.acos(Math.max(0, 1 - tol / (rc + 1)))), m = Math.min(64, Math.max(3, Math.ceil(Math.abs(s.arc) / step)));
+    for (let k = 1; k <= m; k++) { const an = a0 + s.arc * k / m; pts.push(P2(c.x + rc * Math.cos(an), c.y + rc * Math.sin(an))); }
+    p = pts[pts.length - 1]; h += s.arc;
+  }
+  return pts;
+}
+function evalEdgeFlange(f, ctx, tol) {
+  const refs = f.edges || [];
+  if (!refs.length) throw new Error('Pick the sheet edges');
+  const len = +f.len, ang = (+f.ang || 0) * Math.PI / 180, kind = f.kind || 'flange';
+  if (!(len > 0)) throw new Error('The flange length has to be positive');
+  if (kind !== 'hem' && !(ang > 0.01 && ang <= Math.PI + 1e-6)) throw new Error('The bend angle has to be between 0° and 180°');
+  const E = refs.map(r => sheetEdge(r.e, ctx)), body = E[0].body;
+  if (E.some(e => e.body !== body)) throw new Error('All the edges have to be on one sheet');
+  const eps = 1e-4;
+  let tool = [];
+  E.forEach((e, i) => {
+    const t = e.t, rt = kind === 'hem' && f.htype !== 'open' ? 0.001 : Math.max(0, +f.rt || 0), rc = rt * t + t / 2;
+    const th = kind === 'hem' ? Math.PI : ang;
+    const segs = kind === 'jog'
+      ? (() => { const H = +f.jogH; if (!(H > 0)) throw new Error('The jog height has to be positive'); const s = Math.max(0, (H - 2 * rc * (1 - Math.cos(th))) / Math.sin(th)); return [{ arc: th }, { line: s }, { arc: -th }, { line: len }]; })()
+      : [{ arc: th }, { line: len }];
+    const pts = flangePath(segs, rc, tol), up = f.flip ? mul3(e.up, -1) : e.up;
+    let u = e.out; const n = crs3(u, up);
+    const ts = [dot3(e.a, n), dot3(e.b, n)], lo = Math.min(ts[0], ts[1]), hi = Math.max(ts[0], ts[1]);
+    const P0 = ts[0] <= ts[1] ? e.a : e.b, P1 = ts[0] <= ts[1] ? e.b : e.a;
+    const o = sub3(P0, mul3(e.up, t / 2)), pl = { o, u, v: up, n };
+    let ext0 = 0, ext1 = 0, clip = [];
+    let maxU = 0; for (const q of pts) maxU = Math.max(maxU, Math.abs(q.x), Math.abs(q.y));
+    E.forEach((e2, j) => {
+      if (j === i) return;
+      for (const [V, other, side] of [[P0, P1, 0], [P1, P0, 1]]) {
+        if (dist3(V, e2.a) > eps && dist3(V, e2.b) > eps) continue;
+        const m = add3(e.out, e2.out);
+        if (len3(m) < 1e-6) throw new Error('Two of the edges run in a line: there is no corner to miter');
+        let nm = crs3(up, nrm3(m)); if (dot3(nm, sub3(other, V)) < 0) nm = mul3(nm, -1);
+        const ex = 4 * (maxU + t) + len;
+        if (side === 0) ext0 = ex; else ext1 = ex;
+        clip.push({ V, nm, m: nrm3(m) });
+      }
+    });
+    const w = hi - lo;
+    let polys = prism(ribLoops(pts, false, t / 2), pl, -ext0, w + ext1, tol, f.id);
+    if (!polys.length) throw new Error('The flange came out empty');
+    const R = 4 * Math.hypot(body.bb[3] - body.bb[0], body.bb[4] - body.bb[1], body.bb[5] - body.bb[2]) + 200;
+    for (const c of clip) {
+      const pl2 = { o: c.V, u: up, v: c.m, n: crs3(up, c.m) };
+      if (dot3(pl2.n, c.nm) < 0) pl2.n = mul3(pl2.n, -1), pl2.v = mul3(pl2.v, -1);
+      const keep = prism({ outer: loopOf([P2(-R, -R), P2(R, -R), P2(R, R), P2(-R, R)], 1), holes: [] }, pl2, 0, R, tol, f.id);
+      polys = CSG.intersect(polys, keep);
+    }
+    tool = tool.length ? CSG.union(tool, polys) : polys;
+  });
+  ctx.tools[f.id] = { polys: tool, op: 'join' };
+  ctx.bodies = ctx.bodies.map(b => b === body ? mkBody(b.id, CSG.union(b.polys, tool)) : b);
+  ctx.hl[f.id] = [body.id];
+}
+FEATX.eflange = evalEdgeFlange;
+
 // ── Joints (panels in assembly.js): the moving bodies sit at the joint's current position ──
 function evalJoint(f, ctx) {
   const src = bodiesById(f.bodies, ctx);
@@ -37639,6 +37724,7 @@ function gsPick(i) {
 <script src="extras.js"></script>
 <script src="mates.js"></script>
 <script src="construct.js"></script>
+<script src="sheet-flange.js"></script>
 <!-- Export log, settings cog, mouse and keyboard layouts: own file so it can be loaded last -->
 <script src="input-settings.js"></script>
 <script src="cam-premium.js"></script>

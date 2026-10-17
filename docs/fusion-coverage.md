@@ -112,7 +112,8 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | Fusion tool | Status | Notes |
 |---|---|---|
 | Flange (Base), Unfold / Flat Pattern | ✅ | batch 13: Base Flange from an open sketch profile with real bends; Flat Pattern body with true flat length and bend table |
-| Edge Flange, Bend, Refold, Rip, Corner Relief | 🔜 9 | Needs a sheet-metal body type with bend allowance; the flat pattern would export to the 2D Drawing tab |
+| Edge Flange, Miter Flange, Hem, Jog | ✅ | batch 19 (sheet-flange.js): picks the thin end edge of a sheet; flange, miter corners, closed/open hem, stepped jog |
+| Bend, Refold, Rip, Corner Relief | 🔜 | Needs a sheet-metal body type with bend allowance; the flat pattern would export to the 2D Drawing tab |
 
 ## Form (T-spline sculpt)
 
@@ -161,6 +162,7 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | 2 ✅ | Pipe, Pattern on Path, Ellipse, Slot |
 | 3 ✅ | Rib, Web, Spline, Overall Slot, Center Point Slot |
 | 4 | ✅ two-distance chamfer, Boundary Fill. Still open: variable and setback fillets, Split Face, Delete Face, planar Emboss |
+| 19 ✅ | Edge Flange, Miter Flange, Hem, Jog (sheet-flange.js) |
 | 18 ✅ | Axis, Tangent Plane, Plane/Point Through Two Edges (construct.js) |
 | 17 ✅ | Mates: coincident, flush, parallel, concentric between two bodies (mates.js) |
 | 16 ✅ | Dome, end caps, Cut List (extras.js) |
@@ -219,7 +221,8 @@ Same legend as above. SolidWorks tools that are the same as a Fusion tool above 
 | Curves: Projected, Composite, Split Line, Through XYZ, Helix/Spiral | 🟡 | Coil makes helical solids; curve features 🔜 6 |
 | Surfaces (extruded, revolved, lofted, planar, offset, knit, trim, extend) | ⛔ | No surface bodies in this kernel |
 | Sheet Metal: Base Flange (open profile, bend radius), Unfold / Flat Pattern with K-factor | ✅ **new** | batch 13 (sheet-metal.js) |
-| Sheet Metal: edge flange, miter flange, hem, jog, fold, corner relief | 🔜 9 | Need picking a sheet edge |
+| Sheet Metal: edge flange, miter flange, hem, jog | ✅ **new** | batch 19 (sheet-flange.js) |
+| Sheet Metal: fold, corner relief | 🔜 | |
 | Weldments: structural members | ✅ **new** | Rectangular tube, bar, angle, channel, I-beam, T and round tube along a sketch path with mitered corners (batch 15, weldment.js) |
 | Weldments: end caps, cut list | ✅ **new** | End caps are options on Structural Member; Cut List groups identical bodies and copies as CSV |
 | Weldments: gussets, trim/extend | 🔜 9 | Trim with Combine → Cut today |
