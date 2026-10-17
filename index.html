@@ -9230,9 +9230,50 @@ function evalStruct(f, ctx, tol) {
   const region = structRegion(f), { segs } = pathSegments(f.path, ctx), P0 = segs[0].at(0), T = nrm3(segs[0].tan(0));
   const u = nrm3(crs3(T, Math.abs(T[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0])), pp = { o: P0, u, v: crs3(T, u), n: T };
   const plan = sweepPlan(f.path, ctx, pp, P0, 0, 1, Math.hypot(+f.s, +f.h) / 2, tol);
-  finishTool(f, ctx, sweepBuild(region, pp, plan.secs, plan.kinds, plan.closed, tol, f.id));
+  let tool = sweepBuild(region, pp, plan.secs, plan.kinds, plan.closed, tol, f.id);
+  // end caps: a plate the thickness of f.ct closing the start and/or the end of the member
+  if ((f.cap0 || f.cap1) && !plan.closed) {
+    if (!(+f.ct > 0)) throw new Error('The end cap thickness has to be positive');
+    const capRegion = f.stype === 'ttube' ? { outer: [{ k: 'A', c: P2(0, 0), r: +f.s / 2, t0: 0, s: TAU, a: P2(+f.s / 2, 0), b: P2(+f.s / 2, 0), src: 1 }], holes: [] } : { outer: structRegion({ ...f, stype: 'rbar' }).outer, holes: [] };
+    const last = segs[segs.length - 1], len = last.len, P1 = last.at(len), T1 = nrm3(last.tan(len));
+    const u1 = nrm3(crs3(T1, Math.abs(T1[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0])), p1 = { o: P1, u: u1, v: crs3(T1, u1), n: T1 };
+    if (f.cap0) tool = CSG.union(tool, prism(capRegion, pp, -f.ct, 0, tol, f.id));
+    if (f.cap1) tool = CSG.union(tool, prism(capRegion, p1, 0, +f.ct, tol, f.id));
+  }
+  finishTool(f, ctx, tool);
 }
 FEATX.struct = evalStruct;
+
+// ── Dome (panel in extras.js): a spherical cap over each picked flat face, following the face outline ──
+function evalDome(f, ctx, tol) {
+  const hgt = +f.h;
+  if (!(hgt > 0)) throw new Error('The dome height has to be positive');
+  const { body, fids } = pickedFaces(f, ctx);
+  let polys = body.polys;
+  for (const fid of fids) {
+    const s = Surf.list[fid];
+    if (!s || s.t !== 'P') throw new Error('Domes go on flat faces');
+    const face = body.polys.filter(p => p.f === fid);
+    let A = 0, c = [0, 0, 0];
+    for (const p of face) for (let q = 1; q + 1 < p.v.length; q++) {
+      const a = len3(crs3(sub3(p.v[q], p.v[0]), sub3(p.v[q + 1], p.v[0]))) / 2;
+      A += a; c = add3(c, mul3(add3(add3(p.v[0], p.v[q]), p.v[q + 1]), a / 3));
+    }
+    if (!(A > 1e-9)) throw new Error('That face has no area');
+    c = mul3(c, 1 / A);
+    const n = nrm3(face[0].n);
+    let rad = 0;
+    for (const p of face) for (const v of p.v) rad = Math.max(rad, dist3(v, c));
+    const R = (rad * rad + hgt * hgt) / (2 * hgt), O = sub3(c, mul3(n, R - hgt));
+    const grown = moveFacesOf(body, f, fi => fi === fid ? { b: hgt } : null, hgt), prismOver = CSG.subtract(grown, body.polys);
+    const u = nrm3(crs3(n, Math.abs(n[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0])), rp = { o: O, u, v: n, n: crs3(u, n) };
+    const ball = revolveBuild({ outer: [{ k: 'A', c: P2(0, 0), r: R, t0: -Math.PI / 2, s: Math.PI, a: P2(0, -R), b: P2(0, R), src: 1 }, { k: 'L', a: P2(0, R), b: P2(0, -R), src: 2 }], holes: [] }, rp, { p: O, dir: n }, 0, TAU, Math.max(24, circleN(R, tol)), true, tol, f.id);
+    polys = CSG.union(polys, CSG.intersect(prismOver, ball));
+  }
+  ctx.bodies = ctx.bodies.map(b => b === body ? mkBody(b.id, polys) : b);
+  ctx.hl[f.id] = [body.id];
+}
+FEATX.dome = evalDome;
 
 // ── Rib / Web: thin walls from open sketch curves, extruded square to the sketch plane ──
 // A chain of lines and arcs is sampled, thickened to a flat-ended strip (mitered at bends) and extruded; several chains make a web.
@@ -37463,6 +37504,7 @@ function gsPick(i) {
 <script src="sheet-metal.js"></script>
 <script src="assembly.js"></script>
 <script src="weldment.js"></script>
+<script src="extras.js"></script>
 <!-- Export log, settings cog, mouse and keyboard layouts: own file so it can be loaded last -->
 <script src="input-settings.js"></script>
 </body>
