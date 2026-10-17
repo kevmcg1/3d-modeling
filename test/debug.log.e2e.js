@@ -106,9 +106,9 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
     assert.strictEqual(await p.evaluate(() => document.getElementById('devLog').checked), true, 'the debug log option is on by default');
     dl.length = 0;
     await p.evaluate(() => {
-      document.querySelectorAll('.dev input[data-t]').forEach(i => { i.checked = i.dataset.t === 'cam'; }); document.getElementById('devMode').value = 'quick'; document.getElementById('devCombo').checked = false; document.getElementById('devFlow').checked = false;
+      document.querySelectorAll('.dev input[data-t]').forEach(i => { i.checked = i.dataset.t === 'design'; }); document.getElementById('devMode').value = 'quick'; document.getElementById('devCombo').checked = false; document.getElementById('devFlow').checked = false;
       const M = window.__dev.MODES.quick; M.pairs = 2; M.triples = 2; M.seqs = 2; window.__devDone = false; window.__devDuring = false;
-      const t = setInterval(() => { if (Trace.on) window.__devDuring = true; }, 100); window.__dev.start(['cam']).then(() => { window.__devDone = true; clearInterval(t); });
+      const t = setInterval(() => { if (Trace.on) window.__devDuring = true; }, 100); window.__dev.start(['design']).then(() => { window.__devDone = true; clearInterval(t); });
     });
     await p.waitForFunction(() => window.__devDone, null, { timeout: 420000, polling: 2000 });
     assert.strictEqual(await p.evaluate(() => window.__devDuring), true, 'on during the run');
