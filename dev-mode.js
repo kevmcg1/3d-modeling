@@ -52,7 +52,7 @@
   const SKIP = /export|save|open|import|download|file|\bnew\b|clear|reset|delete all|erase all|sample|help|keys|settings|guided|print$/i;   // file dialogs, page-wide resets and overlays
   // frame times (ms between two painted frames): 60 fps is 16.7; past 34 is under 30 fps; past 50 the eye sees a hitch; past 100 it is a jank
   const FR = { fine: 34, slow: 50, jank: 100, stall: 1500 };
-  const WARN = { jank: 1, stall: 1, 'slow control': 1, 'feature error': 1 };
+  const WARN = { jank: 1, stall: 1, 'slow control': 1, 'feature error': 1, 'locked control stayed silent': 1 };
 
   const pct = (a, p) => { if (!a.length) return 0; const s = a.slice().sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(p * s.length))]; };
   const avg = a => a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0;
@@ -94,11 +94,17 @@
     const d = w.document, list = [], count = {};
     const key = (base, kind) => { const k = kind + ':' + base; count[k] = (count[k] || 0) + 1; return count[k] > 1 ? k + '#' + count[k] : k; };
     const skip = el => el.closest('.dev, #modal, #ctxmenu') || (el.matches && el.matches('a[href]')) || el.disabled || !visible(el) || el.hasAttribute('data-ws') || SKIP.test((el.id || '') + ' ' + (el.textContent || '').trim().slice(0, 30) + ' ' + (el.title || ''));
+    // a Premium-locked Manufacture control must say so when pressed (js/cam-premium.js), and nothing else may happen
+    const lockedEl = el => { try { const L = window.CAM_LOCK, d = el.dataset || {}; return !!(L && L.active && (el.classList.contains('prem-lock') || (d.cam !== undefined && L.act(d.cam)) || (d.camview !== undefined && L.view(d.camview)) || d.cat === 'auto' || d.ws === 'sheet')); } catch (e) { return false; } };
     d.querySelectorAll('button, [role=tab], input[type=checkbox], input[type=radio]').forEach(el => {
       if (skip(el)) return;
-      const kind = el.tagName === 'INPUT' ? 'toggle' : 'click', base = labelOf(el);
-      list.push({ key: key(base, kind), label: base, kind, get: () => el });
+      const kind = el.tagName === 'INPUT' ? 'toggle' : 'click', base = labelOf(el), locked = lockedEl(el);
+      list.push({ key: key(base, kind), label: base + (locked ? ' 🔒' : ''), kind, locked, get: () => el });
     });
+    // every tool in the ribbon's drop-down menus (Create, Modify, Pattern, Construct: the newer tools are added there), used directly
+    if (w === window && ws.id === 'design' && typeof TB_MENUS !== 'undefined' && typeof action === 'function' && !(typeof S !== 'undefined' && S.sk)) {
+      for (const [name, items] of Object.entries(TB_MENUS)) for (const it of items) if (it) list.push({ key: 'menu:' + name + ':' + it[0], label: 'menu ' + name + ' › ' + it[1], kind: 'run', run: () => action(it[0]), get: () => d.body });
+    }
     d.querySelectorAll('input[type=range]').forEach(el => {
       if (skip(el)) return; const base = labelOf(el);
       [['min', 0], ['mid', .5], ['max', 1], ['quarter', .25]].forEach(([n, f]) => list.push({ key: key(base + '=' + n, 'slide'), label: base + ' ' + n, kind: 'slide', frac: f, get: () => el }));
@@ -133,7 +139,8 @@
   const actionsOf = (w, ws) => { const m = w.__devMon; if (!m) return discover(w, ws); if (m.dirty || !m.cache) { m.cache = discover(w, ws); m.dirty = false; } return m.cache; };
   function perform(w, a) {
     const el = a.get(); if (!el || (el.isConnected === false)) return;   // a control the page has since replaced is gone, as it is for a hand
-    if (a.kind === 'click' || a.kind === 'toggle') el.click();
+    if (a.kind === 'run') a.run();
+    else if (a.kind === 'click' || a.kind === 'toggle') el.click();
     else if (a.kind === 'slide') {
       const lo = +el.min || 0, hi = el.max === '' ? 100 : +el.max, st = +el.step || 1; let v = lo + (hi - lo) * a.frac; v = Math.round(v / st) * st; el.value = v;
       el.dispatchEvent(new w.Event('input', { bubbles: true })); el.dispatchEvent(new w.Event('change', { bubbles: true }));
@@ -220,7 +227,7 @@
   panel.className = 'dev'; panel.hidden = true; panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', 'Dev mode');
   panel.innerHTML = '<h3>Dev mode · auto test <small id="devSub">idle</small></h3><div class="body">' +
     '<div class="grid">' + WS.map(t => '<label><input type="checkbox" data-t="' + t.id + '" checked> ' + t.name + '</label>').join('') + '</div>' +
-    '<div class="row" style="margin-top:4px"><label class="chk"><input type="checkbox" id="devCtl" checked> Controls</label><label class="chk"><input type="checkbox" id="devCombo" checked> Combinations</label><label class="chk"><input type="checkbox" id="devFlow" checked> Flows</label></div>' +
+    '<div class="row" style="margin-top:4px"><label class="chk"><input type="checkbox" id="devCtl" checked> Controls</label><label class="chk"><input type="checkbox" id="devCombo" checked> Combinations</label><label class="chk"><input type="checkbox" id="devFlow" checked> Flows</label><label class="chk"><input type="checkbox" id="devPrem"> Lift the Premium lock</label></div>' +
     '<div class="row"><select id="devMode">' + Object.keys(MODES).map(k => '<option value="' + k + '"' + (k === 'standard' ? ' selected' : '') + '>' + MODES[k].label + '</option>').join('') + '</select><input type="number" id="devSeed" value="' + (qs.get('seed') || 20261016) + '" style="max-width:110px" aria-label="Seed"></div>' +
     '<div class="row"><button class="go" id="devGo">Start</button><button id="devStop" disabled>Stop</button><button id="devSummary">Copy summary</button><button id="devCopy">Copy report</button><button id="devSave">Download</button></div>' +
     '<div class="now" id="devEst"></div><div class="bar"><i id="devBar"></i></div><div class="now" id="devNow"></div><table class="sum" id="devSum"></table><div id="devFeed"></div><div id="devFinds"></div></div>';
@@ -230,7 +237,7 @@
   /* ---------------- the run ---------------- */
   const run = { on: false, stop: false, report: null, steps: 0, active: 0, at: 0, base: 0, span: 100 };
   const fmtMs = ms => ms < 90000 ? Math.round(ms / 1000) + ' s' : Math.round(ms / 60000) + ' min';
-  const newTool = id => ({ id, name: NAME[id] || id, controls: 0, singles: { run: 0, withFindings: 0 }, pairs: { run: 0, possible: 0 }, triples: { run: 0 }, combos: { run: 0, possible: 0, toggles: 0 }, sequences: { run: 0 }, findings: [], ms: 0, ctl: {}, fr: { n: 0, over34: 0, over50: 0, over100: 0, max: 0, sample: [] }, scenarios: [] });
+  const newTool = id => ({ id, name: NAME[id] || id, controls: 0, singles: { run: 0, withFindings: 0 }, pairs: { run: 0, possible: 0 }, triples: { run: 0 }, locked: { n: 0, said: 0 }, combos: { run: 0, possible: 0, toggles: 0 }, sequences: { run: 0 }, findings: [], ms: 0, ctl: {}, fr: { n: 0, over34: 0, over50: 0, over100: 0, max: 0, sample: [] }, scenarios: [] });
   function addFinding(T, f, seq) {
     const k = f.type + '|' + f.detail.replace(/\d+/g, '#');
     let x = T.findings.find(y => y.k === k);
@@ -252,7 +259,7 @@
     try { if (typeof ctxmenu !== 'undefined') ctxmenu.hidden = true; } catch (e) { /* none */ }
     try { loadDoc(SAMPLE().make(), 'dev'); } catch (e) { /* none */ }
     await sleep(700);
-    try { if (UIX.ws === 'cam' && withOps) { camAction('autoprog'); await sleep(2500); CAMUI.view = 'overview'; camRefresh(); await sleep(300); } } catch (e) { /* none */ }
+    try { if (UIX.ws === 'cam' && withOps) { if (window.CAM_LOCK && CAM_LOCK.active) { for (const a of ['add:face', 'add:pocket', 'add:contour', 'add:drill:drill']) { camAction(a); await sleep(250); CAMUI.view = 'overview'; } } else { camAction('autoprog'); await sleep(2500); } CAMUI.view = 'overview'; camRefresh(); await sleep(300); } } catch (e) { /* none */ }
   }
   async function openWs(ws) {
     if (ws.flowsOnly) { setWorkspace('design'); await sleep(800); return window; }
@@ -282,6 +289,7 @@
       await sleep(Math.max(4, run.at - performance.now() - 6));
       run.steps++; run.active += Math.min(400, performance.now() - now0);
       const r = inspect(w, mon, mark, ws);
+      if (a.locked) { T.locked.n++; if (/coming soon for Premium/i.test(w.document.body.innerText || '')) T.locked.said++; else r.found.push({ type: 'locked control stayed silent', detail: a.label + ' did not show the Premium message' }); }
       if (thrown) r.found.push({ type: 'control threw', detail: String(thrown.message || thrown).slice(0, 200) });
       addFrames(T, r.gaps);
       const c = ctlOf(T, a); c.runs++;
@@ -510,11 +518,20 @@
     ],
     cam: [
       { name: 'Auto Program, Verify and Simulate on sample parts', async run(c) {
+        const locked = window.CAM_LOCK && CAM_LOCK.active;
         const picks = ['Flanged boss', 'Pocketed plate', 'Cross-drilled shaft'].map(n => SAMPLES.find(s => s.name === n)).filter(Boolean);
         for (const s of picks) {
           if (run.stop) break;
           await resetMainTo(s); const e0 = c.mon.errors.length, g0 = c.mon.gaps.length, t0 = performance.now();
           try {
+            if (locked) {   // Premium lock: these must refuse with the message and change nothing
+              const n0 = cam().ops.length; for (const [what, fn] of [['Auto Program', () => camAction('autoprog')], ['Verify', () => camAction('verify')], ['Simulate', () => camAction('sim')]]) {
+                document.body.innerText; fn(); await sleep(300);
+                if (/coming soon for Premium/i.test(document.body.innerText)) c.ok(s.name + ': ' + what + ' is locked and says so'); else c.warn(s.name + ': ' + what + ' is locked but showed no message');
+              }
+              if (cam().ops.length !== n0) c.fail(s.name + ': a locked action changed the program');
+              continue;
+            }
             camAction('autoprog'); await sleep(2500);
             const ops = cam().ops.length; if (!ops) c.fail(s.name + ': Auto Program made no operations'); else c.ok(s.name + ': Auto Program made ' + ops + ' operations in ' + Math.round(performance.now() - t0) + ' ms');
             camAction('verify'); await until(() => typeof VERIFY !== 'undefined' && VERIFY.report, 120000); await sleep(500);
@@ -525,17 +542,27 @@
           progress(c.T, 'CAM flow: ' + s.name, .96);
         }
       } },
-      { name: 'Every toolpath type can be added', async run(c) {
+      { name: 'Every toolpath type: usable ones are added, locked ones refuse', async run(c) {
         await resetMainTo(SAMPLE()); const btns = [...document.querySelectorAll('#toolbar [data-cam^="add:"]')].map(b => b.dataset.cam); c.metric('toolpath types', btns.length);
+        let added = 0, refused = 0;
         for (const a of btns) {
           if (run.stop) break;
-          const e0 = c.mon.errors.length, n0 = cam().ops.length;
-          const t0 = performance.now(), g0 = c.mon.gaps.length;
+          const e0 = c.mon.errors.length, n0 = cam().ops.length, lock = window.CAM_LOCK && CAM_LOCK.act(a), t0 = performance.now(), g0 = c.mon.gaps.length;
           try { camAction(a); await sleep(400); } catch (e) { c.fail(a + ': threw ' + String(e.message).slice(0, 120)); }
-          const ms = Math.round(performance.now() - t0), worst = frameStats(c.mon.gaps.slice(g0)).max;
-          if (c.mon.errors.length > e0) c.fail(a + ': ' + c.mon.errors[c.mon.errors.length - 1].msg); else if (worst > 1500) c.warn(a + ': ' + (cam().ops.length > n0 ? 'added' : 'opened') + ' but froze the page for ' + worst + ' ms'); else c.ok(a + (cam().ops.length > n0 ? ': added' : ': opened') + ' in ' + ms + ' ms');
+          const ms = Math.round(performance.now() - t0), worst = frameStats(c.mon.gaps.slice(g0)).max, grew = cam().ops.length > n0;
+          if (c.mon.errors.length > e0) c.fail(a + ': ' + c.mon.errors[c.mon.errors.length - 1].msg);
+          else if (lock) { if (grew) c.fail(a + ' is Premium-locked but added a toolpath'); else { refused++; c.ok(a + ': locked'); } }
+          else if (worst > 1500) { added += grew; c.warn(a + ': ' + (grew ? 'added' : 'opened') + ' but froze the page for ' + worst + ' ms'); }
+          else { added += grew; c.ok(a + (grew ? ': added' : ': opened') + ' in ' + ms + ' ms'); }
           try { CAMUI.view = 'overview'; camRefresh(); } catch (e) { /* none */ }
         }
+        c.metric('added', added); c.metric('refused (locked)', refused);
+      } },
+      { name: 'Free 2D toolpaths build and post G-code (Face, Contour, Pocket, Drill, Chain)', async run(c) {
+        await resetMainTo(SAMPLE()); const kinds = ['add:face', 'add:contour', 'add:pocket', 'add:drill:spot', 'add:drill:peck', 'add:drill:drill', 'add:drill:cbore', 'add:chain'];
+        for (const a of kinds) { const n0 = cam().ops.length, e0 = c.mon.errors.length; try { camAction(a); await sleep(500); CAMUI.view = 'overview'; camRefresh(); } catch (e) { c.fail(a + ': threw ' + String(e.message).slice(0, 100)); } if (c.mon.errors.length > e0) c.fail(a + ': ' + c.mon.errors[c.mon.errors.length - 1].msg); else if (cam().ops.length > n0) c.ok(a + ': added'); }
+        await sleep(1500); const bad = cam().ops.filter(o => { const P = toolpath(o); return P && !P.pending && P.warn && P.warn.length; }).length;
+        c.metric('operations', cam().ops.length); if (!cam().ops.length) c.fail('no operations were made'); else if (bad) c.warn(bad + ' operation(s) carry a warning'); else c.ok('every operation computed with no warning');
       } },
     ],
     print: [
@@ -590,7 +617,7 @@
   function feedback(T) {
     const rows = controlRows(T), f = frameStats(T.fr.sample), g = grade({ ...f, n: T.fr.n, over50: T.fr.over50, over100: T.fr.over100 });
     const slow = rows.filter(r => r.uses >= 2).sort((a, b) => b.p95FrameMs - a.p95FrameMs).slice(0, 6);
-    const inert = rows.filter(r => r.uses >= 3 && r.didSomething === 0 && r.kind !== 'key');
+    const inert = rows.filter(r => r.uses >= 3 && r.didSomething === 0 && r.kind !== 'key' && !/🔒/.test(r.label));
     return { rows, frames: { ...f, n: T.fr.n, over34: T.fr.over34, over50: T.fr.over50, over100: T.fr.over100, max: Math.round(T.fr.max) }, grade: g, slow, inert };
   }
   let lastRender = 0;
@@ -613,6 +640,7 @@
       const fb = feedback(T); let h = '<details data-t="' + T.id + '"' + (opened.has(T.id) || (!run.on && !opened.size) ? ' open' : '') + '><summary><span>' + T.name + '</span><small class="' + fb.grade.cls + '">' + (T.fr.n ? fb.grade.word : 'no frames timed') + '</small></summary>';
       if (T.fr.n) h += '<div class="fb"><b>Smoothness.</b> ' + T.fr.n + ' frames timed: average ' + fb.frames.avg + ' ms, p95 ' + fb.frames.p95 + ' ms, worst ' + fb.frames.max + ' ms. ' + fb.frames.over50 + ' hitches over ' + FR.slow + ' ms, ' + fb.frames.over100 + ' janks over ' + FR.jank + ' ms.</div>';
       if (fb.slow.length && fb.slow[0].p95FrameMs > FR.fine) h += '<div class="fb"><b>Slowest controls.</b> ' + fb.slow.filter(r => r.p95FrameMs > FR.fine).map(r => esc(r.label) + ' (p95 ' + r.p95FrameMs + ' ms, worst ' + r.worstFrameMs + ' ms)').join('; ') + '</div>';
+      if (T.locked.n) h += '<div class="fb"><b>Premium lock.</b> Locked controls were pressed ' + T.locked.n + ' times and said so ' + T.locked.said + ' times.</div>';
       if (fb.inert.length) h += '<div class="fb"><b>Did nothing you could see (' + fb.inert.length + ').</b> ' + fb.inert.slice(0, 14).map(r => esc(r.label)).join(', ') + (fb.inert.length > 14 ? '…' : '') + ' (some are meant to, when they are at a limit)</div>';
       h += T.scenarios.map(s => '<div class="sc"><b><span class="' + (s.pass ? 'ok' : 'bad') + '">' + (s.pass ? '✓' : '✗') + '</span> ' + esc(s.name) + ' <small style="color:#8a8f97;font-weight:400">' + Math.round(s.ms / 1000) + ' s' + Object.entries(s.metrics).map(e => ' · ' + e[0] + ' ' + e[1]).join('') + '</small></b><ul>' + s.notes.slice(0, 60).map(n => '<li class="' + (n[0] === '✗' ? 'bad' : n[0] === '•' ? 'warn' : '') + '">' + esc(n) + '</li>').join('') + '</ul></div>').join('');
       if (fb.rows.length) h += '<details><summary><span>Every control (' + fb.rows.length + ')</span><small>uses · did something · frame ms</small></summary><table class="ctl"><tr><th>control</th><th>kind</th><th>uses</th><th>did something</th><th>p95</th><th>worst</th></tr>' + fb.rows.map(r => '<tr><td>' + esc(r.label) + '</td><td>' + r.kind + '</td><td>' + r.uses + '</td><td>' + r.didSomething + '%</td><td class="' + (r.p95FrameMs > FR.slow ? 'bad' : r.p95FrameMs > FR.fine ? 'warn' : '') + '">' + r.p95FrameMs + '</td><td class="' + (r.worstFrameMs > FR.jank ? 'warn' : '') + '">' + r.worstFrameMs + '</td></tr>').join('') + '</table></details>';
@@ -631,6 +659,7 @@
       L.push('  controls ' + T.controls + ' · single ' + T.singles.run + ' · pairs ' + T.pairs.run + '/' + T.pairs.possible + ' · triples ' + T.triples.run + ' · checkbox combinations ' + T.combos.run + '/' + T.combos.possible + ' (' + T.combos.toggles + ' checkboxes) · random runs ' + T.sequences.run + ' · flows ' + T.scenarios.filter(s => s.pass).length + '/' + T.scenarios.length);
       if (T.fr.n) L.push('  smoothness: ' + T.fr.n + ' frames, average ' + fb.frames.avg + ' ms, p95 ' + fb.frames.p95 + ' ms, worst ' + fb.frames.max + ' ms, ' + fb.frames.over50 + ' hitches, ' + fb.frames.over100 + ' janks');
       fb.slow.filter(r => r.p95FrameMs > FR.fine).forEach(r => L.push('  slow: ' + r.label + ' — p95 ' + r.p95FrameMs + ' ms, worst ' + r.worstFrameMs + ' ms'));
+      if (T.locked.n) L.push('  Premium-locked controls pressed ' + T.locked.n + ' times, each said so ' + T.locked.said + ' times');
       if (fb.inert.length) L.push('  did nothing visible: ' + fb.inert.map(r => r.label).join(', '));
       T.scenarios.forEach(s => { L.push('  ' + (s.pass ? '✓' : '✗') + ' ' + s.name + ' (' + Math.round(s.ms / 1000) + ' s)'); s.notes.filter(n => n[0] !== '✓' || !s.pass).forEach(n => L.push('      ' + n)); });
       errs.forEach(x => L.push('  ✗ ' + x.type + ' ×' + x.count + ': ' + x.detail + ' (after: ' + x.example.join(' › ') + ')'));
@@ -646,6 +675,7 @@
     const opt = { controls: $d('devCtl').checked, combos: $d('devCombo').checked, flows: $d('devFlow').checked };
     if (!ids.length) return;
     run.on = true; run.stop = false; run.steps = 0; run.active = 0; run.at = 0;
+    const wasLocked = window.CAM_LOCK ? CAM_LOCK.active : false; if (window.CAM_LOCK && $d('devPrem').checked) CAM_LOCK.set(false);
     run.report = { startedAt: new Date().toISOString(), mode: $d('devMode').value, seed, options: opt, userAgent: navigator.userAgent, tools: {}, note: 'Pairs, combinations and runs are sampled unless the mode is Thorough; the counts say what was covered. Frame times are the gaps between painted frames.' };
     $d('devGo').disabled = true; $d('devStop').disabled = false; $d('devSub').textContent = 'running';
     const t0 = Date.now();
@@ -659,7 +689,8 @@
       } catch (e) { T.findings.push({ k: 'harness', type: 'test harness stopped', detail: String((e && e.message) || e), count: 1, example: [] }); }
       render();
     }
-    run.report.totalMs = Date.now() - t0;
+    run.report.totalMs = Date.now() - t0; run.report.premiumLocked = window.CAM_LOCK ? CAM_LOCK.active : null;
+    if (window.CAM_LOCK && wasLocked && !CAM_LOCK.active) CAM_LOCK.set(true);
     Object.values(run.report.tools).forEach(T => { const fb = feedback(T); T.feedback = { smoothness: fb.grade.word, frames: fb.frames, slowestControls: fb.slow, didNothingVisible: fb.inert.map(r => r.label), controls: fb.rows }; });
     run.on = false; $d('devGo').disabled = false; $d('devStop').disabled = true; $d('devBar').style.width = '100%';
     const bad = Object.values(run.report.tools).reduce((s, T) => s + T.findings.filter(x => !WARN[x.type]).length + T.scenarios.filter(q => !q.pass).length, 0);
@@ -686,7 +717,7 @@
   $d('devSave').addEventListener('click', () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text()], { type: 'application/json' })); a.download = '3d-modeling-dev-report.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); });
   window.__dev = { start, run, MODES, WS, discover, instrument, inspect, summaryText, frameStats, grade, FLOWS };
   if (qs.get('dev') === 'run') setTimeout(() => {
-    panel.hidden = false; if (qs.get('mode') && MODES[qs.get('mode')]) $d('devMode').value = qs.get('mode');
+    panel.hidden = false; if (qs.get('premium') === '1') $d('devPrem').checked = true; if (qs.get('mode') && MODES[qs.get('mode')]) $d('devMode').value = qs.get('mode');
     start(qs.get('ws') ? qs.get('ws').split(',') : null);
   }, 2500);
 })();
