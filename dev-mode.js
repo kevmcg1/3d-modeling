@@ -177,6 +177,30 @@
   const valueSig = a => { try { const el = a.get(); return a.kind === 'toggle' ? String(el.checked) : (a.kind === 'slide' || a.kind === 'pick' || a.kind === 'type') ? String(el.value) : el.getAttribute && el.getAttribute('aria-pressed') + '|' + (el.className && el.className.toString()); } catch (e) { return ''; } };
   const viewSig = w => { try { if (w === window && typeof view !== 'undefined') return view.quat.toArray().concat(view.viewH, view.target.toArray()).map(v => v.toFixed(3)).join(); } catch (e) { /* none */ } return ''; };
 
+  // The ribbon after a step: a button cut by the ribbon's edge or covered by a scroll arrow, an icon that leaves its button or sits off-center, a label that does not fit.
+  // (A group the ribbon has hidden because an edge would cut it is not a problem: it is paged in whole with the arrows.)
+  function ribbonProblems() {
+    const nav = document.getElementById('toolbar'); if (!nav || !nav.offsetWidth) return [];
+    const nr = nav.getBoundingClientRect(), out = [], arrows = [...document.querySelectorAll('.ribbon-wrap > .rb-arrow')].map(a => a.getBoundingClientRect()).filter(r => r.width > 0);
+    for (const b of nav.querySelectorAll('.rb-btn')) {
+      const r = b.getBoundingClientRect(); if (!r.width || !r.height) continue;
+      const pn = b.closest('.rb-panel'); if (pn && pn.classList.contains('edge')) continue;
+      if (!(r.right > nr.left + 0.5 && r.left < nr.right - 0.5)) continue;   // paged out of view
+      const name = (b.dataset.act || b.dataset.cam || b.title || b.textContent.trim() || '?').slice(0, 28);
+      if (r.left < nr.left - 0.5 || r.right > nr.right + 0.5) { out.push(name + ' is cut off by the edge of the ribbon'); continue; }
+      if (arrows.some(a => Math.min(r.right, a.right) - Math.max(r.left, a.left) > 0.5)) { out.push(name + ' is covered by a scroll arrow'); continue; }
+      const sv = b.querySelector('svg:not(.lk)'), sp = b.querySelector(':scope > span:not(.rip-wrap)'), shown = sp && sp.getBoundingClientRect().width > 0 && getComputedStyle(sp).display !== 'none';
+      if (sv) {
+        const q = sv.getBoundingClientRect(), dx = q.left + q.width / 2 - (r.left + r.width / 2), dy = q.top + q.height / 2 - (r.top + r.height / 2);
+        if (q.left < r.left - 0.5 || q.right > r.right + 0.5 || q.top < r.top - 0.5 || q.bottom > r.bottom + 0.5) out.push(name + ': icon sticks out of its button');
+        else if ((b.classList.contains('rb-big') || !shown) && Math.abs(dx) > 1.5) out.push(name + ': icon is ' + Math.abs(dx).toFixed(1) + ' px off center');
+        else if (!shown && Math.abs(dy) > 1.5) out.push(name + ': icon is off the middle');
+      }
+      if (shown && (sp.scrollWidth > sp.clientWidth + 1 || sp.scrollHeight > sp.clientHeight + 1)) out.push(name + ': label is clipped');
+    }
+    return out;
+  }
+
   /* ---------------- looking for glitches after a step ---------------- */
   function inspect(w, mon, mark, ws) {
     const found = [];
@@ -188,6 +212,7 @@
       const t = w === window ? [...w.document.body.children].filter(e => e !== panel && !/^(SCRIPT|STYLE)$/.test(e.tagName)).map(e => e.innerText || '').join(' ') : (w.document.body.innerText || ''), m = BAD_TEXT.exec(t);
       if (m) { const i = m.index; found.push({ type: 'bad text on screen', detail: '“' + t.slice(Math.max(0, i - 24), i + 24).replace(/\s+/g, ' ') + '”' }); }
     } catch (e) { /* unreadable */ }
+    try { if (w === window) ribbonProblems().slice(0, 4).forEach(d => found.push({ type: 'ribbon clipped', detail: d })); } catch (e) { /* no ribbon */ }
     try {   // a feature that fails to build is worth a note, not a failure: random controls build impossible things on purpose
       if (w === window && typeof MODEL !== 'undefined') for (const id in MODEL.errors) { const k = id + ':' + MODEL.errors[id]; if (!seenErr.has(k)) { seenErr.add(k); found.push({ type: 'feature error', detail: String(MODEL.errors[id]).slice(0, 120) }); } }
       if (w === window && typeof view !== 'undefined' && !view.quat.toArray().concat(view.viewH, view.target.toArray()).every(Number.isFinite)) found.push({ type: 'number gone bad', detail: 'the camera has a non-number' });
@@ -834,7 +859,7 @@
     $d('devSummary').addEventListener('click', () => copy(summaryText(), 'Summary copied.'));
     $d('devSave').addEventListener('click', () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text()], { type: 'application/json' })); a.download = '3d-modeling-dev-report.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); });
   }
-  window.__dev = { start, run, MODES, WS, discover, instrument, inspect, summaryText, frameStats, grade, FLOWS };
+  window.__dev = { ribbonProblems, start, run, MODES, WS, discover, instrument, inspect, summaryText, frameStats, grade, FLOWS };
   // The early-access build reloads itself with ?dev=1 to bring its hidden tabs back; the run that was asked for rides along in sessionStorage
   // (a one-shot set only by the panel's own Start button), so the page address alone can never launch dev mode.
   const handoff = (() => { try { const v = sessionStorage.getItem('datum.devgo'); sessionStorage.removeItem('datum.devgo'); return v ? JSON.parse(v) : null; } catch (e) { return null; } })();

@@ -35614,13 +35614,12 @@ PHY_SIMS.shop = ['Haas VF & touch-off', phyShop];
   camAction = function (a) { if (a.startsWith('lab:')) { physicsOpen(a.slice(4)); return; } act0(a); };
 }
 PHY_SIMS.lathe = ['CNC turning', phyLathe];
-// small laptops: the wheel scrolls the ribbon sideways, an edge fade shows there is more, and the mouse legend steps aside
+// small laptops: the mouse legend steps aside. (The ribbon's own fitting code pages it with the wheel and arrows; it used to fade its right edge with a
+// mask here, which cut off the last icons even when everything fitted.)
 {
   const st = document.createElement('style');
-  st.textContent = '.ribbon { mask-image: linear-gradient(90deg, #000 calc(100% - 26px), transparent); -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 26px), transparent); } @media (max-width: 1100px), (max-height: 680px) { #mouseLegend { display: none; } }';
+  st.textContent = '@media (max-width: 1100px), (max-height: 680px) { #mouseLegend { display: none; } }';
   document.head.appendChild(st);
-  const rb = document.querySelector('.ribbon');
-  if (rb) rb.addEventListener('wheel', e => { if (rb.scrollWidth > rb.clientWidth && Math.abs(e.deltaY) > Math.abs(e.deltaX)) { rb.scrollLeft += e.deltaY; e.preventDefault(); } }, { passive: false });
 }
 { const st = document.createElement('style'); st.textContent = '.axis-badge.awire { background: color-mix(in srgb, #d946ef 16%, transparent); color: #c026d3; }'; document.head.appendChild(st); }
 PHY_SIMS.waterjet = ['Waterjet cut', phyWaterjet];
@@ -37126,15 +37125,21 @@ camClick = function (x, y) {
 <!-- RIB2-BEGIN -->
 <style>
 /* ═════ RIB2: ribbon layout, hover cards for everything, step-by-step side panels ═════ */
-.ribbon-wrap { position: relative; border-top: 1px solid var(--rule); background: color-mix(in srgb, var(--panel-2) 45%, var(--panel)); min-width: 0; }
-.ribbon { border-top: 0; padding: 7px 10px 0; gap: 6px; scrollbar-width: none; scroll-behavior: smooth; justify-content: flex-start; }
+.ribbon-wrap { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: stretch; border-top: 1px solid var(--rule); background: color-mix(in srgb, var(--panel-2) 45%, var(--panel)); min-width: 0; }
+.ribbon-wrap > .ribbon { grid-column: 2; grid-row: 2; min-width: 0; }
+.ribbon-wrap > .rb-arrow.l { grid-column: 1; grid-row: 2; }
+.ribbon-wrap > .rb-arrow.r { grid-column: 3; grid-row: 2; }
+.ribbon-wrap > :not(.ribbon):not(.rb-arrow) { grid-column: 1 / -1; grid-row: 1; }   /* the early-access notice sits above the ribbon, across the arrow columns */
+.ribbon { border-top: 0; padding: 7px 10px 0; gap: 6px; scrollbar-width: none; scroll-behavior: smooth; justify-content: flex-start; scroll-snap-type: x mandatory; scroll-padding-left: 10px; }
 .ribbon::-webkit-scrollbar { display: none; }
-.rb-arrow { position: absolute; top: 0; bottom: 0; width: 30px; z-index: 3; display: flex; align-items: center; justify-content: center; border: 0; padding: 0; cursor: pointer; color: var(--ink-2); opacity: 0; pointer-events: none; transition: opacity .2s ease; }
-.rb-arrow svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; padding: 4px; box-sizing: content-box; border-radius: 50%; background: var(--panel); box-shadow: 0 1px 6px rgba(0,0,0,.25); }
-.rb-arrow.l { left: 0; background: linear-gradient(90deg, var(--panel) 25%, transparent); }
-.rb-arrow.r { right: 0; background: linear-gradient(270deg, var(--panel) 25%, transparent); }
-.rb-arrow.show { opacity: 1; pointer-events: auto; }
+/* the arrows are columns of their own while the ribbon overflows, so they never sit on top of a button; a group that an edge would cut in half is hidden until it is scrolled in whole */
+.rb-arrow { width: 0; overflow: hidden; z-index: 3; display: flex; align-items: center; justify-content: center; border: 0; padding: 0; cursor: pointer; color: var(--ink-2); background: none; opacity: 0; pointer-events: none; transition: opacity .2s ease; }
+.rb-arrow svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; padding: 4px; box-sizing: content-box; border-radius: 50%; background: var(--panel); box-shadow: 0 1px 6px rgba(0,0,0,.25); }
+.ribbon-wrap.ov > .rb-arrow { width: 32px; opacity: .3; }
+.ribbon-wrap.ov > .rb-arrow.show { opacity: 1; pointer-events: auto; }
 .rb-arrow:hover svg { color: var(--accent); }
+.ribbon .rb-panel { scroll-snap-align: start; }
+.ribbon .rb-panel.edge { opacity: 0; pointer-events: none; }
 
 /* groups: one height, one gutter, one title bar */
 .rb-panel { padding: 7px 8px 0; margin: 0; border-right: 0; border-radius: 10px 10px 0 0; box-shadow: inset 0 0 0 1px hsl(var(--h) 45% 50% / .13); }
@@ -37172,7 +37177,6 @@ camClick = function (x, y) {
 @media (max-width: 820px) {
   .rb-sm > span { display: none; }
   .rb-sm { width: 28px; padding: 0; justify-content: center; }
-  .rb-arrow { display: none; }
 }
 
 /* hover card: icon plate when a tool has no before / after drawing, and a compact card for small buttons */
@@ -37304,42 +37308,75 @@ function tipInfoFor(b, k) {
 }
 
 // ── 2. the ribbon fits itself ──
+// It tightens in steps until every group fits. When even the tightest does not, it pages: the arrows are columns of their own (they never sit on a
+// button), the groups snap, and a group that an edge would cut in half is hidden until it has been paged in whole. So a button is either completely
+// visible or not shown, at every width and zoom.
 (() => {
   const nav = document.getElementById('toolbar'); if (!nav) return;
   const wrap = document.createElement('div'); wrap.className = 'ribbon-wrap';
   nav.parentNode.insertBefore(wrap, nav); wrap.appendChild(nav);
-  const mk = (cls, d) => { const b = document.createElement('button'); b.className = 'rb-arrow ' + cls; b.type = 'button'; b.setAttribute('aria-label', cls === 'l' ? 'Scroll tools left' : 'Scroll tools right'); b.tabIndex = -1; b.innerHTML = `<svg viewBox="0 0 20 20"><path d="${d}"/></svg>`; wrap.appendChild(b); return b; };
+  const mk = (cls, d) => { const b = document.createElement('button'); b.className = 'rb-arrow ' + cls; b.type = 'button'; b.setAttribute('aria-label', cls === 'l' ? 'Scroll tools left' : 'Scroll tools right'); b.tabIndex = -1; b.innerHTML = `<svg viewBox="0 0 20 20"><path d="${d}"/></svg>`; return b; };
   const L = mk('l', 'M12 5l-5 5 5 5'), R = mk('r', 'M8 5l5 5-5 5');
-  const arrows = () => { const o = nav.scrollWidth > nav.clientWidth + 2; L.classList.toggle('show', o && nav.scrollLeft > 4); R.classList.toggle('show', o && nav.scrollLeft < nav.scrollWidth - nav.clientWidth - 4); };
-  let raf = 0;
+  wrap.insertBefore(L, nav); wrap.appendChild(R);
+  const panels = () => [...nav.querySelectorAll('.rb-panel')];
+  const arrows = () => { const max = nav.scrollWidth - nav.clientWidth; L.classList.toggle('show', nav.scrollLeft > 4); R.classList.toggle('show', nav.scrollLeft < max - 4); };
+  let raf = 0, settleT = 0;
   const fits = () => nav.scrollWidth <= nav.clientWidth + 1;
+  // hide the groups that the edges cut in half (called once scrolling has stopped); a group wider than the window stays, it can not be whole
+  const edges = () => {
+    const nr = nav.getBoundingClientRect();
+    for (const p of panels()) { const r = p.getBoundingClientRect(); p.classList.toggle('edge', r.width < nr.width - 12 && (r.left < nr.left - 0.5 || r.right > nr.right + 0.5)); }
+  };
+  const settle = () => { clearTimeout(settleT); panels().forEach(p => p.classList.remove('edge')); settleT = setTimeout(() => { edges(); arrows(); }, 130); };
+  // every density level, then the small labels of the groups that gain the most, until it fits
+  const tighten = () => {
+    const ps = panels(); ps.forEach(p => p.classList.remove('cmp'));
+    let d = 0; for (; d <= 2; d++) { nav.dataset.dens = d; if (fits()) return true; }
+    nav.dataset.dens = 2;
+    const gain = ps.filter(p => p.querySelector('.rb-sm')).map(p => { const w0 = p.offsetWidth; p.classList.add('cmp'); const g = w0 - p.offsetWidth; p.classList.remove('cmp'); return [g, p]; }).sort((a, b) => b[0] - a[0]);
+    for (const [g, p] of gain) { if (g < 6) continue; p.classList.add('cmp'); if (fits()) return true; }
+    return fits();
+  };
   const fit = () => {
-    raf = 0; if (!nav.clientWidth) return;
+    raf = 0; if (!wrap.clientWidth) return;
     nav.style.scrollBehavior = 'auto';
-    const ps = [...nav.querySelectorAll('.rb-panel')]; ps.forEach(p => p.classList.remove('cmp'));
-    let d = 0; for (; d <= 2; d++) { nav.dataset.dens = d; if (fits()) break; }
-    if (d > 2) {
-      nav.dataset.dens = 2;
-      // drop the small labels of the groups that gain the most, one group at a time
-      const gain = ps.filter(p => p.querySelector('.rb-sm')).map(p => { const w0 = p.offsetWidth; p.classList.add('cmp'); const g = w0 - p.offsetWidth; p.classList.remove('cmp'); return [g, p]; }).sort((a, b) => b[0] - a[0]);
-      for (const [g, p] of gain) { if (g < 6) continue; p.classList.add('cmp'); if (fits()) break; }
+    panels().forEach(p => p.classList.remove('edge'));
+    wrap.classList.remove('ov');
+    if (!tighten()) {   // the arrow columns take their width only when they are needed
+      wrap.classList.add('ov'); tighten();
+      // a group wider than the window can never be shown whole: drop its small labels
+      for (const p of panels()) if (p.offsetWidth > nav.clientWidth - 12 && p.querySelector('.rb-sm')) p.classList.add('cmp');
     }
-    nav.scrollLeft = Math.min(nav.scrollLeft, Math.max(0, nav.scrollWidth - nav.clientWidth)); nav.style.scrollBehavior = '';
-    arrows();
+    nav.style.scrollPaddingLeft = getComputedStyle(nav).paddingLeft;
+    // rest on a group boundary
+    const nr = nav.getBoundingClientRect(), pad = parseFloat(getComputedStyle(nav).paddingLeft) || 0, max = Math.max(0, nav.scrollWidth - nav.clientWidth);
+    let left = Math.min(nav.scrollLeft, max);
+    if (left > 0) { const starts = panels().map(p => p.getBoundingClientRect().left - nr.left + nav.scrollLeft - pad); left = Math.min(max, starts.reduce((best, s) => Math.abs(s - left) < Math.abs(best - left) ? s : best, 0)); }
+    nav.scrollLeft = left;
+    nav.style.scrollBehavior = '';
+    edges(); arrows();
   };
   const soon = () => { if (!raf) raf = requestAnimationFrame(fit); };
   new MutationObserver(soon).observe(nav, { childList: true });
   addEventListener('resize', soon);
   if (window.ResizeObserver) new ResizeObserver(soon).observe(wrap);
-  nav.addEventListener('scroll', arrows, { passive: true });
-  // the arrows move by whole groups: the next group that is cut off at the right edge (or the last one cut at the left) lands flush against the left edge, so a click never leaves a button sliced in half
+  nav.addEventListener('scroll', () => { settle(); arrows(); }, { passive: true });
+  // the arrows page by whole groups. Forward: the first group that is cut off (or beyond) the right edge lands flush against the left edge. Back: the group
+  // that starts a page's width before the current left edge, so the page that ends where this one starts
   const hop = dir => {
-    const nr = nav.getBoundingClientRect(), ps = [...nav.querySelectorAll('.rb-panel')].map(p => ({ p, r: p.getBoundingClientRect() }));
-    const cut = dir > 0 ? ps.find(q => q.r.right > nr.right - 2 && q.r.left > nr.left + 8) : [...ps].reverse().find(q => q.r.left < nr.left + 2);
-    nav.scrollBy({ left: cut ? cut.r.left - nr.left - 8 : dir * nav.clientWidth * 0.6 });
+    const nr = nav.getBoundingClientRect(), pad = parseFloat(getComputedStyle(nav).paddingLeft) || 0, cur = nav.scrollLeft;
+    const starts = panels().map(p => { const r = p.getBoundingClientRect(); return { s: r.left - nr.left + cur - pad, e: r.right - nr.left + cur }; });
+    let to;
+    if (dir > 0) { const q = starts.find(x => x.e > cur + nav.clientWidth + 0.5 && x.s > cur + 2); to = q ? q.s : cur + nav.clientWidth * 0.6; }
+    else { const want = cur - nav.clientWidth + pad * 2, q = starts.find(x => x.s >= want - 0.5 && x.s < cur - 2); to = q ? q.s : Math.max(0, cur - nav.clientWidth * 0.6); }
+    nav.scrollTo({ left: Math.max(0, to) });
   };
   L.addEventListener('click', () => hop(-1)); R.addEventListener('click', () => hop(1));
-  nav.addEventListener('wheel', e => { if (nav.scrollWidth > nav.clientWidth && Math.abs(e.deltaY) > Math.abs(e.deltaX)) { nav.scrollLeft += e.deltaY; e.preventDefault(); } }, { passive: false });
+  // the wheel pages too (one group page per turn: scrolling a few pixels at a time would only snap back)
+  let wheelAt = 0;
+  nav.addEventListener('wheel', e => { if (nav.scrollWidth > nav.clientWidth && Math.abs(e.deltaY) > Math.abs(e.deltaX)) { e.preventDefault(); const t = performance.now(); if (t - wheelAt > 260) { wheelAt = t; hop(e.deltaY > 0 ? 1 : -1); } } }, { passive: false });
+  // keyboard focus on a hidden group brings it in whole
+  nav.addEventListener('focusin', e => { const p = e.target.closest && e.target.closest('.rb-panel'); if (p && p.classList.contains('edge')) { p.classList.remove('edge'); p.scrollIntoView({ inline: 'start', block: 'nearest' }); } });
   document.fonts && document.fonts.ready && document.fonts.ready.then(soon);
   soon();
   window.ribFit = fit;
