@@ -44,7 +44,7 @@
     const k = Math.floor(u * 10); for (let i = 0; i <= k; i++) g.line(loop(12, 8, i * 1.2), 'a', 1.2, { a: 0.9 }); g.fill([[-18, -14, pz], [18, -14, pz], [18, 14, pz], [-18, 14, pz]], 'c', { a: 0.25, stroke: 'c', w: 1.2 }); if (g.t > 0.7) chip(g, 'Sliced: 10 layers, 6 m of filament', 'g');
   });
   S('print:save', g => {
-    g.view(120, 118, 3); const lines = ['; Datum slicer', 'G28', 'M104 S210', 'G1 Z0.3 F600', 'G1 X20 Y20 E1.2', 'G1 X60 E3.4', 'G1 Y40 E4.7', 'M107'], n = Math.floor(g.lin(0.1, 0.8) * lines.length);
+    g.view(120, 118, 3); const lines = ['; 3D Modeler slicer', 'G28', 'M104 S210', 'G1 Z0.3 F600', 'G1 X20 Y20 E1.2', 'G1 X60 E3.4', 'G1 Y40 E4.7', 'M107'], n = Math.floor(g.lin(0.1, 0.8) * lines.length);
     g.in2d(0, 0, 1, () => { g.fill([[44, 14], [196, 14], [196, 150], [44, 150]], 'w', { a: 0.98, stroke: 'm' }); lines.slice(0, n).forEach((s, i) => g.text(54, 34 + i * 12, s, 'k', 8.5, 'left')); g.text(54, 24, 'part.gcode', 'a', 7, 'left'); });
   });
   const rotScene = axis => g => {

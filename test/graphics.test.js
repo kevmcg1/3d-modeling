@@ -1,4 +1,4 @@
-// Headless checks for graphics.html (the Graphics workspace) and its tab in index.html.
+// Headless checks for graphics.html (the Graphics workspace) and its tab in 3d-modeler.html.
 // Needs Playwright + a Chromium:  npm i -D playwright  (CHROMIUM_PATH picks an existing browser)  then  node test/graphics.test.js
 // Skips cleanly when Playwright is not installed.
 let chromium; try { ({ chromium } = require('playwright')); } catch (e) { console.log('skip: playwright is not installed'); process.exit(0); }
@@ -13,7 +13,7 @@ const path = require('path'), assert = require('assert');
     await page.goto('file://' + path.resolve(__dirname, '..', file)); await page.waitForTimeout(300); return page;
   };
 
-  // the tab sits right after 3D Print and shows the editor in a frame. index.html loads three.js and clipper from CDNs,
+  // the tab sits right after 3D Print and shows the editor in a frame. 3d-modeler.html loads three.js and clipper from CDNs,
   // so serve them from node_modules (npm i -D three@0.128 clipper-lib@6.4.2) and skip these checks when they are missing
   let libs = null; try { libs = { three: require.resolve('three/build/three.min.js'), clipper: require.resolve('clipper-lib/clipper.js') }; } catch (e) { /* offline */ }
   if (!libs) console.log('skip: tab checks need three and clipper-lib in node_modules');
@@ -22,7 +22,7 @@ const path = require('path'), assert = require('assert');
     app.on('pageerror', e => errs.push(e.message));
     await app.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
     await app.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' }));
-    await app.goto('file://' + path.resolve(__dirname, '..', 'index.html')); await app.waitForTimeout(800);
+    await app.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await app.waitForTimeout(800);
     const tabs = await app.evaluate(() => [...document.querySelectorAll('.ws button')].map(b => b.dataset.ws)), gi = tabs.indexOf('gfx');
     ok('Graphics tab comes right after 3D Print', gi > 0 && tabs[gi - 1] === 'print', tabs);
     await app.click('.ws button[data-ws="gfx"]'); await app.waitForTimeout(500);

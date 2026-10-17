@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════════
 //  Sheet metal (Design tab): Base Flange from an open profile with real
-//  bends, and Flat Pattern. The kernel half is in index.html next to the
+//  bends, and Flat Pattern. The kernel half is in 3d-modeler.html next to the
 //  other kernel scripts. Coverage list: docs/fusion-coverage.md
 // ═══════════════════════════════════════════════════════════════════
 (() => {

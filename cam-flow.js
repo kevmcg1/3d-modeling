@@ -2,7 +2,7 @@
 //   1 select geometry (click or chain, auto-chain, direction, start point, select-by-feature)  2 tool  3 parameters (tabs, live preview)  OK.
 // The flow is built on the shared operation definition: the catalog below is read from OP_INFO, DRILL_KINDS and MC_CM every time the picker
 // opens, so every toolpath another batch adds to MC_CM (cam-mc.js) shows up in the picker and in the flow with no extra work here.
-// Everything here is a layer over index.html: the panel HTML the operations already build is re-arranged (never rebuilt), so their
+// Everything here is a layer over 3d-modeler.html: the panel HTML the operations already build is re-arranged (never rebuilt), so their
 // fields, bindings and generators keep working unchanged.
 (function () {
   'use strict';

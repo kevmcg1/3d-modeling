@@ -3,7 +3,7 @@
 //  two planes cross, or normal to a plane), Tangent Plane on a round
 //  face, Plane Through Two Edges, and Point at the meeting of two edges.
 //  Axes can be picked by any tool that asks for an axis. The kernel half
-//  is in index.html next to the other kernel scripts.
+//  is in 3d-modeler.html next to the other kernel scripts.
 //  Coverage list: docs/fusion-coverage.md
 // ═══════════════════════════════════════════════════════════════════
 (() => {

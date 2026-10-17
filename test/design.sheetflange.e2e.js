@@ -13,7 +13,7 @@ const close = (a, b, tol, what) => assert(Math.abs(a - b) <= tol, `${what}: ${a}
   const errs = []; page.on('pageerror', e => errs.push(e.message));
   await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
   await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' }));
-  await page.goto('file://' + path.resolve(__dirname, '..', 'index.html')); await page.waitForTimeout(1500);
+  await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await page.waitForTimeout(1500);
   // a 40 x 20 x 2 plate; "edgeAt(dx, dy)" picks the thin-end edge on the top face toward +x (dx) or +y (dy)
   const run = (specs) => page.evaluate((specs) => {
     const plate = { id: 10, type: 'primitive', name: 'Plate', shape: 'box', base: 'XY', cx: 0, cy: 0, off: 0, op: 'new', w: 40, d: 20, h: 2, dia: 10, dia2: 0, tube: 6, center: true, sit: true };

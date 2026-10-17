@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════════
 //  Fusion-style modeling, batch 1 (Design tab). The kernel half (the
-//  construction-plane evaluator) lives in index.html next to the other
+//  construction-plane evaluator) lives in 3d-modeler.html next to the other
 //  kernel scripts; this file is the panels, picking, Inspect tools and
 //  help cards. Coverage list: docs/fusion-coverage.md
 //

@@ -2,7 +2,7 @@
 //  Weldments (Design tab): Structural Member. A standard profile
 //  (rectangular or round tube, bar, angle, channel, I-beam, T) swept
 //  along a sketch path with mitered corners, like SolidWorks' structural
-//  members and Fusion's frame generator. The kernel half is in index.html
+//  members and Fusion's frame generator. The kernel half is in 3d-modeler.html
 //  next to the other kernel scripts. Coverage list: docs/fusion-coverage.md
 // ═══════════════════════════════════════════════════════════════════
 (() => {

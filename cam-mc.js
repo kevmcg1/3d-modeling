@@ -1,5 +1,5 @@
 // Manufacture: Mastercam-style toolpaths, added to the Chain operation as extra toolpath modes (MC_CM, declared in
-// index.html). Each mode has gen(op, tool, st, part, P, chains) and fields(op), and works from clicked chains (Manual)
+// 3d-modeler.html). Each mode has gen(op, tool, st, part, P, chains) and fields(op), and works from clicked chains (Manual)
 // or from op.faces (Auto Detect). The coverage list is docs/mastercam-toolpaths.md.
 // Batch 1, 2D high speed and area clearing: Dynamic Mill, Peel Mill, Area Mill, Corner Rest Mill (and Ramp Contour, an option
 // on the Contour mode, see chainContour).

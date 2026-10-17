@@ -13,7 +13,7 @@ const close = (a, b, tol, what) => assert(Math.abs(a - b) <= tol, `${what}: ${a}
   const errs = []; page.on('pageerror', e => errs.push(e.message));
   await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
   await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' }));
-  await page.goto('file://' + path.resolve(__dirname, '..', 'index.html')); await page.waitForTimeout(1500);
+  await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await page.waitForTimeout(1500);
   const L = (id, x1, y1, x2, y2) => ({ id, type: 'line', a: { x: x1, y: y1 }, b: { x: x2, y: y2 } });
   const feats = (extra = {}, pts = [[0, 0, 30, 0], [30, 0, 30, 20]]) => [
     { id: 1, type: 'sketch', name: 'Profile', ref: { k: 'origin', w: 'XY' }, plane: null, ents: pts.map((p, i) => L(2 + i, ...p)), vis: true },

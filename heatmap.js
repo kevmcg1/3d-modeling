@@ -5,7 +5,7 @@
 //  out from its operation's tool, feed, speed and depth / width of cut. Moves
 //  past a safe limit are red. It reads the same numbers as the Feeds & speeds
 //  card (feedsOf) and is rebuilt whenever they change, so editing an operation
-//  or a tool updates the map live. Loaded after index.html's scripts; it wraps
+//  or a tool updates the map live. Loaded after 3d-modeler.html's scripts; it wraps
 //  camDraw, camPanel, bindCamPanel and simBarShow and touches nothing else.
 // ═══════════════════════════════════════════════════════════════════
 (() => {

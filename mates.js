@@ -2,7 +2,7 @@
 //  Mates (Design tab): pick a face on one body and a face on another;
 //  the first body moves so the faces meet (Coincident, Flush, Parallel)
 //  or two round faces share an axis (Concentric), with an offset.
-//  The kernel half is in index.html next to the other kernel scripts.
+//  The kernel half is in 3d-modeler.html next to the other kernel scripts.
 //  Coverage list: docs/fusion-coverage.md
 // ═══════════════════════════════════════════════════════════════════
 (() => {

@@ -520,7 +520,7 @@ async function printAction2(a) {
   }
   if (a === 'loadprof') {
     const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json';
-    inp.onchange = async () => { try { const d = JSON.parse(await inp.files[0].text()); if (d.format !== 'datum-print-profile') throw new Error('Not a Datum print profile'); PR.cfg = Object.assign(Slicer.defaults(d.settings.printer, d.settings.material), d.settings); PR.cfg.xform = Object.assign({ scale: 100, rx: 0, ry: 0, rz: 0 }, PR.cfg.xform); PR.cfg.cost = Object.assign({}, Costing.DEFAULTS, PR.cfg.cost); afterPrinter(); toast('Settings loaded'); } catch (e) { toast('Could not read the profile: ' + e.message); } };
+    inp.onchange = async () => { try { const d = JSON.parse(await inp.files[0].text()); if (d.format !== 'datum-print-profile') throw new Error('Not a 3D Modeler print profile'); PR.cfg = Object.assign(Slicer.defaults(d.settings.printer, d.settings.material), d.settings); PR.cfg.xform = Object.assign({ scale: 100, rx: 0, ry: 0, rz: 0 }, PR.cfg.xform); PR.cfg.cost = Object.assign({}, Costing.DEFAULTS, PR.cfg.cost); afterPrinter(); toast('Settings loaded'); } catch (e) { toast('Could not read the profile: ' + e.message); } };
     return inp.click();
   }
   if (a === 'reset') { const x = PR.cfg.xform, cost = PR.cfg.cost; PR.cfg = Slicer.defaults(PR.cfg.printer, PR.cfg.material); PR.cfg.xform = x; PR.cfg.cost = cost; saveCfg(); PR.result && invalidate(); return refreshPrintUI(); }
@@ -737,7 +737,7 @@ function tagTips(root) {
   root.querySelectorAll('[data-l]').forEach(b => set(b, +b.dataset.l < 0 ? 'print:layerdn' : 'print:layerup', +b.dataset.l < 0 ? 'Layer down' : 'Layer up', +b.dataset.l < 0 ? '↓' : '↑'));
 }
 
-// the workspace button (index.html carries it; add it here for older pages)
+// the workspace button (3d-modeler.html carries it; add it here for older pages)
 (function ensureButton() {
   const ws = document.querySelector('.ws'); if (!ws || ws.querySelector('[data-ws="print"]')) return;
   const b = document.createElement('button'); b.dataset.ws = 'print'; b.textContent = '3D Print';

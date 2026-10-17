@@ -9,7 +9,7 @@ let chromium; try { ({ chromium } = require('playwright')); } catch (e) { if (re
 let libs = null; try { libs = { three: require.resolve('three/build/three.min.js'), clipper: require.resolve('clipper-lib/clipper.js') }; } catch (e) { /* offline */ }
 const ROOT = path.resolve(__dirname, '..');
 const PAGES = [
-  { file: 'index.html', tabs: [['Design', 'design'], ['Manufacture', 'cam'], ['Setup Sheet', 'sheet'], ['3D Print', 'print']] },
+  { file: '3d-modeler.html', tabs: [['Design', 'design'], ['Manufacture', 'cam'], ['Setup Sheet', 'sheet'], ['3D Print', 'print']] },
   { file: 'drawing2d.html', tabs: [['2D Drawing', null]] },
   { file: 'house.html', tabs: [['House Design', null]] },
   { file: 'graphics.html', tabs: [['Graphics', null]] },
