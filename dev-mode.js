@@ -425,6 +425,30 @@
         }
         c.metric('slowest sample', slowest.n + ' ' + slowest.ms + ' ms'); if (!bad) c.ok('all ' + list.length + ' sample parts build with no error');
       } },
+      { name: 'Export every file format (STEP, STL, OBJ and the rest)', async run(c) {
+        const groups = window.DATUM_ALL_EXPORT_FORMATS || EXPORT_FORMATS, specs = groups.flatMap(g => g.list);
+        c.metric('formats', specs.map(x => x[0]).join(', '));
+        for (const need of ['step', 'stl', 'obj']) if (!specs.some(x => x[0] === need)) c.fail('no ' + need.toUpperCase() + ' export format is registered');
+        await resetMainTo(sampleParts()[0] || SAMPLE());
+        const real = window.download, got = [];
+        window.download = (name, blob) => { got.push({ name, blob }); };
+        try {
+          for (const sp of specs) {
+            if (run.stop) break;
+            got.length = 0; const g0 = c.mon.gaps.length, e0 = c.mon.errors.length, t0 = performance.now();
+            try { await runExport(sp[0], { base: 'devtest' }); } catch (e) { c.fail(sp[1] + ': threw ' + String(e.message).slice(0, 120)); continue; }
+            if (!await until(() => got.length, 60000)) { c.fail(sp[1] + ' (.' + sp[2] + '): nothing was downloaded'); continue; }
+            const f = got[0], size = f.blob.size, ms = Math.round(performance.now() - t0), head = await f.blob.slice(0, 200).text().catch(() => '');
+            if (!size) c.fail(sp[1] + ': the file is empty');
+            else if (c.mon.errors.length > e0) c.fail(sp[1] + ': ' + c.mon.errors[c.mon.errors.length - 1].msg);
+            else if (/\b(NaN|undefined|Infinity)\b/.test(head)) c.fail(sp[1] + ': the file starts with NaN / undefined');
+            else if (sp[0] === 'step' && !/ISO-10303/.test(head)) c.fail('STEP file does not start with ISO-10303-21');
+            else if (sp[0] === 'obj' && !/^\s*(#|v |o |g |mtllib)/m.test(head)) c.fail('OBJ file has no vertex data at its start');
+            else c.ok(sp[1] + ' .' + sp[2] + ': ' + size.toLocaleString() + ' bytes in ' + ms + ' ms');
+            const fr = frameStats(c.mon.gaps.slice(g0)); if (fr.max > 2500) c.warn(sp[1] + ': a frame took ' + fr.max + ' ms while exporting');
+          }
+        } finally { window.download = real; }
+      } },
       { name: 'Every kind of modeling feature opens, builds and undoes', async run(c) {
         const kinds = Object.keys(FEATS); c.metric('feature kinds', kinds.length); let finished = 0, needPick = 0;
         for (const k of kinds) {
@@ -670,6 +694,13 @@
   }
   async function start(only) {
     if (run.on) return;
+    if (window.DATUM_RELEASE && !DATUM_RELEASE.dev) {
+      // The early-access build hides tabs and export formats; reload with ?dev=1 so everything is back, then start the same run.
+      const u = new URL(location.href), ids0 = only || [...panel.querySelectorAll('input[data-t]:checked')].map(x => x.dataset.t);
+      u.searchParams.set('dev', '1'); u.searchParams.set('devgo', ids0.join(',')); u.searchParams.set('mode', $d('devMode').value); u.searchParams.set('seed', $d('devSeed').value);
+      u.searchParams.set('opts', ($d('devCtl').checked ? 'c' : '') + ($d('devCombo').checked ? 'm' : '') + ($d('devFlow').checked ? 'f' : '') + ($d('devPrem').checked ? 'p' : '')); u.searchParams.delete('premium'); u.searchParams.delete('ws');
+      $d('devNow').textContent = 'Reloading with dev mode on (?dev=1) so the hidden tabs and export formats come back…'; location.href = u.href; return;
+    }
     const mode = MODES[$d('devMode').value], seed = +$d('devSeed').value || 1;
     const ids = only || [...panel.querySelectorAll('input[data-t]:checked')].map(x => x.dataset.t);
     const opt = { controls: $d('devCtl').checked, combos: $d('devCombo').checked, flows: $d('devFlow').checked };
@@ -716,8 +747,11 @@
   $d('devSummary').addEventListener('click', () => copy(summaryText(), 'Summary copied.'));
   $d('devSave').addEventListener('click', () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text()], { type: 'application/json' })); a.download = '3d-modeling-dev-report.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); });
   window.__dev = { start, run, MODES, WS, discover, instrument, inspect, summaryText, frameStats, grade, FLOWS };
-  if (qs.get('dev') === 'run') setTimeout(() => {
+  if (qs.get('dev') === 'run' || qs.get('devgo') !== null) setTimeout(() => {
     panel.hidden = false; if (qs.get('premium') === '1') $d('devPrem').checked = true; if (qs.get('mode') && MODES[qs.get('mode')]) $d('devMode').value = qs.get('mode');
-    start(qs.get('ws') ? qs.get('ws').split(',') : null);
+    if (qs.get('seed')) $d('devSeed').value = qs.get('seed');
+    if (qs.get('opts') !== null) { const o = qs.get('opts'); $d('devCtl').checked = o.includes('c'); $d('devCombo').checked = o.includes('m'); $d('devFlow').checked = o.includes('f'); $d('devPrem').checked = o.includes('p'); }
+    const ids = (qs.get('devgo') || qs.get('ws') || '').split(',').filter(Boolean);
+    start(ids.length ? ids : null);
   }, 2500);
 })();
