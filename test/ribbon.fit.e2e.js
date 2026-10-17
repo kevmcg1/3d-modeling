@@ -132,6 +132,18 @@ const settle = page => page.evaluate(() => new Promise(res => { const n = docume
     const flagged = await page.evaluate(() => { const p = document.querySelector('.ribbon .rb-panel.edge'); p.classList.remove('edge'); const out = window.__dev.ribbonProblems(); p.classList.add('edge'); return out; });
     assert(flagged.length > 0 && /cut off by the edge of the ribbon/.test(flagged[0]), JSON.stringify(flagged));
   });
+  await ok('switching tabs or sketch mode never shows a cut button, not even for a moment', async () => {
+    await page.setViewportSize({ width: 1400, height: 850 }); await STATES.design(page); await page.waitForTimeout(800);
+    for (const step of ['sketch', 'finish', 'k-key', 'sketch', 'finish']) {
+      const seen = await page.evaluate(step => new Promise(res => {
+        const bad = new Set(), t0 = performance.now();
+        const tick = () => { setTimeout(() => { window.__dev.ribbonProblems().forEach(m => bad.add(m)); }, 0); if (performance.now() - t0 < 700) requestAnimationFrame(tick); else setTimeout(() => res([...bad]), 20); };
+        if (step === 'sketch') action('sketch'); else if (step === 'finish') { try { finishSketch(); } catch (e) { /* not sketching */ } } else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', bubbles: true }));
+        requestAnimationFrame(tick);
+      }), step);
+      assert.deepStrictEqual(seen, [], step + ': ' + seen.join('; '));
+    }
+  });
   await page.context().close();
 
   // browser zoom changes the pixel ratio along with the width: 125% to 200% of a 1920 / 1366 / 1100 screen

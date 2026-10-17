@@ -26110,7 +26110,8 @@ function bpIso(meshes, bodies, bb) {
   em.dispose();
   return { url, aspect: w / h };
 }
-function bpCompute() {
+// (async: each view is a depth render and a pixel pass of its own, so the page gets a frame between them instead of one stall for all four)
+async function bpCompute() {
   const bodies = visibleBodies();
   if (!bodies.length) return null;
   const key = bodies.map(b => b.id + ':' + bodyMesh(b).pos.length).join(',') + '|' + JSON.stringify(doc.colors || {});
@@ -26118,7 +26119,9 @@ function bpCompute() {
   const meshes = bodies.map(b => bodyMesh(b));
   const bb = bodies.reduce((a, b) => [Math.min(a[0], b.bb[0]), Math.min(a[1], b.bb[1]), Math.min(a[2], b.bb[2]), Math.max(a[3], b.bb[3]), Math.max(a[4], b.bb[4]), Math.max(a[5], b.bb[5])], [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity]);
   const views = {};
-  for (const [k, v] of Object.entries(BP_VIEWS)) views[k] = bpView(bodies, meshes, v, bb);
+  const run = BP.run = (BP.run || 0) + 1, open = () => { const e = document.getElementById('bp'); return !!e && !e.hidden && BP.run === run; }, breathe = () => new Promise(r => setTimeout(r, 0));
+  for (const [k, v] of Object.entries(BP_VIEWS)) { await breathe(); if (!open()) return null; views[k] = bpView(bodies, meshes, v, bb); }
+  await breathe(); if (!open()) return null;
   const iso = bpIso(meshes, bodies, bb);
   BP.data = { views, iso, bb, size: [bb[3] - bb[0], bb[4] - bb[1], bb[5] - bb[2]], n: bodies.length };
   BP.key = key; BP.dataModel = MODEL;
@@ -26272,7 +26275,7 @@ function openBlueprint() {
   el.querySelectorAll('[data-bpx]').forEach(b => b.addEventListener('click', () => bpExport(b.dataset.bpx)));
   BP.onKey = e => { if (e.key === 'Escape' && !el.hidden) { e.stopPropagation(); bpClose(); } };
   window.addEventListener('keydown', BP.onKey, true);
-  setTimeout(() => { try { bpCompute(); } catch (e) { console.error(e); toast('The drawing could not be made: ' + e.message); } bpShow(); }, 30);
+  setTimeout(async () => { try { await bpCompute(); } catch (e) { console.error(e); toast('The drawing could not be made: ' + e.message); } bpShow(); }, 30);
 }
 function bpShow() {
   const page = document.getElementById('bpPage'), wait = document.querySelector('#bp .bp-wait');
@@ -27092,7 +27095,8 @@ const bpOpen0 = openBlueprint;
 openBlueprint = function () {
   BP.style = 'paper'; BP.data = null;
   bpOpen0();
-  const el = document.getElementById('bp'); if (!el) return;
+  // nothing visible to draw: bpOpen0 only toasts and leaves any earlier, emptied #bp behind (hidden, no stage), so there is nothing to add the check to
+  const el = document.getElementById('bp'); if (!el || el.hidden || !el.querySelector('.bp-stage')) return;
   const seg = el.querySelector('.bp-seg'); if (seg) seg.remove();
   const sp = el.querySelector('.bp-sp');
   const chip = document.createElement('button'); chip.className = 'btn bp-check'; chip.id = 'bpCheck'; chip.textContent = 'Check…';
@@ -32672,7 +32676,7 @@ const TIP_TXT = {
   document.body.appendChild(card);
   let el = null, t1 = 0, t2 = 0;
   const keyOf = b => b.dataset.tipkey || b.dataset.act || b.dataset.cam || b.dataset.sheet || b.dataset.tool || '';
-  const hide = () => { clearTimeout(t1); clearTimeout(t2); TipAnim.stop(); card.classList.remove('in', 'more'); card.hidden = true; if (el && el.dataset.tipTitle) { el.title = el.dataset.tipTitle; delete el.dataset.tipTitle; } el = null; };
+  const hide = () => { clearTimeout(t1); clearTimeout(t2); if (typeof TipAnim !== 'undefined') TipAnim.stop(); card.classList.remove('in', 'more'); card.hidden = true; if (el && el.dataset.tipTitle) { el.title = el.dataset.tipTitle; delete el.dataset.tipTitle; } el = null; };
   const place = () => {
     if (!el) return;
     const r = el.getBoundingClientRect(), w = card.offsetWidth, h = card.offsetHeight;
@@ -37327,7 +37331,10 @@ function tipInfoFor(b, k) {
     const nr = nav.getBoundingClientRect();
     for (const p of panels()) { const r = p.getBoundingClientRect(); p.classList.toggle('edge', r.width < nr.width - 12 && (r.left < nr.left - 0.5 || r.right > nr.right + 0.5)); }
   };
-  const settle = () => { clearTimeout(settleT); panels().forEach(p => p.classList.remove('edge')); settleT = setTimeout(() => { edges(); arrows(); }, 130); };
+  // (a scroll event that moves nothing, such as a new tab re-snapping at the same place, must not un-hide the cut groups: they would flash in for a moment)
+  let lastLeft = 0;
+  const fitMemo = new Map();
+  const settle = () => { clearTimeout(settleT); nav.dataset.moving = '1'; panels().forEach(p => p.classList.remove('edge')); settleT = setTimeout(() => { delete nav.dataset.moving; lastLeft = nav.scrollLeft; edges(); arrows(); }, 130); };
   // every density level, then the small labels of the groups that gain the most, until it fits
   const tighten = () => {
     const ps = panels(); ps.forEach(p => p.classList.remove('cmp'));
@@ -37340,12 +37347,21 @@ function tipInfoFor(b, k) {
   const fit = () => {
     raf = 0; if (!wrap.clientWidth) return;
     nav.style.scrollBehavior = 'auto';
-    panels().forEach(p => p.classList.remove('edge'));
-    wrap.classList.remove('ov');
-    if (!tighten()) {   // the arrow columns take their width only when they are needed
-      wrap.classList.add('ov'); tighten();
-      // a group wider than the window can never be shown whole: drop its small labels
-      for (const p of panels()) if (p.offsetWidth > nav.clientWidth - 12 && p.querySelector('.rb-sm')) p.classList.add('cmp');
+    const ps = panels(); ps.forEach(p => p.classList.remove('edge'));
+    // The ribbon is rebuilt on most state changes with the very same labels (only a button's "on" differs), and finding the fit costs a forced layout per step
+    // (about a dozen). So the answer is kept per width and set of labels, and put back with one check; only a new width or a new set of buttons searches.
+    const key = [wrap.clientWidth, devicePixelRatio, ps.length, nav.textContent].join('|'), m = fitMemo.get(key);
+    wrap.classList.toggle('ov', !!(m && m.ov));
+    if (m) { nav.dataset.dens = m.d; ps.forEach((p, i) => p.classList.toggle('cmp', m.cmp.includes(i))); }
+    if (!m || (!m.ov && !fits())) {
+      wrap.classList.remove('ov');
+      if (!tighten()) {   // the arrow columns take their width only when they are needed
+        wrap.classList.add('ov'); tighten();
+        // a group wider than the window can never be shown whole: drop its small labels
+        for (const p of panels()) if (p.offsetWidth > nav.clientWidth - 12 && p.querySelector('.rb-sm')) p.classList.add('cmp');
+      }
+      fitMemo.set(key, { d: nav.dataset.dens, ov: wrap.classList.contains('ov'), cmp: ps.map((p, i) => p.classList.contains('cmp') ? i : -1).filter(i => i >= 0) });
+      if (fitMemo.size > 80) fitMemo.delete(fitMemo.keys().next().value);
     }
     nav.style.scrollPaddingLeft = getComputedStyle(nav).paddingLeft;
     // rest on a group boundary
@@ -37354,13 +37370,13 @@ function tipInfoFor(b, k) {
     if (left > 0) { const starts = panels().map(p => p.getBoundingClientRect().left - nr.left + nav.scrollLeft - pad); left = Math.min(max, starts.reduce((best, s) => Math.abs(s - left) < Math.abs(best - left) ? s : best, 0)); }
     nav.scrollLeft = left;
     nav.style.scrollBehavior = '';
-    edges(); arrows();
+    lastLeft = nav.scrollLeft; edges(); arrows();
   };
   const soon = () => { if (!raf) raf = requestAnimationFrame(fit); };
   new MutationObserver(soon).observe(nav, { childList: true });
   addEventListener('resize', soon);
   if (window.ResizeObserver) new ResizeObserver(soon).observe(wrap);
-  nav.addEventListener('scroll', () => { settle(); arrows(); }, { passive: true });
+  nav.addEventListener('scroll', () => { if (Math.abs(nav.scrollLeft - lastLeft) > 0.5 || nav.dataset.moving) settle(); arrows(); }, { passive: true });
   // the arrows page by whole groups. Forward: the first group that is cut off (or beyond) the right edge lands flush against the left edge. Back: the group
   // that starts a page's width before the current left edge, so the page that ends where this one starts
   const hop = dir => {

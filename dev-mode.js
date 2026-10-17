@@ -180,7 +180,7 @@
   // The ribbon after a step: a button cut by the ribbon's edge or covered by a scroll arrow, an icon that leaves its button or sits off-center, a label that does not fit.
   // (A group the ribbon has hidden because an edge would cut it is not a problem: it is paged in whole with the arrows.)
   function ribbonProblems() {
-    const nav = document.getElementById('toolbar'); if (!nav || !nav.offsetWidth) return [];
+    const nav = document.getElementById('toolbar'); if (!nav || !nav.offsetWidth || nav.dataset.moving) return [];   // (paging is animating: the groups are on their way in, checked again at the next step)
     const nr = nav.getBoundingClientRect(), out = [], arrows = [...document.querySelectorAll('.ribbon-wrap > .rb-arrow')].map(a => a.getBoundingClientRect()).filter(r => r.width > 0);
     for (const b of nav.querySelectorAll('.rb-btn')) {
       const r = b.getBoundingClientRect(); if (!r.width || !r.height) continue;
