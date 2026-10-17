@@ -159,6 +159,7 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | 2 ✅ | Pipe, Pattern on Path, Ellipse, Slot |
 | 3 ✅ | Rib, Web, Spline, Overall Slot, Center Point Slot |
 | 4 | ✅ two-distance chamfer, Boundary Fill. Still open: variable and setback fillets, Split Face, Delete Face, planar Emboss |
+| 17 ✅ | Mates: coincident, flush, parallel, concentric between two bodies (mates.js) |
 | 16 ✅ | Dome, end caps, Cut List (extras.js) |
 | 15 ✅ | Weldment structural members (weldment.js) |
 | 14 ✅ | Joints and motion study (assembly.js) |
@@ -220,7 +221,7 @@ Same legend as above. SolidWorks tools that are the same as a Fusion tool above 
 | Weldments: end caps, cut list | ✅ **new** | End caps are options on Structural Member; Cut List groups identical bodies and copies as CSV |
 | Weldments: gussets, trim/extend | 🔜 9 | Trim with Combine → Cut today |
 | Mold tools (parting line, shut-off, core/cavity split) | 🟡 | Cavity, Split Body, Boundary Fill and Draft Analysis cover the main steps |
-| Mates (angle, distance, hinge, slider, cylindrical, planar, ball) | 🟡 | Joint feature positions the moving bodies; coincident / concentric mates that solve between two bodies 🔜 10 |
+| Mates (angle, distance, hinge, slider, cylindrical, planar, ball) | 🟡 | Joint feature positions the moving bodies; Mate feature solves coincident / flush / parallel / concentric between two bodies ✅ 17 |
 | Assemblies | 🟡 | Bodies in one model; no nested components | |
 | Evaluate: Measure | ✅ | |
 | Evaluate: Mass Properties | ✅ | Physical Properties |
