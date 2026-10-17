@@ -255,7 +255,7 @@
   };
   INSP.hint.thick = k => `<b>Wall Thickness:</b> red faces are thinner than your limit. Type a new limit in the panel. ${k('Esc')} closes.`;
   INSP.stale = kind => { if (kind === 'draft') DR.res = null; if (kind === 'thick') TH.res = null; if (kind === 'under') UC.res = null; };
-  window.MORE_TOOLS = { DR, TH, UC, skPoints };                         // handle for the tests
+  window.MORE_TOOLS = { DR, TH, UC, skPoints, paintGrp };                         // handle for the tests
 
   // ── Toolbar, icons, help ───────────────────────────────────────────
   Object.assign(IC, {

@@ -129,7 +129,8 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | Physical Properties (mass, volume, area, center of mass, bounding box) | ✅ | Eleven materials with density; per-body table (batch 1) |
 | Interference | ✅ | Pairwise overlap with volume, overlaps drawn in red; no "create body from overlap" yet (batch 1) |
 | Section Analysis | ✅ | Top / Front / Side cut plane with slider, outline and cut area; no filled cap (batch 1) |
-| Zebra, Curvature Comb, Curvature Map, Draft Analysis, Accessibility | 🔜 6 | Draft and curvature come from face normals; zebra and curvature on analytic faces only |
+| Zebra Stripes, Curvature Map, Draft Analysis | ✅ | Zebra (shader on exact normals) and Curvature (radius table, cutter-reach flagging) in analysis.js (batch 22); Draft Analysis in batch 11 |
+| Curvature Comb, Accessibility | 🔜 | Comb needs spline curves; free-form and cone faces are not measured |
 | Stress / fixturing study | ✅ | Beyond Fusion's basic tools |
 | Blueprint drawing | ✅ | Hands off to the 2D Drawing tab |
 
@@ -162,6 +163,7 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | 2 ✅ | Pipe, Pattern on Path, Ellipse, Slot |
 | 3 ✅ | Rib, Web, Spline, Overall Slot, Center Point Slot |
 | 4 | ✅ two-distance chamfer, Boundary Fill. Still open: variable and setback fillets, Split Face, Delete Face, planar Emboss |
+| 22 ✅ | Zebra Stripes and Curvature analysis (analysis.js) |
 | 21 ✅ | Sketch dimensions take expressions (parameters.js) |
 | 20 ✅ | Gusset (extras.js) |
 | 19 ✅ | Edge Flange, Miter Flange, Hem, Jog (sheet-flange.js) |
@@ -239,7 +241,8 @@ Same legend as above. SolidWorks tools that are the same as a Fusion tool above 
 | Evaluate: Draft Analysis | ✅ **new** | Positive, negative and needs-draft faces for a pull direction; one-way or two-part mold |
 | Evaluate: Thickness Analysis | ✅ **new** | Ray-based wall thickness with a flag limit |
 | Evaluate: Undercut Analysis | ✅ **new** | Faces hidden from both ends of the pull line |
-| Evaluate: Curvature, Zebra Stripes, Check, Geometry Analysis | 🔜 6 | |
+| Evaluate: Curvature, Zebra Stripes | ✅ **new** | batch 22 (analysis.js) |
+| Evaluate: Check, Geometry Analysis | 🔜 | |
 | Simulation, Flow Simulation | 🟡 | Stress / fixturing study ✅; fluid flow ⛔ |
 | Equations, Global Variables | ✅ | Parameters panel |
 | Configurations, Design Tables | 🔜 7 | |
