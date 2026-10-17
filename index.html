@@ -24218,6 +24218,21 @@ function dimSetPending(d, v) {
   // a dimension drives the sketch the moment it is set (and the extrudes follow); only a conflict leaves it pending
   if (!dimUpdate(true, true)) { refreshPanel(); refreshToolbar(); requestDraw(); }
 }
+// A typed dimension: a plain number, or (with parameters.js) an expression that is kept with the dimension.
+function dimCommitText(d, text) {
+  text = String(text).trim();
+  const old = d.expr, plain = /^-?(\d+\.?\d*|\.\d+)$/.test(text);
+  let v;
+  if (plain) { const n = parseFloat(text); v = isAng(d) ? n * Math.PI / 180 : fromU(n); }
+  else {
+    if (!window.PARAMS) return;
+    try { v = PARAMS.evalText(text); } catch (e) { toast('Expression: ' + e.message); return; }
+    if (isAng(d)) v = v * Math.PI / 180;
+  }
+  if (plain) delete d.expr; else d.expr = text;        // set first: the sketch is solved (and expressions re-read) while the value is applied
+  dimSetPending(d, v);
+  if (d.pend !== undefined) { if (old === undefined) delete d.expr; else d.expr = old; }
+}
 function dimDelete(d) {
   pushUndo('Delete dimension');
   S.sk.dims = S.sk.dims.filter(q => q !== d);
@@ -24339,7 +24354,7 @@ function dimOpenEditor(d) {
   if (!S.sk || d.driven) { if (d.driven) toast('Driven (reference) dimensions follow the sketch. Delete one of the others to make it driving.'); return; }
   const h = DIM.hits.find(q => q.d === d);
   const cur = d.pend !== undefined ? d.pend : d.value, shown = isAng(d) ? +(cur * 180 / Math.PI).toFixed(4) : +toU(cur).toFixed(isIn() ? 5 : 4);
-  dimEdit.innerHTML = `<input type="number" step="any" value="${shown}" aria-label="Dimension value"><span>${isAng(d) ? '°' : uName()}</span><button data-de="ok" title="Set (Enter)">✓</button><button data-de="x" title="Cancel (Esc)">✕</button>`;
+  dimEdit.innerHTML = `<input type="text" inputmode="decimal" autocomplete="off" spellcheck="false" value="${d.expr || shown}" title="A number, or an expression such as width/2 + 3 mm" aria-label="Dimension value"><span>${isAng(d) ? '°' : uName()}</span><button data-de="ok" title="Set (Enter)">✓</button><button data-de="x" title="Cancel (Esc)">✕</button>`;
   dimEdit.hidden = false;
   const x = h ? (h.x0 + h.x1) / 2 : W / 2, y = h ? h.y1 + 6 : H / 2;
   dimEdit.style.left = clamp(x - 80, 6, W - 200) + 'px'; dimEdit.style.top = clamp(y, 6, H - 50) + 'px';
@@ -24348,7 +24363,7 @@ function dimOpenEditor(d) {
   const done = ok => {
     if (DIM.edit !== d) return;
     DIM.edit = null; dimEdit.hidden = true;
-    if (ok) { const v = parseFloat(inp.value); if (isFinite(v)) dimSetPending(d, isAng(d) ? v * Math.PI / 180 : fromU(v)); }
+    if (ok) dimCommitText(d, inp.value);
     requestDraw();
   };
   inp.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter') { ev.preventDefault(); done(true); } if (ev.key === 'Escape') { ev.preventDefault(); done(false); } });
@@ -24448,13 +24463,13 @@ function dimsPanel() {
   const name = d => ({ dist: 'Length', hdist: 'Horizontal', vdist: 'Vertical', ptline: 'Distance', dia: 'Diameter', rad: 'Radius', ang: 'Angle' })[d.type];
   const val = d => { const v = d.pend !== undefined ? d.pend : d.value; return isAng(d) ? +(v * 180 / Math.PI).toFixed(4) : +toU(v).toFixed(isIn() ? 5 : 4); };
   const np = dimsPending(sk).length;
-  return `<div class="divider"></div><div class="field"><span>Dimensions (${isIn() ? 'in' : 'mm'} · °)</span><ul class="dimlist">${sk.dims.map(d => `<li class="${d.pend !== undefined ? 'pend' : ''} ${DIM.sel === d ? 'sel' : ''}"><span class="${d.driven ? 'drv' : ''}">${name(d)}${d.driven ? ' (driven)' : ''}</span><input type="number" step="any" data-dimv="${d.id}" value="${val(d)}" ${d.driven ? 'disabled' : ''}><button data-dimx="${d.id}" title="Delete dimension">×</button></li>`).join('')}</ul></div>
+  return `<div class="divider"></div><div class="field"><span>Dimensions (${isIn() ? 'in' : 'mm'} · °)</span><ul class="dimlist">${sk.dims.map(d => `<li class="${d.pend !== undefined ? 'pend' : ''} ${DIM.sel === d ? 'sel' : ''}"><span class="${d.driven ? 'drv' : ''}">${name(d)}${d.driven ? ' (driven)' : ''}</span><input type="text" inputmode="decimal" autocomplete="off" spellcheck="false" data-dimv="${d.id}" value="${d.expr ? String(d.expr).replace(/"/g, '&quot;') : val(d)}" title="A number, or an expression such as width/2 + 3 mm" ${d.driven ? 'disabled' : ''}><button data-dimx="${d.id}" title="Delete dimension">×</button></li>`).join('')}</ul></div>
     <button class="btn ${np ? 'primary' : ''}" data-do="dimupd" ${np ? '' : 'disabled'}>Update sketch${np ? ` (${np} change${np > 1 ? 's' : ''})` : ''}</button>`;
 }
 function bindDimsPanel() {
   panel.querySelectorAll('[data-dimv]').forEach(inp => {
     const d = S.sk.dims.find(q => q.id === +inp.dataset.dimv);
-    inp.addEventListener('change', () => { const v = parseFloat(inp.value); if (d && isFinite(v)) dimSetPending(d, isAng(d) ? v * Math.PI / 180 : fromU(v)); });
+    inp.addEventListener('change', () => { if (d) dimCommitText(d, inp.value); });
     inp.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter') { ev.preventDefault(); inp.blur(); } });
   });
   panel.querySelectorAll('[data-dimx]').forEach(b => b.addEventListener('click', () => { const d = S.sk.dims.find(q => q.id === +b.dataset.dimx); if (d) dimDelete(d); }));
