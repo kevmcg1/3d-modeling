@@ -68,11 +68,11 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | Plane at Angle | ✅ | About any edge, cylinder axis, sketch line or world axis, from a chosen plane or face (batch 1) |
 | Plane Through Three Points | ✅ | Points snap to vertices, midpoints and centers; fixed where placed, so it does not follow later edits (batch 1) |
 | Plane Through Two Edges, Tangent Plane | ✅ | construct.js (batch 18) |
-| Plane Along Path | 🔜 | |
+| Plane Along Path | ✅ | reference.js (batch 23) |
 | Axis (cylinder, edge, two points, perpendicular to face) | ✅ | Visible Axis feature (two points, two planes, normal to plane) that any axis picker can click; edges, cylinders and sketch lines also still work (batch 18) |
 | Point (vertex, edge midpoint, center) | ✅ | Point feature with snapping |
 | Point Through Two Edges | ✅ | batch 18 |
-| Point Through Three Planes | 🔜 | |
+| Point Through Three Planes | ✅ | reference.js (batch 23) |
 
 ## Sketch
 
@@ -105,7 +105,8 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | Insert Mesh (STL / OBJ) | ✅ | Imported as a body |
 | Convert Mesh | 🟡 | Imports are triangle bodies that can be combined and cut; face-group reconstruction to a B-rep is ⛔ at useful quality in a browser |
 | Reduce, Remesh, Repair, Smooth, Reverse Normal | 🔜 8 | Decimation and normal repair are feasible |
-| Plane Cut, Combine, Shell, Separate | 🔜 8 | Through the existing boolean |
+| Separate | ✅ | Splits a body into its unconnected pieces (batch 23) |
+| Plane Cut, Combine, Shell | 🔜 8 | Through the existing boolean |
 
 ## Sheet Metal
 
@@ -163,6 +164,7 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | 2 ✅ | Pipe, Pattern on Path, Ellipse, Slot |
 | 3 ✅ | Rib, Web, Spline, Overall Slot, Center Point Slot |
 | 4 | ✅ two-distance chamfer, Boundary Fill. Still open: variable and setback fillets, Split Face, Delete Face, planar Emboss |
+| 23 ✅ | Plane Along Path, Point Through Three Planes, Separate, Check (reference.js) |
 | 22 ✅ | Zebra Stripes and Curvature analysis (analysis.js) |
 | 21 ✅ | Sketch dimensions take expressions (parameters.js) |
 | 20 ✅ | Gusset (extras.js) |
@@ -242,7 +244,8 @@ Same legend as above. SolidWorks tools that are the same as a Fusion tool above 
 | Evaluate: Thickness Analysis | ✅ **new** | Ray-based wall thickness with a flag limit |
 | Evaluate: Undercut Analysis | ✅ **new** | Faces hidden from both ends of the pull line |
 | Evaluate: Curvature, Zebra Stripes | ✅ **new** | batch 22 (analysis.js) |
-| Evaluate: Check, Geometry Analysis | 🔜 | |
+| Evaluate: Check | ✅ **new** | Closed / outward / pieces / sliver faces per body (batch 23, reference.js) |
+| Evaluate: Geometry Analysis | 🔜 | |
 | Simulation, Flow Simulation | 🟡 | Stress / fixturing study ✅; fluid flow ⛔ |
 | Equations, Global Variables | ✅ | Parameters panel |
 | Configurations, Design Tables | 🔜 7 | |
