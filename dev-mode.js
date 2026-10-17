@@ -13,6 +13,9 @@
 //                   every sketch tool draws, orbit / zoom / pan are smooth, undo and redo walk the history, Auto Program + Verify,
 //                   slicing for 3D printing
 //
+// While it runs, the console debug log is on (Trace, plus debug-trace.js): every click, key, value change (from → to, with the model size), view move and
+// resize is written to the browser console, and it is switched off again when the run ends. The panel has a checkbox for it.
+//
 // After every step it looks for: a script error or unhandled promise, a console error, a lost 3D context, a stalled frame, "NaN" /
 // "undefined" / "Infinity" on screen. It times every frame to grade each workspace's smoothness, and notes whether each control did anything.
 // It cannot test every possible order of every control (that is billions); the report says what it covered.
@@ -238,7 +241,7 @@
     panel.className = 'dev'; panel.hidden = true; panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', 'Dev mode');
     panel.innerHTML = '<h3>Dev mode · auto test <small id="devSub">idle</small></h3><div class="body">' +
     '<div class="grid">' + WS.map(t => '<label><input type="checkbox" data-t="' + t.id + '" checked> ' + t.name + '</label>').join('') + '</div>' +
-    '<div class="row" style="margin-top:4px"><label class="chk"><input type="checkbox" id="devCtl" checked> Controls</label><label class="chk"><input type="checkbox" id="devCombo" checked> Combinations</label><label class="chk"><input type="checkbox" id="devFlow" checked> Flows</label><label class="chk"><input type="checkbox" id="devPrem"> Lift the Premium lock</label></div>' +
+    '<div class="row" style="margin-top:4px"><label class="chk"><input type="checkbox" id="devCtl" checked> Controls</label><label class="chk"><input type="checkbox" id="devCombo" checked> Combinations</label><label class="chk"><input type="checkbox" id="devFlow" checked> Flows</label><label class="chk"><input type="checkbox" id="devPrem"> Lift the Premium lock</label><label class="chk"><input type="checkbox" id="devLog" checked> Debug log in the console</label></div>' +
     '<div class="row"><select id="devMode">' + Object.keys(MODES).map(k => '<option value="' + k + '"' + (k === 'standard' ? ' selected' : '') + '>' + MODES[k].label + '</option>').join('') + '</select><input type="number" id="devSeed" value="20261016" style="max-width:110px" aria-label="Seed"></div>' +
     '<div class="row"><button class="go" id="devGo">Start</button><button id="devStop" disabled>Stop</button><button id="devSummary">Copy summary</button><button id="devCopy">Copy report</button><button id="devSave">Download</button></div>' +
     '<div class="now" id="devEst"></div><div class="bar"><i id="devBar"></i></div><div class="now" id="devNow"></div><table class="sum" id="devSum"></table><div id="devFeed"></div><div id="devFinds"></div></div>';
@@ -748,7 +751,7 @@
     if (window.DATUM_RELEASE && !DATUM_RELEASE.dev) {
       // The early-access build hides tabs and export formats; reload with ?dev=1 so everything is back, then start the same run.
       const ids0 = only || [...panel.querySelectorAll('input[data-t]:checked')].map(x => x.dataset.t), u = new URL(location.href);
-      try { sessionStorage.setItem('datum.devgo', JSON.stringify({ ids: ids0, mode: $d('devMode').value, seed: $d('devSeed').value, opts: ($d('devCtl').checked ? 'c' : '') + ($d('devCombo').checked ? 'm' : '') + ($d('devFlow').checked ? 'f' : '') + ($d('devPrem').checked ? 'p' : '') })); } catch (e) { $d('devNow').textContent = 'Could not reload with dev mode on.'; return; }
+      try { sessionStorage.setItem('datum.devgo', JSON.stringify({ ids: ids0, mode: $d('devMode').value, seed: $d('devSeed').value, opts: ($d('devCtl').checked ? 'c' : '') + ($d('devCombo').checked ? 'm' : '') + ($d('devFlow').checked ? 'f' : '') + ($d('devPrem').checked ? 'p' : '') + ($d('devLog').checked ? 'l' : '') })); } catch (e) { $d('devNow').textContent = 'Could not reload with dev mode on.'; return; }
       u.searchParams.set('dev', '1'); u.searchParams.delete('premium'); u.searchParams.delete('ws');
       $d('devNow').textContent = 'Reloading with dev mode on (?dev=1) so the hidden tabs and export formats come back…'; location.href = u.href; return;
     }
@@ -757,6 +760,8 @@
     const opt = { controls: $d('devCtl').checked, combos: $d('devCombo').checked, flows: $d('devFlow').checked };
     if (!ids.length) return;
     run.on = true; run.stop = false; run.steps = 0; run.active = 0; run.at = 0;
+    // the console debug log (every click, key, value change, view move, resize…) is on for the run and off after it
+    const debugLog = typeof Trace !== 'undefined' && $d('devLog').checked; if (debugLog) { Trace.set(true, false); Trace.log('dev', 'dev mode run started', { mode: $d('devMode').value, seed, workspaces: ids.join(', ') }); }
     const wasLocked = window.CAM_LOCK ? CAM_LOCK.active : false; if (window.CAM_LOCK && $d('devPrem').checked) CAM_LOCK.set(false);
     run.report = { startedAt: new Date().toISOString(), mode: $d('devMode').value, seed, options: opt, userAgent: navigator.userAgent, gpu: gpuName, softwareRendering: softGpu, tools: {}, note: 'Pairs, combinations and runs are sampled unless the mode is Thorough; the counts say what was covered. Frame times are the gaps between painted frames.' };
     $d('devGo').disabled = true; $d('devStop').disabled = false; $d('devSub').textContent = 'running';
@@ -774,6 +779,7 @@
     run.report.totalMs = Date.now() - t0; run.report.premiumLocked = window.CAM_LOCK ? CAM_LOCK.active : null;
     if (window.CAM_LOCK && wasLocked && !CAM_LOCK.active) CAM_LOCK.set(true);
     Object.values(run.report.tools).forEach(T => { const fb = feedback(T); T.feedback = { smoothness: fb.grade.word, frames: fb.frames, slowestControls: fb.slow, didNothingVisible: fb.inert.map(r => r.label), controls: fb.rows }; });
+    if (debugLog && Trace.on) { Trace.log('dev', run.stop ? 'dev mode run stopped' : 'dev mode run finished', { ms: run.report.totalMs }); Trace.set(false, false); }
     run.on = false; $d('devGo').disabled = false; $d('devStop').disabled = true; $d('devBar').style.width = '100%';
     const bad = Object.values(run.report.tools).reduce((s, T) => s + T.findings.filter(x => !WARN[x.type]).length + T.scenarios.filter(q => !q.pass).length, 0);
     $d('devSub').textContent = (run.stop ? 'stopped · ' : 'done · ') + fmtMs(run.report.totalMs) + ' · ' + (bad ? bad + ' issue' + (bad > 1 ? 's' : '') : 'clean');
@@ -807,7 +813,7 @@
     ensurePanel().hidden = false;
     if (handoff.mode && MODES[handoff.mode]) $d('devMode').value = handoff.mode;
     if (handoff.seed) $d('devSeed').value = handoff.seed;
-    const o = handoff.opts || ''; $d('devCtl').checked = o.includes('c'); $d('devCombo').checked = o.includes('m'); $d('devFlow').checked = o.includes('f'); $d('devPrem').checked = o.includes('p');
+    const o = handoff.opts || ''; $d('devCtl').checked = o.includes('c'); $d('devCombo').checked = o.includes('m'); $d('devFlow').checked = o.includes('f'); $d('devPrem').checked = o.includes('p'); $d('devLog').checked = o.includes('l');
     start(handoff.ids && handoff.ids.length ? handoff.ids : null);
   }, 2500);
 })();
