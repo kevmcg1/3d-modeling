@@ -192,7 +192,7 @@
       pk.flat = []; let h = '';
       for (const [g, l] of groups) {
         h += `<div class="cf-grp">${g}</div>`;
-        for (const it of l) { h += `<button class="cf-item" role="option" data-i="${pk.flat.length}" data-tipkey="${esc(it.tipkey)}" data-tipname="${esc(it.name)}">${svg(it.icon || 'camcontour')}<span class="nm">${esc(it.name)}</span><span class="sub">${esc(it.note)}</span></button>`; pk.flat.push(it); }
+        for (const it of l) { const lk = window.CAM_LOCK && CAM_LOCK.item(it); h += `<button class="cf-item${lk ? ' prem-lock' : ''}" role="option" data-i="${pk.flat.length}" data-tipkey="${esc(it.tipkey)}" data-tipname="${esc(it.name)}">${svg(it.icon || 'camcontour')}<span class="nm">${esc(it.name)}</span><span class="sub">${esc(it.note)}</span>${lk ? CAM_LOCK.icon : ''}</button>`; pk.flat.push(it); }
       }
       list.innerHTML = h || '<div class="cf-empty">No toolpath matches. Try “pocket”, “drill” or “slot”.</div>';
       pk.sel = Math.min(pk.sel, Math.max(0, pk.flat.length - 1));
@@ -202,7 +202,7 @@
       list.querySelectorAll('.cf-item').forEach(b => b.classList.toggle('sel', +b.dataset.i === pk.sel));
       const b = list.querySelector('.cf-item.sel'); if (b && scroll) b.scrollIntoView({ block: 'nearest' });
     };
-    const choose = i => { const it = pk.flat[i]; if (!it) return; pickerClose(); CF.recent = [it.id, ...(CF.recent || []).filter(x => x !== it.id)].slice(0, 6); if (swap) change(swap, it); else start(it); };
+    const choose = i => { const it = pk.flat[i]; if (!it) return; if (window.CAM_LOCK && CAM_LOCK.item(it)) { CAM_LOCK.say(); return; } pickerClose(); CF.recent = [it.id, ...(CF.recent || []).filter(x => x !== it.id)].slice(0, 6); if (swap) change(swap, it); else start(it); };
     input.addEventListener('input', () => { pk.sel = 0; draw(); });
     list.addEventListener('click', e => { const b = e.target.closest('.cf-item'); if (b) choose(+b.dataset.i); });
     list.addEventListener('pointermove', e => { const b = e.target.closest('.cf-item'); if (b && +b.dataset.i !== pk.sel) { pk.sel = +b.dataset.i; mark(false); } });
