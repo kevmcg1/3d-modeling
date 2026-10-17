@@ -9641,6 +9641,184 @@ function evalFillPattern(f, ctx) {
 }
 FEATX.fillpat = evalFillPattern;
 
+// ── Face edits: Replace Face, Delete Face (heal), Split Face ───────
+function faceVertIncidence(mesh) { const inc = mesh.VP.map(() => new Set()); for (const p of mesh.PL) for (const i of p.ids) inc[i].add(p.f); return inc; }
+// Closed outlines of a set of faces: the edges used by one of their triangles only, chained into loops (null if they branch).
+function boundaryLoops(mesh, fidSet) {
+  const cnt = new Map();
+  for (const p of mesh.PL) if (fidSet.has(p.f)) for (let i = 0; i < p.ids.length; i++) {
+    const a = p.ids[i], b = p.ids[(i + 1) % p.ids.length], k = a < b ? a + ':' + b : b + ':' + a;
+    cnt.set(k, (cnt.get(k) || 0) + 1);
+  }
+  const adj = new Map(), push = (a, b) => { if (!adj.has(a)) adj.set(a, []); adj.get(a).push(b); };
+  for (const [k, c] of cnt) if (c === 1) { const [a, b] = k.split(':').map(Number); push(a, b); push(b, a); }
+  for (const l of adj.values()) if (l.length !== 2) return null;
+  const loops = [], seen = new Set();
+  for (const s of adj.keys()) {
+    if (seen.has(s)) continue;
+    const loop = [s]; seen.add(s); let prev = -1, cur = s;
+    for (;;) { const nx = adj.get(cur).find(x => x !== prev && !seen.has(x)); if (nx === undefined) break; loop.push(nx); seen.add(nx); prev = cur; cur = nx; }
+    loops.push(loop);
+  }
+  return loops;
+}
+// Rebuild a body from its mesh with moved vertices: W maps a vertex id to its new place, drop is a set of faces to leave out.
+function polysFromMesh(mesh, W, drop) {
+  const out = [];
+  for (const p of mesh.PL) {
+    if (drop && drop.has(p.f)) continue;
+    const vs = p.ids.map(i => (W ? W[i] : mesh.VP[i]));
+    for (let i = 1; i + 1 < vs.length; i++) {
+      const tri = [vs[0], vs[i], vs[i + 1]];
+      if (len3(crs3(sub3(tri[1], tri[0]), sub3(tri[2], tri[0]))) < 1e-12) continue;
+      const pp = CSG.poly(tri, 0);
+      out.push(CSG.poly(tri, p.f, pp.n, pp.w));
+    }
+  }
+  return out;
+}
+const flatFace = s => s.t === 'P' && s.patch === undefined;
+function evalReplaceFace(f, ctx) {
+  const { body, fids } = pickedFaces(f, ctx), P = resolveMirrorPlane(f.plane, ctx), n0 = nrm3(P.n), plans = new Map();
+  for (const fid of fids) {
+    const s = Surf.list[fid];
+    if (!flatFace(s)) throw new Error('Only flat faces can be replaced');
+    const sg = dot3(n0, s.n) < 0 ? -1 : 1, n = mul3(n0, sg);
+    if (Math.abs(dot3(n, s.n)) < 0.05) throw new Error('A picked face is at a right angle to the target plane, so it cannot meet it');
+    plans.set(fid, { n, d: sg * (P.w / len3(P.n) + (+f.off || 0)) });
+  }
+  const bb = body.bb, diag = Math.hypot(bb[3] - bb[0], bb[4] - bb[1], bb[5] - bb[2]);
+  const polys = moveFacesOf(body, f, fid => plans.get(fid) || null, diag * 0.5);
+  ctx.bodies = ctx.bodies.map(b => b === body ? mkBody(b.id, polys) : b);
+  ctx.hl[f.id] = [body.id];
+}
+FEATX.repface = evalReplaceFace;
+// A chamfer or fillet strip between two flat faces: the two faces grow until they meet.
+function healStrip(body, fid) {
+  const mesh = bodyMesh(body), VP = mesh.VP, inc = faceVertIncidence(mesh), s = Surf.list[fid], F = new Set([fid]);
+  let d;
+  if (s.t === 'C') d = nrm3(s.dir);
+  else if (flatFace(s)) {
+    const loops = boundaryLoops(mesh, F);
+    if (!loops || loops.length !== 1) throw new Error('This face is not a simple chamfer strip');
+    let best = 0;
+    const L = loops[0];
+    for (let i = 0; i < L.length; i++) { const e = sub3(VP[L[(i + 1) % L.length]], VP[L[i]]); if (len3(e) > best) { best = len3(e); d = nrm3(e); } }
+  } else throw new Error('Only a flat chamfer or a round fillet face can be deleted this way');
+  const verts = new Set(); for (const p of mesh.PL) if (p.f === fid) for (const i of p.ids) verts.add(i);
+  const nb = new Set(); for (const i of verts) for (const g of inc[i]) if (g !== fid) nb.add(g);
+  const side = [], ends = new Set();
+  for (const g of nb) {
+    const sg = Surf.list[g];
+    if (!flatFace(sg)) throw new Error('The face is next to a curved face, so it cannot be healed');
+    const c = Math.abs(dot3(sg.n, d));
+    if (c < 0.2) side.push(g); else if (c > 0.8) ends.add(g); else throw new Error('An end of the strip meets a slanted face, so it cannot be healed');
+  }
+  if (side.length !== 2) throw new Error('A chamfer or fillet needs a flat face on each side');
+  const A = Surf.list[side[0]], B = Surf.list[side[1]];
+  if (len3(crs3(A.n, B.n)) < 1e-3) throw new Error('The two side faces are parallel, so they never meet');
+  const W = VP.slice();
+  for (const i of verts) {
+    const e = [...inc[i]].find(g => ends.has(g)), t = e !== undefined ? { n: Surf.list[e].n, w: Surf.list[e].d } : { n: d, w: dot3(d, VP[i]) };
+    const q = solveLin([A.n, B.n, t.n], [A.d, B.d, t.w]);
+    if (!q) throw new Error('The side faces and the end do not meet in one point');
+    W[i] = q;
+  }
+  const polys = polysFromMesh(mesh, W, F);
+  return polys;
+}
+// Hole faces: both outlines are closed up. The flat face a hole opens into gets a lid; a floor or ledge inside the hole goes away.
+function fillHoles(body, fids) {
+  const mesh = bodyMesh(body), VP = mesh.VP, inc = faceVertIncidence(mesh), loops = boundaryLoops(mesh, fids);
+  if (!loops || !loops.length) throw new Error('This face has no clean outline to close');
+  const area = ids => len3(newellVec(ids.map(i => VP[i]))), faceArea = g => { let a = 0; for (const p of mesh.PL) if (p.f === g) for (let i = 1; i + 1 < p.ids.length; i++) a += len3(crs3(sub3(VP[p.ids[i]], VP[p.ids[0]]), sub3(VP[p.ids[i + 1]], VP[p.ids[0]]))) / 2; return a; };
+  const byG = new Map();
+  for (const loop of loops) {
+    let cand = null;
+    for (const i of loop) { const st = new Set([...inc[i]].filter(x => !fids.has(x))); cand = cand ? new Set([...cand].filter(x => st.has(x))) : st; }
+    const gs = [...cand].filter(g => flatFace(Surf.list[g]));
+    if (gs.length !== 1) throw new Error('A hole edge has to meet exactly one flat face');
+    if (!byG.has(gs[0])) byG.set(gs[0], []);
+    byG.get(gs[0]).push(loop);
+  }
+  const drop = new Set(fids), extra = [], key = l => [...l].sort((a, b) => a - b).join(',');
+  const picked = new Set(loops.map(key));
+  for (const [g, ls] of byG) {
+    if (faceArea(g) <= Math.max(...ls.map(area)) * (1 + 1e-6)) {
+      for (const gl of boundaryLoops(mesh, new Set([g])) || []) if (!picked.has(key(gl))) throw new Error('The bottom of this hole also touches other faces: pick those too');
+      drop.add(g); continue;
+    }
+    const sg = Surf.list[g];
+    for (const loop of ls) {
+      for (let i = 1; i + 1 < loop.length; i++) {
+        let tri = [VP[loop[0]], VP[loop[i]], VP[loop[i + 1]]];
+        const pp = CSG.poly(tri, 0); if (!pp) continue;
+        if (dot3(pp.n, sg.n) < 0) tri = [tri[0], tri[2], tri[1]];
+        if (dot3(crs3(sub3(tri[1], tri[0]), sub3(tri[2], tri[0])), sg.n) < -1e-9) throw new Error('The hole outline is not a convex shape, so it cannot be capped');
+        const q = CSG.poly(tri, 0);
+        extra.push(CSG.poly(tri, g, q.n, q.w));
+      }
+    }
+  }
+  return polysFromMesh(mesh, null, drop).concat(extra);
+}
+function evalDeleteFace(f, ctx) {
+  const { body, fids } = pickedFaces(f, ctx);
+  let cur = body;
+  const holes = new Set(), strips = [];
+  for (const fid of fids) {
+    const loops = boundaryLoops(bodyMesh(body), new Set([fid]));
+    if (loops && loops.length >= 2) holes.add(fid); else strips.push(fid);
+  }
+  for (const fid of strips) cur = mkBody(cur.id, healStrip(cur, fid));
+  if (holes.size) cur = mkBody(cur.id, fillHoles(cur, holes));
+  let vol = 0;
+  for (const p of cur.polys) for (let i = 1; i + 1 < p.v.length; i++) vol += dot3(p.v[0], crs3(p.v[i], p.v[i + 1]));
+  if (!(vol > 1e-9)) throw new Error('Deleting that face turns the part inside out');
+  ctx.bodies = ctx.bodies.map(b => b === body ? cur : b);
+  ctx.hl[f.id] = [body.id];
+}
+FEATX.delface = evalDeleteFace;
+function evalSplitFace(f, ctx) {
+  const { body, fids } = pickedFaces(f, ctx), P = resolveMirrorPlane(f.plane, ctx), n = nrm3(P.n), w = P.w / len3(P.n);
+  const mesh = bodyMesh(body), VP = mesh.VP, eps = 1e-6, polys = [], neg = new Map();
+  let above = 0, below = 0;
+  const surfNeg = fid => {
+    if (!neg.has(fid)) {
+      const s = Surf.list[fid];
+      if (!flatFace(s)) throw new Error('Only flat faces can be split');
+      const r = Surf.facet(s.n, s.d, 'sf' + f.id + ':' + fid); Surf.addMeta(r, { feat: f.id, src: (s.metas || [])[0] || fid }); neg.set(fid, r);
+    }
+    return neg.get(fid);
+  };
+  const emit = (vs, sf) => {
+    for (let i = 1; i + 1 < vs.length; i++) {
+      const tri = [vs[0], vs[i], vs[i + 1]];
+      if (len3(crs3(sub3(tri[1], tri[0]), sub3(tri[2], tri[0]))) < 1e-12) continue;
+      const pp = CSG.poly(tri, 0); polys.push(CSG.poly(tri, sf, pp.n, pp.w));
+    }
+  };
+  for (const p of mesh.PL) {
+    const vs = p.ids.map(i => VP[i]);
+    if (!fids.has(p.f)) { emit(vs, p.f); continue; }
+    const ds = vs.map(v => dot3(n, v) - w), pos = [], ng = [];
+    for (let i = 0; i < vs.length; i++) {
+      const a = vs[i], b = vs[(i + 1) % vs.length], da = ds[i], db = ds[(i + 1) % vs.length];
+      if (da >= -eps) pos.push(a);
+      if (da <= eps) ng.push(a);
+      if ((da > eps && db < -eps) || (da < -eps && db > eps)) { const t = da / (da - db), m = add3(a, mul3(sub3(b, a), t)); pos.push(m); ng.push(m); }
+    }
+    const big = ds.some(d => d > eps), sml = ds.some(d => d < -eps);
+    if (big && !sml) { above++; emit(vs, p.f); } else if (sml && !big) { below++; emit(vs, surfNeg(p.f)); }
+    else if (!big && !sml) emit(vs, p.f);
+    else { above++; below++; emit(pos, p.f); emit(ng, surfNeg(p.f)); }
+  }
+  if (!above || !below) throw new Error('The plane does not cross the picked face');
+  ctx.bodies = ctx.bodies.map(b => b === body ? mkBody(b.id, polys) : b);
+  ctx.hl[f.id] = [body.id];
+}
+FEATX.splitface = evalSplitFace;
+
 // ── Rib / Web: thin walls from open sketch curves, extruded square to the sketch plane ──
 // A chain of lines and arcs is sampled, thickened to a flat-ended strip (mitered at bends) and extruded; several chains make a web.
 function ribLoops(pts, closed, h) {
@@ -37924,6 +38102,7 @@ function gsPick(i) {
 <script src="analysis.js"></script>
 <script src="reference.js"></script>
 <script src="patterns2.js"></script>
+<script src="faceedit.js"></script>
 <!-- Export log, settings cog, mouse and keyboard layouts: own file so it can be loaded last -->
 <script src="input-settings.js"></script>
 <script src="cam-premium.js"></script>

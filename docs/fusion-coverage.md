@@ -39,14 +39,14 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | Scale | 🟡 | Uniform only. Non-uniform scale breaks exact cylinders; a mesh-only fallback is 🔜 5 |
 | Combine (join, cut, intersect, keep tools) | ✅ | |
 | Split Body | ✅ | By plane or face |
-| Split Face | 🔜 4 | |
+| Split Face | ✅ **new** | Flat faces, along a plane (batch 26, faceedit.js) |
 | Silhouette Split | 🔜 6 | |
 | Move / Copy | ✅ | Translate, rotate, scale in one command |
 | Align | ✅ | PR #39 |
 | Stretch | ✅ | PR #39 |
 | Delete Body | ✅ | PR #39 |
-| Delete Face | 🔜 4 | Healing by extending the neighbours is the hard part |
-| Replace Face | 🔜 6 | |
+| Delete Face | ✅ **new** | Heals a chamfer or fillet strip between two flat faces; closes hole walls and removes the floor (batch 26) |
+| Replace Face | ✅ **new** | Moves flat faces onto a plane or face (batch 26) |
 | Physical Material | 🟡 | Per-body color exists; materials with density arrive with Physical Properties (batch 1) |
 | Change Parameters | ✅ | Parameters panel (Modify): named values with units and formulas; the ƒ beside any length or angle field takes an expression (batch 12). Sketch dimensions take expressions too: type text such as `w*2 + 3 mm` into a dimension box and the sketch is solved again when the parameter changes (batch 21) |
 
@@ -165,6 +165,7 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | 3 ✅ | Rib, Web, Spline, Overall Slot, Center Point Slot |
 | 4 | ✅ two-distance chamfer, Boundary Fill. Still open: variable and setback fillets, Split Face, Delete Face, planar Emboss |
 | 23 ✅ | Plane Along Path, Point Through Three Planes, Separate, Check (reference.js) |
+| 26 ✅ | Replace Face, Delete Face, Split Face (faceedit.js) |
 | 25 ✅ | Variable-radius fillet, Full-round fillet (in the Fillet panel) |
 | 24 ✅ | Table Driven Pattern, Fill Pattern, Configurations (patterns2.js) |
 | 22 ✅ | Zebra Stripes and Curvature analysis (analysis.js) |
@@ -220,9 +221,9 @@ Same legend as above. SolidWorks tools that are the same as a Fusion tool above 
 | Combine (Add, Subtract, Common) | ✅ | Combine |
 | Split | ✅ | Split Body by plane or face; Split Line 🔜 4 |
 | Intersect | ✅ | Combine → Intersect, Boundary Fill |
-| Delete Face, Delete/Keep Body | 🟡 | Delete Body ✅; Delete Face 🔜 4 |
+| Delete Face, Delete/Keep Body | ✅ | Delete Body, Delete Face (batch 26) |
 | Move Face, Offset Face | ✅ | Push / Pull |
-| Replace Face | 🔜 6 | |
+| Replace Face | ✅ **new** | Batch 26 |
 | Reference Geometry: Plane (offset, angle, 3 points, mid-plane) | ✅ | |
 | Reference Geometry: Plane (tangent, on surface, two edges), Axis, Coordinate System | 🔜 6 | |
 | Reference Geometry: Point | ✅ | |
