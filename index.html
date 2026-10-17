@@ -5656,7 +5656,7 @@ function clipHalf(vs, n, w, cut) {
 // ── Straight-edge corner tool (fillet or chamfer) ──────────────────
 // E0,E1 edge ends; t1,t2 unit directions along each face away from the
 // edge. Returns closed polygons of the corner region to remove or add.
-function cornerProfile(t1, t2, kind, size, tol, chm) {
+function cornerProfile(t1, t2, kind, size, tol, chm, nForce) {
   // Profile of the corner region as 3D offsets from the edge point E.
   // It is pushed a little past both faces (into air for cuts, into
   // material for fills) so the tool never lies exactly on a body face —
@@ -5675,7 +5675,7 @@ function cornerProfile(t1, t2, kind, size, tol, chm) {
   }
   const s = size / Math.tan(al / 2), bis = nrm3(add3(t1, t2)), C = mul3(bis, size / Math.sin(al / 2));
   const T1 = mul3(t1, s), T2 = mul3(t2, s), a = nrm3(sub3(T1, C)), b = nrm3(sub3(T2, C));
-  const sweep = Math.acos(clamp(dot3(a, b), -1, 1)), n = Math.max(2, Math.ceil(circleN(size, tol) * sweep / TAU));
+  const sweep = Math.acos(clamp(dot3(a, b), -1, 1)), n = nForce || Math.max(2, Math.ceil(circleN(size, tol) * sweep / TAU));
   const pts = [P0, add3(T1, mul3(e1, dl)), T1];
   const c = nrm3(sub3(b, mul3(a, dot3(a, b))));
   for (let i = 1; i < n; i++) { const t = sweep * i / n; pts.push(add3(C, mul3(add3(mul3(a, Math.cos(t)), mul3(c, Math.sin(t))), size))); }
@@ -5706,6 +5706,34 @@ function linearCornerTool(E0, E1, t1, t2, kind, size, tol, meta, chm) {
     if (isArc(i, j)) { f = Surf.cyl(add3(E0, pr.arc.C), d, size, -1); Surf.addMeta(f, meta); }
     else { const p = CSG.poly(quad, 0); f = Surf.plane(p.n, p.w); if (isFace(i, j)) Surf.addMeta(f, meta); }
     polys.push(CSG.poly(quad, f));
+  }
+  return polys;
+}
+// Variable-radius fillet on a straight edge: the corner profile at radius r0 lofted to radius r1.
+// The sides between the two sections are skewed, so every strip is split into triangles on planes of their own.
+function varCornerTool(E0, E1, t1, t2, r0, r1, tol, meta) {
+  const al = Math.acos(clamp(dot3(t1, t2), -1, 1));
+  if (al < 1e-3 || al > Math.PI - 1e-3) return null;
+  const sw = Math.PI - al, rm = Math.max(r0, r1), n = Math.max(3, Math.ceil(circleN(rm, tol) * sw / TAU));
+  const pa = cornerProfile(t1, t2, 'fillet', r0, tol, null, n), pb = cornerProfile(t1, t2, 'fillet', r1, tol, null, n);
+  if (!pa || !pb || pa.pts.length !== pb.pts.length) return null;
+  const d = nrm3(sub3(E1, E0)), P0 = pa.pts.map(p => add3(E0, p)), P1 = pb.pts.map(p => add3(E1, p));
+  const polys = [], m = P0.length, idx = [...Array(m).keys()];
+  if (dot3(newellN(P0), d) > 0) idx.reverse();
+  const capA = Surf.plane(neg3(d), -dot3(d, E0)), capB = Surf.plane(d, dot3(d, E1));
+  for (const t of fan(fromP0(idx.map(i => P0[i]), P0[0]))) polys.push(CSG.poly(t, capA, neg3(d), -dot3(d, E0)));
+  for (const t of fan(fromP0(idx.slice().reverse().map(i => P1[i]), P1[0]))) polys.push(CSG.poly(t, capB, d, dot3(d, E1)));
+  const from = pa.arc.from, to = pa.arc.to;
+  for (let k = 0; k < m; k++) {
+    const i = idx[k], j = idx[(k + 1) % m], onArc = Math.abs(i - j) === 1 && Math.min(i, j) >= from && Math.max(i, j) <= to;
+    const isFace = Math.min(i, j) === pa.face?.[0] && Math.max(i, j) === pa.face?.[1];
+    const quad = [P0[i], P1[i], P1[j], P0[j]], flat = Math.abs(dot3(nrm3(crs3(sub3(quad[1], quad[0]), sub3(quad[3], quad[0]))), sub3(quad[2], quad[0]))) < 1e-7 * (1 + len3(sub3(quad[2], quad[0])));
+    const tris = flat ? [quad] : [[quad[0], quad[1], quad[2]], [quad[0], quad[2], quad[3]]];
+    for (const tq of tris) {
+      const p = CSG.poly(tq, 0); if (!p) continue;
+      const f = Surf.plane(p.n, p.w); if (onArc || isFace) Surf.addMeta(f, meta);
+      polys.push(CSG.poly(tq, f));
+    }
   }
   return polys;
 }
@@ -5949,7 +5977,7 @@ function edgeTool(body, mesh, ch, kind, size, tol, meta, chm) {
     const t1 = perp(cA), t2 = perp(cB);
     // Exact: an edge is convex when face A's outward normal points away from face B.
     const convex = dot3(Surf.list[ch.fa].n, t2) < 0;
-    const polys = linearCornerTool(g.a, g.b, t1, t2, kind, size, tol, meta, chm);
+    const polys = kind === 'fillet' && chm && chm.rEnd > 0 ? (chm.flip ? varCornerTool(g.a, g.b, t1, t2, chm.rEnd, size, tol, meta) : varCornerTool(g.a, g.b, t1, t2, size, chm.rEnd, tol, meta)) : linearCornerTool(g.a, g.b, t1, t2, kind, size, tol, meta, chm);
     if (!polys) return { err: 'Faces are tangent — nothing to round' };
     return { pieces: [polys], op: convex ? 'sub' : 'add' };
   }
@@ -6101,13 +6129,25 @@ function resolvePoint(ref, bodies, fallback) {
 // ── Feature evaluation for the new feature types ───────────────────
 function evalEdgeFeature(f, ctx, tol) {
   const kind = f.type === 'chamfer' ? 'chamfer' : 'fillet';
-  if (!(f.size > 0)) throw new Error('Size must be positive');
+  let size = f.size;
+  if (kind === 'fillet' && f.full) {
+    // full round: the two picked edges are the two sides of a narrow face; the radius is half the gap between them
+    if (f.edges.length !== 2) throw new Error('Full round needs exactly two edges');
+    const ra = findChain(ctx.bodies, f.edges[0]), rb = findChain(ctx.bodies, f.edges[1]);
+    if (!ra || !rb) throw new Error('An edge no longer exists');
+    const ga = chainGeom(ra.ch), gb = chainGeom(rb.ch);
+    if (ga.k !== 'line' || gb.k !== 'line' || len3(crs3(ga.d, gb.d)) > 1e-3) throw new Error('Full round needs two parallel straight edges');
+    const w = sub3(gb.mid, ga.mid), gap = len3(sub3(w, mul3(ga.d, dot3(w, ga.d))));
+    if (!(gap > 1e-3)) throw new Error('The two edges are on top of each other');
+    size = gap * 0.499;
+  }
+  if (!(size > 0)) throw new Error('Size must be positive');
   const jobs = [];
   f.edges.forEach((ref, i) => {
     const r = findChain(ctx.bodies, ref);
     if (!r) throw new Error(`Edge ${i + 1} no longer exists`);
-    const chm = kind !== 'chamfer' ? null : f.cmode === 'angle' && f.angle > 0 ? { ang: f.angle, flip: !!f.flip } : f.cmode === 'two' && f.size2 > 0 ? { d2: f.size2, flip: !!f.flip } : null;
-    const t = edgeTool(r.body, r.mesh, r.ch, kind, f.size, tol, { feat: f.id, edge: i }, chm);
+    const chm = kind === 'fillet' ? (f.vr > 0 && !f.full ? { rEnd: f.vr, flip: !!f.flip } : null) :  f.cmode === 'angle' && f.angle > 0 ? { ang: f.angle, flip: !!f.flip } : f.cmode === 'two' && f.size2 > 0 ? { d2: f.size2, flip: !!f.flip } : null;
+    const t = edgeTool(r.body, r.mesh, r.ch, kind, size, tol, { feat: f.id, edge: i }, chm);
     if (t.err) throw new Error(t.err);
     jobs.push({ body: r.body, ...t });
   });
@@ -12464,7 +12504,7 @@ function featSub(f) {
   switch (f.type) {
     case 'sketch': return f.ents.length + ' curve' + (f.ents.length === 1 ? '' : 's');
     case 'extrude': return `${f.op === 'hole' ? '⌀ hole' : OP_SIGN[f.op] || ''} ${f.extent === 'next' ? 'to next' : f.extent === 'all' ? 'thru all' : f.extent === 'to' ? 'to point' : fmtLs(Math.abs(f.dist))}${f.mode === 'sym' && f.op !== 'hole' ? ' sym' : ''}`.trim();
-    case 'fillet': return 'R' + fmtLs(f.size);
+    case 'fillet': return f.full ? 'full round' : f.vr > 0 ? 'R' + fmtLs(f.size) + '→' + fmtLs(f.vr) : 'R' + fmtLs(f.size);
     case 'chamfer': return f.cmode === 'two' && f.size2 > 0 ? '× ' + fmtLs(f.size) + ' × ' + fmtLs(f.size2) : f.cmode === 'angle' && f.angle > 0 ? '× ' + fmtLs(f.size) + ' @ ' + f.angle + '°' : '× ' + fmtLs(f.size);
     case 'plane': return fmtLs(f.off);
     case 'thread': return f.internal === true ? 'internal' : f.internal === false ? 'external' : '';
@@ -12864,6 +12904,7 @@ function edgePanel() {
     <div class="field"><span>Edges</span><div class="pick ${n ? '' : 'empty'}"><span>${n ? 'Click an edge again to remove it' : 'Click straight or circular edges'}</span><span class="n">${n}</span></div></div>
     ${f.type === 'chamfer' ? `<div class="field"><span>Chamfer type</span><div class="seg"><button data-cm="eq" class="${!f.cmode || f.cmode === 'eq' ? 'on' : ''}">Equal</button><button data-cm="two" class="${f.cmode === 'two' ? 'on' : ''}">Two distances</button><button data-cm="angle" class="${f.cmode === 'angle' ? 'on' : ''}">Distance + angle</button></div></div>` : ''}
     <div class="field"><span>${f.type === 'fillet' ? 'Radius' : f.cmode === 'two' ? 'Distance 1' : 'Distance'} (${uName()})</span><input type="number" id="edgeSize" data-live="1" min="0" step="${isIn() ? 0.01 : 0.5}" value="${uval(f.size)}"></div>
+    ${f.type === 'fillet' ? `<label class="chk"><input type="checkbox" id="edgeFull" ${f.full ? 'checked' : ''}> Full round <small>(pick the two long sides of a narrow face)</small></label>${f.full ? '' : `<label class="chk"><input type="checkbox" id="edgeVar" ${f.vr > 0 ? 'checked' : ''}> Variable radius <small>(straight edges: grows from the radius above to the end radius)</small></label>`}${f.vr > 0 && !f.full ? `<div class="row2"><label class="field"><span>End radius (${uName()})</span><input type="number" id="edgeVr" data-live="1" min="0" step="${isIn() ? 0.01 : 0.5}" value="${uval(f.vr)}"></label><button class="btn" data-do="cmflip" title="Swap which end gets which radius">Flip ⇅</button></div>` : ''}` : ''}
     ${f.type === 'chamfer' && f.cmode === 'two' ? `<div class="field"><span>Distance 2 (${uName()})</span><input type="number" id="edgeSize2" data-live="1" min="0" step="${isIn() ? 0.01 : 0.5}" value="${uval(f.size2 || f.size)}"></div>` : ''}
     ${f.type === 'chamfer' && f.cmode === 'angle' ? `<div class="field"><span>Angle (°)</span><input type="number" id="edgeAngle" data-live="1" min="1" max="89" step="1" value="${f.angle || 45}"></div>` : ''}
     ${f.type === 'chamfer' && f.cmode && f.cmode !== 'eq' ? `<div class="field"><span>Direction</span><button class="btn" data-do="cmflip" title="Swap which face gets distance 1">Flip ⇅</button></div>` : ''}
@@ -13039,6 +13080,12 @@ function bindPanel() {
   const es = document.getElementById('edgeSize');
   if (es) es.addEventListener('input', () => { const v = fromU(parseFloat(es.value)); if (v > 0) { CMD.f.size = v; modelChanged(); } });
   if (es) es.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); es.blur(); edgeOK(); } });
+  const efl = document.getElementById('edgeFull');
+  if (efl) efl.addEventListener('change', () => { CMD.f.full = efl.checked; if (efl.checked) CMD.f.vr = 0; modelChanged(); refreshPanel(); });
+  const evr0 = document.getElementById('edgeVar');
+  if (evr0) evr0.addEventListener('change', () => { CMD.f.vr = evr0.checked ? (CMD.f.size * 2 || 4) : 0; modelChanged(); refreshPanel(); });
+  const evr = document.getElementById('edgeVr');
+  if (evr) evr.addEventListener('input', () => { const v = fromU(parseFloat(evr.value)); if (v > 0) { CMD.f.vr = v; modelChanged(); } });
   const es2 = document.getElementById('edgeSize2');
   if (es2) es2.addEventListener('input', () => { const v = fromU(parseFloat(es2.value)); if (v > 0) { CMD.f.size2 = v; modelChanged(); } });
   const ea = document.getElementById('edgeAngle');
