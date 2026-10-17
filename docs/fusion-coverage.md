@@ -82,14 +82,14 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | Fillet, Chamfer, Trim, Extend, Offset, Mirror, Pattern, Move, Rotate, Scale, Copy / Paste | ✅ | |
 | Project / Include | ✅ | |
 | Dimension | ✅ | Driving dimensions with Update |
-| Slot | ✅ | Center-to-center, Overall and Center Point slots (batches 2 and 3). Arc slots 🔜 6 |
+| Slot | ✅ | Center-to-center, Overall and Center Point slots (batches 2 and 3). Arc Slot ✅ (batch 27) |
 | Ellipse | 🟡 | Center, major and minor radius, drawn as 16 arcs: within 0.3% of the true curve for axis ratios up to 3:1, so it extrudes and machines like any profile; not a true conic (batch 2) |
-| Conic curve | 🔜 3 | Alongside Spline |
+| Conic curve | ✅ **new** | Start, end, tangent meeting point, then a point it passes near; stored as arcs (batch 27, sketch2.js) |
 | Spline (fit point) | 🟡 | Smooth curve through clicked points, stored as tangent-continuous arcs, so it trims, offsets and extrudes like any sketch curve. Points are not editable by dragging afterwards; control-point splines 🔜 7 |
 | Geometric constraints (coincident, tangent, parallel, perpendicular, equal, symmetric, fix) | 🔜 7 | Needs a real constraint solver; today only shared endpoints and dimensions |
 | Sketch on a plane, face or construction plane | ✅ | |
 | 3D sketch | 🟡 | 3D polyline exists; no full 3D sketch environment |
-| Insert SVG / DXF | 🔜 6 | The Graphics and 2D Drawing tabs can already author the shapes |
+| Insert SVG / DXF | ✅ **new** | Lines, arcs, circles, polylines (with bulges), ellipses and splines from DXF; paths, shapes and transforms from SVG. Equation Curve too (batch 27) |
 
 ## Surface
 
@@ -165,6 +165,7 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | 3 ✅ | Rib, Web, Spline, Overall Slot, Center Point Slot |
 | 4 | ✅ two-distance chamfer, Boundary Fill. Still open: variable and setback fillets, Split Face, Delete Face, planar Emboss |
 | 23 ✅ | Plane Along Path, Point Through Three Planes, Separate, Check (reference.js) |
+| 27 ✅ | Conic Curve, Arc Slot, Equation Curve, Insert DXF/SVG (sketch2.js) |
 | 26 ✅ | Replace Face, Delete Face, Split Face (faceedit.js) |
 | 25 ✅ | Variable-radius fillet, Full-round fillet (in the Fillet panel) |
 | 24 ✅ | Table Driven Pattern, Fill Pattern, Configurations (patterns2.js) |
