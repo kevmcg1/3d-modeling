@@ -18,13 +18,18 @@
 // It cannot test every possible order of every control (that is billions); the report says what it covered.
 (function () {
   const qs = new URLSearchParams(location.search);
-  window.__devToggle = () => { const p = document.querySelector('.dev'); if (p) p.hidden = !p.hidden; };
-  document.addEventListener('keydown', e => {
+  window.__devToggle = () => { ensurePanel().hidden = !panel.hidden; };
+  const onKey = e => {
     if (e.key !== '`' || e.ctrlKey || e.metaKey || e.altKey) return;
     const t = e.target, typing = t && (t.isContentEditable || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || (t.tagName === 'INPUT' && /^(text|number|search|email|password|tel|url)$/.test(t.type || 'text')));
     if (typing) return;
     e.preventDefault(); window.__devToggle();
-  }, true);
+  };
+  document.addEventListener('keydown', onKey, true);
+  // the House, Drawing, Graphics and Setup Sheet tabs live in frames: the key must open the panel from there too
+  const hookFrame = f => { try { const d = f.contentDocument; if (d && !d.__devKey) { d.__devKey = true; d.addEventListener('keydown', onKey, true); } } catch (e) { /* cross-origin frame */ } };
+  document.addEventListener('load', e => { if (e.target && e.target.tagName === 'IFRAME') hookFrame(e.target); }, true);
+  document.querySelectorAll('iframe').forEach(hookFrame);
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const until = async (fn, ms) => { const t0 = Date.now(); while (!fn() && Date.now() - t0 < ms) await sleep(100); return !!fn(); };
@@ -187,8 +192,7 @@
   const seenErr = new Set();
 
   /* ---------------- the panel ---------------- */
-  const css = document.createElement('style');
-  css.textContent = `
+  const DEV_CSS = `
 .dev{position:fixed;left:14px;bottom:14px;width:min(540px,calc(100vw - 28px));max-height:calc(100vh - 120px);z-index:99000;display:flex;flex-direction:column;background:#131416;color:#ececee;border:1px solid #3d4147;border-radius:12px;font:13px/1.45 "Inter",system-ui,sans-serif;box-shadow:0 18px 44px rgba(0,0,0,.55);transition:opacity .25s ease,transform .3s cubic-bezier(.22,.8,.25,1),visibility 0s}
 .dev[hidden]{display:flex;opacity:0;visibility:hidden;transform:translateY(14px);pointer-events:none;transition:opacity .2s ease,transform .25s ease,visibility 0s linear .25s}
 .dev h3{margin:0;font-size:14px;font-weight:600;padding:12px 14px 4px;display:flex;justify-content:space-between;align-items:center}
@@ -223,18 +227,24 @@
 .dev .ctl td:nth-child(n+3){text-align:right;font-variant-numeric:tabular-nums}
 .dev .chk{display:inline-flex;gap:5px;align-items:center;margin-right:10px}
 @media (prefers-reduced-motion: reduce){.dev,.dev[hidden],.dev .bar i{transition:none}}`;
-  document.head.appendChild(css);
 
-  const panel = document.createElement('div');
-  panel.className = 'dev'; panel.hidden = true; panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', 'Dev mode');
-  panel.innerHTML = '<h3>Dev mode · auto test <small id="devSub">idle</small></h3><div class="body">' +
+  // Nothing of the dev tool exists in the page (no style, no element) until the backtick key is pressed the first time.
+  let panel = null;
+  const $d = id => panel.querySelector('#' + id);
+  function ensurePanel() {
+    if (panel) return panel;
+    const css = document.createElement('style'); css.textContent = DEV_CSS; document.head.appendChild(css);
+    panel = document.createElement('div');
+    panel.className = 'dev'; panel.hidden = true; panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', 'Dev mode');
+    panel.innerHTML = '<h3>Dev mode · auto test <small id="devSub">idle</small></h3><div class="body">' +
     '<div class="grid">' + WS.map(t => '<label><input type="checkbox" data-t="' + t.id + '" checked> ' + t.name + '</label>').join('') + '</div>' +
     '<div class="row" style="margin-top:4px"><label class="chk"><input type="checkbox" id="devCtl" checked> Controls</label><label class="chk"><input type="checkbox" id="devCombo" checked> Combinations</label><label class="chk"><input type="checkbox" id="devFlow" checked> Flows</label><label class="chk"><input type="checkbox" id="devPrem"> Lift the Premium lock</label></div>' +
-    '<div class="row"><select id="devMode">' + Object.keys(MODES).map(k => '<option value="' + k + '"' + (k === 'standard' ? ' selected' : '') + '>' + MODES[k].label + '</option>').join('') + '</select><input type="number" id="devSeed" value="' + (qs.get('seed') || 20261016) + '" style="max-width:110px" aria-label="Seed"></div>' +
+    '<div class="row"><select id="devMode">' + Object.keys(MODES).map(k => '<option value="' + k + '"' + (k === 'standard' ? ' selected' : '') + '>' + MODES[k].label + '</option>').join('') + '</select><input type="number" id="devSeed" value="20261016" style="max-width:110px" aria-label="Seed"></div>' +
     '<div class="row"><button class="go" id="devGo">Start</button><button id="devStop" disabled>Stop</button><button id="devSummary">Copy summary</button><button id="devCopy">Copy report</button><button id="devSave">Download</button></div>' +
     '<div class="now" id="devEst"></div><div class="bar"><i id="devBar"></i></div><div class="now" id="devNow"></div><table class="sum" id="devSum"></table><div id="devFeed"></div><div id="devFinds"></div></div>';
-  document.body.appendChild(panel);
-  const $d = id => panel.querySelector('#' + id);
+    document.body.appendChild(panel);
+    bindPanel(); return panel;
+  }
 
   /* ---------------- the run ---------------- */
   const run = { on: false, stop: false, report: null, steps: 0, active: 0, at: 0, base: 0, span: 100 };
@@ -567,7 +577,7 @@
       } },
     ],
     cam: [
-      { name: 'Auto Program, Verify and Simulate on sample parts', async run(c) {
+      { name: 'Auto Program, Verify and Simulate on sample parts (free users: Simulate and G-code on 2D toolpaths)', async run(c) {
         const locked = window.CAM_LOCK && CAM_LOCK.active;
         const picks = ['Flanged boss', 'Pocketed plate', 'Cross-drilled shaft'].map(n => SAMPLES.find(s => s.name === n)).filter(Boolean);
         for (const s of picks) {
@@ -575,11 +585,19 @@
           await resetMainTo(s); const e0 = c.mon.errors.length, g0 = c.mon.gaps.length, t0 = performance.now();
           try {
             if (locked) {   // Premium lock: these must refuse with the message and change nothing
-              const n0 = cam().ops.length; for (const [what, fn] of [['Auto Program', () => camAction('autoprog')], ['Verify', () => camAction('verify')], ['Simulate', () => camAction('sim')]]) {
+              const n0 = cam().ops.length; for (const [what, fn] of [['Auto Program', () => camAction('autoprog')], ['Verify', () => camAction('verify')]]) {
                 document.body.innerText; fn(); await sleep(300);
                 if (/coming soon for Premium/i.test(document.body.innerText)) c.ok(s.name + ': ' + what + ' is locked and says so'); else c.warn(s.name + ': ' + what + ' is locked but showed no message');
               }
               if (cam().ops.length !== n0) c.fail(s.name + ': a locked action changed the program');
+              // Simulate and G-code are free: put three 2D toolpaths in and run both
+              for (const a of ['add:face', 'add:pocket', 'add:contour']) { camAction(a); await sleep(250); CAMUI.view = 'overview'; camRefresh(); }
+              await sleep(1200); camAction('sim'); await sleep(2500);
+              if (SIM.on) c.ok(s.name + ': Simulate runs for free users'); else c.fail(s.name + ': Simulate did not start for a free user');
+              smoothNote(c, s.name + ' simulation', frameStats(c.mon.gaps.slice(g0))); if (SIM.on) simStop();
+              CAMUI.view = 'overview'; camRefresh(); camAction('post'); await sleep(600);
+              if (typeof CAMUI.gcode === 'string' && /M30/.test(CAMUI.gcode)) c.ok(s.name + ': G-code posts for free users (' + CAMUI.gcode.split('\n').length + ' lines)'); else c.fail(s.name + ': G-code did not post for a free user');
+              CAMUI.view = 'overview'; camRefresh();
               continue;
             }
             camAction('autoprog'); await sleep(1500);
@@ -726,11 +744,12 @@
   }
   async function start(only) {
     if (run.on) return;
+    ensurePanel();
     if (window.DATUM_RELEASE && !DATUM_RELEASE.dev) {
       // The early-access build hides tabs and export formats; reload with ?dev=1 so everything is back, then start the same run.
-      const u = new URL(location.href), ids0 = only || [...panel.querySelectorAll('input[data-t]:checked')].map(x => x.dataset.t);
-      u.searchParams.set('dev', '1'); u.searchParams.set('devgo', ids0.join(',')); u.searchParams.set('mode', $d('devMode').value); u.searchParams.set('seed', $d('devSeed').value);
-      u.searchParams.set('opts', ($d('devCtl').checked ? 'c' : '') + ($d('devCombo').checked ? 'm' : '') + ($d('devFlow').checked ? 'f' : '') + ($d('devPrem').checked ? 'p' : '')); u.searchParams.delete('premium'); u.searchParams.delete('ws');
+      const ids0 = only || [...panel.querySelectorAll('input[data-t]:checked')].map(x => x.dataset.t), u = new URL(location.href);
+      try { sessionStorage.setItem('datum.devgo', JSON.stringify({ ids: ids0, mode: $d('devMode').value, seed: $d('devSeed').value, opts: ($d('devCtl').checked ? 'c' : '') + ($d('devCombo').checked ? 'm' : '') + ($d('devFlow').checked ? 'f' : '') + ($d('devPrem').checked ? 'p' : '') })); } catch (e) { $d('devNow').textContent = 'Could not reload with dev mode on.'; return; }
+      u.searchParams.set('dev', '1'); u.searchParams.delete('premium'); u.searchParams.delete('ws');
       $d('devNow').textContent = 'Reloading with dev mode on (?dev=1) so the hidden tabs and export formats come back…'; location.href = u.href; return;
     }
     const mode = MODES[$d('devMode').value], seed = +$d('devSeed').value || 1;
@@ -770,20 +789,25 @@
     if (flows) ms += 3 * 60000; if (sel.includes('page')) ms += 4 * 60000;
     $d('devEst').textContent = 'About ' + fmtMs(ms) + ' for ' + sel.length + ' workspace' + (sel.length === 1 ? '' : 's') + ' at ' + RATE + ' steps a second' + (flows ? ', with the flows' : '') + '.';
   };
-  panel.addEventListener('change', estimate); estimate();
-  $d('devGo').addEventListener('click', () => start());
-  $d('devStop').addEventListener('click', () => { run.stop = true; $d('devSub').textContent = 'stopping…'; });
-  const text = () => JSON.stringify(run.report || {}, (k, v) => (k === 'k' || k === 'sample') ? undefined : v, 2);
-  const copy = (s, ok) => { try { navigator.clipboard.writeText(s).then(() => { $d('devNow').textContent = ok; }, () => { $d('devNow').textContent = 'Could not copy. Use Download.'; }); } catch (e) { $d('devNow').textContent = 'Could not copy. Use Download.'; } };
-  $d('devCopy').addEventListener('click', () => copy(text(), 'Report copied.'));
-  $d('devSummary').addEventListener('click', () => copy(summaryText(), 'Summary copied.'));
-  $d('devSave').addEventListener('click', () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text()], { type: 'application/json' })); a.download = '3d-modeling-dev-report.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); });
+  function bindPanel() {
+    panel.addEventListener('change', estimate); estimate();
+    $d('devGo').addEventListener('click', () => start());
+    $d('devStop').addEventListener('click', () => { run.stop = true; $d('devSub').textContent = 'stopping…'; });
+    const text = () => JSON.stringify(run.report || {}, (k, v) => (k === 'k' || k === 'sample') ? undefined : v, 2);
+    const copy = (s, ok) => { try { navigator.clipboard.writeText(s).then(() => { $d('devNow').textContent = ok; }, () => { $d('devNow').textContent = 'Could not copy. Use Download.'; }); } catch (e) { $d('devNow').textContent = 'Could not copy. Use Download.'; } };
+    $d('devCopy').addEventListener('click', () => copy(text(), 'Report copied.'));
+    $d('devSummary').addEventListener('click', () => copy(summaryText(), 'Summary copied.'));
+    $d('devSave').addEventListener('click', () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text()], { type: 'application/json' })); a.download = '3d-modeling-dev-report.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); });
+  }
   window.__dev = { start, run, MODES, WS, discover, instrument, inspect, summaryText, frameStats, grade, FLOWS };
-  if (qs.get('dev') === 'run' || qs.get('devgo') !== null) setTimeout(() => {
-    panel.hidden = false; if (qs.get('premium') === '1') $d('devPrem').checked = true; if (qs.get('mode') && MODES[qs.get('mode')]) $d('devMode').value = qs.get('mode');
-    if (qs.get('seed')) $d('devSeed').value = qs.get('seed');
-    if (qs.get('opts') !== null) { const o = qs.get('opts'); $d('devCtl').checked = o.includes('c'); $d('devCombo').checked = o.includes('m'); $d('devFlow').checked = o.includes('f'); $d('devPrem').checked = o.includes('p'); }
-    const ids = (qs.get('devgo') || qs.get('ws') || '').split(',').filter(Boolean);
-    start(ids.length ? ids : null);
+  // The early-access build reloads itself with ?dev=1 to bring its hidden tabs back; the run that was asked for rides along in sessionStorage
+  // (a one-shot set only by the panel's own Start button), so the page address alone can never launch dev mode.
+  const handoff = (() => { try { const v = sessionStorage.getItem('datum.devgo'); sessionStorage.removeItem('datum.devgo'); return v ? JSON.parse(v) : null; } catch (e) { return null; } })();
+  if (handoff) setTimeout(() => {
+    ensurePanel().hidden = false;
+    if (handoff.mode && MODES[handoff.mode]) $d('devMode').value = handoff.mode;
+    if (handoff.seed) $d('devSeed').value = handoff.seed;
+    const o = handoff.opts || ''; $d('devCtl').checked = o.includes('c'); $d('devCombo').checked = o.includes('m'); $d('devFlow').checked = o.includes('f'); $d('devPrem').checked = o.includes('p');
+    start(handoff.ids && handoff.ids.length ? handoff.ids : null);
   }, 2500);
 })();

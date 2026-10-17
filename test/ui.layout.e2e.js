@@ -1,5 +1,5 @@
 // UI layout: ribbon buttons are centered and unclipped, segmented controls are evenly sized with no wrapped or clipped labels,
-// and the extrude drag arrow is big and lights up on hover — at 1100, 1400 and 1920 px wide, in every tab.
+// and the extrude drag arrow is big and lights up on hover — at 900, 1100, 1280, 1400 and 1920 px wide, in every tab.
 // Run: NODE_PATH=<dir with playwright, three@0.128, clipper-lib@6.4.2> CHROMIUM_PATH=<chrome> node test/ui.layout.e2e.js
 let chromium; try { ({ chromium } = require('playwright')); } catch (e) { console.log('skip: playwright is not installed'); process.exit(0); }
 let libs = null; try { libs = { three: require.resolve('three/build/three.min.js'), clipper: require.resolve('clipper-lib/clipper.js') }; } catch (e) { /* offline */ }
@@ -19,6 +19,13 @@ const probe = () => {
       if (Math.abs(t.left + t.width / 2 - cx) > 2) bad.push(`ribbon "${name}": label off center`);
       if (sp.scrollWidth > sp.clientWidth + 1 || t.left < r.left - 0.5 || t.right > r.right + 0.5) bad.push(`ribbon "${name}": label clipped`);
     }
+  });
+  // small ribbon buttons that dropped their label (icon only): the icon sits in the middle of the button, both ways
+  document.querySelectorAll('.rb-sm').forEach(el => {
+    if (!vis(el)) return; const sp = el.querySelector('span'); if (sp && vis(sp)) return;
+    const r = el.getBoundingClientRect(), sv = el.querySelector('svg:not(.lk)'); if (!sv) return; const s = sv.getBoundingClientRect(), name = (el.dataset.act || el.dataset.cam || el.title || '?');
+    if (Math.abs(s.left + s.width / 2 - (r.left + r.width / 2)) > 1.5) bad.push(`small button "${name}": icon off center by ${(s.left + s.width / 2 - (r.left + r.width / 2)).toFixed(1)}px`);
+    if (Math.abs(s.top + s.height / 2 - (r.top + r.height / 2)) > 1.5) bad.push(`small button "${name}": icon off middle`);
   });
   document.querySelectorAll('.seg').forEach(seg => {
     if (!vis(seg) || seg.closest('[hidden]')) return;
@@ -41,7 +48,7 @@ const probe = () => {
   await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
   await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' }));
   await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await page.waitForTimeout(2000);
-  const widths = [1100, 1400, 1920];
+  const widths = [900, 1100, 1280, 1400, 1920];
   const sweep = async ws => { const all = []; for (const w of widths) { await page.setViewportSize({ width: w, height: 850 }); await page.waitForTimeout(900); (await page.evaluate(probe)).forEach(m => all.push(`${w}px: ${m}`)); } return [...new Set(all)]; };
 
   await page.evaluate(() => {

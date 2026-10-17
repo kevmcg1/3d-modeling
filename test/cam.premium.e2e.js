@@ -1,5 +1,5 @@
-// The CAM Premium lock: everything in Manufacture is blocked with the "coming soon" message except Setup, the Tool Library
-// and manually created 2D toolpaths (Face, Contour, Pocket, Drill, Chain); window.DATUM_PREMIUM = true lifts it.
+// The CAM Premium lock: everything in Manufacture is blocked with the "coming soon" message except Setup, the Tool Library,
+// manually created 2D toolpaths (Face, Contour, Pocket, Drill, Chain), Simulate and G-code (post and save); window.DATUM_PREMIUM = true lifts it.
 // Run: NODE_PATH=<dir with playwright, three@0.128, clipper-lib@6.4.2> CHROMIUM_PATH=<chrome> node test/cam.premium.e2e.js
 let chromium; try { ({ chromium } = require('playwright')); } catch (e) { console.log('skip: playwright is not installed'); process.exit(0); }
 let libs = null; try { libs = { three: require.resolve('three/build/three.min.js'), clipper: require.resolve('clipper-lib/clipper.js') }; } catch (e) { /* offline */ }
@@ -23,8 +23,8 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
     return page;
   };
   const toast = p => p.evaluate(() => document.getElementById('toast').textContent);
-  const LOCKED = ['autoprog', 'auto', 'verify', 'sim', 'post', 'measure', 'inspect', 'ws:sheet', 'threads', 'add:parallel', 'add:chamfer', 'add:drill:tap', 'mach:wire', 'mach:umc400'];
-  const FREE = ['setup', 'tools', 'add:face', 'add:contour', 'add:pocket', 'add:chain', 'add:drill:drill', 'add:drill:spot'];
+  const LOCKED = ['autoprog', 'auto', 'verify', 'measure', 'inspect', 'ws:sheet', 'threads', 'add:parallel', 'add:chamfer', 'mach:wire', 'mach:umc400'];
+  const FREE = ['add:drill:tap', 'sim', 'post', 'setup', 'tools', 'add:face', 'add:contour', 'add:pocket', 'add:chain', 'add:drill:drill', 'add:drill:spot'];
 
   const p = await open(false);
   await ok('blocked buttons are marked and the free ones are not', async () => {
@@ -42,7 +42,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
     }
   });
   await ok('the entry points behind the buttons are blocked too', async () => {
-    const r = await p.evaluate(async () => { await autoProgram(); simStart(); await verifyAndFix(() => {}); camAddOp('parallel'); camAction('post'); return { v: CAMUI.view, sim: SIM.on, n: cam().ops.length }; });
+    const r = await p.evaluate(async () => { await autoProgram(); await verifyAndFix(() => {}); camAddOp('parallel'); return { v: CAMUI.view, sim: SIM.on, n: cam().ops.length }; });
     assert.deepStrictEqual(r, { v: 'overview', sim: false, n: 0 });
   });
   await ok('manual 2D toolpaths can still be added', async () => {
@@ -51,12 +51,31 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
     assert.deepStrictEqual(t.slice(0, 5), ['face', 'contour', 'pocket', 'chain', 'drill']);
     assert.notStrictEqual(await p.evaluate(() => CAMUI.view), 'overview');
   });
+  await ok('Simulate runs and the G-code posts, saves and copies for free users', async () => {
+    await p.evaluate(() => { CAMUI.view = 'overview'; camRefresh(); });
+    await p.evaluate(() => { document.getElementById('toast').textContent = ''; document.querySelector('#toolbar [data-cam="sim"]').click(); });
+    await p.waitForFunction(() => SIM.on && CAMUI.view === 'sim', null, { timeout: 15000 });
+    assert.notStrictEqual(await toast(p), MSG);
+    const vb = await p.evaluate(() => { const b = document.querySelector('#panel [data-camdo="reverify"]'); return b ? b.classList.contains('prem-lock') : null; });
+    assert.notStrictEqual(vb, false, 'the Verify button inside the simulation panel must show its lock');
+    await p.evaluate(() => document.querySelector('#panel [data-camdo="endsim"]').click());
+    assert.strictEqual(await p.evaluate(() => SIM.on), false);
+    await p.evaluate(() => { document.getElementById('toast').textContent = ''; document.querySelector('#toolbar [data-cam="post"]').click(); });
+    assert.strictEqual(await p.evaluate(() => CAMUI.view), 'post');
+    const g = await p.evaluate(() => CAMUI.gcode);
+    assert(/G21|G20/.test(g) && /M30/.test(g) && /\bG0?[123]\b/.test(g), 'posted program: ' + g.slice(0, 200));
+    const dl = p.waitForEvent('download', { timeout: 8000 });
+    await p.evaluate(() => document.querySelector('#panel [data-camdo="saveg"]').click());
+    const d = await dl; assert(/\.nc$|\.tap$|\.gcode$|\.txt$/i.test(d.suggestedFilename()), d.suggestedFilename());
+    assert.notStrictEqual(await toast(p), MSG);
+    await p.evaluate(() => { CAMUI.view = 'overview'; camRefresh(); });
+  });
   await ok('Setup and the Tool Library still open', async () => {
     for (const v of ['setup', 'tools']) { await p.evaluate(v => document.querySelector(`#toolbar [data-cam="${v}"]`).click(), v); assert.strictEqual(await p.evaluate(() => CAMUI.view), v); }
   });
   await ok('a blocked view left behind shows the lock panel, not the feature', async () => {
-    const h = await p.evaluate(() => { CAMUI.view = 'post'; return camPanel(); });
-    assert(h.includes(MSG) && !h.includes('Haas'), h.slice(0, 200));
+    const h = await p.evaluate(() => { CAMUI.view = 'report'; return camPanel(); });
+    assert(h.includes(MSG) && !h.includes('Verify'), h.slice(0, 200));
   });
   await ok('the New Toolpath picker blocks 3D entries and lets 2D ones start', async () => {
     await p.evaluate(() => { CAMUI.view = 'overview'; camRefresh(); document.querySelector('#toolbar [data-cam="flow:new"]').click(); });
@@ -83,8 +102,8 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
   await ok('DATUM_PREMIUM lifts the lock', async () => {
     const r = await q.evaluate(() => ({ a: CAM_LOCK.active, l: document.querySelectorAll('#toolbar .prem-lock').length }));
     assert.deepStrictEqual(r, { a: false, l: 0 });
-    await q.evaluate(() => document.querySelector('#toolbar [data-cam="post"]').click());
-    assert.strictEqual(await q.evaluate(() => CAMUI.view), 'post');
+    await q.evaluate(() => document.querySelector('#toolbar [data-cam="measure"]').click());
+    assert.strictEqual(await q.evaluate(() => CMD && CMD.type), 'measure');
   });
   await browser.close();
   console.log(`${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

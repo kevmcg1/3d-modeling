@@ -4,6 +4,16 @@ A pass / fail record of one QA sweep, written so that anything marked partial or
 
 Legend: PASS = checked and correct · FIXED = a bug was found, fixed and has an automated test · PARTIAL = works with the limit noted · OPEN = a known problem that is not fixed · NOT RUN = not exercised in this sweep
 
+## Free and Premium Manufacture, ribbon fit, dev tool
+
+| Area | What is true now | Test |
+|---|---|---|
+| Free for everyone | Setup, Tool Library, Set Origin, New Toolpath, the 2D toolpaths (Face, 2D Contour, 2D Pocket, Chain and its 2D modes, every Drill cycle including Tap), **Simulate** and **G-code** (post, copy, save .nc) | `cam.premium.e2e.js` |
+| Premium, coming soon | 3D toolpaths (Parallel, Waterline, 3D Rough, 3D Finish, Conical Swarf, Project, Morph), Engrave, Thread mill, Clean-up, Auto Program, Auto Detect, Verify, Measure, Setup Sheet, Wire EDM, the 5-axis machine. A locked control is dimmed, carries a lock badge, its hover card adds the Premium line, and a click only shows the notice | `cam.premium.e2e.js` |
+| The switch | One constant, `isPremium` at the top of `cam-premium.js` (false until accounts exist). Tests set `window.DATUM_PREMIUM = true` to lift every lock | |
+| Ribbon fit | An icon-only small button (labels dropped to save room) is centered to the pixel; the lock badge keeps its own size; the scroll arrows move by whole groups so a click never leaves a group cut in half. Checked on every tab at 900, 1100, 1280, 1400 and 1920 px | `ui.layout.e2e.js` |
+| Dev tool | Press the backtick key. Until then nothing of it exists in the page (no element, no style), the address cannot start it, and the key is ignored while typing in a field. It reaches the House, Drawing, Graphics and Setup Sheet tabs from inside their frames too | `dev.mode.e2e.js` |
+
 ## Third sweep (added tests)
 
 | Test | What it checks |
