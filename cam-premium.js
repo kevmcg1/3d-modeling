@@ -1,10 +1,10 @@
 // ═══════════════════════════════════════════════════════════════════
-//  CAM Premium lock. Everything in Manufacture is blocked and shows
-//  "These features will be coming soon for Premium users", except
-//  Setup, the Tool Library, the manual 2D toolpaths (Face, Contour,
-//  Pocket, Drill and Chain), and Simulate and G-code (post / save .nc),
-//  which stay fully usable for free users. 3D toolpaths, Auto Program,
-//  Auto Detect, Verify, Measure, the Setup Sheet and the other machines are Premium.
+//  CAM Premium lock. Every ability in Manufacture is blocked and shows
+//  "These features will be coming soon for Premium users": Setup, the Tool
+//  Library, 2D and 3D toolpaths, Auto Program, Verify, Simulate, G-code
+//  (post / save .nc), Measure, the Setup Sheet and the other machines.
+//  (The early-access build also hides the Manufacture tab; this lock is
+//  what a free user meets whenever it is shown.)
 //  Loaded last so it wraps every earlier override of the CAM entry points.
 //  There is one switch: isPremium below (no accounts yet, so it is false).
 //  Tests set window.DATUM_PREMIUM = true before this script runs, or call
@@ -15,11 +15,11 @@ const CAM_LOCK = (() => {
   const isPremium = false;   // flip to true (or sign the user in, once accounts exist) to lift every Premium lock
   const MSG = 'These features will be coming soon for Premium users';
   let on = !(isPremium || window.DATUM_PREMIUM === true);
-  // what stays usable: the views a manual 2D toolpath needs, and the 2D operations themselves
-  const FREE_VIEWS = new Set(['overview', 'setup', 'tools', 'op', 'cat', 'sim', 'post']);
-  const FREE_OPS = new Set(['face', 'contour', 'pocket', 'drill', 'chain']);
-  const FREE_ACTS = /^(setup|tools|setorigin|sim|post|flow:new|mach:mill|add:(face|contour|pocket|chain|drill(:[a-z]+)?))$/;
-  const FREE_DO = /^(overview|addtool|pastetool|loadtools|savetools|delop|sim|post|endsim|showed|copyg|saveg)$/;
+  // what stays usable for a free user: nothing. (Kept as lists so a feature can be opened up again by adding it here.)
+  const FREE_VIEWS = new Set();
+  const FREE_OPS = new Set();
+  const FREE_ACTS = /(?!)/;
+  const FREE_DO = /(?!)/;
   const api = {
     MSG,
     get active() { return on; },
@@ -35,8 +35,7 @@ const CAM_LOCK = (() => {
     say() { try { toast(MSG); } catch (e) { /* toast not ready */ } },
     panel() {
       return `<div class="pn-head"><h2>Premium</h2><span class="tag">coming soon</span></div><div class="pn-body"><div class="prem-note">${LOCK_SVG}<p>${MSG}</p></div>
-        <p class="note">Setup, the Tool Library and manually created 2D toolpaths (Face, Contour, Pocket, Drill and Chain) stay open.</p>
-        <div class="btns"><button class="btn primary" data-camdo="overview">Back to Manufacture</button></div></div>`;
+        <p class="note">Manufacture (setup, the tool library, 2D and 3D toolpaths, simulation and G-code) is part of Premium.</p></div>`;
     },
   };
   const LOCK_SVG = '<svg viewBox="0 0 20 20" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="9" width="11" height="8" rx="1.6"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/></svg>';
@@ -82,11 +81,9 @@ const CAM_LOCK = (() => {
   };
   const pn0 = camPanel;
   camPanel = function () {
-    if (on && camStock()) {
-      if (api.view(CAMUI.view) || (CAMUI.view === 'op' && opById(CAMUI.op) && api.op(opById(CAMUI.op).type)) || (CAMUI.view === 'cat' && CAMUI.cat === 'auto')) return api.panel();
-    }
+    if (on) return api.panel();   // every view is Premium
     const h = pn0.apply(this, arguments);
-    // the simulation is free, but the Verify it offers is Premium: show that on the button instead of a surprise on click
+    // (the simulation itself is Premium too; this keeps the Verify button honest if it is ever opened up)
     return on && typeof h === 'string' ? h.replace('<button class="btn" data-camdo="reverify">Verify now</button>', `<button class="btn prem-lock" data-camdo="reverify" aria-disabled="true">Verify now${lockIcon}</button>`) : h;
   };
   const rail0 = catRailRender;
@@ -109,7 +106,7 @@ const CAM_LOCK = (() => {
     if (!t) return;
     const d = t.dataset;
     const blocked = d.cam !== undefined ? api.act(d.cam) : d.camdo !== undefined ? !FREE_DO.test(d.camdo) : d.camview !== undefined ? api.view(d.camview)
-      : d.cat !== undefined ? d.cat === 'auto' : d.automenu !== undefined ? true : d.ws === 'sheet';
+      : d.cat !== undefined ? true : d.automenu !== undefined ? true : d.ws === 'sheet';
     if (!blocked) return;
     e.stopImmediatePropagation(); e.preventDefault(); api.say();
   }, true);
