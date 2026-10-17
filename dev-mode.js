@@ -15,6 +15,7 @@
 //
 // While it runs, the console debug log is on (Trace, plus debug-trace.js): every click, key, value change (from → to, with the model size), view move and
 // resize is written to the browser console, and it is switched off again when the run ends. The panel has a checkbox for it.
+// The status tracker (on by default, also a checkbox) keeps every step a person or the run does, numbered; "Export status" downloads them as a file.
 //
 // After every step it looks for: a script error or unhandled promise, a console error, a lost 3D context, a stalled frame, "NaN" /
 // "undefined" / "Infinity" on screen. It times every frame to grade each workspace's smoothness, and notes whether each control did anything.
@@ -241,7 +242,8 @@
     panel.className = 'dev'; panel.hidden = true; panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', 'Dev mode');
     panel.innerHTML = '<h3>Dev mode · auto test <small id="devSub">idle</small></h3><div class="body">' +
     '<div class="grid">' + WS.map(t => '<label><input type="checkbox" data-t="' + t.id + '" checked> ' + t.name + '</label>').join('') + '</div>' +
-    '<div class="row" style="margin-top:4px"><label class="chk"><input type="checkbox" id="devCtl" checked> Controls</label><label class="chk"><input type="checkbox" id="devCombo" checked> Combinations</label><label class="chk"><input type="checkbox" id="devFlow" checked> Flows</label><label class="chk"><input type="checkbox" id="devPrem"> Lift the Premium lock</label><label class="chk"><input type="checkbox" id="devLog" checked> Debug log in the console</label></div>' +
+    '<div class="row" style="margin-top:4px"><label class="chk"><input type="checkbox" id="devCtl" checked> Controls</label><label class="chk"><input type="checkbox" id="devCombo" checked> Combinations</label><label class="chk"><input type="checkbox" id="devFlow" checked> Flows</label><label class="chk"><input type="checkbox" id="devPrem"> Lift the Premium lock</label><label class="chk"><input type="checkbox" id="devLog" checked> Debug log in the console</label><label class="chk"><input type="checkbox" id="devTrack" checked> Status tracker</label></div>' +
+    '<div class="row"><button id="devExport" title="Downloads every step recorded since the page loaded, numbered: clicks, keys, typed values, changes (from → to), view moves, resizes, panels">Export status</button><button id="devExportJson" title="The same steps as JSON">JSON</button><small id="devSteps"></small></div>' +
     '<div class="row"><select id="devMode">' + Object.keys(MODES).map(k => '<option value="' + k + '"' + (k === 'standard' ? ' selected' : '') + '>' + MODES[k].label + '</option>').join('') + '</select><input type="number" id="devSeed" value="20261016" style="max-width:110px" aria-label="Seed"></div>' +
     '<div class="row"><button class="go" id="devGo">Start</button><button id="devStop" disabled>Stop</button><button id="devSummary">Copy summary</button><button id="devCopy">Copy report</button><button id="devSave">Download</button></div>' +
     '<div class="now" id="devEst"></div><div class="bar"><i id="devBar"></i></div><div class="now" id="devNow"></div><table class="sum" id="devSum"></table><div id="devFeed"></div><div id="devFinds"></div></div>';
@@ -761,7 +763,9 @@
     if (!ids.length) return;
     run.on = true; run.stop = false; run.steps = 0; run.active = 0; run.at = 0;
     // the console debug log (every click, key, value change, view move, resize…) is on for the run and off after it
-    const debugLog = typeof Trace !== 'undefined' && $d('devLog').checked; if (debugLog) { Trace.set(true, false); Trace.log('dev', 'dev mode run started', { mode: $d('devMode').value, seed, workspaces: ids.join(', ') }); }
+    const debugLog = typeof Trace !== 'undefined' && $d('devLog').checked; if (debugLog) Trace.set(true, false);
+    // the status tracker marks what the run does as "dev" so Export status can tell it from what a person did
+    if (typeof Trace !== 'undefined') { Trace.log('dev', 'dev mode run started', { mode: $d('devMode').value, seed, workspaces: ids.join(', ') }); Trace.auto = true; }
     const wasLocked = window.CAM_LOCK ? CAM_LOCK.active : false; if (window.CAM_LOCK && $d('devPrem').checked) CAM_LOCK.set(false);
     run.report = { startedAt: new Date().toISOString(), mode: $d('devMode').value, seed, options: opt, userAgent: navigator.userAgent, gpu: gpuName, softwareRendering: softGpu, tools: {}, note: 'Pairs, combinations and runs are sampled unless the mode is Thorough; the counts say what was covered. Frame times are the gaps between painted frames.' };
     $d('devGo').disabled = true; $d('devStop').disabled = false; $d('devSub').textContent = 'running';
@@ -779,7 +783,8 @@
     run.report.totalMs = Date.now() - t0; run.report.premiumLocked = window.CAM_LOCK ? CAM_LOCK.active : null;
     if (window.CAM_LOCK && wasLocked && !CAM_LOCK.active) CAM_LOCK.set(true);
     Object.values(run.report.tools).forEach(T => { const fb = feedback(T); T.feedback = { smoothness: fb.grade.word, frames: fb.frames, slowestControls: fb.slow, didNothingVisible: fb.inert.map(r => r.label), controls: fb.rows }; });
-    if (debugLog && Trace.on) { Trace.log('dev', run.stop ? 'dev mode run stopped' : 'dev mode run finished', { ms: run.report.totalMs }); Trace.set(false, false); }
+    if (typeof Trace !== 'undefined') { Trace.auto = false; Trace.log('dev', run.stop ? 'dev mode run stopped' : 'dev mode run finished', { ms: run.report.totalMs }); }
+    if (debugLog && Trace.on) Trace.set(false, false);
     run.on = false; $d('devGo').disabled = false; $d('devStop').disabled = true; $d('devBar').style.width = '100%';
     const bad = Object.values(run.report.tools).reduce((s, T) => s + T.findings.filter(x => !WARN[x.type]).length + T.scenarios.filter(q => !q.pass).length, 0);
     $d('devSub').textContent = (run.stop ? 'stopped · ' : 'done · ') + fmtMs(run.report.totalMs) + ' · ' + (bad ? bad + ' issue' + (bad > 1 ? 's' : '') : 'clean');
@@ -798,6 +803,12 @@
   function bindPanel() {
     panel.addEventListener('change', estimate); estimate();
     $d('devGo').addEventListener('click', () => start());
+    const steps = () => { if (typeof Trace === 'undefined') return; $d('devSteps').textContent = Trace.track ? Trace.buf.length + ' steps recorded' : 'tracker is off'; };
+    $d('devTrack').checked = typeof Trace !== 'undefined' && Trace.track;
+    $d('devTrack').addEventListener('change', () => { if (typeof Trace !== 'undefined') Trace.setTrack($d('devTrack').checked); steps(); });
+    $d('devExport').addEventListener('click', () => { if (typeof window.exportStatus === 'function') window.exportStatus(); steps(); });
+    $d('devExportJson').addEventListener('click', () => { if (typeof window.exportStatus === 'function') window.exportStatus('json'); steps(); });
+    steps(); setInterval(() => { if (!panel.hidden) steps(); }, 1000);
     $d('devStop').addEventListener('click', () => { run.stop = true; $d('devSub').textContent = 'stopping…'; });
     const text = () => JSON.stringify(run.report || {}, (k, v) => (k === 'k' || k === 'sample') ? undefined : v, 2);
     const copy = (s, ok) => { try { navigator.clipboard.writeText(s).then(() => { $d('devNow').textContent = ok; }, () => { $d('devNow').textContent = 'Could not copy. Use Download.'; }); } catch (e) { $d('devNow').textContent = 'Could not copy. Use Download.'; } };
