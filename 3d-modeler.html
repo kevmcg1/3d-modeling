@@ -23984,19 +23984,23 @@ function simToolTo(t) {
 
 <script>
 // ═══════════════════════════════════════════════════════════════════
-//  Debug trace. Every button, menu item, timeline / tree row, viewport
-//  click, shortcut key and panel field change is written to the browser
-//  console with the state it happened in (workspace, sketch, command), as
-//  are the app's own actions (commands, history steps, workspace changes,
-//  simulation). Errors are logged with the trail of steps that led to
-//  them, feature errors as they appear, and frames or tasks long enough
-//  to drop below 60 fps. File → Debug log turns it on or off (dev mode turns it
-//  on for its run and off after); datumTrace() in the console prints the last
-//  300 steps as a table. debug-trace.js adds typing, every value change (from → to
-//  with its unit and the model dimensions), the 3D view, resizes, drags and panels.
+//  Debug trace and status tracker. Every button, menu item, timeline / tree row, viewport
+//  click, shortcut key and panel field change is recorded with the state it
+//  happened in (workspace, sketch, command), as are the app's own actions
+//  (commands, history steps, workspace changes, simulation). Errors are
+//  recorded with the trail of steps that led to them, feature errors as they
+//  appear, and frames or tasks long enough to drop below 60 fps.
+//
+//  The status tracker (Trace.track, on by default) keeps all of it in memory, numbered, so dev mode's
+//  "Export status" can write out every small step that led up to a problem. It never leaves the browser.
+//  The console echo (Trace.on) is separate: File → Debug log turns it on or off (dev mode turns it on
+//  for its run and off after); datumTrace() in the console prints the last 300 steps as a table.
+//  debug-trace.js adds typing, every value change (from → to with its unit and the model dimensions),
+//  the 3D view, resizes, drags and panels.
 // ═══════════════════════════════════════════════════════════════════
 const Trace = {
-  on: false, buf: [], t0: performance.now(), t0w: Date.now(), busy: false, cap: 4000,
+  on: false, track: true, buf: [], t0: performance.now(), t0w: Date.now(), busy: false, cap: 20000, auto: false, n: 0,
+  get live() { return this.on || this.track; },   // anything is being recorded: the console echo (on) and/or the status tracker (track, on by default)
   ctx() {
     const c = { ws: typeof UIX !== 'undefined' ? UIX.ws : '' };
     if (typeof S !== 'undefined' && S.sk) { c.sketch = S.sk.name; c.tool = S.tool; }
@@ -24005,10 +24009,11 @@ const Trace = {
     return c;
   },
   log(kind, what, data, level) {
-    const e = { t: +((performance.now() - this.t0) / 1000).toFixed(2), ts: Date.now(), kind, what: String(what).slice(0, 200), ...this.ctx() };
+    this.n++;
+    const e = { n: this.n, t: +((performance.now() - this.t0) / 1000).toFixed(2), ts: Date.now(), kind, what: String(what).slice(0, 200), ...this.ctx() };
+    if (this.auto) e.auto = true;   // done by dev mode, not by a person
     if (data !== undefined) { try { e.data = data instanceof Error ? data.message : JSON.stringify(data).slice(0, 300); } catch (x) { e.data = '[unserializable]'; } }
     if (level) e.level = level;
-    this.n = (this.n || 0) + 1;
     this.buf.push(e); if (this.buf.length > this.cap * 1.25) this.buf.splice(0, this.buf.length - this.cap);   // ring buffer: cheap, never grows
     if (!this.on || this.busy) return;
     this.busy = true;
@@ -24019,22 +24024,29 @@ const Trace = {
     if (Object.keys(ctx).length > 1 || ctx.ws !== 'design') args.push(ctx);
     try { (level === 'error' ? console.error : level === 'warn' ? console.warn : console.log)(...args); } finally { this.busy = false; }
   },
-  hooks: [],   // called with the new state whenever the log is switched on or off (debug-trace.js starts and stops its watchers here)
+  hooks: [],   // called with `live` whenever the console log or the status tracker is switched on or off (debug-trace.js starts and stops its watchers here)
   // Switch the console log on or off. persist=false (dev mode) leaves the saved choice alone, so a reload starts as it did before.
   set(on, persist = true) {
     on = !!on; if (on === this.on) return;
     this.on = on;
     if (persist) { try { localStorage.setItem('datum.trace', on ? '1' : '0'); } catch (e) { /* ignore */ } }
     console.log(`%c[3D Modeler] debug log ${on ? 'on' : 'off'}`, 'color:#778291');
-    for (const h of this.hooks) { try { h(on); } catch (e) { /* a watcher failing must not stop the log */ } }
+    for (const h of this.hooks) { try { h(this.live); } catch (e) { /* a watcher failing must not stop the log */ } }
+  },
+  // Switch the status tracker (the in-memory list of steps that Export status writes out) on or off. On by default; the choice is kept in this browser.
+  setTrack(on, persist = true) {
+    on = !!on; if (on === this.track) return;
+    this.track = on;
+    if (persist) { try { localStorage.setItem('datum.track', on ? '1' : '0'); } catch (e) { /* ignore */ } }
+    for (const h of this.hooks) { try { h(this.live); } catch (e) { /* a watcher failing must not stop the log */ } }
   },
   toggle() {
     this.set(!this.on);
     if (typeof toast === 'function') toast('Debug log ' + (this.on ? 'on (browser console)' : 'off'));
   },
 };
-try { Trace.on = localStorage.getItem('datum.trace') === '1'; } catch (e) { /* default off: the log is kept in memory and exported from the top bar */ }
-if (window.__earlyHook) window.__earlyHook(ev => Trace.buf.push({ t: +((ev.ts - Trace.t0w) / 1000).toFixed(2), ts: ev.ts, kind: ev.kind, what: ev.what, level: ev.level, ws: 'design' }));
+try { Trace.on = localStorage.getItem('datum.trace') === '1'; Trace.track = localStorage.getItem('datum.track') !== '0'; } catch (e) { /* defaults: console echo off, status tracker on */ }
+if (window.__earlyHook) window.__earlyHook(ev => Trace.buf.push({ n: ++Trace.n, t: +((ev.ts - Trace.t0w) / 1000).toFixed(2), ts: ev.ts, kind: ev.kind, what: ev.what, level: ev.level, ws: 'design' }));
 window.datumTrace = () => { console.table(Trace.buf.slice(-300)); return Trace.buf.length + ' steps'; };
 
 (() => {

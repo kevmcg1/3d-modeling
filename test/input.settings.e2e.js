@@ -60,10 +60,10 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
   });
 
   await ok('log is a capped ring buffer and says what it dropped', async () => {
-    const n = await page.evaluate(() => { for (let i = 0; i < 9000; i++) Trace.log('click', 'filler ' + i); return Trace.buf.length; });
-    assert(n <= 5000, 'buffer grew to ' + n);
+    const n = await page.evaluate(() => { for (let i = 0; i < 30000; i++) Trace.log('click', 'filler ' + i); return Trace.buf.length; });
+    assert(n <= 25000, 'buffer grew to ' + n);
     const { text } = await exportText();
-    assert(/were dropped; the log keeps the latest 4000/.test(text) && text.includes('filler 8999') && !text.includes('filler 100\n'));
+    assert(/were dropped; the log keeps the latest 20000/.test(text) && text.includes('filler 29999') && !text.includes('filler 100\n'));
   });
 
   await ok('settings cog opens a panel with mouse mapping and a keyboard layout selector', async () => {

@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════════
-//  The deeper debug log. Trace (in 3d-modeler.html) already writes every button, menu item, shortcut key and
-//  command to the browser console. When the log is on, this adds everything else:
+//  The deeper debug log and status tracker. Trace (in 3d-modeler.html) already records every button, menu item, shortcut key and
+//  command. While it is recording, this adds everything else:
 //
 //    type      every key typed in a field (the text so far), and Tab / Enter / arrows / Escape inside it
 //    change    a value changed: field label, unit, from → to (and the same in mm), then what the app did with it:
@@ -13,14 +13,17 @@
 //    state     workspace, command, sketch, tool, selection, simulation and toolpath view: opened, changed, exited
 //    panel     the side panel, dialogs and menus opening and closing; each toast message
 //
-//  Nothing runs while the log is off (Trace.on is false): no listener does work and nothing is written. Dev mode
-//  switches the log on for its run and off after it; File → Debug log switches it by hand.
+//  These watchers run while the status tracker is on (Trace.track, on by default) or the console log is on
+//  (Trace.on), and do nothing when both are off. Every step is kept in Trace.buf, numbered; the console echo is
+//  separate, so with only the tracker on nothing is written to the console. Dev mode switches the console log
+//  on for its run and off after it; File → Debug log switches it by hand. "Export status" in the dev panel
+//  (exportStatus below, also window.exportStatus()) writes every kept step to a file.
 // ═══════════════════════════════════════════════════════════════════
 (function () {
   if (typeof Trace === 'undefined') return;
   const short = (s, n = 60) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, n);
   const r = (n, d = 3) => (typeof n === 'number' && isFinite(n) ? +n.toFixed(d) : n);
-  const L = (kind, what, data, level) => { if (Trace.on) Trace.log(kind, what, data, level); };
+  const L = (kind, what, data, level) => { if (Trace.live) Trace.log(kind, what, data, level); };   // Trace.log keeps the step, and echoes it to the console only when the console log is on
   const unitName = () => { try { return typeof uName === 'function' ? uName() : 'mm'; } catch (e) { return 'mm'; } };
   const inches = () => { try { return typeof isIn === 'function' && isIn(); } catch (e) { return false; } };
   const sz = b => [r(b[3] - b[0]), r(b[4] - b[1]), r(b[5] - b[2])];
@@ -92,7 +95,7 @@
     return d;
   };
   const logDims = why => {
-    if (!Trace.on) return;
+    if (!Trace.live) return;
     const d = dimsNow(), p = lastDims || {}, parts = [];
     const delta = (a, b) => b ? ' (Δ ' + a.map((x, i) => (x - b[i] >= 0 ? '+' : '') + r(x - b[i])).join(', ') + ')' : '';
     if (d.model && JSON.stringify(d.model) !== JSON.stringify(p.model)) parts.push(`overall ${dims(d.model)} mm${delta(d.model, p.model)}`);
@@ -111,19 +114,19 @@
   // a value set from script (el.value = …, el.checked = …) is remembered as "from" the first time, until the next change event settles it
   const patchSetter = (proto, prop) => {
     const d = Object.getOwnPropertyDescriptor(proto, prop); if (!d || !d.set || d.set.__dbg) return;
-    const set = function (v) { if (Trace.on && !dirty.has(this)) { try { dirty.set(this, prop === 'checked' ? this.checked : valueOf(this)); } catch (e) { /* none */ } } return d.set.call(this, v); };
+    const set = function (v) { if (Trace.live && !dirty.has(this)) { try { dirty.set(this, prop === 'checked' ? this.checked : valueOf(this)); } catch (e) { /* none */ } } return d.set.call(this, v); };
     set.__dbg = true; Object.defineProperty(proto, prop, { ...d, set });
   };
   patchSetter(HTMLInputElement.prototype, 'value'); patchSetter(HTMLInputElement.prototype, 'checked'); patchSetter(HTMLSelectElement.prototype, 'value'); patchSetter(HTMLTextAreaElement.prototype, 'value');
   function onInput(ev, tag) {
-    if (!Trace.on) return;
+    if (!Trace.live) return;
     const el = ev.target; if (!fieldDoc(el)) return;
     rememberField(el);
     if (el.type === 'checkbox' || el.type === 'radio' || el.tagName === 'SELECT' || el.type === 'range') return;   // these report on change
     L('type', `${tag}${whereOf(el)} › ${labelOf(el)}: “${secret(el) ? '[hidden]' : el.isContentEditable ? short(el.textContent, 80) : el.value}”`, ev.inputType ? { input: ev.inputType, data: secret(el) ? '[hidden]' : ev.data } : undefined);
   }
   function onChange(ev, tag, before, entered) {
-    if (!Trace.on) return;
+    if (!Trace.live) return;
     const el = ev.target; if (!el.matches || !el.matches('input, select, textarea')) return;
     const toggle = el.type === 'checkbox';
     // "to" is what was entered, read before the app's own handler ran (it may clamp or round it); "from" is what the field showed before
@@ -137,7 +140,7 @@
     seen.set(el, to);
     // what the app did with it: the model / toolpath values that moved, and whether the field still shows what was typed
     setTimeout(() => {
-      if (!Trace.on) return;
+      if (!Trace.live) return;
       // the panel is often rebuilt after a change: look the field up again by its id
       const live = el.isConnected ? el : el.id ? el.ownerDocument.getElementById(el.id) : null;
       if (live) { const now = valueOf(live); seen.set(live, now); dirty.delete(live); if (String(now) === String(to)) L('verify', `${label}: shows ${now}${unit ? ' ' + unit : ''}, as entered${live === el ? '' : ' (panel rebuilt)'}`); else L('verify', `${label}: entered ${to} but the field now shows ${now}${unit ? ' ' + unit : ''}`, { entered: to, shown: now }, 'warn'); }
@@ -147,14 +150,14 @@
     }, 200);
   }
   function onBeforeChange(ev) {
-    if (!Trace.on) return;
+    if (!Trace.live) return;
     const el = ev.target; if (!fieldDoc(el)) return;
     rememberField(el);
     if (ev.type === 'change' && el.matches('input, select, textarea')) entered.set(el, valueOf(el));
     if (!pending.has(el)) { const s = snapshot(); if (s) pending.set(el, s); }
   }
   function onKey(ev, tag) {
-    if (!Trace.on) return;
+    if (!Trace.live) return;
     const el = ev.target; if (!fieldDoc(el)) return;
     if (['Shift', 'Control', 'Alt', 'Meta'].includes(ev.key)) return;
     if (ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey) return;   // typed characters are logged by the input event
@@ -165,13 +168,13 @@
   const input = { what: '', t: 0 };   // the last thing the user did to the view, to say what moved it
   const drags = new Map();
   function onPointerDown(ev, tag) {
-    if (!Trace.on) return;
+    if (!Trace.live) return;
     const btn = ['left', 'middle', 'right'][ev.button] || 'button ' + ev.button;
     drags.set(ev.pointerId, { el: ev.target, x: ev.clientX, y: ev.clientY, t: performance.now(), logT: 0, btn, n: 0, tag });
     input.what = btn + ' drag'; input.t = performance.now();
   }
   function onPointerMove(ev) {
-    if (!Trace.on) return;
+    if (!Trace.live) return;
     const d = drags.get(ev.pointerId); if (!d) return;
     const now = performance.now(); d.n++;
     input.t = now;
@@ -182,14 +185,14 @@
   function onPointerUp(ev) {
     const d = drags.get(ev.pointerId); if (!d) return;
     drags.delete(ev.pointerId);
-    if (!Trace.on) return;
+    if (!Trace.live) return;
     const dx = ev.clientX - d.x, dy = ev.clientY - d.y;
     if (Math.hypot(dx, dy) < 4) return;   // a click: Trace already logged it
     L('drag', `${d.tag}${d.btn} drag ended on ${nameEl(d.el)}: ${r(dx, 1)}, ${r(dy, 1)} px in ${Math.round(performance.now() - d.t)} ms (${d.n} moves)`, { from: [r(d.x, 1), r(d.y, 1)], to: [r(ev.clientX, 1), r(ev.clientY, 1)] });
   }
   const wheels = new Map();
   function onWheel(ev, tag) {
-    if (!Trace.on) return;
+    if (!Trace.live) return;
     input.what = ev.ctrlKey ? 'pinch / ctrl-wheel' : 'wheel'; input.t = performance.now();
     const key = ev.target; let w = wheels.get(key);
     if (!w) { w = { n: 0, dy: 0, dx: 0, x: ev.clientX, y: ev.clientY, t: 0 }; wheels.set(key, w); }
@@ -198,7 +201,7 @@
   }
   const scrolls = new Map();
   function onScroll(ev, tag) {
-    if (!Trace.on) return;
+    if (!Trace.live) return;
     const el = ev.target === ev.target.ownerDocument || !ev.target.tagName ? null : ev.target; if (!el) return;
     let s = scrolls.get(el);
     if (!s) { s = { x: el.__dbgX || 0, y: el.__dbgY || 0, t: 0 }; scrolls.set(el, s); }
@@ -206,7 +209,7 @@
     s.t = setTimeout(() => { scrolls.delete(el); L('scroll', `${tag}${nameEl(el)} scrolled: top ${r(s.y, 0)} → ${r(el.scrollTop, 0)}, left ${r(s.x, 0)} → ${r(el.scrollLeft, 0)}`); el.__dbgX = el.scrollLeft; el.__dbgY = el.scrollTop; }, 200);
   }
   function onDrop(ev, tag) {
-    if (!Trace.on) return;
+    if (!Trace.live) return;
     const files = ev.dataTransfer && ev.dataTransfer.files ? [...ev.dataTransfer.files].map(f => `${f.name} (${f.type || 'no type'}, ${f.size} bytes)`) : [];
     L('drag', `${tag}drop on ${nameEl(ev.target)}${files.length ? ': ' + files.join(', ') : ''}`);
   }
@@ -216,8 +219,8 @@
   function hookDoc(d, tag) {
     if (!d || hooked.has(d)) return; hooked.add(d);
     const t = tag ? tag + ' › ' : '';
-    d.addEventListener('focusin', e => { if (Trace.on && fieldDoc(e.target)) { rememberField(e.target); onBeforeChange(e); L('state', `${t}focus ${whereOf(e.target)} › ${labelOf(e.target)}`); } }, true);
-    d.addEventListener('focusout', e => { pending.delete(e.target); if (Trace.on && fieldDoc(e.target)) L('state', `${t}blur ${whereOf(e.target)} › ${labelOf(e.target)}`); }, true);
+    d.addEventListener('focusin', e => { if (Trace.live && fieldDoc(e.target)) { rememberField(e.target); onBeforeChange(e); L('state', `${t}focus ${whereOf(e.target)} › ${labelOf(e.target)}`); } }, true);
+    d.addEventListener('focusout', e => { pending.delete(e.target); if (Trace.live && fieldDoc(e.target)) L('state', `${t}blur ${whereOf(e.target)} › ${labelOf(e.target)}`); }, true);
     d.addEventListener('input', e => onInput(e, t), true);
     d.addEventListener('beforeinput', onBeforeChange, true);
     d.addEventListener('change', onBeforeChange, true);   // capture runs before the app's own handler: take the "before" picture here…
@@ -229,12 +232,12 @@
     d.addEventListener('wheel', e => onWheel(e, t), { capture: true, passive: true });
     d.addEventListener('scroll', e => onScroll(e, t), true);
     d.addEventListener('drop', e => onDrop(e, t), true);
-    d.addEventListener('dragstart', e => { if (Trace.on) L('drag', `${t}drag start on ${nameEl(e.target)}`); }, true);
-    d.addEventListener('contextmenu', e => { if (Trace.on) L('click', `${t}right-click on ${nameEl(e.target)}`, { at: [e.clientX, e.clientY] }); }, true);
+    d.addEventListener('dragstart', e => { if (Trace.live) L('drag', `${t}drag start on ${nameEl(e.target)}`); }, true);
+    d.addEventListener('contextmenu', e => { if (Trace.live) L('click', `${t}right-click on ${nameEl(e.target)}`, { at: [e.clientX, e.clientY] }); }, true);
     d.addEventListener('visibilitychange', () => L('page', `${t}page ${d.hidden ? 'hidden' : 'visible'}`));
     if (tag) {   // frames: Trace's own click log only watches the page
-      d.addEventListener('click', e => { if (Trace.on) L('click', `${t}${nameEl(e.target.closest ? e.target.closest('button, a, [role=button], label, select, input, canvas') || e.target : e.target)}`, { at: [e.clientX, e.clientY] }); }, true);
-      d.addEventListener('keydown', e => { if (Trace.on && !fieldDoc(e.target) && !['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) L('key', t + (e.ctrlKey || e.metaKey ? 'Ctrl+' : '') + (e.altKey ? 'Alt+' : '') + (e.key === ' ' ? 'Space' : e.key)); }, true);
+      d.addEventListener('click', e => { if (Trace.live) L('click', `${t}${nameEl(e.target.closest ? e.target.closest('button, a, [role=button], label, select, input, canvas') || e.target : e.target)}`, { at: [e.clientX, e.clientY] }); }, true);
+      d.addEventListener('keydown', e => { if (Trace.live && !fieldDoc(e.target) && !['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) L('key', t + (e.ctrlKey || e.metaKey ? 'Ctrl+' : '') + (e.altKey ? 'Alt+' : '') + (e.key === ' ' ? 'Space' : e.key)); }, true);
     }
   }
   const FRAMES = { d2dFrame: '2D Drawing', houseFrame: 'House Design', gfxFrame: 'Graphics', ssgFrame: 'Setup Sheet' };
@@ -253,7 +256,7 @@
   function watchSizes() {
     if (typeof ResizeObserver === 'undefined') return;
     if (!ro) ro = new ResizeObserver(entries => {
-      if (!Trace.on) return;
+      if (!Trace.live) return;
       for (const e of entries) {
         const el = e.target, w = r(e.contentRect.width, 1), h = r(e.contentRect.height, 1), p = sizes.get(el);
         sizes.set(el, [w, h]);
@@ -266,11 +269,11 @@
     const add = el => { if (el && !sizes.has(el)) { sizes.set(el, null); ro.observe(el); } };
     for (const id of ids) add(document.getElementById(id));
     document.querySelectorAll('canvas, iframe').forEach(add);
-    document.querySelectorAll('iframe').forEach(f => { try { const d = f.contentDocument; if (d) { const FRO = f.contentWindow.ResizeObserver; if (FRO) { if (!f.__dbgRo) { f.__dbgRo = new FRO(entries => { if (!Trace.on) return; for (const e of entries) { const el = e.target, w = r(e.contentRect.width, 1), h = r(e.contentRect.height, 1), p = sizes.get(el); sizes.set(el, [w, h]); if (p && (p[0] !== w || p[1] !== h)) L('resize', `(${FRAMES[f.id] || 'frame'}) ${nameEl(el)}: ${p[0]} × ${p[1]} → ${w} × ${h} px (Δ ${r(w - p[0], 1)}, ${r(h - p[1], 1)})`); } }); } d.querySelectorAll('canvas').forEach(c => { if (!sizes.has(c)) { sizes.set(c, null); f.__dbgRo.observe(c); } }); } } } catch (e) { /* cross-origin */ } });
+    document.querySelectorAll('iframe').forEach(f => { try { const d = f.contentDocument; if (d) { const FRO = f.contentWindow.ResizeObserver; if (FRO) { if (!f.__dbgRo) { f.__dbgRo = new FRO(entries => { if (!Trace.live) return; for (const e of entries) { const el = e.target, w = r(e.contentRect.width, 1), h = r(e.contentRect.height, 1), p = sizes.get(el); sizes.set(el, [w, h]); if (p && (p[0] !== w || p[1] !== h)) L('resize', `(${FRAMES[f.id] || 'frame'}) ${nameEl(el)}: ${p[0]} × ${p[1]} → ${w} × ${h} px (Δ ${r(w - p[0], 1)}, ${r(h - p[1], 1)})`); } }); } d.querySelectorAll('canvas').forEach(c => { if (!sizes.has(c)) { sizes.set(c, null); f.__dbgRo.observe(c); } }); } } } catch (e) { /* cross-origin */ } });
   }
   let lastWin = null;
   addEventListener('resize', () => {
-    if (!Trace.on) return;
+    if (!Trace.live) return;
     const cur = [innerWidth, innerHeight, r(devicePixelRatio, 3)];
     L('resize', `window: ${lastWin ? lastWin[0] + ' × ' + lastWin[1] : '?'} → ${cur[0]} × ${cur[1]} px · pixel ratio ${lastWin ? lastWin[2] : '?'} → ${cur[2]}`);
     lastWin = cur;
@@ -282,7 +285,7 @@
   const look = q => { const b = new THREE.Vector3(0, 0, 1).applyQuaternion(new THREE.Quaternion(q[0], q[1], q[2], q[3])); return { az: Math.atan2(b.x, b.z) * 180 / Math.PI, el: Math.asin(Math.max(-1, Math.min(1, b.y))) * 180 / Math.PI }; };
   function viewLog() {
     vTimer = 0;
-    if (!Trace.on || !v0) return;
+    if (!Trace.live || !v0) return;
     const c = vstate(), p = v0; v0 = c;
     const parts = [], data = {};
     if (Math.abs(c.h / p.h - 1) > 1e-4) { parts.push(`zoom: view height ${r(p.h, 2)} → ${r(c.h, 2)} mm (×${r(c.h / p.h, 4)}), ${r(p.hh / p.h, 3)} → ${r(c.hh / c.h, 3)} px per mm`); }
@@ -297,7 +300,7 @@
     L('view', `${parts.join(' · ')} [by ${by}]`, data);
   }
   function viewTick() {
-    if (!Trace.on) return;
+    if (!Trace.live) return;
     try {
       const sig = view.quat.x + ',' + view.quat.y + ',' + view.quat.z + ',' + view.quat.w + ',' + view.target.x + ',' + view.target.y + ',' + view.target.z + ',' + view.viewH + ',' + W + ',' + H;
       if (!v0) { v0 = vstate(); vSig = sig; return; }
@@ -308,7 +311,7 @@
     } catch (e) { /* the view does not exist yet */ }
   }
   let tickT = 0;
-  if (typeof window.frame === 'function') { const f0 = window.frame; window.frame = function () { const r0 = f0.apply(this, arguments); viewTick(); if (Trace.on && performance.now() - tickT > 100) { tickT = performance.now(); stateTick(); panelTick(); } return r0; }; }
+  if (typeof window.frame === 'function') { const f0 = window.frame; window.frame = function () { const r0 = f0.apply(this, arguments); viewTick(); if (Trace.live && performance.now() - tickT > 100) { tickT = performance.now(); stateTick(); panelTick(); } return r0; }; }
 
   /* ---------------- what the app is doing: workspace, command, sketch, selection, panels ---------------- */
   let st = null;
@@ -325,7 +328,7 @@
   };
   const OPEN = { command: 'none', sketch: 'none', simulation: 'off' };
   function stateTick() {
-    if (!Trace.on) return;
+    if (!Trace.live) return;
     const c = stateNow(); if (!st) { st = c; return; }
     for (const k of Object.keys(c)) {
       if (c[k] === st[k]) continue;
@@ -339,7 +342,7 @@
   // the side panel, dialogs, menus and toasts
   let panelTitle = null, modalOpen = false, menuOpen = false, lastToast = '';
   function panelTick() {
-    if (!Trace.on) return;
+    if (!Trace.live) return;
     const p = document.getElementById('panel'), h = p && p.querySelector('h2, h3, .pn-head');
     const t = p && !p.hidden && p.offsetWidth ? (h ? short(h.textContent, 50) : 'untitled') : 'closed';
     if (panelTitle !== null && t !== panelTitle) L('panel', t === 'closed' ? `side panel closed (was “${panelTitle}”)` : panelTitle === 'closed' ? `side panel opened: “${t}”` : `side panel: “${panelTitle}” → “${t}”`);
@@ -358,7 +361,7 @@
     const rec0 = window.record;
     window.record = function (label, before) {
       const out = rec0.apply(this, arguments);
-      if (Trace.on && typeof before === 'string') {
+      if (Trace.live && typeof before === 'string') {
         try {
           const a = JSON.parse(before), b = typeof doc !== 'undefined' ? doc : null, o = [];
           if (b) {
@@ -383,14 +386,79 @@
     const ld0 = window.loadDoc;
     window.loadDoc = function (d) {
       const out = ld0.apply(this, arguments);
-      if (Trace.on) { try { L('state', `document loaded: ${(d && d.features ? d.features.length : 0)} feature(s)${d && d.cam && d.cam.ops ? ', ' + d.cam.ops.length + ' toolpath(s)' : ''}`); } catch (e) { /* none */ } lastDims = null; logDims('document loaded'); }
+      if (Trace.live) { try { L('state', `document loaded: ${(d && d.features ? d.features.length : 0)} feature(s)${d && d.cam && d.cam.ops ? ', ' + d.cam.ops.length + ' toolpath(s)' : ''}`); } catch (e) { /* none */ } lastDims = null; logDims('document loaded'); }
       return out;
     };
   }
 
+  /* ---------------- export status: every kept step, numbered ---------------- */
+  const pad = (n, w = 2) => String(n).padStart(w, '0');
+  const clock = ts => { const d = new Date(ts); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`; };
+  const stamp = ts => { const d = new Date(ts); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${clock(ts)}`; };
+  const scrub = t => String(t).replace(/(bearer\s+)[A-Za-z0-9._~+\/-]+=*/gi, '$1[redacted]').replace(/((?:pass(?:word|wd)?|secret|token|api[_-]?key|authorization|cookie|credential|private[_-]?key)["']?\s*[:=]\s*["']?)[^\s"',;&}]+/gi, '$1[redacted]');
+  // The steps kept before the last reload of this tab (pagehide saves the latest ones in sessionStorage), so a reload does not cut the trail
+  let prior = [];
+  try { const v = sessionStorage.getItem('datum.steps'); if (v) prior = JSON.parse(v) || []; } catch (e) { prior = []; }
+  addEventListener('pagehide', () => { try { sessionStorage.setItem('datum.steps', JSON.stringify(prior.concat(Trace.buf).slice(-2000))); } catch (e) { /* storage full or blocked: the trail simply starts again */ } });
+  const stepLine = e => {
+    const ctx = [e.sketch && 'sketch=' + e.sketch, e.tool && 'tool=' + e.tool, e.cmd && 'cmd=' + e.cmd, e.sim && 'sim=' + e.sim].filter(Boolean);
+    const flag = e.level === 'error' ? 'ERROR ' : e.level === 'warn' ? 'WARN  ' : '      ';
+    const head = `${String(e.n == null ? '' : e.n).padStart(6)}  ${clock(e.ts)}  +${String(e.t).padStart(8)}s  ${flag}${String(e.kind).padEnd(8)} ${e.auto ? 'dev ' : '    '}${String(e.ws || '').padEnd(7)} ${String(e.what).replace(/\n/g, ' ')}`;
+    const tail = (ctx.length ? `   [${ctx.join(' ')}]` : '');
+    const data = e.data === undefined ? '' : String(e.data);
+    return head + tail + (data ? (data.length > 70 ? '\n' + ' '.repeat(10) + '↳ ' + data : '   ' + data) : '');
+  };
+  function statusMeta() {
+    const m = { exported: stamp(Date.now()), pageLoaded: stamp(Trace.t0w), sessionMinutes: +((Date.now() - Trace.t0w) / 60000).toFixed(1), page: location.pathname, window: `${innerWidth} × ${innerHeight} px, pixel ratio ${r(devicePixelRatio, 2)}`, userAgent: navigator.userAgent, tracker: Trace.track ? 'on' : 'off', consoleLog: Trace.on ? 'on' : 'off', recorded: Trace.n, kept: Trace.buf.length, beforeReload: prior.length };
+    try { m.now = stateNow(); } catch (e) { m.now = {}; }
+    try { m.model = dimsNow(); } catch (e) { m.model = {}; }
+    return m;
+  }
+  function buildStatus() {
+    const m = statusMeta(), b = Trace.buf, total = Trace.n;
+    const errs = b.filter(e => e.level === 'error').length, warns = b.filter(e => e.level === 'warn').length, auto = b.filter(e => e.auto).length;
+    const out = [
+      '3D MODELER STATUS — the steps that led up to this point',
+      'Every click, key, typed value, change (from → to), view move, resize, panel and command since the page loaded, oldest first. Nothing leaves the browser until this file is saved.',
+      'Passwords and tokens are left out. Rows marked “dev” were done by dev mode’s tests, not by a person. Sizes are in millimetres unless a unit is shown.',
+      '',
+      `Exported ${m.exported}   Page loaded ${m.pageLoaded}   Session ${m.sessionMinutes} min`,
+      `Window ${m.window}   Page ${m.page}`,
+      `Status tracker ${m.tracker}   Console log ${m.consoleLog}`,
+      `${b.length} step${b.length === 1 ? '' : 's'} kept${total > b.length ? ` (the oldest ${total - b.length} of ${total} were dropped; the latest ${Trace.cap} are kept)` : ''}, ${errs} error(s), ${warns} warning(s)${auto ? `, ${auto} done by dev mode` : ''}${prior.length ? `; ${prior.length} earlier step(s) from before the last reload are listed first` : ''}`,
+      '', '== STATE NOW ' + '='.repeat(58),
+      ...Object.entries(m.now).map(([k, v]) => `${k.padEnd(12)} ${v}`),
+      ...(m.model.model ? [`${'model'.padEnd(12)} ${dims(m.model.model)} mm overall, ${(m.model.bodies || []).length} bod${(m.model.bodies || []).length === 1 ? 'y' : 'ies'}`] : []),
+      ...(m.model.stock ? [`${'stock'.padEnd(12)} ${dims(m.model.stock)} mm`] : []),
+    ];
+    if (prior.length) out.push('', '== BEFORE THE PAGE WAS RELOADED ' + '='.repeat(40), '  step  time          since load  level  kind     who  where   what', ...prior.map(stepLine));
+    out.push('', '== STEPS ' + '='.repeat(62), '  step  time          since load  level  kind     who  where   what', ...(b.length ? b.map(stepLine) : ['(nothing yet)']));
+    return scrub(out.join('\n') + '\n');
+  }
+  function download(text, type, ext) {
+    const d = new Date(), name = `datum-status-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.${ext}`;
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: type + ';charset=utf-8' })); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    return name;
+  }
+  // "Export status": downloads the numbered steps as text (or JSON with 'json'); returns the text
+  function exportStatus(format) {
+    let text;
+    Trace.log('export', `status exported (${Trace.buf.length + 1} steps, ${format === 'json' ? 'JSON' : 'text'})`);
+    if (format === 'json') text = scrub(JSON.stringify({ ...statusMeta(), beforeReloadSteps: prior, steps: Trace.buf }, null, 1));
+    else { try { text = buildStatus(); } catch (e) { text = '3D MODELER STATUS\nThe status could not be fully built: ' + e.message + '\n'; } }
+    const name = download(text, format === 'json' ? 'application/json' : 'text/plain', format === 'json' ? 'json' : 'txt');
+    if (typeof toast === 'function') toast(`Status exported: ${Trace.buf.length} steps (${name})`);
+    return text;
+  }
+  window.exportStatus = exportStatus;
+
   /* ---------------- switching on and off ---------------- */
   let timer = 0;
+  let started = false;
   function start() {
+    if (started) return;   // already running for the tracker: turning the console echo on or off needs no restart
+    started = true;
     hookDoc(document, '');
     hookFrames(); watchSizes();
     lastWin = [innerWidth, innerHeight, r(devicePixelRatio, 3)];
@@ -404,8 +472,8 @@
     logDims('log on');
     L('state', 'state', stateNow());
   }
-  function stop() { clearInterval(timer); timer = 0; clearTimeout(vTimer); vTimer = 0; drags.clear(); }
-  Trace.hooks.push(on => { if (on) start(); else stop(); });
-  window.__debugTrace = { snapshot, diffText, dimsNow, stateNow };
-  if (Trace.on) start();
+  function stop() { started = false; clearInterval(timer); timer = 0; clearTimeout(vTimer); vTimer = 0; drags.clear(); }
+  Trace.hooks.push(live => { if (live) start(); else stop(); });
+  window.__debugTrace = { snapshot, diffText, dimsNow, stateNow, buildStatus, statusMeta };
+  if (Trace.live) start();
 })();
