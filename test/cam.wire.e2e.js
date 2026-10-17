@@ -48,7 +48,7 @@ function wireCheck(text, st, inch) {
   await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
   await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' }));
   await page.route(/fonts\.g/, r => r.abort());
-  await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await page.waitForTimeout(2000);
+  await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html') + '?dev=1'); await page.waitForTimeout(2000);
   const names = await page.evaluate(() => SAMPLES.filter(s => s.axes === 'wire').map(s => s.name));
   await ok('there are wire samples to check', async () => assert(names.length >= 10, 'wire samples: ' + names.length));
   for (const name of names) await ok('wire G-code: ' + name, async () => {

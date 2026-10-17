@@ -47,7 +47,7 @@ const probe = () => {
   const errs = []; page.on('pageerror', e => errs.push(e.message));
   await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
   await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' }));
-  await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await page.waitForTimeout(2000);
+  await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html') + '?dev=1'); await page.waitForTimeout(2000);
   const widths = [900, 1100, 1280, 1400, 1920];
   const sweep = async ws => { const all = []; for (const w of widths) { await page.setViewportSize({ width: w, height: 850 }); await page.waitForTimeout(900); (await page.evaluate(probe)).forEach(m => all.push(`${w}px: ${m}`)); } return [...new Set(all)]; };
 

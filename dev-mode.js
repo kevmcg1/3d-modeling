@@ -111,7 +111,7 @@
 
   /* ---------------- finding the controls on screen ---------------- */
   const visible = el => { if (!el || !el.getClientRects().length) return false; const w = el.ownerDocument.defaultView, cs = w.getComputedStyle(el); return cs.visibility !== 'hidden' && cs.display !== 'none' && parseFloat(cs.opacity) > 0.02; };
-  const labelOf = el => (el.id ? '#' + el.id : '') || el.getAttribute('aria-label') || (el.dataset && (el.dataset.act ? 'act ' + el.dataset.act : el.dataset.cam ? 'cam ' + el.dataset.cam : el.dataset.menu ? 'menu ' + el.dataset.menu : el.dataset.tool ? 'tool ' + el.dataset.tool : el.dataset.vis ? 'show ' + el.dataset.vis : el.dataset.fs ? el.dataset.fs + '=' + el.dataset.v : el.dataset.fdo ? 'feature ' + el.dataset.fdo : '')) || (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 30) || el.title || el.className.toString().slice(0, 24) || el.tagName.toLowerCase();
+  const labelOf = el => (el.id ? '#' + el.id : '') || el.getAttribute('aria-label') || (el.dataset && (el.dataset.act ? 'act ' + el.dataset.act : el.dataset.cam ? 'cam ' + el.dataset.cam : el.dataset.menu ? 'menu ' + el.dataset.menu : el.dataset.tool ? 'tool ' + el.dataset.tool : el.dataset.vis ? 'show ' + el.dataset.vis : el.dataset.fs ? el.dataset.fs + '=' + el.dataset.v : el.dataset.fdo ? 'feature ' + el.dataset.fdo : '')) || (el.textContent || '').trim().replace(/\s+/g, ' ').replace(/\d+\s*[smhd]\s+ago\b/gi, '').trim().slice(0, 30) || el.title || el.className.toString().slice(0, 24) || el.tagName.toLowerCase();
   // the part of the page a control belongs to: a ribbon group (its menu counts as the same), the side panel, the 3D view, the keyboard…
   function areaOf(a) {
     if (a.kind === 'run' && /^menu /.test(a.label)) return a.label.slice(5).split(' › ')[0].toLowerCase();
@@ -870,7 +870,8 @@
   async function start(only) {
     if (run.on) return;
     ensurePanel();
-    if (window.DATUM_RELEASE && !DATUM_RELEASE.dev) {
+    // (not in the modeling-only build: its tabs are the ones the dev tool tests, and it must test what the person can see)
+    if (window.DATUM_RELEASE && !DATUM_RELEASE.dev && !DATUM_RELEASE.modelingOnly) {
       // The early-access build hides tabs and export formats; reload with ?dev=1 so everything is back, then start the same run.
       const ids0 = only || [...panel.querySelectorAll('input[data-t]:checked')].map(x => x.dataset.t), u = new URL(location.href);
       try { sessionStorage.setItem('datum.devgo', JSON.stringify({ ids: ids0, mode: $d('devMode').value, seed: $d('devSeed').value, opts: ($d('devCtl').checked ? 'c' : '') + ($d('devCombo').checked ? 'm' : '') + ($d('devFlow').checked ? 'f' : '') + ($d('devPrem').checked ? 'p' : '') + ($d('devLog').checked ? 'l' : '') + ($d('devSkip').checked ? 's' : '') + ($d('devAim').checked ? 'a' : '') })); } catch (e) { $d('devNow').textContent = 'Could not reload with dev mode on.'; return; }

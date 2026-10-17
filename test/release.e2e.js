@@ -1,4 +1,4 @@
-// Early-access release: only Design + Manufacture tabs, the notice, and STEP / STL / OBJ as the only 3D exports.
+// Early-access release: sketching and 3D modeling only (the Design tab; physics, hardware, fixtures, stress and drawings hidden), the notice, and STEP / STL / OBJ as the only 3D exports.
 // Run: NODE_PATH=<dir with playwright, three@0.128, clipper-lib@6.4.2> CHROMIUM_PATH=<chrome> node test/release.e2e.js
 let chromium; try { ({ chromium } = require('playwright')); } catch (e) { console.log('skip: playwright is not installed'); process.exit(0); }
 let libs = null; try { libs = { three: require.resolve('three/build/three.min.js'), clipper: require.resolve('clipper-lib/clipper.js') }; } catch (e) { /* offline */ }
@@ -18,12 +18,21 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
   };
   const page = await open();
   const visibleTabs = p => p.$$eval('.ws [data-ws]', bs => bs.filter(b => b.offsetParent !== null).map(b => b.dataset.ws));
-  await ok('only Design and Manufacture tabs are visible', async () => assert.deepStrictEqual(await visibleTabs(page), ['design', 'cam']));
+  await ok('only the Design tab is visible', async () => assert.deepStrictEqual(await visibleTabs(page), ['design']));
   await ok('hidden tabs cannot be opened', async () => {
-    const ws = await page.evaluate(() => { setWorkspace('house'); setWorkspace('gfx'); setWorkspace('print'); setWorkspace('draw'); return UIX.ws; });
+    const ws = await page.evaluate(() => { setWorkspace('house'); setWorkspace('gfx'); setWorkspace('print'); setWorkspace('draw'); setWorkspace('cam'); setWorkspace('sheet'); return UIX.ws; });
     assert.strictEqual(ws, 'design');
   });
-  await ok('Manufacture still opens', async () => { await page.click('[data-ws="cam"]'); assert.strictEqual(await page.evaluate(() => UIX.ws), 'cam'); await page.click('[data-ws="design"]'); });
+  await ok('the physics, hardware, fixture, stress and drawing extras are hidden in the ribbon and its menus', async () => {
+    const r = await page.evaluate(() => {
+      const shown = [...document.querySelectorAll('#toolbar .rb-panel')].filter(g => g.offsetParent).map(g => g.getAttribute('aria-label')), acts = [...document.querySelectorAll('#toolbar [data-act]')].filter(b => b.offsetParent).map(b => b.dataset.act);
+      return { shown, acts, menus: Object.values(TB_MENUS).flat().filter(Boolean).map(i => i[0]), btn: !!(document.getElementById('btnGuided') && document.getElementById('btnGuided').offsetParent) };
+    });
+    for (const g of ['Hardware', 'Fixture']) assert(!r.shown.includes(g), g + ' is shown');
+    for (const a of ['stress', 'blueprint', 'f:joint', 'f:mate', 'f:fixture', 'hw:fast', 'hw:phys']) { assert(!r.acts.includes(a), a + ' is shown'); assert(!r.menus.includes(a), a + ' is in a menu'); }
+    for (const g of ['Sketch', 'Create', 'Modify', 'Pattern', 'Construct', 'Inspect', 'Insert']) assert(r.shown.includes(g), g + ' is missing'); assert(r.acts.includes('import') && r.acts.includes('export') && r.acts.includes('extrude') && r.acts.includes('sketch'));
+    assert.strictEqual(r.btn, false, 'Guided Setup is shown');
+  });
   await ok('early-access notice is shown', async () => {
     const t = await page.textContent('#earlyAccess');
     assert.ok(t.includes('This software is in early access. You will experience many bugs or glitches, but it will receive consistent improvements over the coming days.'));
@@ -57,8 +66,9 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
   }
   await ok('no page errors', async () => assert.deepStrictEqual(page.errs, []));
   const dev = await open('?dev=1');
-  await ok('?dev=1 brings every tab and format back', async () => {
+  await ok('?dev=1 brings every tab, format and ribbon group back', async () => {
     assert.ok((await visibleTabs(dev)).length > 5);
+    assert.ok(await dev.evaluate(() => [...document.querySelectorAll('#toolbar .rb-panel')].some(g => g.getAttribute('aria-label') === 'Hardware' && g.offsetParent)));
     await dev.evaluate(() => { loadDoc(samplePocketPlate(), 'x'); openExport(); });
     assert.ok((await dev.$$eval('[data-exp]', bs => bs.length)) > 3);
   });

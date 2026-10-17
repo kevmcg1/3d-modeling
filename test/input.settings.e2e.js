@@ -13,7 +13,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
   const errs = []; page.on('pageerror', e => errs.push(e.message));
   await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
   await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' }));
-  const url = 'file://' + path.resolve(__dirname, '..', '3d-modeler.html');
+  const url = 'file://' + path.resolve(__dirname, '..', '3d-modeler.html') + '?dev=1';
   const load = async () => { await page.goto(url); await page.waitForTimeout(1200); };
   await load();
   const exportText = async () => {

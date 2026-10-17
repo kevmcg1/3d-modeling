@@ -22,7 +22,7 @@ const path = require('path'), assert = require('assert');
     app.on('pageerror', e => errs.push(e.message));
     await app.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
     await app.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' }));
-    await app.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await app.waitForTimeout(800);
+    await app.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html') + '?dev=1'); await app.waitForTimeout(800);
     const tabs = await app.evaluate(() => [...document.querySelectorAll('.ws button')].map(b => b.dataset.ws)), gi = tabs.indexOf('gfx');
     ok('Graphics tab comes right after 3D Print', gi > 0 && tabs[gi - 1] === 'print', tabs);
     await app.click('.ws button[data-ws="gfx"]'); await app.waitForTimeout(500);

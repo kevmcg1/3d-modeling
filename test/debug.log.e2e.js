@@ -17,7 +17,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
   await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
   await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' }));
   await page.route(/fonts\.g/, r => r.abort());
-  await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await page.waitForTimeout(2500);
+  await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html') + '?dev=1'); await page.waitForTimeout(2500);
   await page.evaluate(() => { window.DATUM_PREMIUM = true; loadDoc(SAMPLES.find(s => s.name === 'Pocketed plate').make(), 't'); });
   await page.waitForTimeout(800);
   const since = async (f, ms = 900) => { logs.length = 0; await f(); await page.waitForTimeout(ms); return logs.join('\n'); };

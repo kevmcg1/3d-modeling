@@ -31,7 +31,17 @@
   if (typeof setWorkspace === 'function') {
     const prev = setWorkspace;
     // 'sheet' stays reachable because Manufacture opens it for the setup sheet
-    setWorkspace = function (ws) { if (!R.tabs.includes(ws) && ws !== 'sheet') return; return prev.apply(this, arguments); };
+    setWorkspace = function (ws) { if (!R.tabs.includes(ws) && !(ws === 'sheet' && !R.modelingOnly && R.tabs.includes('cam'))) return; return prev.apply(this, arguments); };
+  }
+
+  // ── Sketching and 3D modeling only: the physics, hardware, fixture and drawing extras of the Design ribbon are hidden (CSS and menu lists; nothing is removed) ──
+  if (R.modelingOnly) {
+    const q = v => String(v).replace(/"/g, '\\"');
+    const sel = [...(R.hideGroups || []).map(g => '.rb-panel[aria-label="' + q(g) + '"]'), ...(R.hideActions || []).map(a => '[data-act="' + q(a) + '"]'), ...(R.hideButtons || []).map(id => '#' + id)];
+    const st3 = document.createElement('style'); st3.id = 'modelingOnlyCss';
+    st3.textContent = sel.join(',') + '{display:none!important}'; document.head.appendChild(st3);
+    document.documentElement.classList.add('modeling-only');
+    if (typeof TB_MENUS !== 'undefined') for (const k of Object.keys(TB_MENUS)) TB_MENUS[k] = TB_MENUS[k].filter(it => !it || !(R.hideActions || []).includes(it[0]));
   }
 
   // ── Export formats ──
