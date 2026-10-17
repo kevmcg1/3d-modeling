@@ -31923,7 +31923,7 @@ const TIP_TXT = {
   measure: ['Measure distances, angles and sizes.', ['Click a first point, edge or face.', 'Click a second one: the distance shows in the view.']],
   blueprint: ['Make a 2D drawing with views and dimensions.', ['Views are laid out for you.', 'Add or move dimensions, then print or save.']],
   import: ['Bring in a STEP, STL or OBJ file.', ['Choose the file.', 'Check its size, units and up axis.', 'OK.']],
-  export: ['Save the part as STEP, STL, OBJ or 3MF.', ['Pick the format and quality.', 'Save.']],
+  export: ['Save the part as STEP, STL or OBJ.', ['Pick the format and quality.', 'Save.']],
   select: ['Pick curves to move, edit or delete.', ['Click a curve, or drag a box round several.', 'Drag points or curves to change them.']],
   line: ['Straight lines, chained end to end.', ['Click the start, then each next point.', 'Type a length (Tab for angle).', 'Right-click or Esc to stop.']],
   polyline: ['A connected chain of straight segments, made in one go.', ['Click corner after corner.', 'Click the first corner to close the shape.', 'Double-click, Enter or Esc to finish an open one.']],
@@ -36587,7 +36587,7 @@ for (const k in RB_TXT) if (!TIP_TXT[k]) TIP_TXT[k] = RB_TXT[k];
 const BTN_TXT = {
   btnUndo: ['Step back one change. Every edit, in Design and Manufacture, is undoable.', null],
   btnRedo: ['Bring back the change you just undid.', null],
-  btnFile: ['Save, open, import, export and open sample parts.', ['Choose Open to load a file or drop one on the page.', 'Export gives STEP, STL, DXF and the G-code program.', 'Samples opens ready-made parts to try things on.']],
+  btnFile: ['Save, open, import, export and open sample parts.', ['Choose Open to load a file or drop one on the page.', 'Export gives STEP, STL, OBJ and the G-code program.', 'Samples opens ready-made parts to try things on.']],
   btnHelp: ['Keyboard shortcuts, mouse buttons and settings.', null],
   btnTree: ['Show or hide the model browser and timeline.', null],
   btn2D: ['Flat view straight onto the sketch plane.', null], btn3D: ['The ordinary 3D view: orbit, pan and zoom.', null],
@@ -37539,5 +37539,8 @@ function gsPick(i) {
 <!-- Export log, settings cog, mouse and keyboard layouts: own file so it can be loaded last -->
 <script src="input-settings.js"></script>
 <script src="cam-premium.js"></script>
+<!-- Early-access release: hides tabs and export formats, shows the notice (release-config.js lists what is hidden) -->
+<script src="release-config.js"></script>
+<script src="release.js"></script>
 </body>
 </html>
