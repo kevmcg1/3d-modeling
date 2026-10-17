@@ -9543,6 +9543,64 @@ function evalSeparate(f, ctx) {
 }
 FEATX.separate = evalSeparate;
 
+// ── Table driven and fill patterns (panels in patterns2.js) ──
+function copyBodies(f, ctx, src, mats) {
+  const made = [];
+  mats.forEach((M, k) => {
+    src.forEach((b, j) => {
+      const id = +(f.id + ((k + 1) * src.length + j) / 1000).toFixed(3), polys = xformPolys(b.polys, M, f.id + ':' + (k + 1) + ':' + j, { feat: f.id, inst: k + 1 });
+      if (f.join) combineTool({ id, op: 'join' }, ctx, polys); else { ctx.bodies = [...ctx.bodies, mkBody(id, polys)]; made.push(id); }
+    });
+  });
+  if (f.join) made.push(...src.map(b => b.id));
+  ctx.hl[f.id] = made;
+}
+function evalTablePattern(f, ctx) {
+  const src = bodiesById(f.bodies, ctx), rows = f.rows || [];
+  if (!src.length) throw new Error('Pick bodies to copy');
+  if (!rows.length) throw new Error('Add at least one row to the table');
+  if (rows.length > 400) throw new Error('That is too many copies');
+  const c0 = bbCenter(src);
+  copyBodies(f, ctx, src, rows.map(r => {
+    let M = XF.I();
+    if (+r.rz) M = XF.rot(c0, WORLD_AX.Z, (+r.rz) * Math.PI / 180);
+    return XF.mul(XF.trans([+r.dx || 0, +r.dz || 0, -(+r.dy || 0)]), M);
+  }));
+}
+FEATX.tabpat = evalTablePattern;
+function evalFillPattern(f, ctx) {
+  const src = bodiesById(f.bodies, ctx), hit = f.face && findFace(ctx.bodies, f.face);
+  if (!src.length) throw new Error('Pick bodies to copy');
+  if (!hit) throw new Error('Pick the flat face to fill');
+  const fr = mateFrame(hit), sx = +f.sx, sy = f.kind === 'hex' ? +f.sx * Math.sqrt(3) / 2 : +f.sy, mg = Math.max(0, +f.margin || 0);
+  if (!fr || fr.t !== 'P') throw new Error('Fill patterns go on a flat face');
+  if (!(sx > 0 && sy > 0)) throw new Error('The spacing has to be larger than zero');
+  const n = fr.n, u = cylFrame(n).u, v = crs3(n, u), face = hit.body.polys.filter(p => p.f === hit.fid);
+  const to2 = p => P2(dot3(sub3(p, fr.p), u), dot3(sub3(p, fr.p), v)), tris = face.map(p => p.v.map(to2));
+  // outline edges: used by one polygon only
+  const q = a => Math.round(a.x * 1e4) + ',' + Math.round(a.y * 1e4), cnt = new Map(), edges = [];
+  for (const t of tris) for (let i = 0; i < t.length; i++) { const a = t[i], b = t[(i + 1) % t.length], k = [q(a), q(b)].sort().join('|'); const e = cnt.get(k); if (e) e.n++; else { const o = { a, b, n: 1 }; cnt.set(k, o); edges.push(o); } }
+  const outline = edges.filter(e => e.n === 1);
+  const inside = pt => tris.some(t => { let pos = 0, neg = 0; for (let i = 0; i < t.length; i++) { const a = t[i], b = t[(i + 1) % t.length], c = (b.x - a.x) * (pt.y - a.y) - (b.y - a.y) * (pt.x - a.x); if (c > 1e-9) pos++; else if (c < -1e-9) neg++; } return !(pos && neg); });
+  const segDist = (pt, a, b) => { const dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy || 1e-12, t = Math.max(0, Math.min(1, ((pt.x - a.x) * dx + (pt.y - a.y) * dy) / l2)); return Math.hypot(pt.x - a.x - dx * t, pt.y - a.y - dy * t); };
+  const c0 = bbCenter(src), o2 = to2(sub3(c0, mul3(n, dot3(sub3(c0, fr.p), n)))), mats = [];
+  let xs = [], ys = [];
+  for (const t of tris) for (const p of t) { xs.push(p.x); ys.push(p.y); }
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const i0 = Math.floor((x0 - o2.x) / sx) - 1, i1 = Math.ceil((x1 - o2.x) / sx) + 1, j0 = Math.floor((y0 - o2.y) / sy) - 1, j1 = Math.ceil((y1 - o2.y) / sy) + 1;
+  if ((i1 - i0) * (j1 - j0) > 40000) throw new Error('The spacing is too small for this face');
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+    if (i === 0 && j === 0) continue;
+    const pt = P2(o2.x + i * sx + (f.kind === 'hex' && (((j % 2) + 2) % 2) ? sx / 2 : 0), o2.y + j * sy);
+    if (!inside(pt) || outline.some(e => segDist(pt, e.a, e.b) < mg - 1e-9)) continue;
+    mats.push(XF.trans(add3(mul3(u, pt.x - o2.x), mul3(v, pt.y - o2.y))));
+    if (mats.length > 400) throw new Error('That would make more than 400 copies');
+  }
+  if (!mats.length) throw new Error('No copy fits on the face: lower the spacing or the margin');
+  copyBodies(f, ctx, src, mats);
+}
+FEATX.fillpat = evalFillPattern;
+
 // ── Rib / Web: thin walls from open sketch curves, extruded square to the sketch plane ──
 // A chain of lines and arcs is sampled, thickened to a flat-ended strip (mitered at bends) and extruded; several chains make a web.
 function ribLoops(pts, closed, h) {
@@ -37818,6 +37876,7 @@ function gsPick(i) {
 <script src="sheet-flange.js"></script>
 <script src="analysis.js"></script>
 <script src="reference.js"></script>
+<script src="patterns2.js"></script>
 <!-- Export log, settings cog, mouse and keyboard layouts: own file so it can be loaded last -->
 <script src="input-settings.js"></script>
 <script src="cam-premium.js"></script>

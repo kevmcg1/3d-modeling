@@ -165,6 +165,7 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | 3 ✅ | Rib, Web, Spline, Overall Slot, Center Point Slot |
 | 4 | ✅ two-distance chamfer, Boundary Fill. Still open: variable and setback fillets, Split Face, Delete Face, planar Emboss |
 | 23 ✅ | Plane Along Path, Point Through Three Planes, Separate, Check (reference.js) |
+| 24 ✅ | Table Driven Pattern, Fill Pattern, Configurations (patterns2.js) |
 | 22 ✅ | Zebra Stripes and Curvature analysis (analysis.js) |
 | 21 ✅ | Sketch dimensions take expressions (parameters.js) |
 | 20 ✅ | Gusset (extras.js) |
@@ -208,7 +209,8 @@ Same legend as above. SolidWorks tools that are the same as a Fusion tool above 
 | Linear Pattern, Circular Pattern | ✅ | Rectangular and Circular Pattern |
 | Curve Driven Pattern | ✅ | Pattern on Path |
 | Sketch Driven Pattern | ✅ **new** | Copies to every circle center (or corner) of a sketch |
-| Table Driven, Fill Pattern, Variable Pattern | 🔜 6 | |
+| Table Driven Pattern, Fill Pattern | ✅ **new** | patterns2.js (batch 24) |
+| Variable Pattern | 🔜 6 | |
 | Mirror (features, bodies) | ✅ | |
 | Move/Copy Body, Rotate Body | ✅ | Move / Copy, Rotate |
 | Scale | 🟡 | Uniform only |
@@ -248,6 +250,6 @@ Same legend as above. SolidWorks tools that are the same as a Fusion tool above 
 | Evaluate: Geometry Analysis | 🔜 | |
 | Simulation, Flow Simulation | 🟡 | Stress / fixturing study ✅; fluid flow ⛔ |
 | Equations, Global Variables | ✅ | Parameters panel |
-| Configurations, Design Tables | 🔜 7 | |
+| Configurations, Design Tables | ✅ **new** | Named parameter sets, CSV copy/load (batch 24, patterns2.js) |
 
 Honest status: this app does not yet have every Fusion and SolidWorks 3D tool. The ⛔ rows need a different kernel (surface bodies, NURBS, T-splines), and the 🔜 rows are queued in the batch plan above.
