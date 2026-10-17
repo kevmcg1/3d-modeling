@@ -9400,6 +9400,40 @@ function evalMate(f, ctx) {
 }
 FEATX.mate = evalMate;
 
+// ── Gusset (panel in extras.js): a triangular web in the corner where two faces meet ──
+function evalGusset(f, ctx, tol) {
+  if (!f.a || !f.b) throw new Error('Pick the two faces that make the corner');
+  const ha = findFace(ctx.bodies, f.a), hb = findFace(ctx.bodies, f.b);
+  if (!ha || !hb) throw new Error('A picked face no longer exists');
+  const A = mateFrame(ha), B = mateFrame(hb), d1 = +f.d1, d2 = +f.d2, t = +f.t;
+  if (!A || !B || A.t !== 'P' || B.t !== 'P') throw new Error('Gussets go between two flat faces');
+  if (!(d1 > 0 && d2 > 0)) throw new Error('The gusset legs have to be longer than zero');
+  if (!(t > 0)) throw new Error('The gusset thickness has to be positive');
+  const e = crs3(A.n, B.n), el = len3(e);
+  if (el < 0.1) throw new Error('The two faces are parallel: pick the faces of a corner');
+  const ê = mul3(e, 1 / el);
+  const triple = dot3(A.n, crs3(B.n, e)), dAw = dot3(A.n, A.p), dBw = dot3(B.n, B.p);
+  const x = mul3(add3(add3(mul3(crs3(B.n, e), dAw), mul3(crs3(e, A.n), dBw)), [0, 0, 0]), 1 / triple);
+  const rng = h => { let lo = Infinity, hi = -Infinity; for (const p of h.body.polys) if (p.f === h.fid) for (const v of p.v) { const s = dot3(v, ê); lo = Math.min(lo, s); hi = Math.max(hi, s); } return [lo, hi]; };
+  const ra = rng(ha), rb = rng(hb), lo = Math.max(ra[0], rb[0]), hi = Math.min(ra[1], rb[1]);
+  if (hi - lo < t - 1e-9) throw new Error('The corner is shorter than the gusset is thick');
+  const fr = Math.min(1, Math.max(0, f.frac === undefined ? 0.5 : +f.frac)), s = lo + t / 2 + fr * (hi - lo - t);
+  const C = add3(x, mul3(ê, s - dot3(x, ê)));
+  // legs: along face A away from the corner (toward B's outward normal), and up face B (toward A's outward normal)
+  const uA = (() => { const c = crs3(A.n, ê); return dot3(c, B.n) >= 0 ? c : mul3(c, -1); })(), vB = (() => { const c = crs3(B.n, ê); return dot3(c, A.n) >= 0 ? c : mul3(c, -1); })();
+  const fr3 = { o: C, u: nrm3(uA), v: nrm3(vB) }; fr3.n = crs3(fr3.u, fr3.v);
+  const m = 0.01, tool = prism({ outer: loopOf([P2(-m, -m), P2(d1, -m), P2(-m, d2)], 1), holes: [] }, fr3, -t / 2, t / 2, tol, f.id);
+  if (!tool.length) throw new Error('The gusset came out empty');
+  ctx.tools[f.id] = { polys: tool, op: 'join' };
+  ctx.bodies = ctx.bodies.map(b => b === ha.body ? mkBody(b.id, CSG.union(b.polys, tool)) : b);
+  if (hb.body !== ha.body) { /* the web also touches the second body: join it in */
+    const merged = ctx.bodies.find(b => b.id === ha.body.id);
+    ctx.bodies = ctx.bodies.filter(b => b !== hb.body).map(b => b === merged ? mkBody(b.id, CSG.union(b.polys, hb.body.polys)) : b);
+  }
+  ctx.hl[f.id] = [ha.body.id];
+}
+FEATX.gusset = evalGusset;
+
 // ── Axes, tangent planes, two-edge planes and points (panels in construct.js) ──
 function cylFrame(dir) {
   const a = Math.abs(dir[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0], u = nrm3(sub3(a, mul3(dir, dot3(a, dir))));
