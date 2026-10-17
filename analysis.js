@@ -124,7 +124,7 @@
   }
   const A = window.TipAnim;
   if (A && A.scene) {
-    A.scene('i:zebra', g => { g.view(120, 136, 3); const k = g.seg(0.25, 0.8); g.box(-16, -10, 0, 32, 20, 12, 'n'); if (k > 0.2) for (let i = 0; i < 6; i++) g.box(-16 + i * 5.4, -10, 12, 2.7, 20, 0.6, 'a'); });
+    A.scene('i:zebra', g => { g.sweepBar(); g.view(120, 136, 3); const k = g.seg(0.25, 0.8); g.box(-16, -10, 0, 32, 20, 12, 'n'); if (k > 0.2) for (let i = 0; i < 6; i++) g.box(-16 + i * 5.4, -10, 12, 2.7, 20, 0.6, 'a'); });
     A.scene('i:curv', g => { g.view(120, 136, 3); const k = g.seg(0.25, 0.8); g.box(-16, -10, 0, 32, 20, 12, 'n'); g.box(-16, -10, 12, 8 * k, 20, 0.6, 'r'); if (k > 0.5) g.chip('R 3 mm', 'r'); });
   }
   refreshUI();

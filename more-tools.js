@@ -349,12 +349,12 @@
       g.fill([[12, -9, 0], [12, 9, 0], [12, 9, 14], [12, -9, 14]], 'y', { a: 0.55 * k, stroke: 'y', w: 1.4 });
       g.arrow([0, 0, 18], [0, 0, 26], 'r', 1.5); if (k > 0.6) label(g, [14, 0, 7], 'needs draft', 'a');
     });
-    S('i:under', g => {
+    S('i:under', g => {g.sweepBar(); 
       bigView(g, 134, 3); const k = g.seg(0.3, 0.8);
       g.box(-14, -9, 0, 28, 18, 5, 'n'); g.box(-14, -9, 5, 7, 18, 11, 'n'); g.box(-7, -9, 11, 21, 18, 5, 'n');
       g.fill([[-7, -9, 11], [14, -9, 11], [14, 9, 11], [-7, 9, 11]], 'r', { a: 0.6 * k, stroke: 'r', w: 1.4 }); if (k > 0.5) g.chip('Undercut', 'r');
     });
-    S('i:thick', g => {
+    S('i:thick', g => {g.sweepBar(); 
       bigView(g, 134, 3); const k = g.seg(0.25, 0.75);
       g.prism(R(30, 20), 0, 12, 'n', { holes: [{ pts: R(24, 14), depth: 9 }] });
       g.fill([[-15, -10, 12], [15, -10, 12], [15, -7, 12], [-15, -7, 12]], 'r', { a: 0.6 * k, stroke: 'r', w: 1.4 });

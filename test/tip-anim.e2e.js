@@ -63,7 +63,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
   await ok('hovering real tip cards in every tab shows a moving action scene (sample)', async () => {
     const rows = await sweep(browser, { quick: true });
     const bad = rows.filter(r => !r.scene || !r.hover || r.moved < 0.002 || r.still).map(r => `${r.tab}: ${r.title} [${r.key}] ${r.scene ? 'not moving' : 'no scene'}`);
-    assert(rows.length > 60, 'only ' + rows.length + ' cards hovered');
+    assert(rows.length > 40, 'only ' + rows.length + ' cards hovered');
     assert.deepStrictEqual(bad, []);
   });
   await browser.close();

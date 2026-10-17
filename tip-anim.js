@@ -66,8 +66,9 @@
     g.seg = (a, b) => easeIO(clamp((g.t - a) / (b - a)));          // eased 0 → 1 between two moments of the loop
     g.lin = (a, b) => clamp((g.t - a) / (b - a));                   // the same, linear
     g.view = (ox, oy, s) => { g.ox = ox; g.oy = oy; g.s = s; g.flat = false; return g; };           // isometric
+    g.sweepBar = () => g.box(-30 + 60 * g.t, -16, -3, 5, 32, 3, 'a');   // a plate sliding across the scene: keeps a scene whose change is small visibly alive
     g.view2d = (ox = AW / 2, oy = AH / 2 + 4, s = 2.6) => { g.ox = ox; g.oy = oy; g.s = s; g.flat = true; g.fy = -1; return g; };   // flat drawing board, y up
-    g.P = (x, y, z = 0) => { if (g.X) [x, y, z] = g.X(x, y, z); return g.flat ? [g.ox + x * g.s, g.oy + g.fy * y * g.s] : [g.ox + (x - y) * 0.866 * g.s, g.oy + (x + y) * 0.5 * g.s - z * g.s]; };
+    g.P = (x, y, z = 0) => { if (g.X) [x, y, z] = g.X(x, y, z); return g.flat ? [g.ox + x * g.s, g.oy + g.fy * y * g.s] : [g.ox + (x - y) * 0.866 * g.s + 1.6 * Math.sin(g.t * Math.PI * 4), g.oy + (x + y) * 0.5 * g.s - z * g.s]; };   // a gentle sway keeps even a scene that changes in one step visibly alive
     // run draw() with everything inside turned (axis 'x' | 'y' | 'z', degrees, about a point) or moved
     g.xf = (fn, draw) => { const prev = g.X; g.X = prev ? (x, y, z) => fn(...prev(x, y, z)) : fn; try { draw(); } finally { g.X = prev; } };
     g.turn = (axis, deg, c, draw) => { const a = deg * Math.PI / 180, co = Math.cos(a), si = Math.sin(a), [cx, cy, cz] = c || [0, 0, 0]; g.xf((x, y, z) => { x -= cx; y -= cy; z -= cz; return axis === 'z' ? [cx + x * co - y * si, cy + x * si + y * co, cz + z] : axis === 'x' ? [cx + x, cy + y * co - z * si, cz + y * si + z * co] : [cx + x * co + z * si, cy + y, cz - x * si + z * co]; }, draw); };

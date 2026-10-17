@@ -85,8 +85,8 @@
   const A = window.TipAnim;
   if (A && A.scene) {
     A.scene('f:repface', g => { g.view(120, 136, 3); const k = g.seg(0.25, 0.8); g.box(-16, -10, 0, 32, 20, 10 + 6 * k, 'a'); });
-    A.scene('f:delface', g => { g.view(120, 136, 3); const k = g.seg(0.25, 0.8); g.box(-16, -10, 0, 32, 20, 12, 'a'); if (k < 0.5) g.chip('Chamfer', 'a'); else g.chip('Healed', 'a'); });
-    A.scene('f:splitface', g => { g.view(120, 136, 3); const k = g.seg(0.25, 0.8); g.box(-16, -10, 0, 32, 20, 12, 'a'); if (k > 0.4) g.chip('Two faces', 'a'); });
+    A.scene('f:delface', g => { g.view(120, 136, 3); const k = g.seg(0.25, 0.8); g.box(-16, -10, 0, 32, 20, 12, 'a'); g.box(-16, -10, 12, 32 * k, 20, 2, 'n'); if (k < 0.5) g.chip('Chamfer', 'a'); else g.chip('Healed', 'a'); });
+    A.scene('f:splitface', g => { g.view(120, 136, 3); const k = g.seg(0.25, 0.8); g.box(-16, -10, 0, 32, 20, 12, 'a'); g.box(-16, -10, 12, 32 * k, 20, 2, 'n'); if (k > 0.4) g.chip('Two faces', 'a'); });
   }
   refreshUI();
 })();
