@@ -32,7 +32,7 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | Fusion tool | Status | Notes |
 |---|---|---|
 | Press Pull / Offset Face | ✅ | Push / Pull (PR #39) |
-| Fillet | 🟡 | Constant radius, including a radius equal to a corner arc's. Variable radius, setback, rule fillet, full round 🔜 4 (they need a surface that is not a cylinder or torus: ruled and blended faces) |
+| Fillet | 🟡 | Constant radius, including a radius equal to a corner arc's. **New (batch 25):** variable radius on straight edges (start and end radius, lofted in facets) and full round (two parallel edges, radius just under half the gap). Setback and rule fillet 🔜 (they need blended faces) |
 | Chamfer | 🟡 | Equal distance, two distances and distance + angle, each with a Flip to choose which face gets distance 1 (batch 4). Chamfers on edges that meet at a vertex are cut one by one |
 | Shell | ✅ | Open faces, uniform wall |
 | Draft | ✅ | Neutral plane (PR #39) |
@@ -165,6 +165,7 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | 3 ✅ | Rib, Web, Spline, Overall Slot, Center Point Slot |
 | 4 | ✅ two-distance chamfer, Boundary Fill. Still open: variable and setback fillets, Split Face, Delete Face, planar Emboss |
 | 23 ✅ | Plane Along Path, Point Through Three Planes, Separate, Check (reference.js) |
+| 25 ✅ | Variable-radius fillet, Full-round fillet (in the Fillet panel) |
 | 24 ✅ | Table Driven Pattern, Fill Pattern, Configurations (patterns2.js) |
 | 22 ✅ | Zebra Stripes and Curvature analysis (analysis.js) |
 | 21 ✅ | Sketch dimensions take expressions (parameters.js) |
