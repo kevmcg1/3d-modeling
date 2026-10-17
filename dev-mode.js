@@ -129,7 +129,7 @@
     const key = (base, kind) => { const k = kind + ':' + base; count[k] = (count[k] || 0) + 1; return count[k] > 1 ? k + '#' + count[k] : k; };
     const skip = el => el.closest('.dev, #modal, #ctxmenu') || (el.matches && el.matches('a[href]')) || el.disabled || !visible(el) || el.hasAttribute('data-ws') || SKIP.test((el.id || '') + ' ' + (el.textContent || '').trim().slice(0, 30) + ' ' + (el.title || ''));
     // a Premium-locked Manufacture control must say so when pressed (js/cam-premium.js), and nothing else may happen
-    const lockedEl = el => { try { const L = window.CAM_LOCK, d = el.dataset || {}; return !!(L && L.active && (el.classList.contains('prem-lock') || (d.cam !== undefined && L.act(d.cam)) || (d.camview !== undefined && L.view(d.camview)) || d.cat === 'auto' || d.ws === 'sheet')); } catch (e) { return false; } };
+    const lockedEl = el => { try { const L = window.CAM_LOCK, d = el.dataset || {}; return !!(L && L.active && (el.classList.contains('prem-lock') || (d.cam !== undefined && L.act(d.cam)) || (d.camview !== undefined && L.view(d.camview)) || d.cat !== undefined || d.camdo !== undefined || d.ws === 'sheet')); } catch (e) { return false; } };
     d.querySelectorAll('button, [role=tab], input[type=checkbox], input[type=radio]').forEach(el => {
       if (skip(el)) return;
       const kind = el.tagName === 'INPUT' ? 'toggle' : 'click', base = labelOf(el), locked = lockedEl(el);
@@ -330,7 +330,7 @@
     try { if (typeof ctxmenu !== 'undefined') ctxmenu.hidden = true; } catch (e) { /* none */ }
     try { loadDoc(SAMPLE().make(), 'dev'); } catch (e) { /* none */ }
     await sleep(700);
-    try { if (UIX.ws === 'cam' && withOps) { if (window.CAM_LOCK && CAM_LOCK.active) { for (const a of ['add:face', 'add:pocket', 'add:contour', 'add:drill:drill']) { camAction(a); await sleep(250); CAMUI.view = 'overview'; } } else { camAction('autoprog'); await sleep(2500); } CAMUI.view = 'overview'; camRefresh(); await sleep(300); } } catch (e) { /* none */ }
+    try { if (UIX.ws === 'cam' && withOps) { if (window.CAM_LOCK && CAM_LOCK.active) { } else { camAction('autoprog'); await sleep(2500); } CAMUI.view = 'overview'; camRefresh(); await sleep(300); } } catch (e) { /* none */ }
   }
   async function openWs(ws) {
     if (ws.flowsOnly) { setWorkspace('design'); await sleep(800); return window; }
@@ -685,7 +685,7 @@
       } },
     ],
     cam: [
-      { name: 'Auto Program, Verify and Simulate on sample parts (free users: Simulate and G-code on 2D toolpaths)', async run(c) {
+      { name: 'Auto Program, Verify and Simulate on sample parts (free users: every Manufacture action refuses)', async run(c) {
         const locked = window.CAM_LOCK && CAM_LOCK.active;
         const picks = ['Flanged boss', 'Pocketed plate', 'Cross-drilled shaft'].map(n => SAMPLES.find(s => s.name === n)).filter(Boolean);
         for (const s of picks) {
@@ -698,13 +698,12 @@
                 if (/coming soon for Premium/i.test(document.body.innerText)) c.ok(s.name + ': ' + what + ' is locked and says so'); else c.warn(s.name + ': ' + what + ' is locked but showed no message');
               }
               if (cam().ops.length !== n0) c.fail(s.name + ': a locked action changed the program');
-              // Simulate and G-code are free: put three 2D toolpaths in and run both
-              for (const a of ['add:face', 'add:pocket', 'add:contour']) { camAction(a); await sleep(250); CAMUI.view = 'overview'; camRefresh(); }
-              await sleep(1200); camAction('sim'); await sleep(2500);
-              if (SIM.on) c.ok(s.name + ': Simulate runs for free users'); else c.fail(s.name + ': Simulate did not start for a free user');
-              smoothNote(c, s.name + ' simulation', frameStats(c.mon.gaps.slice(g0))); if (SIM.on) simStop();
-              CAMUI.view = 'overview'; camRefresh(); camAction('post'); await sleep(600);
-              if (typeof CAMUI.gcode === 'string' && /M30/.test(CAMUI.gcode)) c.ok(s.name + ': G-code posts for free users (' + CAMUI.gcode.split('\n').length + ' lines)'); else c.fail(s.name + ': G-code did not post for a free user');
+              // everything in Manufacture is Premium: 2D toolpaths, Simulate and G-code refuse too
+              for (const [what, a] of [['a 2D toolpath', 'add:pocket'], ['Simulate', 'sim'], ['G-code', 'post']]) {
+                camAction(a); await sleep(300);
+                if (cam().ops.length !== n0 || SIM.on || CAMUI.view === 'post') c.fail(s.name + ': ' + what + ' ran for a free user'); else c.ok(s.name + ': ' + what + ' is locked');
+                CAMUI.view = 'overview'; camRefresh();
+              }
               CAMUI.view = 'overview'; camRefresh();
               continue;
             }
