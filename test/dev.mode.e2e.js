@@ -1,5 +1,5 @@
 // Dev mode (the stress-test tool): nothing of it is in the page until the backtick key is pressed, the key opens and closes it
-// (not while typing in a field), the address alone cannot start it, and a short run on the Manufacture tab of a free user finds no problems.
+// (not while typing in a field), the address alone cannot start it, and a short run on sketching and 3D modeling finds no problems. The panel offers only sketching and 3D modeling.
 // Run: NODE_PATH=<dir with playwright, three@0.128, clipper-lib@6.4.2> CHROMIUM_PATH=<chrome> node test/dev.mode.e2e.js
 let chromium; try { ({ chromium } = require('playwright')); } catch (e) { console.log('skip: playwright is not installed'); process.exit(0); }
 let libs = null; try { libs = { three: require.resolve('three/build/three.min.js'), clipper: require.resolve('clipper-lib/clipper.js') }; } catch (e) { /* offline */ }
@@ -38,19 +38,18 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
     await p.keyboard.press('`'); await p.waitForTimeout(500); assert.strictEqual(await shown(p), false);
     await p.keyboard.press('`'); await p.waitForTimeout(500); assert.strictEqual(await shown(p), true); assert.strictEqual((await traces(p)).el, 1, 'one panel only');
   });
-  await ok('the panel covers the workspaces and offers its runs', async () => {
+  await ok('the panel offers sketching and 3D modeling (and its flows) only, with the three runs and Endless', async () => {
     const r = await p.evaluate(() => ({ ws: [...document.querySelectorAll('.dev input[data-t]')].map(i => i.dataset.t), modes: [...document.querySelectorAll('#devMode option')].map(o => o.value) }));
-    assert(['design', 'cam', 'sheet', 'print', 'draw', 'house', 'gfx'].every(x => r.ws.includes(x)), r.ws.join()); assert.deepStrictEqual(r.modes, ['thorough', 'standard', 'quick']);
+    assert.deepStrictEqual(r.ws, ['design', 'page'], r.ws.join()); assert.deepStrictEqual(r.modes, ['thorough', 'standard', 'quick', 'endless']);
   });
-  await ok('a short run on Manufacture as a free user finds no errors and respects the Premium lock', async () => {
+  await ok('a short run on sketching and 3D modeling finds no errors', async () => {
     // the early-access build reloads itself with ?dev=1 before a run (its hidden tabs come back); start there so the page stays put
     const p = await open('?dev=1'); await p.locator('body').click({ position: { x: 700, y: 400 } }); await p.keyboard.press('`'); await p.waitForTimeout(500);
-    await p.evaluate(() => { document.querySelectorAll('.dev input[data-t]').forEach(i => { i.checked = i.dataset.t === 'cam'; }); document.getElementById('devMode').value = 'quick'; document.getElementById('devCombo').checked = false; document.getElementById('devFlow').checked = false; document.getElementById('devCtl').checked = true; window.__dev.MODES.quick.pairs = 3; window.__dev.MODES.quick.triples = 3; window.__dev.MODES.quick.seqs = 3; });
-    await p.evaluate(() => { window.__devDone = false; window.__dev.start(['cam']).then(() => { window.__devDone = true; }); });
+    await p.evaluate(() => { document.querySelectorAll('.dev input[data-t]').forEach(i => { i.checked = i.dataset.t === 'design'; }); document.getElementById('devMode').value = 'quick'; document.getElementById('devCombo').checked = false; document.getElementById('devFlow').checked = false; document.getElementById('devCtl').checked = true; window.__dev.MODES.quick.pairs = 3; window.__dev.MODES.quick.triples = 3; window.__dev.MODES.quick.seqs = 3; });
+    await p.evaluate(() => { window.__devDone = false; window.__dev.start(['design']).then(() => { window.__devDone = true; }); });
     await p.waitForFunction(() => window.__devDone, null, { timeout: 420000, polling: 2000 });
-    const R = await p.evaluate(() => { const r = window.__devReport, T = r.tools.cam; return { premiumLocked: r.premiumLocked, controls: T.controls, singles: T.singles.run, locked: T.locked, bad: T.findings.filter(f => !/^(jank|stall|slow control|feature error|locked control stayed silent)$/.test(f.type)).map(f => f.type + ': ' + f.detail), silent: T.findings.filter(f => f.type === 'locked control stayed silent').map(f => f.detail) }; });
-    assert.strictEqual(R.premiumLocked, true); assert(R.controls > 20 && R.singles > 20, JSON.stringify(R));
-    assert(R.locked.n > 0 && R.locked.said === R.locked.n, 'locked controls said so: ' + JSON.stringify(R.locked) + ' ' + R.silent.join('; '));
+    const R = await p.evaluate(() => { const r = window.__devReport, T = r.tools.design; return { tools: Object.keys(r.tools), controls: T.controls, singles: T.singles.run, bad: T.findings.filter(f => !/^(jank|stall|slow control|feature error|locked control stayed silent)$/.test(f.type)).map(f => f.type + ': ' + f.detail) }; });
+    assert.deepStrictEqual(R.tools, ['design']); assert(R.controls > 20 && R.singles > 20, JSON.stringify(R));
     assert.deepStrictEqual(R.bad, []); assert.deepStrictEqual(p.errs, []);
     await p.close();
   });

@@ -1,4 +1,4 @@
-// Dev mode: stress-tests every workspace by itself, times how smoothly each control runs, and reports what glitches.
+// Dev mode: stress-tests the sketching and 3D modeling part by itself, times how smoothly each control runs, and reports what glitches.
 // (Modelled on the dev mode in shop-tool-sim: same panel, same report, same seeded replays.)
 //
 // Press the backtick key (`) to open or close the panel; there is no button for it. For each workspace it finds every control on screen
@@ -9,9 +9,15 @@
 //   combinations    every on/off combination of the checkboxes (each a single flip from the last), then a few other controls on top
 //   triples         three controls in a row (a random share of every ordered triple)
 //   random runs     random runs of 3 to 10 controls (the same seed gives the same runs, so a bug can be replayed)
+//   endless         (a mode of its own) random runs, one after another, good or bad, until Stop is pressed
 //   flows           whole journeys with checks: every sample part rebuilds, every kind of modeling feature opens and finishes,
 //                   every sketch tool draws, orbit / zoom / pan are smooth, undo and redo walk the history, Auto Program + Verify,
 //                   slicing for 3D printing
+//
+// Don't review working things: a control that worked and ran smooth in the first pass is left out of the pairs, triples, combinations and random runs after it.
+// Aim more for mistakes: a control that gets a problem (an error, a stall, a jank, clipping, blur, a failed check) heats its area and the areas beside it; the
+// rest of the run repeats it and spends more of its pairs, triples, combinations and random runs there, and less on areas that keep passing.
+// The workspaces other than sketching and 3D modeling stay defined below but are not offered or run (SCOPE).
 //
 // While it runs, the console debug log is on (Trace, plus debug-trace.js): every click, key, value change (from → to, with the model size), view move and
 // resize is written to the browser console, and it is switched off again when the run ends. The panel has a checkbox for it.
@@ -40,16 +46,19 @@
   const until = async (fn, ms) => { const t0 = Date.now(); while (!fn() && Date.now() - t0 < ms) await sleep(100); return !!fn(); };
   const rng = seed => () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
   // workspaces: id, name, the iframe holding it (none: the page itself), its canvases
-  const WS = [
-    { id: 'design', name: 'Design', canv: ['#ov'] },
+  const ALL_WS = [
+    { id: 'design', name: 'Sketching & 3D modeling', canv: ['#ov'] },
     { id: 'cam', name: 'Manufacture', canv: ['#ov'] },
     { id: 'sheet', name: 'Setup Sheet', frame: 'ssgFrame', canv: [] },
     { id: 'print', name: '3D Print', canv: ['#ov'] },
     { id: 'draw', name: '2D Drawing', frame: 'd2dFrame', canv: ['#ov'] },
     { id: 'house', name: 'House Design', frame: 'houseFrame', canv: ['#pc', '#gl'] },
     { id: 'gfx', name: 'Graphics', frame: 'gfxFrame', canv: ['#cv'] },
-    { id: 'page', name: 'Page & modeling flows', flowsOnly: true },
+    { id: 'page', name: 'Modeling & page flows', flowsOnly: true },
   ];
+  // what the dev tool tests: sketching and 3D modeling (and the flows that go with them). Add an id here to bring a workspace back.
+  const SCOPE = ['design', 'page'];
+  const WS = ALL_WS.filter(w => SCOPE.includes(w.id));
   const NAME = Object.fromEntries(WS.map(w => [w.id, w.name]));
   const RATE = 12;   // steps a second
   const MODES = {
@@ -57,6 +66,7 @@
     standard: { label: 'Standard: every control, 300 pairs, 400 triples, 64 combinations, 200 random runs, all flows', pairs: 300, triples: 400, seqs: 200, combos: 64, probe: 4 },
     quick: { label: 'Quick: every control, 40 pairs, 12 combinations, 30 random runs, all flows', pairs: 40, triples: 30, seqs: 30, combos: 12, probe: 3 },
   };
+  MODES.endless = { label: 'Endless: random runs in sketching and 3D modeling, good or bad, until you press Stop', endless: true, pairs: 0, triples: 0, seqs: 0, combos: 0, probe: 3 };
   const KEYS = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Escape', 'Enter', 'Delete', 'Backspace', 'Tab', 'e', 'k', 'l', 'r', 'f', 'c', 'p', 'o', 'm', 'g', 's', 'd', 't', 'x', '1', '2', 'ctrl+z', 'ctrl+y', 'ctrl+a'];
   const BAD_TEXT = /\b(NaN|undefined|Infinity)\b|\[object |function\s*\(/;
   const SKIP = /export|save|open|import|download|file|\bnew\b|clear|reset|delete all|erase all|sample|help|keys|settings|guided|print$/i;   // file dialogs, page-wide resets and overlays
@@ -102,6 +112,18 @@
   /* ---------------- finding the controls on screen ---------------- */
   const visible = el => { if (!el || !el.getClientRects().length) return false; const w = el.ownerDocument.defaultView, cs = w.getComputedStyle(el); return cs.visibility !== 'hidden' && cs.display !== 'none' && parseFloat(cs.opacity) > 0.02; };
   const labelOf = el => (el.id ? '#' + el.id : '') || el.getAttribute('aria-label') || (el.dataset && (el.dataset.act ? 'act ' + el.dataset.act : el.dataset.cam ? 'cam ' + el.dataset.cam : el.dataset.menu ? 'menu ' + el.dataset.menu : el.dataset.tool ? 'tool ' + el.dataset.tool : el.dataset.vis ? 'show ' + el.dataset.vis : el.dataset.fs ? el.dataset.fs + '=' + el.dataset.v : el.dataset.fdo ? 'feature ' + el.dataset.fdo : '')) || (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 30) || el.title || el.className.toString().slice(0, 24) || el.tagName.toLowerCase();
+  // the part of the page a control belongs to: a ribbon group (its menu counts as the same), the side panel, the 3D view, the keyboard…
+  function areaOf(a) {
+    if (a.kind === 'run' && /^menu /.test(a.label)) return a.label.slice(5).split(' › ')[0].toLowerCase();
+    if (a.kind === 'view') return 'the 3D view';
+    if (a.kind === 'key') return 'the keyboard';
+    let el = null; try { el = a.get(); } catch (e) { /* gone */ }
+    if (!el || !el.closest) return 'the page';
+    const g = el.closest('.rb-panel'); if (g) return (g.getAttribute('aria-label') || 'ribbon').toLowerCase();
+    if (el.closest('.ribbon, #toolbar')) return 'ribbon';
+    for (const [sel, n] of [['#panel', 'the side panel'], ['#browser', 'the browser tree'], ['#timeline', 'the timeline'], ['#visGroup', 'the view toggles'], ['#modal', 'a dialog']]) if (el.closest(sel)) return n;
+    return 'the page';
+  }
   function discover(w, ws) {
     const d = w.document, list = [], count = {};
     const key = (base, kind) => { const k = kind + ':' + base; count[k] = (count[k] || 0) + 1; return count[k] > 1 ? k + '#' + count[k] : k; };
@@ -146,6 +168,7 @@
       if (cv && visible(cv)) ['orbit drag', 'pan drag', 'zoom in', 'zoom out', 'click middle', 'small drag', 'right click'].forEach(n => list.push({ key: 'view' + sel + ':' + n, label: sel + ' ' + n, kind: 'view', how: n, get: () => cv }));
     });
     KEYS.forEach(k => list.push({ key: 'key:' + k, label: 'key ' + k, kind: 'key', k, get: () => d.body }));
+    list.forEach(a => { a.area = areaOf(a); });
     return list;
   }
   const actionsOf = (w, ws) => { const m = w.__devMon; if (!m) return discover(w, ws); if (m.dirty || !m.cache) { m.cache = discover(w, ws); m.dirty = false; } return m.cache; };
@@ -181,6 +204,8 @@
   // (A group the ribbon has hidden because an edge would cut it is not a problem: it is paged in whole with the arrows.)
   function ribbonProblems() {
     const nav = document.getElementById('toolbar'); if (!nav || !nav.offsetWidth || nav.dataset.moving) return [];   // (paging is animating: the groups are on their way in, checked again at the next step)
+    // the page fits the ribbon in the frame callback before it paints; a step measured between a rebuild and that callback would see a state nobody ever sees
+    try { if (window.ribFit) window.ribFit(); } catch (e) { /* no ribbon fit */ }
     const nr = nav.getBoundingClientRect(), out = [], arrows = [...document.querySelectorAll('.ribbon-wrap > .rb-arrow')].map(a => a.getBoundingClientRect()).filter(r => r.width > 0);
     for (const b of nav.querySelectorAll('.rb-btn')) {
       const r = b.getBoundingClientRect(); if (!r.width || !r.height) continue;
@@ -269,6 +294,7 @@
     panel.innerHTML = '<h3>Dev mode · auto test <small id="devSub">idle</small></h3><div class="body">' +
     '<div class="grid">' + WS.map(t => '<label><input type="checkbox" data-t="' + t.id + '" checked> ' + t.name + '</label>').join('') + '</div>' +
     '<div class="row" style="margin-top:4px"><label class="chk"><input type="checkbox" id="devCtl" checked> Controls</label><label class="chk"><input type="checkbox" id="devCombo" checked> Combinations</label><label class="chk"><input type="checkbox" id="devFlow" checked> Flows</label><label class="chk"><input type="checkbox" id="devPrem"> Lift the Premium lock</label><label class="chk"><input type="checkbox" id="devLog" checked> Debug log in the console</label><label class="chk"><input type="checkbox" id="devTrack" checked> Status tracker</label></div>' +
+    '<div class="row"><label class="chk" title="A control that worked and ran smooth the first time it was tried is left out of the pairs, triples, combinations and random runs after it (Endless ignores this)"><input type="checkbox" id="devSkip" checked> Don\'t review working things</label><label class="chk" title="When something goes wrong, the run repeats it and spends more of the rest on that area and the ones beside it, and less on areas that keep passing"><input type="checkbox" id="devAim"> Aim more for mistakes</label></div>' +
     '<div class="row"><button id="devExport" title="Downloads every step recorded since the page loaded, numbered: clicks, keys, typed values, changes (from → to), view moves, resizes, panels">Export status</button><button id="devExportJson" title="The same steps as JSON">JSON</button><small id="devSteps"></small></div>' +
     '<div class="row"><b style="font-size:12.5px">Sharpness</b><span id="devBlurGrade" style="font:600 11.5px Inter,system-ui,sans-serif;padding:2px 8px;border-radius:9px;background:#2a2d31;color:#8a8f97">not checked</span><button id="devBlurNow" title="Draws one frame and reads it back: how many screen pixels each edge is spread over, how big the text really is, whether any canvas is stretched">Check now</button><label class="chk"><input type="checkbox" id="devBlurLive" checked> Live</label></div>' +
     '<pre id="devBlurText" style="margin:2px 0 6px;white-space:pre-wrap;word-break:break-word;max-height:150px;overflow:auto;font:11px/1.4 ui-monospace,Menlo,monospace;color:#b8bcc2"></pre>' +
@@ -282,7 +308,7 @@
   /* ---------------- the run ---------------- */
   const run = { on: false, stop: false, report: null, steps: 0, active: 0, at: 0, base: 0, span: 100 };
   const fmtMs = ms => ms < 90000 ? Math.round(ms / 1000) + ' s' : Math.round(ms / 60000) + ' min';
-  const newTool = id => ({ id, name: NAME[id] || id, controls: 0, singles: { run: 0, withFindings: 0 }, pairs: { run: 0, possible: 0 }, triples: { run: 0 }, locked: { n: 0, said: 0 }, combos: { run: 0, possible: 0, toggles: 0 }, sequences: { run: 0 }, findings: [], ms: 0, ctl: {}, fr: { n: 0, over34: 0, over50: 0, over100: 0, max: 0, sample: [] }, scenarios: [] });
+  const newTool = id => ({ id, name: NAME[id] || id, controls: 0, singles: { run: 0, withFindings: 0 }, pairs: { run: 0, possible: 0 }, triples: { run: 0 }, locked: { n: 0, said: 0 }, combos: { run: 0, possible: 0, toggles: 0 }, sequences: { run: 0 }, findings: [], ms: 0, ctl: {}, fr: { n: 0, over34: 0, over50: 0, over100: 0, max: 0, sample: [] }, scenarios: [], aim: { hot: {}, why: {}, passes: {}, steered: {}, repeats: 0, order: [] }, skip: { cleared: 0, left: 0 } });
   function addFinding(T, f, seq) {
     const k = f.type + '|' + f.detail.replace(/\d+/g, '#');
     let x = T.findings.find(y => y.k === k);
@@ -322,10 +348,20 @@
     } catch (e) { /* nothing to close */ }
   }
 
+  // Aim more for mistakes: how much a control's area is worth another try. A problem heats the area (a script error counts 3, a stall or jank 1) and half of that
+  // spills onto the areas beside it; every pass in an area cools it a little. Without a problem anywhere every control weighs the same.
+  const heatOf = (T, area) => { const A = T.aim, i = A.order.indexOf(area); let h = A.hot[area] || 0; if (i >= 0) for (const j of [i - 1, i + 1]) if (A.order[j]) h += .5 * (A.hot[A.order[j]] || 0); return h; };
+  const weightOf = (T, a) => Math.max(.12, (1 + 4 * Math.min(6, heatOf(T, a.area))) / (1 + (T.aim.passes[a.area] || 0) / 60));
+  // a control that worked (no problem found) and ran smooth (no frame past a hitch) the first time it was used
+  const clearedCtl = (T, a) => { const c = T.ctl[a.key]; return !!c && c.runs > 0 && c.issues === 0 && c.worst <= FR.slow; };
+  const pickFrom = (rand, items, wf) => { if (!wf) return items[Math.floor(rand() * items.length)]; let tot = 0; const ws = items.map(x => { const v = wf(x); tot += v; return v; }); let r = rand() * tot; for (let i = 0; i < items.length; i++) { r -= ws[i]; if (r <= 0) return items[i]; } return items[items.length - 1]; };
+
   async function testWs(ws, mode, seed, T, opt) {
-    const t0 = Date.now(), rand = rng(seed + ws.id.length * 131);
+    const t0 = Date.now(), rand = rng(seed + ws.id.length * 131), aimOn = !!opt.aim, skipOn = !!opt.skip && !mode.endless;
+    T.aim.on = aimOn; T.skip.on = skipOn;
     let w = await openWs(ws), mon = instrument(w);
     { const m0 = mon.muts; await sleep(600); mon.idle = (mon.muts - m0) / 600; }
+    let lastFound = 0;
     const step = async (a, seq) => {
       const mark = { e: mon.errors.length, g: mon.gaps.length, m: mon.muts }, v0 = valueSig(a), c0 = viewSig(w);
       const now0 = performance.now(); if (!run.at || now0 - run.at > 250) run.at = now0;
@@ -342,13 +378,44 @@
       r.gaps.forEach(g => { if (c.gaps.length < 120) c.gaps.push(g); if (g > c.worst) c.worst = g; if (g > FR.jank) c.jank++; });
       if (r.found.length) c.issues++;
       r.found.forEach(x => addFinding(T, x, seq));
+      { const A = T.aim, area = a.area || 'the page'; if (!A.order.includes(area)) A.order.push(area);
+        if (r.found.length) { A.hot[area] = (A.hot[area] || 0) + r.found.reduce((n, x) => n + (WARN[x.type] ? 1 : 3), 0); const why = A.why[area] = A.why[area] || {}; r.found.forEach(x => { why[x.type] = (why[x.type] || 0) + 1; }); }
+        else A.passes[area] = (A.passes[area] || 0) + 1; }
+      lastFound = r.found.length;
       if (a.kind !== 'key' && a.kind !== 'view') tidy(w);
       return r.found.filter(x => !WARN[x.type]).length;
     };
+    // a step that goes wrong is tried again (twice) and followed by a control from the same area or its neighbours: the run reaches further around a mistake
+    const stepR = async (a, seq) => {
+      let n = await step(a, seq);
+      if (aimOn && lastFound && !run.stop) {
+        const A = T.aim, area = a.area || 'the page';
+        for (let k = 0; k < 2 && !run.stop; k++) { const again = actionsOf(w, ws).find(x => x.key === a.key); if (!again) break; A.repeats++; A.steered[area] = (A.steered[area] || 0) + 1; n += await step(again, seq.concat('again')); }
+        const near = actionsOf(w, ws).filter(x => x.key !== a.key && heatOf(T, x.area) > 0 && !(skipOn && clearedCtl(T, x)));
+        if (near.length && !run.stop) { const b = pickFrom(rand, near, x => weightOf(T, x)); A.steered[b.area] = (A.steered[b.area] || 0) + 1; n += await step(b, seq.concat(b.label)); }
+      }
+      return n;
+    };
+    // the controls a later phase may use: with "Don't review working things" the ones that already worked and ran smooth are left out
+    const usable = list => skipOn ? list.filter(a => !clearedCtl(T, a)) : list;
+    const pickA = list => { const a = pickFrom(rand, list, aimOn ? x => weightOf(T, x) : null); if (aimOn && heatOf(T, a.area) > 0) T.aim.steered[a.area] = (T.aim.steered[a.area] || 0) + 1; return a; };
     const refresh = async () => { await resetMain0(); mon = instrument(w); };
     const resetMain0 = async () => { if (!ws.frame) await resetMain(true); else { const f = frameOf(ws); f.contentWindow.location.reload(); await sleep(500); await until(() => ready(ws), 60000); await sleep(2000); w = winOf(ws); } };
     let actions = actionsOf(w, ws);
-    T.controls = actions.length;
+    T.controls = actions.length; actions.forEach(a => { if (!T.aim.order.includes(a.area)) T.aim.order.push(a.area); });
+    // Endless: random runs one after another, good or bad, until Stop. Every so often a different sample part is loaded so the runs meet different models.
+    if (mode.endless) {
+      const parts = sampleParts(); let n = 0;
+      while (!run.stop) {
+        progress(T, 'endless: run ' + (n + 1) + (aimOn ? ' · aiming at ' + (Object.entries(T.aim.hot).sort((p, q) => q[1] - p[1]).slice(0, 2).map(e => e[0]).join(', ') || 'nothing yet') : ''), (n % 50) / 50);
+        const len = 1 + Math.floor(rand() * 10), seq = [];
+        for (let k = 0; k < len && !run.stop; k++) { const cur = actionsOf(w, ws); if (!cur.length) break; const a = pickA(cur); seq.push(a.label); await stepR(a, seq); }
+        T.sequences.run++; n++;
+        if (n % 12 === 0) await refresh();
+        if (n % 40 === 0 && parts.length) { try { await resetMainTo(parts[Math.floor(rand() * parts.length)]); mon = instrument(w); } catch (e) { /* the next run starts from what is there */ } }
+      }
+      T.ms = Date.now() - t0; return;
+    }
     if (opt.controls) {
       const seen = new Set(actions.map(a => a.key)); T.revealed = 0;
       // 1. every control on its own, then every control a click brings into view (panels, option rows, dialogs), each used once as well
@@ -359,21 +426,22 @@
           if (run.stop || T.revealed >= 250) break;
           seen.add(a.key); T.revealed++;
           progress(T, 'revealed: ' + a.label, .2);
-          const n = await step(a, [from.label, 'then ' + a.label]); T.singles.run++; if (n) T.singles.withFindings++;
+          const n = await stepR(a, [from.label, 'then ' + a.label]); T.singles.run++; if (n) T.singles.withFindings++;
           if (depth < 1) await reveal(a, depth + 1);
         }
       };
       for (let i = 0; i < actions.length && !run.stop; i++) {
         progress(T, 'one by one: ' + actions[i].label, i / actions.length * .2);
         const live = actionsOf(w, ws).find(x => x.key === actions[i].key); if (!live) continue;
-        const n = await step(live, [live.label]); T.singles.run++; if (n) T.singles.withFindings++;
+        const n = await stepR(live, [live.label]); T.singles.run++; if (n) T.singles.withFindings++;
         await reveal(live, 0);
         if (i % 20 === 19) await refresh();
       }
       T.controls = seen.size;
       // 2. pairs
       await refresh(); actions = actionsOf(w, ws);
-      const keys = actions.map(a => a.key), pairs = [];
+      T.skip.cleared = actions.filter(a => clearedCtl(T, a)).length; T.skip.left = actions.length - T.skip.cleared;
+      const keys = usable(actions).map(a => a.key), pairs = [];
       for (let i = 0; i < keys.length; i++) for (let j = 0; j < keys.length; j++) if (i !== j) pairs.push([keys[i], keys[j]]);
       T.pairs.possible = pairs.length;
       const want = mode.pairs === Infinity ? pairs.length : Math.min(mode.pairs, pairs.length);
@@ -381,7 +449,13 @@
       for (let p = 0; p < want && !run.stop; p++) {
         progress(T, 'pairs ' + (p + 1) + ' / ' + want, .2 + p / want * .3);
         const seq = [];
-        for (const k of pairs[p]) { const a = actionsOf(w, ws).find(x => x.key === k); if (!a) continue; seq.push(a.label); await step(a, seq); }
+        if (aimOn) {   // of a few random pairs left, the one whose controls sit in the hottest areas goes next
+          const now = actionsOf(w, ws), by = k => now.find(x => x.key === k); let best = p, bw = -1;
+          for (let t = 0; t < 16 && p < pairs.length; t++) { const i = p + Math.floor(rand() * (pairs.length - p)), x = by(pairs[i][0]), y = by(pairs[i][1]), v = (x ? weightOf(T, x) : 0) + (y ? weightOf(T, y) : 0); if (v > bw) { bw = v; best = i; } }
+          [pairs[p], pairs[best]] = [pairs[best], pairs[p]];
+          pairs[p].forEach(k => { const x = by(k); if (x && heatOf(T, x.area) > 0) T.aim.steered[x.area] = (T.aim.steered[x.area] || 0) + 1; });
+        }
+        for (const k of pairs[p]) { const a = actionsOf(w, ws).find(x => x.key === k); if (!a) continue; if (skipOn && clearedCtl(T, a)) continue; seq.push(a.label); await stepR(a, seq); }
         T.pairs.run++;
         if (p % 30 === 29) await refresh();
       }
@@ -389,7 +463,7 @@
       for (let q = 0; q < mode.triples && !run.stop; q++) {
         progress(T, 'triples ' + (q + 1) + ' / ' + mode.triples, .5);
         const seq = [];
-        for (let k = 0; k < 3; k++) { const cur = actionsOf(w, ws); if (!cur.length) break; const a = cur[Math.floor(rand() * cur.length)]; seq.push(a.label); await step(a, seq); }
+        for (let k = 0; k < 3; k++) { const cur = usable(actionsOf(w, ws)); if (!cur.length) break; const a = pickA(cur); seq.push(a.label); await stepR(a, seq); }
         T.triples.run++;
         if (q % 25 === 24) await refresh();
       }
@@ -397,7 +471,7 @@
     // 3. every on/off combination of the checkboxes (each one a single flip from the last), and some other controls on top of each
     if (opt.combos && !run.stop) {
       await refresh();
-      const togs = actionsOf(w, ws).filter(a => a.kind === 'toggle').map(a => a.key), k = Math.min(togs.length, 10);
+      const togs = usable(actionsOf(w, ws).filter(a => a.kind === 'toggle')).map(a => a.key), k = Math.min(togs.length, 10);
       T.combos.toggles = togs.length;
       if (k) {
         const total = 1 << k, n = Math.min(total, mode.combos); T.combos.possible = total;
@@ -408,11 +482,11 @@
           const gray = idx[c] ^ (idx[c] >> 1), seq = ['combination ' + gray.toString(2).padStart(k, '0')];
           for (let b = 0; b < k; b++) {
             const a = actionsOf(w, ws).find(x => x.key === togs[b]); if (!a) continue;
-            if (!!a.get().checked !== !!((gray >> b) & 1)) { seq.push(a.label); await step(a, seq); }
+            if (!!a.get().checked !== !!((gray >> b) & 1)) { seq.push(a.label); await stepR(a, seq); }
           }
           for (let q = 0; q < mode.probe && !run.stop; q++) {
-            const cur = actionsOf(w, ws).filter(a => a.kind !== 'toggle'); if (!cur.length) break;
-            const a = cur[Math.floor(rand() * cur.length)]; seq.push(a.label); await step(a, seq);
+            const cur = usable(actionsOf(w, ws).filter(a => a.kind !== 'toggle')); if (!cur.length) break;
+            const a = pickA(cur); seq.push(a.label); await stepR(a, seq);
           }
           T.combos.run++;
           if (c % 25 === 24) await refresh();
@@ -425,8 +499,8 @@
         progress(T, 'random runs ' + (s + 1) + ' / ' + mode.seqs, .7 + s / mode.seqs * .25);
         const len = 3 + Math.floor(rand() * 8), seq = [];
         for (let k = 0; k < len && !run.stop; k++) {
-          const cur = actionsOf(w, ws); if (!cur.length) break;
-          const a = cur[Math.floor(rand() * cur.length)]; seq.push(a.label); await step(a, seq);
+          const cur = usable(actionsOf(w, ws)); if (!cur.length) break;
+          const a = pickA(cur); seq.push(a.label); await stepR(a, seq);
         }
         T.sequences.run++;
         if (s % 15 === 14) await refresh();
@@ -434,6 +508,7 @@
     }
     // 5. whole journeys, with checks along the way
     if (opt.flows && FLOWS[ws.id] && !run.stop) { await refresh(); w = winOf(ws) || w; mon = instrument(w); await runFlows(ws, T, mode, rand); }
+    { const all = Object.values(T.ctl); T.skip.cleared = all.filter(c => c.runs > 0 && c.issues === 0 && c.worst <= FR.slow).length; T.skip.left = all.length - T.skip.cleared; }
     T.ms = Date.now() - t0;
   }
 
@@ -730,6 +805,21 @@
     $d('devBar').style.width = Math.round(run.base + frac * run.span) + '%';
     if (Date.now() - lastRender > 700) { lastRender = Date.now(); render(); }
   }
+  // what "Don't review working things" and "Aim more for mistakes" did, for the summary and the panel
+  function steerLines(T) {
+    const L = [];
+    if (T.skip && T.skip.on) L.push('Don\'t review working things: ' + T.skip.cleared + ' of ' + (T.skip.cleared + T.skip.left) + ' controls worked and ran smooth the first time and were not tried again in the pairs, triples, combinations and random runs after.');
+    if (T.aim && T.aim.on) {
+      const A = T.aim, hot = Object.entries(A.hot).filter(e => e[1] > 0).sort((p, q) => q[1] - p[1]);
+      if (!hot.length) L.push('Aim more for mistakes: nothing went wrong, so no area got extra attention.');
+      else {
+        L.push('Aim more for mistakes: ' + hot.length + ' area' + (hot.length > 1 ? 's' : '') + ' got extra attention (' + A.repeats + ' repeats of a step that went wrong).');
+        hot.slice(0, 8).forEach(([area]) => L.push('  ' + area + ': ' + Object.entries(A.why[area] || {}).map(e => e[0] + ' ×' + e[1]).join(', ') + ' · ' + (A.steered[area] || 0) + ' extra steps'));
+        const cool = Object.entries(A.passes).filter(e => !(A.hot[e[0]] > 0) && e[1] >= 20).map(e => e[0]); if (cool.length) L.push('  less attention: ' + cool.slice(0, 8).join(', ') + ' (kept passing)');
+      }
+    }
+    return L;
+  }
   const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
   function render() {
     const R = run.report; if (!R) return;
@@ -743,6 +833,7 @@
       const fb = feedback(T); let h = '<details data-t="' + T.id + '"' + (opened.has(T.id) || (!run.on && !opened.size) ? ' open' : '') + '><summary><span>' + T.name + '</span><small class="' + fb.grade.cls + '">' + (T.fr.n ? fb.grade.word : 'no frames timed') + '</small></summary>';
       if (T.fr.n) h += '<div class="fb"><b>Smoothness.</b> ' + T.fr.n + ' frames timed: average ' + fb.frames.avg + ' ms, p95 ' + fb.frames.p95 + ' ms, worst ' + fb.frames.max + ' ms. ' + fb.frames.over50 + ' hitches over ' + FR.slow + ' ms, ' + fb.frames.over100 + ' janks over ' + FR.jank + ' ms.</div>';
       if (fb.slow.length && fb.slow[0].p95FrameMs > FR.fine) h += '<div class="fb"><b>Slowest controls.</b> ' + fb.slow.filter(r => r.p95FrameMs > FR.fine).map(r => esc(r.label) + ' (p95 ' + r.p95FrameMs + ' ms, worst ' + r.worstFrameMs + ' ms)').join('; ') + '</div>';
+      steerLines(T).forEach(l => { h += '<div class="fb">' + esc(l).replace(/\n/g, '<br>') + '</div>'; });
       if (T.locked.n) h += '<div class="fb"><b>Premium lock.</b> Locked controls were pressed ' + T.locked.n + ' times and said so ' + T.locked.said + ' times.</div>';
       if (fb.inert.length) h += '<div class="fb"><b>Did nothing you could see (' + fb.inert.length + ').</b> ' + fb.inert.slice(0, 14).map(r => esc(r.label)).join(', ') + (fb.inert.length > 14 ? '…' : '') + ' (some are meant to, when they are at a limit)</div>';
       h += T.scenarios.map(s => '<div class="sc"><b><span class="' + (s.pass ? 'ok' : 'bad') + '">' + (s.pass ? '✓' : '✗') + '</span> ' + esc(s.name) + ' <small style="color:#8a8f97;font-weight:400">' + Math.round(s.ms / 1000) + ' s' + Object.entries(s.metrics).map(e => ' · ' + e[0] + ' ' + e[1]).join('') + '</small></b><ul>' + s.notes.slice(0, 60).map(n => '<li class="' + (n[0] === '✗' ? 'bad' : n[0] === '•' ? 'warn' : '') + '">' + esc(n) + '</li>').join('') + '</ul></div>').join('');
@@ -764,6 +855,7 @@
       const fb = feedback(T), errs = T.findings.filter(x => !WARN[x.type]), warns = T.findings.filter(x => WARN[x.type]);
       L.push(T.name.toUpperCase() + ' — ' + (errs.length || T.scenarios.some(s => !s.pass) ? 'ISSUES' : 'clean') + (T.fr.n ? ' · ' + fb.grade.word : ''));
       L.push('  controls ' + T.controls + ' · single ' + T.singles.run + ' · pairs ' + T.pairs.run + '/' + T.pairs.possible + ' · triples ' + T.triples.run + ' · checkbox combinations ' + T.combos.run + '/' + T.combos.possible + ' (' + T.combos.toggles + ' checkboxes) · random runs ' + T.sequences.run + ' · flows ' + T.scenarios.filter(s => s.pass).length + '/' + T.scenarios.length);
+      steerLines(T).forEach(l => L.push('  ' + l));
       if (T.fr.n) L.push('  smoothness: ' + T.fr.n + ' frames, average ' + fb.frames.avg + ' ms, p95 ' + fb.frames.p95 + ' ms, worst ' + fb.frames.max + ' ms, ' + fb.frames.over50 + ' hitches, ' + fb.frames.over100 + ' janks');
       fb.slow.filter(r => r.p95FrameMs > FR.fine).forEach(r => L.push('  slow: ' + r.label + ' — p95 ' + r.p95FrameMs + ' ms, worst ' + r.worstFrameMs + ' ms'));
       if (T.locked.n) L.push('  Premium-locked controls pressed ' + T.locked.n + ' times, each said so ' + T.locked.said + ' times');
@@ -781,13 +873,13 @@
     if (window.DATUM_RELEASE && !DATUM_RELEASE.dev) {
       // The early-access build hides tabs and export formats; reload with ?dev=1 so everything is back, then start the same run.
       const ids0 = only || [...panel.querySelectorAll('input[data-t]:checked')].map(x => x.dataset.t), u = new URL(location.href);
-      try { sessionStorage.setItem('datum.devgo', JSON.stringify({ ids: ids0, mode: $d('devMode').value, seed: $d('devSeed').value, opts: ($d('devCtl').checked ? 'c' : '') + ($d('devCombo').checked ? 'm' : '') + ($d('devFlow').checked ? 'f' : '') + ($d('devPrem').checked ? 'p' : '') + ($d('devLog').checked ? 'l' : '') })); } catch (e) { $d('devNow').textContent = 'Could not reload with dev mode on.'; return; }
+      try { sessionStorage.setItem('datum.devgo', JSON.stringify({ ids: ids0, mode: $d('devMode').value, seed: $d('devSeed').value, opts: ($d('devCtl').checked ? 'c' : '') + ($d('devCombo').checked ? 'm' : '') + ($d('devFlow').checked ? 'f' : '') + ($d('devPrem').checked ? 'p' : '') + ($d('devLog').checked ? 'l' : '') + ($d('devSkip').checked ? 's' : '') + ($d('devAim').checked ? 'a' : '') })); } catch (e) { $d('devNow').textContent = 'Could not reload with dev mode on.'; return; }
       u.searchParams.set('dev', '1'); u.searchParams.delete('premium'); u.searchParams.delete('ws');
       $d('devNow').textContent = 'Reloading with dev mode on (?dev=1) so the hidden tabs and export formats come back…'; location.href = u.href; return;
     }
     const mode = MODES[$d('devMode').value], seed = +$d('devSeed').value || 1;
-    const ids = only || [...panel.querySelectorAll('input[data-t]:checked')].map(x => x.dataset.t);
-    const opt = { controls: $d('devCtl').checked, combos: $d('devCombo').checked, flows: $d('devFlow').checked };
+    const ids = (only || [...panel.querySelectorAll('input[data-t]:checked')].map(x => x.dataset.t)).filter(id => { const w = WS.find(x => x.id === id); return w && !(mode.endless && w.flowsOnly); });
+    const opt = { controls: $d('devCtl').checked, combos: $d('devCombo').checked, flows: $d('devFlow').checked && !mode.endless, skip: $d('devSkip').checked && !mode.endless, aim: $d('devAim').checked, endless: !!mode.endless };
     if (!ids.length) return;
     run.on = true; run.stop = false; run.steps = 0; run.active = 0; run.at = 0;
     // the console debug log (every click, key, value change, view move, resize…) is on for the run and off after it
@@ -803,7 +895,7 @@
       run.base = n / ids.length * 100; run.span = 100 / ids.length;
       const T = run.report.tools[ws.id] = newTool(ws.id);
       try {
-        if (ws.flowsOnly) { await openWs(ws); instrument(window); const tag = (id, l) => (opt.flows ? l : []).map(f => ({ ...f, ws: id })), flows = [...tag('design', FLOWS.design), ...tag('cam', FLOWS.cam), ...tag('print', FLOWS.print), ...FLOWS.page.map(f => ({ ...f, ws: 'design' }))]; FLOWS.__page = flows; await runPageFlows(ws, T, mode); }
+        if (ws.flowsOnly) { await openWs(ws); instrument(window); const tag = (id, l) => (opt.flows ? l : []).map(f => ({ ...f, ws: id })), flows = [...SCOPE.filter(id => id !== 'page' && FLOWS[id]).flatMap(id => tag(id, FLOWS[id])), ...(opt.flows ? FLOWS.page : []).map(f => ({ ...f, ws: 'design' }))]; FLOWS.__page = flows; await runPageFlows(ws, T, mode); }
         else await testWs(ws, mode, seed, T, opt);
       } catch (e) { T.findings.push({ k: 'harness', type: 'test harness stopped', detail: String((e && e.message) || e), count: 1, example: [] }); }
       render();
@@ -822,6 +914,7 @@
   async function runPageFlows(ws, T, mode) { FLOWS[ws.id] = FLOWS.__page; await runFlows(ws, T, mode, rng(1)); }
   const estimate = () => {
     const mode = MODES[$d('devMode').value], sel = [...panel.querySelectorAll('input[data-t]:checked')].map(x => x.dataset.t), real = sel.filter(x => { const w = WS.find(q => q.id === x); return w && !w.flowsOnly; }), n = real.length, c = 60;
+    if (mode.endless) { $d('devEst').textContent = 'Endless: random runs in sketching and 3D modeling until you press Stop.'; return; }
     const ctl = $d('devCtl').checked, combos = $d('devCombo').checked, flows = $d('devFlow').checked;
     let steps = n * ((ctl ? c + (mode.pairs === Infinity ? c * (c - 1) : mode.pairs) * 2 + mode.triples * 3 + mode.seqs * 6.5 : 0) + (combos ? mode.combos * (4 + mode.probe) : 0));
     let ms = steps / RATE * 1000 + n * 12000;
@@ -867,7 +960,7 @@
     ensurePanel().hidden = false;
     if (handoff.mode && MODES[handoff.mode]) $d('devMode').value = handoff.mode;
     if (handoff.seed) $d('devSeed').value = handoff.seed;
-    const o = handoff.opts || ''; $d('devCtl').checked = o.includes('c'); $d('devCombo').checked = o.includes('m'); $d('devFlow').checked = o.includes('f'); $d('devPrem').checked = o.includes('p'); $d('devLog').checked = o.includes('l');
+    const o = handoff.opts || ''; $d('devCtl').checked = o.includes('c'); $d('devCombo').checked = o.includes('m'); $d('devFlow').checked = o.includes('f'); $d('devPrem').checked = o.includes('p'); $d('devLog').checked = o.includes('l'); $d('devSkip').checked = o.includes('s'); $d('devAim').checked = o.includes('a');
     start(handoff.ids && handoff.ids.length ? handoff.ids : null);
   }, 2500);
 })();
