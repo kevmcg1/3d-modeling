@@ -344,7 +344,7 @@
   function panelTick() {
     if (!Trace.live) return;
     const p = document.getElementById('panel'), h = p && p.querySelector('h2, h3, .pn-head');
-    const t = p && !p.hidden && p.offsetWidth ? (h ? short(h.textContent, 50) : 'untitled') : 'closed';
+    const t = p && !p.hidden && !p.closest('[hidden]') ? (h ? short(h.textContent, 50) : 'untitled') : 'closed';
     if (panelTitle !== null && t !== panelTitle) L('panel', t === 'closed' ? `side panel closed (was “${panelTitle}”)` : panelTitle === 'closed' ? `side panel opened: “${t}”` : `side panel: “${panelTitle}” → “${t}”`);
     panelTitle = t;
     const m = document.getElementById('modal'), mo = !!m && !m.hidden;
