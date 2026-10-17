@@ -1,21 +1,25 @@
 // ═══════════════════════════════════════════════════════════════════
 //  CAM Premium lock. Everything in Manufacture is blocked and shows
 //  "These features will be coming soon for Premium users", except
-//  Setup, the Tool Library and the manual 2D toolpaths (Face, Contour,
-//  Pocket, Drill and Chain), which stay fully usable.
+//  Setup, the Tool Library, the manual 2D toolpaths (Face, Contour,
+//  Pocket, Drill and Chain), and Simulate and G-code (post / save .nc),
+//  which stay fully usable for free users. 3D toolpaths, Auto Program,
+//  Auto Detect, Verify, Measure, the Setup Sheet and the other machines are Premium.
 //  Loaded last so it wraps every earlier override of the CAM entry points.
-//  Premium builds (and tests) set window.DATUM_PREMIUM = true before this
-//  script runs, or call CAM_LOCK.set(false); dev mode reads CAM_LOCK.active
-//  and CAM_LOCK.has(feature) to expect the lock instead of reporting failures.
+//  There is one switch: isPremium below (no accounts yet, so it is false).
+//  Tests set window.DATUM_PREMIUM = true before this script runs, or call
+//  CAM_LOCK.set(false); dev mode reads CAM_LOCK.active and CAM_LOCK.has(feature)
+//  to expect the lock instead of reporting failures.
 // ═══════════════════════════════════════════════════════════════════
 const CAM_LOCK = (() => {
+  const isPremium = false;   // flip to true (or sign the user in, once accounts exist) to lift every Premium lock
   const MSG = 'These features will be coming soon for Premium users';
-  let on = window.DATUM_PREMIUM !== true;
+  let on = !(isPremium || window.DATUM_PREMIUM === true);
   // what stays usable: the views a manual 2D toolpath needs, and the 2D operations themselves
-  const FREE_VIEWS = new Set(['overview', 'setup', 'tools', 'op', 'cat']);
+  const FREE_VIEWS = new Set(['overview', 'setup', 'tools', 'op', 'cat', 'sim', 'post']);
   const FREE_OPS = new Set(['face', 'contour', 'pocket', 'drill', 'chain']);
-  const FREE_ACTS = /^(setup|tools|setorigin|flow:new|mach:mill|add:(face|contour|pocket|chain|drill(:(?!tap$)[a-z]+)?))$/;
-  const FREE_DO = /^(overview|addtool|pastetool|loadtools|savetools|delop)$/;
+  const FREE_ACTS = /^(setup|tools|setorigin|sim|post|flow:new|mach:mill|add:(face|contour|pocket|chain|drill(:[a-z]+)?))$/;
+  const FREE_DO = /^(overview|addtool|pastetool|loadtools|savetools|delop|sim|post|endsim|showed|copyg|saveg)$/;
   const api = {
     MSG,
     get active() { return on; },
@@ -25,8 +29,8 @@ const CAM_LOCK = (() => {
     op: t => on && !FREE_OPS.has(t),
     view: v => on && !FREE_VIEWS.has(v),
     has(feature) { return on && !(FREE_ACTS.test(String(feature)) || FREE_OPS.has(feature) || FREE_VIEWS.has(feature)); },
-    // a New Toolpath picker entry (cam-flow.js): 3D and other chain modes, tapping and the rest of the catalog are blocked
-    item: it => on && (api.op(it.type) || it.group === '3D' || it.group === 'Other' || it.kind === 'tap'),
+    // a New Toolpath picker entry (cam-flow.js): 3D and other chain modes and the rest of the catalog are blocked
+    item: it => on && (api.op(it.type) || it.group === '3D' || it.group === 'Other'),
     icon: '',
     say() { try { toast(MSG); } catch (e) { /* toast not ready */ } },
     panel() {
@@ -38,8 +42,9 @@ const CAM_LOCK = (() => {
   const LOCK_SVG = '<svg viewBox="0 0 20 20" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="9" width="11" height="8" rx="1.6"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/></svg>';
   const css = document.createElement('style');
   css.textContent = `
-.rb-btn.prem-lock, .cat-btn.prem-lock { opacity: .55; cursor: not-allowed; }
-.rb-btn.prem-lock:hover, .cat-btn.prem-lock:hover { opacity: .75; }
+.rb-btn.prem-lock, .cat-btn.prem-lock, .btn.prem-lock { opacity: .55; cursor: not-allowed; }
+.rb-btn.prem-lock:hover, .cat-btn.prem-lock:hover, .btn.prem-lock:hover { opacity: .75; }
+.btn.prem-lock { position: relative; padding-right: 22px; }
 .cf-item.prem-lock { position: relative; }
 .prem-lock .lk { position: absolute; top: 2px; right: 2px; width: 11px; height: 11px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; opacity: .85; pointer-events: none; }
 .prem-note { display: flex; gap: 10px; align-items: flex-start; padding: 12px; border: 1px solid var(--rule); border-radius: 8px; background: var(--accent-soft); color: var(--accent); }
@@ -52,7 +57,7 @@ const CAM_LOCK = (() => {
   const gates = {
     camAction: a => api.act(a[0]),
     camAddOp: a => api.op(a[0]),
-    autoProgram: () => on, simStart: () => on, verifyAndFix: () => on, openSetupSheet: () => on,
+    autoProgram: () => on, verifyAndFix: () => on, openSetupSheet: () => on,
     setMachine: a => on && a[0] !== 'mill',
     cmdMeasure: () => on && UIX.ws === 'cam',
   };
@@ -80,7 +85,9 @@ const CAM_LOCK = (() => {
     if (on && camStock()) {
       if (api.view(CAMUI.view) || (CAMUI.view === 'op' && opById(CAMUI.op) && api.op(opById(CAMUI.op).type)) || (CAMUI.view === 'cat' && CAMUI.cat === 'auto')) return api.panel();
     }
-    return pn0.apply(this, arguments);
+    const h = pn0.apply(this, arguments);
+    // the simulation is free, but the Verify it offers is Premium: show that on the button instead of a surprise on click
+    return on && typeof h === 'string' ? h.replace('<button class="btn" data-camdo="reverify">Verify now</button>', `<button class="btn prem-lock" data-camdo="reverify" aria-disabled="true">Verify now${lockIcon}</button>`) : h;
   };
   const rail0 = catRailRender;
   catRailRender = function () {

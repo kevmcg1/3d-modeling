@@ -37311,7 +37311,13 @@ function tipInfoFor(b, k) {
   addEventListener('resize', soon);
   if (window.ResizeObserver) new ResizeObserver(soon).observe(wrap);
   nav.addEventListener('scroll', arrows, { passive: true });
-  L.addEventListener('click', () => nav.scrollBy({ left: -nav.clientWidth * 0.6 })); R.addEventListener('click', () => nav.scrollBy({ left: nav.clientWidth * 0.6 }));
+  // the arrows move by whole groups: the next group that is cut off at the right edge (or the last one cut at the left) lands flush against the left edge, so a click never leaves a button sliced in half
+  const hop = dir => {
+    const nr = nav.getBoundingClientRect(), ps = [...nav.querySelectorAll('.rb-panel')].map(p => ({ p, r: p.getBoundingClientRect() }));
+    const cut = dir > 0 ? ps.find(q => q.r.right > nr.right - 2 && q.r.left > nr.left + 8) : [...ps].reverse().find(q => q.r.left < nr.left + 2);
+    nav.scrollBy({ left: cut ? cut.r.left - nr.left - 8 : dir * nav.clientWidth * 0.6 });
+  };
+  L.addEventListener('click', () => hop(-1)); R.addEventListener('click', () => hop(1));
   nav.addEventListener('wheel', e => { if (nav.scrollWidth > nav.clientWidth && Math.abs(e.deltaY) > Math.abs(e.deltaX)) { nav.scrollLeft += e.deltaY; e.preventDefault(); } }, { passive: false });
   document.fonts && document.fonts.ready && document.fonts.ready.then(soon);
   soon();
@@ -37643,7 +37649,13 @@ ${D} .rb-panel .rb-big > span { font-size: 10.5px; }
 ${D} .rb-panel .rb-col > .rb-sm { padding: 0 6px 0 4px; gap: 5px; font-size: 11px; }
 ${D2} .rb-panel .rb-big { width: 62px; min-width: 62px; max-width: 62px; }
 ${D2} .rb-panel .rb-big > span { font-size: 10px; }
-${D2} .rb-panel .rb-col > .rb-sm { padding: 0 4px 0 3px; gap: 4px; font-size: 10.5px; }`;
+${D2} .rb-panel .rb-col > .rb-sm { padding: 0 4px 0 3px; gap: 4px; font-size: 10.5px; }
+/* an icon-only small button (labels dropped to save room) is centered exactly: the rules above give every small button the padding of its label */
+.ribbon .rb-panel.cmp .rb-col > .rb-sm { width: 28px; padding: 0; gap: 0; justify-content: center; }
+.ribbon .rb-panel.cmp .rb-sm svg:not(.lk) { width: 16px; height: 16px; }
+@media (max-width: 820px) { .ribbon .rb-panel .rb-col > .rb-sm { width: 28px; padding: 0; gap: 0; justify-content: center; } }
+/* the Premium lock badge is a corner mark, not an icon: it keeps its own size */
+.ribbon .rb-panel .rb-btn > svg.lk { width: 11px; height: 11px; }`;
   document.head.appendChild(css);
 })();
 </script>
