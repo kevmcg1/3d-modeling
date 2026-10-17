@@ -29,8 +29,12 @@ const close = (a, b, tol, what) => assert(Math.abs(a - b) <= tol, `${what}: ${a}
     assert.deepStrictEqual(r.b.errors, {}, JSON.stringify(r.b)); assert(r.b.tris < r.a.tris * 0.8, `${r.b.tris} vs ${r.a.tris}`); close(r.b.v / r.a.v, 1, 0.35, 'volume ratio');
     assert(r.c.errors[11] && r.d.errors[11], JSON.stringify([r.c.errors, r.d.errors]));
   });
+  await ok('smooth: a sphere keeps closing and shrinks a little; bad amounts are refused', async () => {
+    const r = await go(`H => ({ a: H.run([H.P('sphere')]), b: H.run([H.P('sphere'), { id: 11, type: 'smoothmesh', name: 'S', bodies: [10], iter: 3, amount: 0.5 }]), c: H.run([H.P('sphere'), { id: 11, type: 'smoothmesh', name: 'S', bodies: [10], iter: 1, amount: 0 }]) })`);
+    assert.deepStrictEqual(r.b.errors, {}, JSON.stringify(r.b)); assert(r.b.v < r.a.v && r.b.v > r.a.v * 0.5, `${r.b.v} vs ${r.a.v}`); assert(r.c.errors[11], JSON.stringify(r.c.errors));
+  });
   await ok('ribbon buttons open the tools', async () => {
-    const r = await page.evaluate(() => { loadDoc({ features: [], next: 200 }, 'x'); setWorkspace('model'); const out = {}; for (const a of ['f:revnorm', 'f:reducemesh']) { const b = document.querySelector(`[data-act="${a}"]`); out[a] = !!b && !!TIP_TXT[a]; if (b) { b.click(); out[a] = out[a] && !!CMD; cancelCmd(); } } return out; });
+    const r = await page.evaluate(() => { loadDoc({ features: [], next: 200 }, 'x'); setWorkspace('model'); const out = {}; for (const a of ['f:revnorm', 'f:reducemesh', 'f:smoothmesh']) { const b = document.querySelector(`[data-act="${a}"]`); out[a] = !!b && !!TIP_TXT[a]; if (b) { b.click(); out[a] = out[a] && !!CMD; cancelCmd(); } } return out; });
     assert(Object.values(r).every(Boolean), JSON.stringify(r));
   });
   await ok('no page errors', async () => assert.deepStrictEqual(errs, []));
