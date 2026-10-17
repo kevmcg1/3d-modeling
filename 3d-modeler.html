@@ -15720,8 +15720,9 @@ function safeRapids(m, zs) {
 }
 function pathStats(P) {
   let feedLen = 0, rapidLen = 0, t = 0, prev = null;
+  const fallbackF = (P.tool && P.tool.feed > 0) ? P.tool.feed : 500;   // a move with no feed of its own still takes time
   for (const m of P.m) {
-    if (prev) { const L = Math.hypot(m.x - prev.x, m.y - prev.y, m.z - prev.z); if (m.r) { rapidLen += L; t += L / RAPID; } else { feedLen += L; t += L / m.f + (m.dw || 0) / 60; } }
+    if (prev) { const L = Math.hypot(m.x - prev.x, m.y - prev.y, m.z - prev.z); if (m.r) { rapidLen += L; t += L / RAPID; } else { feedLen += L; t += L / (m.f > 0 ? m.f : fallbackF) + (m.dw > 0 ? m.dw : 0) / 60; } }
     prev = m;
   }
   return { feedLen, rapidLen, min: t };
@@ -27164,11 +27165,16 @@ function camOptimizeAll() {
   raws.forEach((P, k) => { if (mcFin(ops[k])) return; for (let i = 1; i < P.m.length; i++) segs.push({ a: P.m[i - 1], b: P.m[i], r: P.m[i].r, tool: P.tool, ax: opAxis(ops[k]) }); });
   const model = new StockModel(st, stockLevels(st, segs));
   const out = new Map(), ret = st.z1 + cam().retract, inStock = p => p.x >= st.x0 && p.x <= st.x1 && p.y >= st.y0 && p.y <= st.y1;
+  // The stock model replays every cutting move on the main thread (about 1.5 ms a move). Past a budget of moves the rest of the
+  // operations are left as programmed and skip the model (a default Waterline is 80,000 moves and froze the page for two minutes).
+  // Missing cuts only mean later operations see more stock than there is, so the air-cut check stays on the safe side.
+  let simBudget = AIR.budget || 20000; const skipSim = new Set();
+  ops.forEach((op, k) => { if (mcFin(op)) return; const nf = raws[k].m.reduce((c, x) => c + (x.r ? 0 : 1), 0); if (nf > simBudget) skipSim.add(op.id); else simBudget -= nf; });
   ops.forEach((op, k) => {
     const P = raws[k], tool = P.tool, ax = opAxis(op), m0 = P.m;
     // a surface finish (3D parallel and the like) follows the part: it is left as programmed and takes only its skin off
     // the stock, so it is not replayed move by move (a raster of thousands of moves froze the page for 45 s)
-    const fin = mcFin(op), fixed = fin || !!ax || isDrillOp(op) || !!op.safeLinks || !flatBottom(tool) && tool.type !== 'ball' && tool.type !== 'chamfer';
+    const fin = mcFin(op), big = skipSim.has(op.id), fixed = fin || big || !!ax || isDrillOp(op) || !!op.safeLinks || !flatBottom(tool) && tool.type !== 'ball' && tool.type !== 'chamfer';
     let m = m0.map(x => ({ ...x }));
     let airLen = 0, feedLen = 0, lowered = 0, n = 0, restLost = 0;
     if (!fixed && m.length) {                                       // an op with nothing to cut (no faces picked yet) has no moves to walk
@@ -27217,20 +27223,21 @@ function camOptimizeAll() {
         const plunge = Math.hypot(b.x - A.x, b.y - A.y) < 1e-6 && b.z < A.z;
         if (L > 0.3 && !plunge && !airEngaged(model, A, b, tool)) { b.air = true; b.f = Math.max(b.f || 0, AIR.feed); airLen += L; }
         model.cut(A, b, tool, mcFin(op));
-        if (++n % 48 === 0) model.flush();
+        if (++n % 120 === 0) model.flush();
         outM.push(b);
       }
       if (skipped) { const F0 = outM[outM.length - 1]; outM.push({ x: F0.x, y: F0.y, z: Math.max(F0.z, ret), r: 1 }); }
       model.flush();
       for (let q = 0; q < m.length; q++) if (m[q].g12) { const nq = mp[q] == null ? q : mp[q], g = m[q].g12; outM[nq].g12 = { ...g, end: mp[g.end] == null ? g.end : mp[g.end] }; }
       m = outM; restLost = restDrop;
-    } else if (!fin) {
+    } else if (!fin && !big) {
       for (let i = 1; i < m.length; i++) { const a = m[i - 1], b = m[i]; if (!b.r) model.cut(a, b, tool, false, ax); if (++n % 48 === 0) model.flush(); }
       model.flush();
     }
     const Q = Object.assign(Object.create(Object.getPrototypeOf(P)), P, { m });
     if (airLen > 0.5 || lowered) Q.info = (P.info ? P.info + ' · ' : '') + `${airLen > 0.5 ? `${Math.round(100 * airLen / Math.max(feedLen, 1e-6))}% of the feed runs through air — at ${AIR.feed} mm/min` : ''}${airLen > 0.5 && lowered ? ' · ' : ''}${lowered ? `${lowered} hop${lowered > 1 ? 's' : ''} kept low over the stock` : ''}`;
     if (op.restStock && !fixed) Q.info = (Q.info ? Q.info + ' · ' : '') + `rest from stock: ${Math.round(100 * restLost / Math.max(feedLen, 1e-6))}% of the cutting was already done and is left out`;
+    if (big) Q.info = (Q.info ? Q.info + ' · ' : '') + 'long program: air cuts are not checked for this one';
     Q.airLen = airLen; Q.lowered = lowered; Q.restLost = restLost;
     out.set(op.id, { raw: P, path: Q });
   });
@@ -35364,7 +35371,7 @@ function phyLathe() {
       else if (k === 'ln') { S.live.push({ k: 'flats', n: 2, af: Math.max(4, prof.rmax * 1.5), l: 12 }); load(); }
       else if (k === 'lc') { S.live = []; load(); }
       else if (k === 'play') { pi = 0; playing = true; stock.forEach(s => { s.r = plan.SR; }); markers.clear(); rebuild(); }
-      else if (k === 'copy') { try { navigator.clipboard.writeText(plan.code.join('\n')); toast('G-code copied'); } catch (e) { toast('Copy failed'); } }
+      else if (k === 'copy') { try { navigator.clipboard.writeText(plan.code.join('\n')).then(() => toast('G-code copied'), () => toast('Copy failed')); } catch (e) { toast('Copy failed'); } }
       else if (k === 'save') { download('datum-lathe.nc', new Blob([plan.code.join('\n')], { type: 'text/plain' })); void mm; }
     },
     step(dt) {

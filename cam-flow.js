@@ -184,6 +184,7 @@
     const input = el.querySelector('input'), list = el.querySelector('.cf-list');
     pk = { el, sel: 0, flat: [] };
     const draw = () => {
+      if (!pk) return;                                               // closing: the card lingers for its fade-out
       const q = input.value.trim().toLowerCase(), terms = q.split(/\s+/).filter(Boolean);
       const match = it => !terms.length || terms.every(t => (it.name + ' ' + it.kw + ' ' + it.group + ' ' + it.note).toLowerCase().includes(t));
       const groups = [];
@@ -199,13 +200,14 @@
       mark(false);
     };
     const mark = scroll => {
+      if (!pk) return;
       list.querySelectorAll('.cf-item').forEach(b => b.classList.toggle('sel', +b.dataset.i === pk.sel));
       const b = list.querySelector('.cf-item.sel'); if (b && scroll) b.scrollIntoView({ block: 'nearest' });
     };
-    const choose = i => { const it = pk.flat[i]; if (!it) return; if (window.CAM_LOCK && CAM_LOCK.item(it)) { CAM_LOCK.say(); return; } pickerClose(); CF.recent = [it.id, ...(CF.recent || []).filter(x => x !== it.id)].slice(0, 6); if (swap) change(swap, it); else start(it); };
-    input.addEventListener('input', () => { pk.sel = 0; draw(); });
+    const choose = i => { if (!pk) return; const it = pk.flat[i]; if (!it) return; if (window.CAM_LOCK && CAM_LOCK.item(it)) { CAM_LOCK.say(); return; } pickerClose(); CF.recent = [it.id, ...(CF.recent || []).filter(x => x !== it.id)].slice(0, 6); if (swap) change(swap, it); else start(it); };
+    input.addEventListener('input', () => { if (!pk) return; pk.sel = 0; draw(); });
     list.addEventListener('click', e => { const b = e.target.closest('.cf-item'); if (b) choose(+b.dataset.i); });
-    list.addEventListener('pointermove', e => { const b = e.target.closest('.cf-item'); if (b && +b.dataset.i !== pk.sel) { pk.sel = +b.dataset.i; mark(false); } });
+    list.addEventListener('pointermove', e => { const b = e.target.closest('.cf-item'); if (pk && b && +b.dataset.i !== pk.sel) { pk.sel = +b.dataset.i; mark(false); } });
     el.addEventListener('pointerdown', e => { if (e.target === el) pickerClose(); });
     pk.key = e => {
       if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); pickerClose(); }

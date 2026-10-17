@@ -73,7 +73,9 @@
     const mon = w.__devMon = { errors: [], warns: [], gaps: [], last: 0, dirty: true, cache: null, muts: 0, idle: 0 };
     try { const P = w.Element.prototype; ['setPointerCapture', 'releasePointerCapture'].forEach(n => { const o = P[n]; P[n] = function (id) { try { return o.call(this, id); } catch (e) { if (e && e.name === 'NotFoundError') return; throw e; } }; }); } catch (e) { /* no capture */ }
     try { new w.MutationObserver(r => { mon.dirty = true; mon.muts += r.length; }).observe(w.document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'disabled', 'hidden', 'aria-pressed', 'style', 'open'] }); } catch (e) { /* no observer */ }
-    w.addEventListener('error', e => mon.errors.push({ type: 'script error', msg: (e.message || 'error') + ' (' + String(e.filename || '').split('/').pop() + ':' + (e.lineno || '?') + ')' }));
+    // where it really happened: the first stack frame that is not the app's own call tracer
+    const where = e => { const fr = String((e.error && e.error.stack) || '').split('\n').slice(1).map(x => x.trim()).filter(x => x && !/at w \(|Trace\./.test(x)); const m = (fr[0] || '').match(/([^\/\s]+:\d+):\d+\)?$/); return m ? m[1] : String(e.filename || '').split('/').pop() + ':' + (e.lineno || '?'); };
+    w.addEventListener('error', e => mon.errors.push({ type: 'script error', msg: (e.message || 'error') + ' (' + where(e) + ')' }));
     w.addEventListener('unhandledrejection', e => mon.errors.push({ type: 'unhandled promise', msg: String((e.reason && e.reason.message) || e.reason).slice(0, 240) }));
     const ce = w.console.error.bind(w.console), cw = w.console.warn.bind(w.console);
     w.console.error = (...a) => { mon.errors.push({ type: 'console error', msg: a.map(x => (x && x.message) || String(x)).join(' ').slice(0, 260) }); ce(...a); };
@@ -398,7 +400,7 @@
   function smoothNote(c, what, f) {
     if (f.n < 6) { c.warn(what + ': too few frames to rate (' + f.n + ')'); return; }
     const g = grade(f), line = what + ': ' + g.word + ' (average ' + f.avg + ' ms a frame, p95 ' + f.p95 + ' ms, worst ' + f.max + ' ms)';
-    if (g.cls === 'bad') c.fail(line); else if (g.cls === 'warn') c.warn(line); else c.ok(line);
+    if (g.cls === 'bad' && softGpu) c.warn(line + ' · drawn by a software renderer, so judge it on a real GPU'); else if (g.cls === 'bad') c.fail(line); else if (g.cls === 'warn') c.warn(line); else c.ok(line);
   }
   const screenOf = (u, v) => { const s = xfPt(planeXf(planeOf(S.sk)), P2(u, v)), r = document.getElementById('ov').getBoundingClientRect(); return { x: s.x + r.left, y: s.y + r.top }; };
   const ptr = (el, t, x, y, b, bs) => el.dispatchEvent(new PointerEvent(t, { bubbles: true, cancelable: true, pointerId: 11, pointerType: 'mouse', isPrimary: true, clientX: x, clientY: y, button: b, buttons: bs }));
@@ -448,6 +450,30 @@
             const fr = frameStats(c.mon.gaps.slice(g0)); if (fr.max > 2500) c.warn(sp[1] + ': a frame took ' + fr.max + ' ms while exporting');
           }
         } finally { window.download = real; }
+      } },
+      { name: 'Holding an arrow key in a number field keeps stepping it', async run(c) {
+        const hold = (el, key, n, mods = {}) => { for (let i = 0; i < n; i++) el.dispatchEvent(new KeyboardEvent('keydown', { key, code: key, bubbles: true, cancelable: true, repeat: i > 0, ...mods })); };
+        let tested = 0;
+        for (const k of ['primitive', 'hole', 'revolve', 'shell', 'pattern', 'chamfer', 'draft', 'stretch'].filter(x => FEATS[x])) {
+          if (run.stop) break;
+          await resetMain(); const e0 = c.mon.errors.length;
+          try { cmdFeat(k); await sleep(350); } catch (e) { c.fail(k + ': threw ' + String(e.message).slice(0, 100)); continue; }
+          const inp = [...document.querySelectorAll('#panel input[type=number], .panel input[type=number]')].find(x => x.isConnected && !x.disabled && !x.readOnly && x.offsetParent);
+          if (!inp) { c.warn(k + ': no number field on screen'); continue; }
+          const sig = inp.dataset.fv ? 'input[data-fv="' + inp.dataset.fv + '"]' : null;
+          inp.focus(); const v0 = parseFloat(inp.value), N = 6; let hits = 0; inp.addEventListener('input', () => hits++);
+          hold(inp, 'ArrowUp', N); await sleep(150);
+          const cur = (sig && document.querySelector(sig)) || inp, v1 = parseFloat(cur.value), lo = parseFloat(inp.min), hi = parseFloat(inp.max);
+          const room = !(isFinite(hi) && v0 + 1 > hi);
+          if (!isFinite(v1)) c.fail(k + ': holding ↑ left "' + cur.value + '" in the field');
+          else if (room && !(v1 > v0)) c.fail(k + ': holding ↑ did not step the field (' + v0 + ' → ' + v1 + ')');
+          else if (room && hits < N) c.warn(k + ': ' + hits + ' of ' + N + ' key repeats stepped the field');
+          else if (c.mon.errors.length > e0) c.fail(k + ': ' + c.mon.errors[c.mon.errors.length - 1].msg);
+          else { tested++; c.ok(k + ': ↑ held ' + N + ' times, ' + v0 + ' → ' + v1); }
+          hold(cur, 'ArrowDown', 2, { shiftKey: true }); await sleep(100);
+          if (!isFinite(parseFloat((sig && document.querySelector(sig) || cur).value))) c.fail(k + ': Shift+↓ left a bad value');
+        }
+        c.metric('fields tried', tested);
       } },
       { name: 'Every kind of modeling feature opens, builds and undoes', async run(c) {
         const kinds = Object.keys(FEATS); c.metric('feature kinds', kinds.length); let finished = 0, needPick = 0;
@@ -556,10 +582,12 @@
               if (cam().ops.length !== n0) c.fail(s.name + ': a locked action changed the program');
               continue;
             }
-            camAction('autoprog'); await sleep(2500);
+            camAction('autoprog'); await sleep(1500);
+            await until(() => cam().ops.length && cam().ops.every(o => { try { const P = toolpath(o); return P && !P.pending; } catch (e) { return true; } }), 90000); await sleep(1500);   // every path computed before Verify starts
             const ops = cam().ops.length; if (!ops) c.fail(s.name + ': Auto Program made no operations'); else c.ok(s.name + ': Auto Program made ' + ops + ' operations in ' + Math.round(performance.now() - t0) + ' ms');
-            camAction('verify'); await until(() => typeof VERIFY !== 'undefined' && VERIFY.report, 120000); await sleep(500);
-            if (VERIFY.report) c.ok(s.name + ': Verify finished'); else c.warn(s.name + ': Verify did not finish in 2 minutes');
+            VERIFY.report = null; camAction('verify'); await sleep(800); if (!VERIFY.busy && !VERIFY.report) camAction('verify');
+            await until(() => !VERIFY.busy && VERIFY.report, 180000); await sleep(500);
+            if (VERIFY.report) c.ok(s.name + ': Verify finished'); else c.warn(s.name + ': Verify did not finish in 3 minutes');
             camAction('sim'); await sleep(2500); smoothNote(c, s.name + ' simulation', frameStats(c.mon.gaps.slice(g0))); if (SIM.on) simStop();
           } catch (e) { c.fail(s.name + ': threw ' + String(e.message).slice(0, 140)); }
           if (c.mon.errors.length > e0) c.fail(s.name + ': ' + c.mon.errors[c.mon.errors.length - 1].msg);
@@ -674,9 +702,13 @@
     all.sort((p, q) => (WARN[p.x.type] ? 1 : 0) - (WARN[q.x.type] ? 1 : 0));
     $d('devFinds').innerHTML = all.length ? all.slice(0, 60).map(({ tool, x }) => '<div class="find ' + (WARN[x.type] ? 'warn' : 'bad') + '"><b>' + tool + ' · ' + x.type + (x.count > 1 ? ' (×' + x.count + ')' : '') + '</b>' + esc(x.detail) + '<code>' + esc(x.example.map((s, i) => (i + 1) + '. ' + s).join('\n') + (Object.keys(x.by || {}).length > 1 ? '\nset off most by: ' + Object.entries(x.by).sort((p, q) => q[1] - p[1]).slice(0, 4).map(e => e[0] + ' ×' + e[1]).join(', ') : '')) + '</code></div>').join('') : (run.on ? '' : '<div class="ok">Nothing glitched.</div>');
   }
+  // frame times on a software renderer (SwiftShader, llvmpipe, a VM without a GPU) measure the machine, not the app
+  const gpuName = (() => { try { const gl = document.createElement('canvas').getContext('webgl'); const x = gl && gl.getExtension('WEBGL_debug_renderer_info'); return x ? String(gl.getParameter(x.UNMASKED_RENDERER_WEBGL)) : ''; } catch (e) { return ''; } })();
+  const softGpu = /swiftshader|llvmpipe|software|softpipe|basic render/i.test(gpuName);
   function summaryText() {
     const R = run.report; if (!R) return 'No run yet.';
     const L = ['3D modeling dev run · ' + R.mode + ' · seed ' + R.seed + ' · ' + R.startedAt + (R.totalMs ? ' · ' + fmtMs(R.totalMs) : ''), ''];
+    if (R.softwareRendering) L.push('NOTE: drawn by a software renderer (' + R.gpu + '), so frame times and first-use shader compiles are far slower than on a graphics card. Judge smoothness on a real GPU.', '');
     Object.values(R.tools).forEach(T => {
       const fb = feedback(T), errs = T.findings.filter(x => !WARN[x.type]), warns = T.findings.filter(x => WARN[x.type]);
       L.push(T.name.toUpperCase() + ' — ' + (errs.length || T.scenarios.some(s => !s.pass) ? 'ISSUES' : 'clean') + (T.fr.n ? ' · ' + fb.grade.word : ''));
@@ -707,7 +739,7 @@
     if (!ids.length) return;
     run.on = true; run.stop = false; run.steps = 0; run.active = 0; run.at = 0;
     const wasLocked = window.CAM_LOCK ? CAM_LOCK.active : false; if (window.CAM_LOCK && $d('devPrem').checked) CAM_LOCK.set(false);
-    run.report = { startedAt: new Date().toISOString(), mode: $d('devMode').value, seed, options: opt, userAgent: navigator.userAgent, tools: {}, note: 'Pairs, combinations and runs are sampled unless the mode is Thorough; the counts say what was covered. Frame times are the gaps between painted frames.' };
+    run.report = { startedAt: new Date().toISOString(), mode: $d('devMode').value, seed, options: opt, userAgent: navigator.userAgent, gpu: gpuName, softwareRendering: softGpu, tools: {}, note: 'Pairs, combinations and runs are sampled unless the mode is Thorough; the counts say what was covered. Frame times are the gaps between painted frames.' };
     $d('devGo').disabled = true; $d('devStop').disabled = false; $d('devSub').textContent = 'running';
     const t0 = Date.now();
     for (let n = 0; n < ids.length && !run.stop; n++) {
@@ -742,7 +774,7 @@
   $d('devGo').addEventListener('click', () => start());
   $d('devStop').addEventListener('click', () => { run.stop = true; $d('devSub').textContent = 'stopping…'; });
   const text = () => JSON.stringify(run.report || {}, (k, v) => (k === 'k' || k === 'sample') ? undefined : v, 2);
-  const copy = (s, ok) => { try { navigator.clipboard.writeText(s); $d('devNow').textContent = ok; } catch (e) { $d('devNow').textContent = 'Could not copy. Use Download.'; } };
+  const copy = (s, ok) => { try { navigator.clipboard.writeText(s).then(() => { $d('devNow').textContent = ok; }, () => { $d('devNow').textContent = 'Could not copy. Use Download.'; }); } catch (e) { $d('devNow').textContent = 'Could not copy. Use Download.'; } };
   $d('devCopy').addEventListener('click', () => copy(text(), 'Report copied.'));
   $d('devSummary').addEventListener('click', () => copy(summaryText(), 'Summary copied.'));
   $d('devSave').addEventListener('click', () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text()], { type: 'application/json' })); a.download = '3d-modeling-dev-report.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); });
