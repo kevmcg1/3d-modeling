@@ -3981,8 +3981,12 @@ function tipInfo(el) {
 function tipHide() { TipAnim.stop(); clearTimeout(TIP.t1); clearTimeout(TIP.t2); const c = $('#tip'); if (c) { c.classList.remove('in', 'more'); c.hidden = true; } TIP.el = null; G.tipFor = null; }
 function tipPlace() {
   const c = $('#tip'), el = TIP.el; if (!el || !c) return; const r = el.getBoundingClientRect(), w = c.offsetWidth, h = c.offsetHeight;
-  let x = r.left + r.width / 2 - w / 2, y = r.bottom + 10; if (y + h > innerHeight - 8) y = Math.max(8, r.top - h - 10);
-  c.style.left = Math.min(Math.max(8, x), Math.max(8, innerWidth - w - 8)) + 'px'; c.style.top = y + 'px';
+  // below the control, else above, else to its right, else to its left: the first that lies inside the window and leaves the control uncovered
+  const cx = r.left + r.width / 2 - w / 2, cy = r.top + r.height / 2 - h / 2, gap = 10, cl = (v, a, b) => Math.min(Math.max(a, v), Math.max(a, b));
+  const spots = [[cx, r.bottom + gap], [cx, r.top - h - gap], [r.right + gap, cy], [r.left - w - gap, cy]];
+  const fits = ([x, y]) => x >= 8 && y >= 8 && x + w <= innerWidth - 8 && y + h <= innerHeight - 8;
+  const [x, y] = spots.find(fits) || spots.map(([x, y]) => [cl(x, 8, innerWidth - w - 8), cl(y, 8, innerHeight - h - 8)]).find(([x, y]) => x + w <= r.left || x >= r.right || y + h <= r.top || y >= r.bottom) || [cl(cx, 8, innerWidth - w - 8), cl(r.bottom + gap, 8, innerHeight - h - 8)];
+  c.style.left = cl(x, 8, innerWidth - w - 8) + 'px'; c.style.top = cl(y, 8, innerHeight - h - 8) + 'px';
 }
 function tipShow() {
   const el = TIP.el; if (!el || !document.contains(el)) return; const info = tipInfo(el); if (!info) return; const c = $('#tip');

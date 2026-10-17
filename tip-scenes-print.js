@@ -120,7 +120,7 @@
         const hit = /nfil/.test(s), y = hit ? lerp(46 + i * 18, 46 + (r++) * 18, mv) : 46 + i * 18, x = hit ? 0 : 150 * mv;
         g.fill([[50 + x, y], [190 + x, y], [190 + x, y + 14], [50 + x, y + 14]], hit ? 'a' : 'n', { a: 0.18, stroke: hit ? 'a' : 'm' }); g.text(58 + x, y + 11, s, hit ? 'a' : 'k', 8.5, 'left');
       });
-      const c = g.seg(0.0, 0.28); g.cursor(lerp(215, 60, c), lerp(120, 30, c), g.lin(0.26, 0.33) > 0 && g.lin(0.26, 0.33) < 1 ? 1 - g.lin(0.26, 0.33) : 0);
+      const c = g.seg(0.0, 0.28); g.cursor(lerp(215, 150, c), lerp(120, 26, c), g.lin(0.26, 0.33) > 0 && g.lin(0.26, 0.33) < 1 ? 1 - g.lin(0.26, 0.33) : 0);
     });
   });
 // the pointer travels in early, so the card is already moving when someone hovers for a moment

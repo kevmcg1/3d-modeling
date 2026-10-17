@@ -3768,11 +3768,15 @@ body.col-drag { cursor: col-resize; user-select: none; }
   background: linear-gradient(180deg, var(--view-top), var(--view-bot)); touch-action: none; }
 #gl, #ov { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 /* Shaded mode "studio look": a light vignette backdrop (warm white centre, cool grey edges); sketch ink and grid use the light-theme set so they read on it in either UI theme */
-:root[data-look="shaded"] { --look-a: #fbf7f4; --look-b: #e6e5e7; --look-c: #bcc2cd;
+:root[data-look="shaded"] { --look-a: #fbf7f4; --look-b: #e6e5e7; --look-c: #bcc2cd; --edge: #1c232d; --body: #b4bec9; }
+/* light theme: sketch ink and grid use the dark set so they read on the pale backdrop */
+:root[data-look="shaded"]:not([data-theme="dark"]) {
   --sk-line: #17202c; --sk-cons: #d9792a; --sk-proj: #8b4fd0; --sk-sel: #2460c8; --sk-hot: #3d7cf0; --sk-pt: #17202c;
   --sk-profile: rgba(236, 166, 52, .20); --sk-profile-hot: rgba(236, 166, 52, .42); --sk-profile-sel: rgba(36, 96, 200, .30);
-  --sk-dim: rgba(23, 32, 44, .45); --grid-minor: rgba(35, 52, 76, .07); --grid-major: rgba(35, 52, 76, .15); --edge: #1c232d; --body: #b4bec9;
+  --sk-dim: rgba(23, 32, 44, .45); --grid-minor: rgba(35, 52, 76, .07); --grid-major: rgba(35, 52, 76, .15);
   --axis-u: #cf4236; --axis-v: #2b9650; --snap: #e2630f; --face-hot: #3d7cf0; --plane: #6f9be8; }
+/* dark theme: a dark studio backdrop (cool charcoal centre, near-black edges) and the dark theme's light ink */
+:root[data-look="shaded"][data-theme="dark"] { --look-a: #3a414c; --look-b: #262b33; --look-c: #111317; --edge: #0b0e12; --body: #9aa6b4; }
 :root[data-look="shaded"] #viewport, :root[data-look="shaded"] body.ws-cam #viewport { background:
   radial-gradient(ellipse 90% 80% at 42% 38%, var(--look-a) 0%, var(--look-b) 58%, var(--look-c) 100%); }
 #ov { cursor: crosshair; }
@@ -17766,7 +17770,7 @@ function bindCamTree(el) {
     li.addEventListener('click', () => { if (SIM.on) simStop(); CAMUI.view = 'op'; CAMUI.op = op.id; camRefresh(); });
     li.addEventListener('contextmenu', ev => { ev.preventDefault(); camOpMenu(op, ev.clientX, ev.clientY); });
   });
-  el.querySelectorAll('[data-ophide]').forEach(b => b.addEventListener('click', ev => { ev.stopPropagation(); const op = opById(+b.dataset.ophide); op.hide = !op.hide; saveLocal(); camRefresh(); }));
+  el.querySelectorAll('[data-ophide]').forEach(b => b.addEventListener('click', ev => { ev.stopPropagation(); const op = opById(+b.dataset.ophide); if (!op) return; op.hide = !op.hide; saveLocal(); camRefresh(); }));
   el.querySelectorAll('[data-automenu]').forEach(b => b.addEventListener('click', ev => { ev.stopPropagation(); const r = b.getBoundingClientRect(); autoCardMenu(r.left, r.bottom + 4); }));
 }
 function camOpMenu(op, x, y) {
@@ -26979,7 +26983,7 @@ openBlueprint = function () {
   const sp = el.querySelector('.bp-sp');
   const chip = document.createElement('button'); chip.className = 'btn bp-check'; chip.id = 'bpCheck'; chip.textContent = 'Check…';
   chip.addEventListener('click', () => { const p = document.getElementById('bpCheckList'); if (p) p.hidden = !p.hidden; });
-  sp.after(chip);
+  if (sp) sp.after(chip); else el.appendChild(chip);
   const list = document.createElement('div'); list.id = 'bpCheckList'; list.className = 'bp-checklist'; list.hidden = true;
   el.querySelector('.bp-stage').appendChild(list);
 };
@@ -32552,9 +32556,13 @@ const TIP_TXT = {
   const place = () => {
     if (!el) return;
     const r = el.getBoundingClientRect(), w = card.offsetWidth, h = card.offsetHeight;
-    let x = r.left + r.width / 2 - w / 2, y = r.bottom + 8;
-    if (y + h > innerHeight - 8) y = Math.max(8, r.top - h - 8);
-    card.style.left = clamp(x, 8, innerWidth - w - 8) + 'px'; card.style.top = y + 'px';
+    // below the control, else above, else to its right, else to its left: the first that lies inside the window and leaves the control uncovered
+    const cx = r.left + r.width / 2 - w / 2, cy = r.top + r.height / 2 - h / 2, gap = 8;
+    const spots = [[cx, r.bottom + gap], [cx, r.top - h - gap], [r.right + gap, cy], [r.left - w - gap, cy]];
+    const fits = ([x, y]) => x >= 8 && y >= 8 && x + w <= innerWidth - 8 && y + h <= innerHeight - 8;
+    const c = clamp;
+    let [x, y] = spots.find(fits) || spots.map(([x, y]) => [c(x, 8, Math.max(8, innerWidth - w - 8)), c(y, 8, Math.max(8, innerHeight - h - 8))]).find(([x, y]) => x + w <= r.left || x >= r.right || y + h <= r.top || y >= r.bottom) || [c(cx, 8, innerWidth - w - 8), c(r.bottom + gap, 8, innerHeight - h - 8)];
+    card.style.left = clamp(x, 8, Math.max(8, innerWidth - w - 8)) + 'px'; card.style.top = clamp(y, 8, Math.max(8, innerHeight - h - 8)) + 'px';
   };
   const show = () => {
     if (!el || !document.contains(el)) return;
@@ -38109,5 +38117,7 @@ function gsPick(i) {
 <!-- Early-access release: hides tabs and export formats, shows the notice (release-config.js lists what is hidden) -->
 <script src="release-config.js"></script>
 <script src="release.js"></script>
+<!-- Dev mode: press ` to open the self-test panel (stress-tests every workspace, control and kind of modeling, and grades smoothness) -->
+<script src="dev-mode.js"></script>
 </body>
 </html>
