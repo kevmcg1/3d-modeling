@@ -27168,7 +27168,7 @@ function camOptimizeAll() {
   // The stock model replays every cutting move on the main thread (about 1.5 ms a move). Past a budget of moves the rest of the
   // operations are left as programmed and skip the model (a default Waterline is 80,000 moves and froze the page for two minutes).
   // Missing cuts only mean later operations see more stock than there is, so the air-cut check stays on the safe side.
-  let simBudget = AIR.budget || 2500; const skipSim = new Set();
+  let simBudget = AIR.budget || 20000; const skipSim = new Set();
   ops.forEach((op, k) => { if (mcFin(op)) return; const nf = raws[k].m.reduce((c, x) => c + (x.r ? 0 : 1), 0); if (nf > simBudget) skipSim.add(op.id); else simBudget -= nf; });
   ops.forEach((op, k) => {
     const P = raws[k], tool = P.tool, ax = opAxis(op), m0 = P.m;
