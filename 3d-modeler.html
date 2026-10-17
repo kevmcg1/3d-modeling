@@ -23990,8 +23990,10 @@ function simToolTo(t) {
 //  are the app's own actions (commands, history steps, workspace changes,
 //  simulation). Errors are logged with the trail of steps that led to
 //  them, feature errors as they appear, and frames or tasks long enough
-//  to drop below 60 fps. File → Debug log turns it off; datumTrace() in
-//  the console prints the last 300 steps as a table.
+//  to drop below 60 fps. File → Debug log turns it on or off (dev mode turns it
+//  on for its run and off after); datumTrace() in the console prints the last
+//  300 steps as a table. debug-trace.js adds typing, every value change (from → to
+//  with its unit and the model dimensions), the 3D view, resizes, drags and panels.
 // ═══════════════════════════════════════════════════════════════════
 const Trace = {
   on: false, buf: [], t0: performance.now(), t0w: Date.now(), busy: false, cap: 4000,
@@ -24010,17 +24012,24 @@ const Trace = {
     this.buf.push(e); if (this.buf.length > this.cap * 1.25) this.buf.splice(0, this.buf.length - this.cap);   // ring buffer: cheap, never grows
     if (!this.on || this.busy) return;
     this.busy = true;
-    const col = { click: '#2460c8', key: '#8b4fd0', call: '#1d8656', field: '#b46a00', view: '#0f7c8c', perf: '#c0392f', feature: '#c0392f', error: '#c0392f' }[kind] || '#778291';
+    const col = { click: '#2460c8', key: '#8b4fd0', call: '#1d8656', field: '#b46a00', view: '#0f7c8c', perf: '#c0392f', feature: '#c0392f', error: '#c0392f', type: '#8b4fd0', change: '#b46a00', verify: '#1d8656', model: '#1d8656', resize: '#0f7c8c', drag: '#0f7c8c', scroll: '#778291', state: '#2460c8', panel: '#2460c8', page: '#778291', dev: '#c0392f' }[kind] || '#778291';
     const args = [`%c[3D Modeler ${e.t}s]%c ${kind}%c ${e.what}`, 'color:#778291', `color:${col};font-weight:600`, 'color:inherit'];
     const ctx = this.ctx();
     if (data !== undefined) args.push(data);
     if (Object.keys(ctx).length > 1 || ctx.ws !== 'design') args.push(ctx);
     try { (level === 'error' ? console.error : level === 'warn' ? console.warn : console.log)(...args); } finally { this.busy = false; }
   },
+  hooks: [],   // called with the new state whenever the log is switched on or off (debug-trace.js starts and stops its watchers here)
+  // Switch the console log on or off. persist=false (dev mode) leaves the saved choice alone, so a reload starts as it did before.
+  set(on, persist = true) {
+    on = !!on; if (on === this.on) return;
+    this.on = on;
+    if (persist) { try { localStorage.setItem('datum.trace', on ? '1' : '0'); } catch (e) { /* ignore */ } }
+    console.log(`%c[3D Modeler] debug log ${on ? 'on' : 'off'}`, 'color:#778291');
+    for (const h of this.hooks) { try { h(on); } catch (e) { /* a watcher failing must not stop the log */ } }
+  },
   toggle() {
-    this.on = !this.on;
-    try { localStorage.setItem('datum.trace', this.on ? '1' : '0'); } catch (e) { /* ignore */ }
-    console.log(`%c[3D Modeler] debug log ${this.on ? 'on' : 'off'}`, 'color:#778291');
+    this.set(!this.on);
     if (typeof toast === 'function') toast('Debug log ' + (this.on ? 'on (browser console)' : 'off'));
   },
 };
@@ -38231,6 +38240,8 @@ function gsPick(i) {
 <!-- Early-access release: hides tabs and export formats, shows the notice (release-config.js lists what is hidden) -->
 <script src="release-config.js"></script>
 <script src="release.js"></script>
+<!-- The deeper debug log: typing, value changes (from → to, with dimensions), the 3D view, resizes, drags, panels -->
+<script src="debug-trace.js"></script>
 <!-- Dev mode: press ` to open the self-test panel (stress-tests every workspace, control and kind of modeling, and grades smoothness) -->
 <script src="dev-mode.js"></script>
 </body>
