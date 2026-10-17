@@ -9275,6 +9275,36 @@ function evalDome(f, ctx, tol) {
 }
 FEATX.dome = evalDome;
 
+// ── Mates (panel in mates.js): move the body of face A so it sits against face B ──
+function mateFrame(h) {
+  const s = Surf.list[h.fid], face = h.body.polys.filter(p => p.f === h.fid);
+  if (!s || !face.length) return null;
+  if (s.t === 'P') return { t: 'P', n: nrm3(face[0].n), p: face[0].v[0] };
+  if (s.t === 'C') return { t: 'C', dir: nrm3(s.dir), p: s.p };
+  return null;
+}
+function evalMate(f, ctx) {
+  if (!f.a || !f.b) throw new Error('Pick the face that moves and the face it mates to');
+  const ha = findFace(ctx.bodies, f.a), hb = findFace(ctx.bodies, f.b);
+  if (!ha || !hb) throw new Error('A picked face no longer exists');
+  if (ha.body === hb.body) throw new Error('The two faces have to be on different bodies');
+  const A = mateFrame(ha), B = mateFrame(hb), off = +f.offset || 0, ty = f.mtype;
+  if (!A || !B) throw new Error('Mates work on flat and cylindrical faces');
+  let M;
+  if (ty === 'concentric') {
+    if (A.t !== 'C' || B.t !== 'C') throw new Error('Concentric mates need two round faces');
+    const R = XF.turn(A.dir, dot3(A.dir, B.dir) >= 0 ? B.dir : mul3(B.dir, -1)), pa = XF.ap(R, A.p), d = sub3(B.p, pa);
+    M = XF.mul(XF.trans(add3(sub3(d, mul3(B.dir, dot3(d, B.dir))), mul3(B.dir, off))), R);
+  } else {
+    if (A.t !== 'P' || B.t !== 'P') throw new Error('This mate needs two flat faces');
+    const same = ty === 'flush', R = XF.turn(A.n, same ? B.n : mul3(B.n, -1)), pa = XF.ap(R, A.p);
+    M = ty === 'parallel' ? R : XF.mul(XF.trans(mul3(B.n, off - dot3(sub3(pa, B.p), B.n))), R);
+  }
+  ctx.bodies = ctx.bodies.map(b => b === ha.body ? mkBody(b.id, xformPolys(b.polys, M, f.id + ':' + b.id, { feat: f.id })) : b);
+  ctx.hl[f.id] = [ha.body.id];
+}
+FEATX.mate = evalMate;
+
 // ── Rib / Web: thin walls from open sketch curves, extruded square to the sketch plane ──
 // A chain of lines and arcs is sampled, thickened to a flat-ended strip (mitered at bends) and extruded; several chains make a web.
 function ribLoops(pts, closed, h) {
@@ -37505,6 +37535,7 @@ function gsPick(i) {
 <script src="assembly.js"></script>
 <script src="weldment.js"></script>
 <script src="extras.js"></script>
+<script src="mates.js"></script>
 <!-- Export log, settings cog, mouse and keyboard layouts: own file so it can be loaded last -->
 <script src="input-settings.js"></script>
 <script src="cam-premium.js"></script>
