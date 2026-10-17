@@ -113,7 +113,7 @@
     try {
       const w = new Worker(URL.createObjectURL(new Blob([simWorkerSrc()], { type: 'text/javascript' })));
       w.onmessage = e => onMsg(e.data);
-      w.onerror = e => { console.warn('[Datum] Stock preview worker failed; cutting on the main thread.', e.message); PV.failed = true; PV.w = null; PV.key = null; check(); };
+      w.onerror = e => { console.warn('[3D Modeler] Stock preview worker failed; cutting on the main thread.', e.message); PV.failed = true; PV.w = null; PV.key = null; check(); };
       PV.w = w;
       return true;
     } catch (e) { PV.failed = true; return false; }
@@ -121,7 +121,7 @@
   function onMsg(m) {
     const J = PV.job;
     if (!J || m.seq !== J.seq) return;
-    if (m.k === 'err') { console.error('[Datum] Stock preview error:', m.error); PV.job = null; status(''); return; }
+    if (m.k === 'err') { console.error('[3D Modeler] Stock preview error:', m.error); PV.job = null; status(''); return; }
     J.view.apply(m.chunks);
     if (!J.applied) { J.applied = true; PV.w.postMessage({ k: 'apply', seq: J.seq, t: J.total }); return; }
     PV.job = null;

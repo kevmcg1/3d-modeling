@@ -1,6 +1,6 @@
 # 3D Print workspace
 
-Datum has a **3D Print** workspace (next to Design and Manufacture) that slices the model and writes G-code for Creality printers.
+3D Modeler has a **3D Print** workspace (next to Design and Manufacture) that slices the model and writes G-code for Creality printers.
 
 - `slicer.js` is the slicing engine. It has no DOM or THREE dependency, so it runs in Node too. Units are millimeters, Z up.
 - `print-ui.js` is the workspace: printer and filament pickers, the settings panel, bed placement, the layer preview and the G-code download. It plugs into the app by wrapping a few top-level functions, so the modeler's code is otherwise untouched.
