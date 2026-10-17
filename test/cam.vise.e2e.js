@@ -14,7 +14,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
   const errs = []; page.on('pageerror', e => errs.push(e.message));
   await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
   await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' }));
-  await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await page.waitForTimeout(2000);
+  await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html') + '?dev=1'); await page.waitForTimeout(2000);
   const load = async name => {
     await page.evaluate(n => { const s = SAMPLES.find(x => x.name === n); loadDoc(s.make(), 'test'); }, name); await page.waitForTimeout(1200);
     await page.evaluate(() => setWorkspace('cam')); await page.evaluate(() => autoProgram()); await page.evaluate(() => waitToolpaths()); await page.waitForTimeout(400);

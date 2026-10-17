@@ -37765,7 +37765,9 @@ ${D2} .rb-panel .rb-col > .rb-sm { padding: 0 4px 0 3px; gap: 4px; font-size: 10
       seg.setAttribute('data-fit', ''); seg.style.setProperty('--seg-cols', `repeat(${cols}, minmax(0, 1fr))`);
       const rem = bs.length % cols; if (rem) bs[bs.length - 1].style.gridColumn = `span ${cols - rem + 1}`;   // a short last row fills the width
     }
-    seg.dataset.segN = bs.length; seg.dataset.segW = W; return true;
+    // the width is recorded in the layout just made: a control that is as wide as its content is narrower once it wraps, and recording the width it had before
+    // made every pass look like a change, so it flipped between one row and two on every frame
+    seg.dataset.segN = bs.length; seg.dataset.segW = String(Math.max(0, seg.clientWidth - 2)); return true;
   };
   let queued = false;
   const pass = all => { queued = false; document.querySelectorAll('.seg').forEach(s => { if (all || s.dataset.segW !== String(Math.max(0, s.clientWidth - 2)) || s.dataset.segN !== String(s.children.length)) fit(s); }); };
@@ -38302,6 +38304,8 @@ function gsPick(i) {
 <!-- Export log, settings cog, mouse and keyboard layouts: own file so it can be loaded last -->
 <script src="input-settings.js"></script>
 <script src="cam-premium.js"></script>
+<!-- Import and export previews (Shaded, Wireframe, Solid) and the closed-mesh check -->
+<script src="io-preview.js"></script>
 <!-- Early-access release: hides tabs and export formats, shows the notice (release-config.js lists what is hidden) -->
 <script src="release-config.js"></script>
 <script src="release.js"></script>

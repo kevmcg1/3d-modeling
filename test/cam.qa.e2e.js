@@ -12,7 +12,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
   const errs = []; page.on('pageerror', e => errs.push(e.message));
   await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
   await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' }));
-  await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await page.waitForTimeout(2000);
+  await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html') + '?dev=1'); await page.waitForTimeout(2000);
   await page.addScriptTag({ path: path.resolve(__dirname, 'lib', 'gcode-check.js') });
   const program = name => page.evaluate(async (name) => {
     const e0 = camEpoch, s = SAMPLES.find(x => x.name === name); loadDoc(s.make(), 'test'); setWorkspace('cam');

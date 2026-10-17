@@ -15,7 +15,7 @@ const SKIP = /export|save|open|import|print|download|file|new|clear|reset/i;   /
   await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
   await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' }));
   await page.route(/fonts\.g/, r => r.abort());
-  await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await page.waitForTimeout(1500);
+  await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html') + '?dev=1'); await page.waitForTimeout(1500);
   const load = () => page.evaluate(() => { if (typeof cancelCmd === 'function') try { cancelCmd(); } catch (e) { /* none open */ } loadDoc(SAMPLES.find(s => s.name === 'Pocketed plate').make(), 't'); });
 
   await ok('Guided Setup with no part left shows step 1 and does not throw', async () => {
