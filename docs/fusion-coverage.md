@@ -67,10 +67,12 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | Midplane | ✅ | Two parallel planes or flat faces (batch 1) |
 | Plane at Angle | ✅ | About any edge, cylinder axis, sketch line or world axis, from a chosen plane or face (batch 1) |
 | Plane Through Three Points | ✅ | Points snap to vertices, midpoints and centers; fixed where placed, so it does not follow later edits (batch 1) |
-| Plane Through Two Edges, Tangent Plane, Plane Along Path | 🔜 6 | |
-| Axis (cylinder, edge, two points, perpendicular to face) | 🟡 | Edges, cylinders and sketch lines already act as axes inside other tools; a standalone visible axis feature is 🔜 6 |
+| Plane Through Two Edges, Tangent Plane | ✅ | construct.js (batch 18) |
+| Plane Along Path | 🔜 | |
+| Axis (cylinder, edge, two points, perpendicular to face) | ✅ | Visible Axis feature (two points, two planes, normal to plane) that any axis picker can click; edges, cylinders and sketch lines also still work (batch 18) |
 | Point (vertex, edge midpoint, center) | ✅ | Point feature with snapping |
-| Point Through Two Edges / Three Planes | 🔜 6 | |
+| Point Through Two Edges | ✅ | batch 18 |
+| Point Through Three Planes | 🔜 | |
 
 ## Sketch
 
@@ -159,6 +161,7 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | 2 ✅ | Pipe, Pattern on Path, Ellipse, Slot |
 | 3 ✅ | Rib, Web, Spline, Overall Slot, Center Point Slot |
 | 4 | ✅ two-distance chamfer, Boundary Fill. Still open: variable and setback fillets, Split Face, Delete Face, planar Emboss |
+| 18 ✅ | Axis, Tangent Plane, Plane/Point Through Two Edges (construct.js) |
 | 17 ✅ | Mates: coincident, flush, parallel, concentric between two bodies (mates.js) |
 | 16 ✅ | Dome, end caps, Cut List (extras.js) |
 | 15 ✅ | Weldment structural members (weldment.js) |
