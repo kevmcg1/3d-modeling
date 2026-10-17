@@ -13,7 +13,7 @@ const close = (a, b, tol, what) => assert(Math.abs(a - b) <= tol, `${what}: ${a}
   const errs = []; page.on('pageerror', e => errs.push(e.message));
   await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
   await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' }));
-  await page.goto('file://' + path.resolve(__dirname, '..', 'index.html')); await page.waitForTimeout(1500);
+  await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await page.waitForTimeout(1500);
   const P = (id, shape, extra) => Object.assign({ id, type: 'primitive', name: 'P' + id, shape, base: 'XY', cx: 0, cy: 0, off: 0, op: 'new', w: 40, d: 30, h: 10, dia: 20, dia2: 0, tube: 6, center: true, sit: true }, extra || {});
   const open = (F, act) => page.evaluate(([F, act]) => { loadDoc({ features: F, next: 200 }, 'x'); setWorkspace('model'); applyModel(evaluate(0.05), { tol: 0.05 }); document.querySelector(`[data-act="${act}"]`).click(); return CMD && CMD.kind; }, [F, act]);
   await ok('curvature reads the radius of a cylinder, flags a tight inside corner and keeps outside rounds blue', async () => {

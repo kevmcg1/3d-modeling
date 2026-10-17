@@ -2,7 +2,7 @@
 //  Mesh tools (Design tab): Reverse Normal turns a body inside out (the
 //  repair for an imported mesh whose faces point the wrong way), and
 //  Reduce merges vertices closer than a size to make a lighter mesh.
-//  The kernel half is in index.html. Coverage list: docs/fusion-coverage.md
+//  The kernel half is in 3d-modeler.html. Coverage list: docs/fusion-coverage.md
 // ═══════════════════════════════════════════════════════════════════
 (() => {
   if (typeof FEATS === 'undefined' || typeof bodyTool === 'undefined') return;

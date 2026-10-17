@@ -12,7 +12,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
   const errs = []; page.on('pageerror', e => errs.push(e.message));
   await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
   await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' }));
-  await page.goto('file://' + path.resolve(__dirname, '..', 'index.html')); await page.waitForTimeout(2000);
+  await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await page.waitForTimeout(2000);
   const load = kinds => page.evaluate(async kinds => {
     const k = sampleKit();
     kinds.forEach((kd, i) => k.features.push({ id: k.nid(), type: 'shop', name: kd, ...FEATS.shop.init(), ...shopDefaults(kd), kind: kd, cx: i * 500, cy: 0 }));

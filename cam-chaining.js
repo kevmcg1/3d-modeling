@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════════
 //  Chaining modes, the way Mastercam offers them: Chain, Window, Area, Single, Partial and Last, plus Undo and Clear.
-//  They all end in the same op.chains list as a click does (buildChain in index.html); this file only decides which
+//  They all end in the same op.chains list as a click does (buildChain in 3d-modeler.html); this file only decides which
 //  edges a gesture takes and groups them into chains.
 //    Chain    click an edge: the whole connected run it belongs to
 //    Window   drag a rectangle: every edge inside it, grouped into chains

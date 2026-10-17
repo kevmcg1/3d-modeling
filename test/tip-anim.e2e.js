@@ -4,7 +4,7 @@
 // Run: NODE_PATH=<dir with playwright, three@0.128, clipper-lib@6.4.2> CHROMIUM_PATH=<chrome> node test/tip-anim.e2e.js
 let chromium; try { ({ chromium } = require('playwright')); } catch (e) { console.log('skip: playwright is not installed'); process.exit(0); }
 let libs = null; try { libs = { three: require.resolve('three/build/three.min.js'), clipper: require.resolve('clipper-lib/clipper.js') }; } catch (e) { /* offline */ }
-if (!libs) { console.log('skip: needs three and clipper-lib in node_modules (index.html loads them from CDNs)'); process.exit(0); }
+if (!libs) { console.log('skip: needs three and clipper-lib in node_modules (3d-modeler.html loads them from CDNs)'); process.exit(0); }
 const path = require('path'), fs = require('fs'), assert = require('assert');
 const { sweep, offline, openPage } = require('./tip-anim.audit.js');
 const ROOT = path.resolve(__dirname, '..');
@@ -26,7 +26,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
   // keys every page registers for its tool cards
   const missing = {};
   await ok('every tip key of the main app has an action scene', async () => {
-    const p = await openPage(browser, 'index.html');
+    const p = await openPage(browser, '3d-modeler.html');
     const m = await p.evaluate(() => {
       const keys = new Set([...Object.keys(TIP_TXT), ...Object.keys(TIP_ART), ...Object.keys(BTN_TXT), ...Object.keys(OP_INFO).map(k => 'add:' + k)]);
       return [...keys].filter(k => !TipAnim.has(k));

@@ -8,8 +8,8 @@
 <meta name="robots" content="noai, noimageai">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>2D Drawing</title>
-<!-- Datum 2D Drawing: an AutoCAD-style 2D drafting workspace. Self-contained (no libraries) and independent of the 3D modeler:
-     its own document, layers, command line, snaps, DXF import / export and plotting. Datum opens it in its own workspace tab. -->
+<!-- 3D Modeler 2D Drawing: an AutoCAD-style 2D drafting workspace. Self-contained (no libraries) and independent of the 3D modeler:
+     its own document, layers, command line, snaps, DXF import / export and plotting. 3D Modeler opens it in its own workspace tab. -->
 <style>
 :root { --bg:#f3f5f8; --panel:#ffffff; --panel2:#eef1f6; --rule:#d5dbe5; --ink:#1b2430; --ink2:#38465a; --muted:#6a778b; --accent:#2f7de1; --accent-soft:#e2edfc; --danger:#d6453d; --ok:#2e9d5b;
   --font:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif; --mono:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif; --shadow:0 8px 28px rgba(15,25,40,.18); }
@@ -207,7 +207,7 @@ input[type=text], input[type=number], textarea { background:#fff; border:1px sol
 <div id="app">
   <header id="top">
     <div class="tl">
-      <span class="logo" title="Datum 2D Drawing">2D Drawing</span>
+      <span class="logo" title="3D Modeler 2D Drawing">2D Drawing</span>
       <button class="tb" id="btnFile" title="File menu: new, open, save, export, plot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/></svg>File</button>
       <span id="fname"></span>
       <button class="tb" id="btnUndo" title="Undo (Ctrl+Z)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6L4 10l4 4"/><path d="M4 10h9a6 6 0 0 1 0 12H9"/></svg></button>
@@ -3157,7 +3157,7 @@ async function openFile(file) {
       if (nd.units.u !== 'in') toast(`Drawing units set to ${UNITS[nd.units.u].n.toLowerCase()} from the DXF file`);
     } catch (e) { console.error(e); msg('DXF import failed: ' + e.message, 'err'); toast('Could not read that DXF'); }
   } else {
-    try { const o = JSON.parse(text); if (o.format !== 'datum-2d-drawing') throw new Error('Not a Datum 2D drawing file'); loadDocData(o.doc, nm.replace(/\.[^.]+$/, '').replace(/\.d2d$/i, '')); FILE.dirty = false; updateTitle(); } catch (e) { msg('Cannot open file: ' + e.message, 'err'); }
+    try { const o = JSON.parse(text); if (o.format !== 'datum-2d-drawing') throw new Error('Not a 3D Modeler 2D drawing file'); loadDocData(o.doc, nm.replace(/\.[^.]+$/, '').replace(/\.d2d$/i, '')); FILE.dirty = false; updateTitle(); } catch (e) { msg('Cannot open file: ' + e.message, 'err'); }
   }
 }
 function saveFile() { download((FILE.name || 'Drawing1') + '.d2d.json', serializeDoc(), 'application/json'); FILE.dirty = false; updateTitle(); msg('Saved ' + FILE.name + '.d2d.json'); }
@@ -3538,7 +3538,7 @@ function init() {
   for (const [n, k] of [['layers', true], ['props', true]]) { let v = k; try { const s = localStorage.getItem('d2d.panel.' + n); if (s != null) v = s === '1'; } catch (e) { } if (innerWidth < 900) v = false; (n === 'layers' ? $('#layerPal') : $('#propPal')).hidden = !v; }
   if (!loadAutosave()) { newDrawing('in'); }
   histInit(); sizeCanvases(); renderLayers(); updateProps(); updateStatus(); updateTitle(); syncUI(); showPrompt();
-  msg('Datum 2D Drawing — type a command (LINE, CIRCLE, RECTANGLE, TRIM …) or use the ribbon. F1 lists every command.'); 
+  msg('3D Modeler 2D Drawing — type a command (LINE, CIRCLE, RECTANGLE, TRIM …) or use the ribbon. F1 lists every command.'); 
   setTimeout(() => { if (!doc.ents.length) zoomExtents(true); cmdIn.focus(); }, 50);
   window.D2D = { VANIM, CMDS, saveObj: () => (typeof saveFile === 'function' ? null : null), mk: mkEnt, add: addEnt, commit, pickAt, snapPoint, drawMain, drawOv, docBox, undo, redo, sizeCanvases, HIST, entsToSVG, toS, toW, redrawAll, zoomExtents, doc: () => doc, CM, SEL, UI, run: runCommand, submit: submitText, exportDXF, importDXF, loadDocData, exportSVG, prims, entBox, FILE };
 }

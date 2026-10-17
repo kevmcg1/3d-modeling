@@ -2,7 +2,7 @@
 //  Joints and motion (Design tab): Rigid, Revolute, Slider, Cylindrical,
 //  Planar and Ball joints that put the moving bodies at the joint's
 //  current position, with limits, and Animate (a motion study that
-//  drives the joint back and forth). The kernel half is in index.html
+//  drives the joint back and forth). The kernel half is in 3d-modeler.html
 //  next to the other kernel scripts. Coverage list: docs/fusion-coverage.md
 // ═══════════════════════════════════════════════════════════════════
 (() => {

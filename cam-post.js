@@ -1,6 +1,6 @@
 // Manufacture: controllers (post processors) and work offsets G54 to G59.
 //
-// postGcode() in index.html builds one program from every operation. What differs between controllers is small and lives
+// postGcode() in 3d-modeler.html builds one program from every operation. What differs between controllers is small and lives
 // here, as a profile per controller: the program header and end, the tool change, how the tool length is applied, which
 // canned cycles exist (and in what words), how a dwell is written, comment style, and the work-offset words. Everything a
 // profile cannot do is posted as plain moves, which every control accepts, with a comment saying so.
@@ -19,7 +19,7 @@
   // ── ISO family: Haas, Fanuc, Mach3, Grbl ──
   const iso = o => Object.assign({
     ext: 'nc', wcs: WCS, indexed: false, g12: false, grbl: false,
-    head: pf => ['%', `O${pad(pf.program, 5)} (DATUM)`],
+    head: pf => ['%', `O${pad(pf.program, 5)} (3D MODELER)`],
     init: inch => [`${inch ? 'G20' : 'G21'} G90 G94 G17 G40 G49 G80`],
     toolChange: t => [`T${t.n} M6`],
     tlc: (t, z) => `G43 H${t.n} Z${z}`,
@@ -30,10 +30,10 @@
   }, o);
 
   const POSTS = {
-    haas: iso({ id: 'haas', name: 'Haas (NGC)', indexed: true, g12: true, head: pf => ['%', `O${pad(pf.program, 5)} (DATUM - HAAS MILL)`] }),
+    haas: iso({ id: 'haas', name: 'Haas (NGC)', indexed: true, g12: true, head: pf => ['%', `O${pad(pf.program, 5)} (3D MODELER - HAAS MILL)`] }),
     fanuc: iso({
       id: 'fanuc', name: 'Fanuc 0i / 30i', indexed: true,
-      head: pf => ['%', `O${pad(pf.program, 4)} (DATUM - FANUC)`],
+      head: pf => ['%', `O${pad(pf.program, 4)} (3D MODELER - FANUC)`],
       toolChange: t => [`T${pad(t.n, 2)} M06`],
       dwell: s => `G04 P${Math.round(s * 1000)}`,                                // Fanuc reads P as milliseconds
       cycP: s => String(Math.round(s * 1000)),
@@ -50,7 +50,7 @@
     }),
     mach3: iso({
       id: 'mach3', name: 'Mach3 / Mach4', ext: 'tap',
-      head: pf => [`(PROGRAM ${pf.program} - DATUM FOR MACH3)`],
+      head: pf => [`(PROGRAM ${pf.program} - 3D MODELER FOR MACH3)`],
       canned: mode => ['drill', 'spot', 'peck', 'chip', 'ream', 'bore', 'bored'].includes(mode),
       end: () => ['G53 G0 Z0', 'M30'],
       notes: () => ['(MACH3 CANNED CYCLES - G98 / G99 RETURN PLANES AND P IN SECONDS)'],
@@ -66,7 +66,7 @@
     }),
     siemens: iso({
       id: 'siemens', name: 'Siemens Sinumerik 840D', ext: 'mpf', semi,
-      head: pf => [`; DATUM - SINUMERIK PROGRAM ${pf.program}`],
+      head: pf => [`; 3D MODELER - SINUMERIK PROGRAM ${pf.program}`],
       init: inch => [`${inch ? 'G70' : 'G71'} G90 G94 G17 G40 G64`],
       toolChange: t => [`T${t.n}`, 'M6', 'D1'],                                  // the tool's length is taken from its D1 edge
       tlc: () => null,
@@ -115,7 +115,7 @@
     const unit = inch ? 'INCH' : 'MM', name = String(pf.program);
     const o0 = camOrigin();
     out(`BEGIN PGM ${name} ${unit}`);
-    out(`; DATUM - HEIDENHAIN, GENERATED ${new Date().toISOString().slice(0, 10)}`);
+    out(`; 3D MODELER - HEIDENHAIN, GENERATED ${new Date().toISOString().slice(0, 10)}`);
     out(`; WCS G54: ${wcsName(C)}`);
     if (st0) {
       out(`BLK FORM 0.1 Z X${N(st0.x0 - o0[0])} Y${N(st0.y0 - o0[1])} Z${N(st0.z0 - o0[2])}`);

@@ -8,7 +8,7 @@
 //  Settings: what the left, middle and right mouse buttons and the wheel do, and every
 //  shortcut, with "Change keyboard layout to" templates (Blender, SolidWorks, Fusion,
 //  Mastercam, AutoCAD, Inventor, Onshape, FreeCAD, Rhino). Everything is saved between visits.
-//  The mouse side lives in index.html (MOUSE); the keyboard side is a capture-phase listener
+//  The mouse side lives in 3d-modeler.html (MOUSE); the keyboard side is a capture-phase listener
 //  here that stays out of the way (one early return) until a shortcut has been changed.
 // ═══════════════════════════════════════════════════════════════════
 (() => {
@@ -136,7 +136,7 @@
   // ───────────────────────── Mouse templates ─────────────────────────
   const M = (o) => o;
   const TEMPLATES = [
-    { id: 'datum', name: 'Datum (default)', mouse: M({}), keys: {} },
+    { id: 'datum', name: '3D Modeler (default)', mouse: M({}), keys: {} },
     { id: 'blender', name: 'Blender', mouse: M({ left: 'none', middle: 'orbit', midShift: 'pan', midCtrl: 'zoom', right: 'none', rightShift: 'same', wheelAt: 'center', pivot: 'center' }),
       keys: { redo: 'ctrl+shift+z', view2d: '5', fit: 'home', m_move: 'g', m_fillet: 'ctrl+b', st_mirror: 'ctrl+m', extrude: 'e' } },
     { id: 'solidworks', name: 'SolidWorks', mouse: M({ left: 'none', middle: 'orbit', midShift: 'zoom', midCtrl: 'pan', right: 'none', rightShift: 'same' }),
@@ -291,7 +291,7 @@ html.calm .st .kc.rec { animation: none; }
     card.innerHTML = `<div class="st"><div class="m-head"><h3>Settings</h3><button class="x" data-mx title="Close">×</button></div>
       <div class="st-layout"><b>Change keyboard layout to</b>
         <select id="stLayout">${TEMPLATES.map(t => `<option value="${t.id}" ${cur === t.id ? 'selected' : ''}>${t.name}</option>`).join('')}<option value="custom" ${cur === 'custom' ? 'selected' : ''} disabled>Custom (your changes)</option></select>
-        <span class="st-note">Sets the mouse and the shortcuts to that program's usual defaults, closest equivalents where Datum has no matching command. Change any of them below.</span></div>
+        <span class="st-note">Sets the mouse and the shortcuts to that program's usual defaults, closest equivalents where 3D Modeler has no matching command. Change any of them below.</span></div>
       <div class="st-tabs"><button data-tab="mouse" class="${tab === 'mouse' ? 'on' : ''}">Mouse</button><button data-tab="keys" class="${tab === 'keys' ? 'on' : ''}">Keyboard</button><i></i></div>
       <div id="stBody">${tab === 'mouse' ? mousePane() : `<div class="st-pane" data-pane="keys"><input type="search" id="stFilter" placeholder="Search shortcuts" value="${filterText.replace(/"/g, '&quot;')}"><div class="st-keys" id="stKeys">${keysPane(filterText)}</div><p class="st-hint">Click a key, then press the new combination. Backspace clears it, Esc cancels. Esc, Enter, Delete and Tab are reserved.</p></div>`}</div>
       <div class="btns"><button class="btn" id="stResetAll">Reset everything to defaults</button><button class="btn primary" data-mx>Done</button></div></div>`;
@@ -393,7 +393,7 @@ html.calm .st .kc.rec { animation: none; }
   function environment() {
     const n = navigator, nav = performance.getEntriesByType && performance.getEntriesByType('navigation')[0];
     return section('APP, BROWSER AND SCREEN', [
-      `App: Datum (3D modeling / CAM), file format version ${safe(() => VERSION)}`,
+      `App: 3D Modeler (3D modeling / CAM), file format version ${safe(() => VERSION)}`,
       `Page: ${location.origin === 'null' ? location.protocol + '//' : location.origin}${location.pathname}   (query and hash left out)`,
       `Page loaded: ${iso(Trace.t0w)}   Exported: ${iso(Date.now())}   Session length: ${((Date.now() - Trace.t0w) / 60000).toFixed(1)} min`,
       `Page load time: ${nav ? Math.round(nav.domContentLoadedEventEnd) + ' ms to DOMContentLoaded' : '?'}`,
@@ -456,12 +456,12 @@ html.calm .st .kc.rec { animation: none; }
   }
   function buildLog() {
     log('export', 'log exported');
-    const head = ['DATUM DEBUG LOG', 'Everything recorded since the page loaded: clicks, tool and tab changes, parameter edits, keys, mouse, undo/redo,', 'operations, simulation, imports and exports, console warnings and errors, uncaught exceptions. Passwords and tokens are left out.'];
+    const head = ['3D MODELER DEBUG LOG', 'Everything recorded since the page loaded: clicks, tool and tab changes, parameter edits, keys, mouse, undo/redo,', 'operations, simulation, imports and exports, console warnings and errors, uncaught exceptions. Passwords and tokens are left out.'];
     return scrub(head.join('\n') + '\n' + environment() + settingsInfo() + stateInfo() + history());
   }
   function exportLog() {
     let text;
-    try { text = buildLog(); } catch (e) { text = 'DATUM DEBUG LOG\nThe log could not be fully built: ' + e.message + '\n' + (e.stack || '') + '\n' + safe(() => history(), ''); }
+    try { text = buildLog(); } catch (e) { text = '3D MODELER DEBUG LOG\nThe log could not be fully built: ' + e.message + '\n' + (e.stack || '') + '\n' + safe(() => history(), ''); }
     const d = new Date(), name = `datum-log-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.txt`;
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' })); a.download = name;

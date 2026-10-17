@@ -1,4 +1,4 @@
-// Manufacture: the vise and parallels the stock sits in (collision boxes in index.html: viseModel / viseObjects / fixtureHit).
+// Manufacture: the vise and parallels the stock sits in (collision boxes in 3d-modeler.html: viseModel / viseObjects / fixtureHit).
 // What was wrong with them: the jaws, base and bars were drawn as unlit near-black boxes (no environment light), so they
 // vanished into the background and the parallels read as thin slivers; the vise size only followed the length along the
 // jaws, so a wide stock could sit outside a 6 in vise's opening; the placement was cached while toolpaths were still

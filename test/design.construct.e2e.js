@@ -13,7 +13,7 @@ const close = (a, b, tol, what) => assert(Math.abs(a - b) <= tol, `${what}: ${a}
   const errs = []; page.on('pageerror', e => errs.push(e.message));
   await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
   await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' }));
-  await page.goto('file://' + path.resolve(__dirname, '..', 'index.html')); await page.waitForTimeout(1500);
+  await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await page.waitForTimeout(1500);
   const ev = (F) => page.evaluate(F0 => { loadDoc({ features: F0, next: 200 }, 'x'); const c = evaluate(0.05); return { errors: c.errors, ext: c.ext, planes: c.planes, points: c.points, bodies: c.bodies.length }; }, F);
   await ok('axis through two points', async () => {
     const r = await ev([{ id: 10, type: 'axis', name: 'A', akind: 'pts', pts: [[0, 0, 0], [0, 0, 10]], vis: true }]);

@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════════
 //  Extras (Design tab): Dome, and the Cut List (an Inspect tool).
-//  The Dome evaluator is in index.html next to the other kernel scripts.
+//  The Dome evaluator is in 3d-modeler.html next to the other kernel scripts.
 //  Coverage list: docs/fusion-coverage.md
 // ═══════════════════════════════════════════════════════════════════
 (() => {

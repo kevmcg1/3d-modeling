@@ -11,13 +11,13 @@ const WINDOW_MS = 2000, BUDGET_CB_PER_SEC = +(process.env.IDLE_RAF_BUDGET || 4);
 let fails = 0;
 (async () => {
   const server = http.createServer((q, r) => {
-    const f = path.join(ROOT, decodeURIComponent(q.url.split('?')[0]).replace(/^\/$/, '/index.html'));
+    const f = path.join(ROOT, decodeURIComponent(q.url.split('?')[0]).replace(/^\/$/, '/3d-modeler.html'));
     if (!f.startsWith(ROOT) || !fs.existsSync(f)) { r.statusCode = 404; return r.end(); }
     r.setHeader('content-type', /\.js$/.test(f) ? 'text/javascript' : 'text/html'); r.end(fs.readFileSync(f));
   }).listen(0);
   const port = server.address().port;
   const browser = await chromium.launch({ executablePath: process.env.CHROMIUM || '/opt/pw-browsers/chromium', args: ['--no-sandbox', '--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'] });
-  for (const pg of (process.env.PAGES || 'index.html,graphics.html,house.html,drawing2d.html,setup-sheet-generator.html').split(',')) {
+  for (const pg of (process.env.PAGES || '3d-modeler.html,graphics.html,house.html,drawing2d.html,setup-sheet-generator.html').split(',')) {
     const page = await (await browser.newContext({ viewport: { width: 1500, height: 900 } })).newPage();
     await page.addInitScript(() => { window.__raf = 0; const o = window.requestAnimationFrame.bind(window); window.requestAnimationFrame = cb => o(t => { window.__raf++; return cb(t); }); });
     await page.route('**/*', route => {

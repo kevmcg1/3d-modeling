@@ -9,7 +9,7 @@ const THREE = fs.readFileSync(path.join(nm('three'), 'build/three.min.js')), CLI
 let fails = 0; const ok = (c, m) => { if (!c) { fails++; console.log('FAIL ' + m); } else console.log('ok - ' + m); };
 (async () => {
   const server = http.createServer((q, r) => {
-    const f = path.join(ROOT, decodeURIComponent(q.url.split('?')[0]).replace(/^\/$/, '/index.html'));
+    const f = path.join(ROOT, decodeURIComponent(q.url.split('?')[0]).replace(/^\/$/, '/3d-modeler.html'));
     if (!f.startsWith(ROOT) || !fs.existsSync(f)) { r.statusCode = 404; return r.end(); }
     r.setHeader('content-type', /\.js$/.test(f) ? 'text/javascript' : 'text/html'); r.end(fs.readFileSync(f));
   }).listen(0);
@@ -23,7 +23,7 @@ let fails = 0; const ok = (c, m) => { if (!c) { fails++; console.log('FAIL ' + m
     if (u.startsWith('http://localhost')) return route.continue();
     return route.abort();
   });
-  await page.goto(`http://localhost:${server.address().port}/index.html`); await page.waitForTimeout(2500);
+  await page.goto(`http://localhost:${server.address().port}/3d-modeler.html`); await page.waitForTimeout(2500);
   const r = await page.evaluate(async () => {
     const N = 20000, text = Array.from({ length: N }, (_, i) => `N${i} G1 X${i % 90}.5 Y${i % 40}.25 F800`).join('\n');
     GCED.edited = true; GCED.text = text; GCED.base = text; gcedShow(true);

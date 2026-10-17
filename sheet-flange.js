@@ -2,7 +2,7 @@
 //  Sheet metal edge work (Design tab): Edge Flange, Miter Flange (flanges
 //  on several edges that meet at corners, mitered), Hem and Jogged Flange.
 //  Pick the thin end edge of a sheet (where the end meets the big face).
-//  The kernel half is in index.html next to the other kernel scripts.
+//  The kernel half is in 3d-modeler.html next to the other kernel scripts.
 //  Coverage list: docs/fusion-coverage.md
 // ═══════════════════════════════════════════════════════════════════
 (() => {

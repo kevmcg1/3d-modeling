@@ -137,13 +137,14 @@
     const key = b.dataset.fx, f = CMD.f, host = b.parentElement, old = host.querySelector('input[data-fv]');
     if (!old || old.dataset.fxEdit) return;
     const t = document.createElement('input');
-    t.type = 'text'; t.dataset.fxEdit = '1'; t.className = old.className; t.setAttribute('inputmode', 'text'); t.autocomplete = 'off'; t.spellcheck = false;
+    t.type = 'text'; t.dataset.fxEdit = '1'; t.dataset.live = '1'; t.className = old.className; t.setAttribute('inputmode', 'text'); t.autocomplete = 'off'; t.spellcheck = false;
     t.value = f.expr && f.expr[key] ? f.expr[key] : old.value;
     t.placeholder = 'e.g. width/2 + 3 mm';
     old.replaceWith(t); t.focus(); t.select();
     let done = false;
     const commit = () => {
-      if (done) return; done = true;
+      if (done) return; done = true; delete t.dataset.live;       // let featSync rebuild the panel with the number box back
+      if (!CMD || CMD.f !== f) return;                    // the dialog closed while the box still had focus
       const text = t.value.trim(), len = !!old.dataset.len;
       if (/^-?(\d+\.?\d*|\.\d+)$/.test(text) || text === '') {
         if (f.expr) { delete f.expr[key]; if (!Object.keys(f.expr).length) delete f.expr; }
@@ -159,6 +160,13 @@
     };
     t.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); ev.stopPropagation(); commit(); } else if (ev.key === 'Escape') { ev.stopPropagation(); done = true; refreshPanel(); } });
     t.addEventListener('blur', commit);
+    // holding ↑ / ↓ (number-step.js) steps a plain number and moves the feature with each step; expressions wait for Enter
+    t.addEventListener('input', () => {
+      if (done || !CMD || CMD.f !== f || !/^\s*-?(\d+\.?\d*|\.\d+)\s*$/.test(t.value)) return;
+      if (f.expr) { delete f.expr[key]; if (!Object.keys(f.expr).length) delete f.expr; }
+      const v = parseFloat(t.value), len = !!old.dataset.len;
+      f[key] = old.dataset.int ? Math.round(len ? fromU(v) : v) : len ? fromU(v) : v; featSync();
+    });
   });
   // typing a plain number into a field takes the expression off it
   const bindFeatPanel0 = bindFeatPanel;

@@ -2,7 +2,7 @@
 // Run: NODE_PATH=<dir with playwright, three@0.128, clipper-lib@6.4.2> CHROMIUM_PATH=<chrome> node test/cam.post.e2e.js
 let chromium; try { ({ chromium } = require('playwright')); } catch (e) { console.log('skip: playwright is not installed'); process.exit(0); }
 let libs = null; try { libs = { three: require.resolve('three/build/three.min.js'), clipper: require.resolve('clipper-lib/clipper.js') }; } catch (e) { /* offline */ }
-if (!libs) { console.log('skip: needs three and clipper-lib in node_modules (index.html loads them from CDNs)'); process.exit(0); }
+if (!libs) { console.log('skip: needs three and clipper-lib in node_modules (3d-modeler.html loads them from CDNs)'); process.exit(0); }
 const path = require('path'), assert = require('assert');
 let pass = 0, fail = 0;
 const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + name); } catch (e) { fail++; console.log('FAIL - ' + name + ' :: ' + String(e.message).slice(0, 900)); } };
@@ -12,7 +12,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
   const errs = []; page.on('pageerror', e => errs.push(e.message));
   await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
   await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' }));
-  await page.goto('file://' + path.resolve(__dirname, '..', 'index.html')); await page.waitForTimeout(2000);
+  await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await page.waitForTimeout(2000);
   await page.evaluate(() => { const s = SAMPLES.find(x => x.name === 'Pocketed plate'); loadDoc(s.make(), 'test'); });
   await page.waitForTimeout(1500);
   await page.evaluate(() => { setWorkspace('cam'); const C = cam(); C.ops = []; camAddOp('face'); camAddOp('drill'); const d = C.ops[1]; d.mode = 'spot'; d.dwell = 1.5; });
@@ -20,7 +20,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
   const post = ctrl => page.evaluate(c => { const C = cam(); C.post.ctrl = c; C.post.lineNums = false; return postGcode().text; }, ctrl);
   await ok('Haas (default) keeps its program: O number, T M6, G43, G12 pocket cycle where used, G28 end', async () => {
     const t = await post('haas');
-    assert(/^%\nO01001 \(DATUM - HAAS MILL\)/.test(t) && /\nT\d+ M6\n/.test(t) && /G43 H\d+ Z/.test(t) && /G82 X/.test(t) && / P1\.5/.test(t) && /G28 G91 Z0\./.test(t) && /M30\n%$/.test(t), t.slice(0, 600));
+    assert(/^%\nO01001 \(3D MODELER - HAAS MILL\)/.test(t) && /\nT\d+ M6\n/.test(t) && /G43 H\d+ Z/.test(t) && /G82 X/.test(t) && / P1\.5/.test(t) && /G28 G91 Z0\./.test(t) && /M30\n%$/.test(t), t.slice(0, 600));
   });
   await ok('Fanuc: O1001, T01 M06, dwell in milliseconds, no Haas G12', async () => {
     const t = await post('fanuc');
@@ -107,7 +107,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
       CAMUI.view = 'post'; camRefresh(); const s = document.getElementById('postCtrl'); const names = [...s.options].map(o => o.value);
       s.value = 'siemens'; s.dispatchEvent(new Event('change')); return { names, ctrl: cam().post.ctrl, text: CAMUI.gcode.slice(0, 40) };
     });
-    assert(r.names.length >= 6 && r.ctrl === 'siemens' && /^; DATUM/.test(r.text), JSON.stringify(r));
+    assert(r.names.length >= 6 && r.ctrl === 'siemens' && /^; 3D MODELER/.test(r.text), JSON.stringify(r));
   });
   await ok('no page errors', async () => { assert(!errs.length, errs.join(' | ')); });
   await browser.close();

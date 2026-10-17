@@ -18,7 +18,7 @@ An idle page (no input, no animation running) must stay at or under 4 rAF callba
 | House Design: same | idle main-thread CPU | 2.5 % | 0.1 % |
 | Tip card animation capped at 30 fps (slow orbit and morph, no visible change) | card animation frames/s | 60 | 30 |
 
-Already on demand before this work (idle 0 rAF/s): Design/Manufacture (`index.html`), Graphics, 2D Drawing, Setup Sheet.
+Already on demand before this work (idle 0 rAF/s): Design/Manufacture (`3d-modeler.html`), Graphics, 2D Drawing, Setup Sheet.
 The Design viewport already lowers its pixel ratio when frames run long and raises it again when there is room.
 
 ## G-code view

@@ -2,7 +2,7 @@
 //  Face edits (Design tab): Replace Face (move a flat face onto another
 //  plane), Delete Face (heal a chamfer or fillet strip, or close a
 //  hole) and Split Face (cut a flat face in two along a plane).
-//  The kernel half is in index.html. Coverage list: docs/fusion-coverage.md
+//  The kernel half is in 3d-modeler.html. Coverage list: docs/fusion-coverage.md
 // ═══════════════════════════════════════════════════════════════════
 (() => {
   if (typeof FEATS === 'undefined' || !FEATS.draft || typeof pickFaceToggle === 'undefined') return;

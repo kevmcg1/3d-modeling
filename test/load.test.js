@@ -1,4 +1,4 @@
-/* First-load checks for index.html in a real browser: the page must not shift layout after it is shown, all workspace tabs
+/* First-load checks for 3d-modeler.html in a real browser: the page must not shift layout after it is shown, all workspace tabs
    are in the markup (not added late), the search icon is sized from the first paint, and a slider-driven physics control
    applies once per frame with its newest value.
    Run:  NODE_PATH=<dir with playwright-core, three, clipper-lib> node test/load.test.js */
@@ -11,7 +11,7 @@ const THREE = fs.readFileSync(path.join(nm('three'), 'build/three.min.js')), CLI
 let fails = 0; const ok = (c, m) => { if (!c) { fails++; console.log('FAIL ' + m); } else console.log('ok - ' + m); };
 (async () => {
   const server = http.createServer((q, r) => {
-    const f = path.join(ROOT, decodeURIComponent(q.url.split('?')[0]).replace(/^\/$/, '/index.html'));
+    const f = path.join(ROOT, decodeURIComponent(q.url.split('?')[0]).replace(/^\/$/, '/3d-modeler.html'));
     if (!f.startsWith(ROOT) || !fs.existsSync(f)) { r.statusCode = 404; return r.end(); }
     r.setHeader('content-type', /\.js$/.test(f) ? 'text/javascript' : 'text/html'); r.end(fs.readFileSync(f));
   }).listen(0);

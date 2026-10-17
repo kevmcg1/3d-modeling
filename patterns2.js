@@ -3,7 +3,7 @@
 //  (copies at positions you type), Fill Pattern (copies on a grid or
 //  honeycomb across a flat face), and Configurations (named sets of
 //  parameter values, with a design table to edit them together).
-//  The kernel half is in index.html. Coverage list: docs/fusion-coverage.md
+//  The kernel half is in 3d-modeler.html. Coverage list: docs/fusion-coverage.md
 // ═══════════════════════════════════════════════════════════════════
 (() => {
   if (typeof FEATS === 'undefined' || !window.FUSION1 || typeof bodyTool === 'undefined' || !window.PARAMS) return;

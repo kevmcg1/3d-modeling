@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════════════════════
 //  Reference geometry and model checks: Plane Along Path, Point Through
 //  Three Planes, Separate (split a body into its pieces) and Check (is
-//  each body a sound closed solid?). The kernel half is in index.html
+//  each body a sound closed solid?). The kernel half is in 3d-modeler.html
 //  next to the other kernel scripts. Coverage list: docs/fusion-coverage.md
 // ═══════════════════════════════════════════════════════════════════
 (() => {

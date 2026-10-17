@@ -1,6 +1,6 @@
 // Manufacture: rest machining from the in-process stock.
 //
-// The program is replayed against the stock as it is actually being cut (camOptimizeAll in index.html: a slab model, one slice per
+// The program is replayed against the stock as it is actually being cut (camOptimizeAll in 3d-modeler.html: a slab model, one slice per
 // level the program cuts to). With "Only cut what earlier operations left" on, an operation leaves out every move that would run
 // through ground an earlier operation (or this one) already cleared, and links what remains with hops that clear the material.
 // It works for every toolpath, 2D or 3D, with no change to the toolpath itself, and the simulation, G-code, Verify and the heat
