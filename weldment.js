@@ -19,7 +19,7 @@
 
   FEATS.struct = {
     label: 'Structural Member', home: 'path', need: 'Pick the path the member follows.',
-    init: () => ({ path: null, stype: 'rtube', ...PRESETS.rtube, rot: 0, op: opDefault() }),
+    init: () => ({ path: null, stype: 'rtube', ...PRESETS.rtube, rot: 0, cap0: false, cap1: false, ct: 4, op: opDefault() }),
     ready: f => !!(f.path && f.path.ents.length),
     onSet(key) { if (key === 'stype') Object.assign(CMD.f, PRESETS[CMD.f.stype]); },
     showSketch: (f, id) => { const sk = byId(id); return !!sk && (sk.vis !== false || (f.path && f.path.sketch === id) || CMD.step === 'path'); },
@@ -41,6 +41,7 @@
       + (f.stype === 'ttube' ? pf.num('Diameter', 's', { len: 1, min: 0, step: isIn() ? 0.05 : 1 }) : `<div class="row2">${pf.num(f.stype === 'ibeam' || f.stype === 'tbar' ? 'Flange width' : 'Width', 's', { len: 1, min: 0, step: isIn() ? 0.05 : 1 })}${pf.num('Height', 'h', { len: 1, min: 0, step: isIn() ? 0.05 : 1 })}</div>`)
       + (f.stype === 'rbar' ? '' : pf.num(f.stype === 'rtube' || f.stype === 'ttube' ? 'Wall thickness' : 'Material thickness', 't', { len: 1, min: 0, step: isIn() ? 0.01 : 0.5 }))
       + (f.stype === 'ttube' ? '' : pf.num('Turn the profile (°)', 'rot', { step: 15 }))
+      + pf.chk('Cap the start', 'cap0') + pf.chk('Cap the end', 'cap1') + (f.cap0 || f.cap1 ? pf.num('End cap thickness', 'ct', { len: 1, min: 0, step: isIn() ? 0.02 : 0.5 }) : '')
       + pf.op(f)
       + pf.note('The profile is centered on the path and swept along it; corners are mitered. Draw the frame as one sketch of lines, pick a curve, and the whole joined chain is used. For a closed frame, draw it as separate members, or cut them to length with Combine.'),
     hint: () => 'click a curve of the path (joined curves come along), then choose the profile',
