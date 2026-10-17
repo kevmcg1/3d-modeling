@@ -162,6 +162,7 @@ Batches ship one PR at a time. Batch 0 is what existed before this work plus the
 | 2 ✅ | Pipe, Pattern on Path, Ellipse, Slot |
 | 3 ✅ | Rib, Web, Spline, Overall Slot, Center Point Slot |
 | 4 | ✅ two-distance chamfer, Boundary Fill. Still open: variable and setback fillets, Split Face, Delete Face, planar Emboss |
+| 20 ✅ | Gusset (extras.js) |
 | 19 ✅ | Edge Flange, Miter Flange, Hem, Jog (sheet-flange.js) |
 | 18 ✅ | Axis, Tangent Plane, Plane/Point Through Two Edges (construct.js) |
 | 17 ✅ | Mates: coincident, flush, parallel, concentric between two bodies (mates.js) |
@@ -225,7 +226,8 @@ Same legend as above. SolidWorks tools that are the same as a Fusion tool above 
 | Sheet Metal: fold, corner relief | 🔜 | |
 | Weldments: structural members | ✅ **new** | Rectangular tube, bar, angle, channel, I-beam, T and round tube along a sketch path with mitered corners (batch 15, weldment.js) |
 | Weldments: end caps, cut list | ✅ **new** | End caps are options on Structural Member; Cut List groups identical bodies and copies as CSV |
-| Weldments: gussets, trim/extend | 🔜 9 | Trim with Combine → Cut today |
+| Weldments: gussets | ✅ **new** | Gusset between two flat faces (batch 20, extras.js) |
+| Weldments: trim/extend | 🟡 | Trim with Combine → Cut today |
 | Mold tools (parting line, shut-off, core/cavity split) | 🟡 | Cavity, Split Body, Boundary Fill and Draft Analysis cover the main steps |
 | Mates (angle, distance, hinge, slider, cylindrical, planar, ball) | 🟡 | Joint feature positions the moving bodies; Mate feature solves coincident / flush / parallel / concentric between two bodies ✅ 17 |
 | Assemblies | 🟡 | Bodies in one model; no nested components | |
