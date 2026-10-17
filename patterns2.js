@@ -153,8 +153,8 @@
   }
   const A = window.TipAnim;
   if (A && A.scene) {
-    A.scene('f:tabpat', g => { g.view(120, 136, 3); const k = g.seg(0.25, 0.8); g.box(-24, -8, 0, 10, 10, 8, 'a'); if (k > 0.3) g.box(-6, 4, 0, 10, 10, 8, 'a'); if (k > 0.6) g.box(14, -10, 0, 10, 10, 8, 'a'); });
-    A.scene('f:fillpat', g => { g.view(120, 136, 3); const k = g.seg(0.25, 0.8); g.box(-24, -16, 0, 48, 32, 2, 'n'); [-18, -4, 10].forEach((x, i) => [-10, 4].forEach((y, j) => { if (i + j * 3 <= k * 6) g.box(x, y, 2, 6, 6, 6, 'a'); })); });
+    A.scene('f:tabpat', g => { g.sweepBar(); g.view(120, 136, 3); const k = g.seg(0.25, 0.8); g.box(-24, -8, 0, 10, 10, 8, 'a'); if (k > 0.3) g.box(-6, 4, 0, 10, 10, 8, 'a'); if (k > 0.6) g.box(14, -10, 0, 10, 10, 8, 'a'); });
+    A.scene('f:fillpat', g => { g.sweepBar(); g.view(120, 136, 3); const k = g.seg(0.25, 0.8); g.box(-24, -16, 0, 48, 32, 2, 'n'); [-18, -4, 10].forEach((x, i) => [-10, 4].forEach((y, j) => { if (i + j * 3 <= k * 6) g.box(x, y, 2, 6, 6, 6, 'a'); })); });
     A.scene('i:configs', g => { g.view(120, 136, 3); const k = g.seg(0.25, 0.8); g.box(-16, -10, 0, 32, 20, 8 + 8 * k, 'a'); g.chip(k > 0.5 ? 'Tall' : 'Short', 'a'); });
   }
   refreshUI();

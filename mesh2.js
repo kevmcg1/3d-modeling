@@ -59,9 +59,9 @@
   }
   const A = window.TipAnim;
   if (A && A.scene) {
-    A.scene('f:revnorm', g => { g.view(120, 136, 3); const k = g.seg(0.25, 0.8); g.box(-16, -10, 0, 32, 20, 12, k > 0.5 ? 'n' : 'a'); g.chip(k > 0.5 ? 'Flipped' : 'Inside out', 'a'); });
-    A.scene('f:smoothmesh', g => { g.view(120, 136, 3); const k = g.seg(0.25, 0.8); g.box(-16, -10, 0, 32, 20, 12, 'a'); g.chip(k > 0.5 ? 'Smooth' : 'Rough', 'a'); });
-    A.scene('f:reducemesh', g => { g.view(120, 136, 3); const k = g.seg(0.25, 0.8); g.box(-16, -10, 0, 32, 20, 12, 'a'); g.chip(k > 0.5 ? 'Fewer triangles' : 'Dense mesh', 'a'); });
+    A.scene('f:revnorm', g => { g.view(120, 136, 3); const k = g.seg(0.25, 0.8); g.box(-16, -10, 0, 32, 20, 12, k > 0.5 ? 'n' : 'a'); g.box(-16, -10, 12, 32 * k, 20, 2, 'a'); g.chip(k > 0.5 ? 'Flipped' : 'Inside out', 'a'); });
+    A.scene('f:smoothmesh', g => { g.view(120, 136, 3); const k = g.seg(0.25, 0.8); g.box(-16, -10, 0, 32, 20, 12, 'a'); g.box(-16, -10, 12, 32 * k, 20, 2, 'n'); g.chip(k > 0.5 ? 'Smooth' : 'Rough', 'a'); });
+    A.scene('f:reducemesh', g => { g.view(120, 136, 3); const k = g.seg(0.25, 0.8); g.box(-16, -10, 0, 32, 20, 12, 'a'); g.box(-16, -10, 12, 32 * k, 20, 2, 'n'); g.chip(k > 0.5 ? 'Fewer triangles' : 'Dense mesh', 'a'); });
   }
   refreshUI();
 })();

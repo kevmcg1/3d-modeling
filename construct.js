@@ -140,10 +140,10 @@
   }
   const A = window.TipAnim;
   if (A && A.scene) {
-    A.scene('f:axis', g => { g.view(120, 136, 3); const k = g.seg(0.25, 0.8); g.box(-16, -10, 0, 32, 20, 12, 'n'); g.dot([-16, -10, 12], 'r', 2.5); g.dot([16, 10, 12], 'r', 2.5); if (k > 0.3) g.chip('Axis', 'a'); });
+    A.scene('f:axis', g => { g.sweepBar(); g.view(120, 136, 3); const k = g.seg(0.25, 0.8); g.box(-16, -10, 0, 32, 20, 12, 'n'); g.dot([-16, -10, 12], 'r', 2.5); g.dot([16, 10, 12], 'r', 2.5); if (k > 0.3) g.chip('Axis', 'a'); });
     A.scene('f:planetan', g => { g.view(120, 136, 3); const k = g.seg(0.25, 0.8); g.box(-12, -12, 0, 24, 24, 14, 'n'); g.box(12 + 2 * (1 - k), -16, -4, 1, 32, 22, 'a'); });
     A.scene('f:plane2e', g => { g.view(120, 136, 3); const k = g.seg(0.25, 0.8); g.box(-22, -12, 0, 44, 1.5, 1.5, 'n'); g.box(-22, 10, 0, 44, 1.5, 1.5, 'n'); g.box(-22, -12, 0, 44, 24 * k, 0.8, 'a'); });
-    A.scene('f:pt2e', g => { g.view(120, 136, 3); const k = g.seg(0.25, 0.8); g.box(-22, -1, 0, 44, 2, 2, 'n'); g.box(-1, -22, 0, 2, 44, 2, 'n'); if (k > 0.4) g.dot([0, 0, 1], 'r', 3); });
+    A.scene('f:pt2e', g => { g.sweepBar(); g.view(120, 136, 3); const k = g.seg(0.25, 0.8); g.box(-22, -1, 0, 44, 2, 2, 'n'); g.box(-1, -22, 0, 2, 44, 2, 'n'); if (k > 0.4) g.dot([0, 0, 1], 'r', 3); });
   }
   refreshUI();
 })();

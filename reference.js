@@ -153,7 +153,7 @@
     A.scene('f:planepath', g => { g.view(120, 136, 3); const k = g.seg(0.25, 0.8); g.box(-24, -1, 0, 48, 2, 2, 'n'); g.box(-24 + 48 * k, -10, -2, 1.5, 20, 16, 'a'); });
     A.scene('f:pt3pl', g => { g.view(120, 136, 3); const k = g.seg(0.25, 0.8); g.box(-20, -14, -1, 40, 28, 1, 'n'); g.box(-1, -14, -1, 1, 28, 20 * k, 'n'); g.box(-20, -1, -1, 40, 1, 20 * k, 'n'); if (k > 0.8) g.dot([0, 0, 0], 'r', 3); });
     A.scene('f:separate', g => { g.view(120, 136, 3); const k = g.seg(0.25, 0.8); g.box(-20 - 6 * k, -8, 0, 16, 16, 10, 'a'); g.box(4 + 6 * k, -8, 0, 16, 16, 10, 'a'); });
-    A.scene('i:check', g => { g.view(120, 136, 3); const k = g.seg(0.25, 0.8); g.box(-16, -10, 0, 32, 20, 12, k > 0.5 ? 'a' : 'n'); if (k > 0.5) g.chip('Closed ✓', 'a'); });
+    A.scene('i:check', g => { g.view(120, 136, 3); const k = g.seg(0.25, 0.8); g.box(-16, -10, 0, 32, 20, 12, k > 0.5 ? 'a' : 'n'); g.box(-16, -10, 12, 32 * k, 20, 2, 'n'); if (k > 0.5) g.chip('Closed ✓', 'a'); });
   }
   refreshUI();
 })();
