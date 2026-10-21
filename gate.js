@@ -1,6 +1,6 @@
 // "Not available yet" gate. Loaded first in <head> of every page, before the app.
-// While LOCKED is true it shows a full-screen popup, stops the page from loading anything else,
-// and blocks right-click, F12, Ctrl+U, Ctrl+Shift+I/J/C (and the Mac Cmd+Option equivalents).
+// While LOCKED is true it shows a full-screen popup over the page (the app still loads and shows
+// behind it, but can't be clicked) and blocks right-click, F12, Ctrl+U, Ctrl+Shift+I/J/C (and the Mac Cmd+Option equivalents).
 // To work on the app yourself, set LOCKED to false (or remove the <script src="gate.js"> line).
 // Note: this is a browser-side deterrent only. The files are public in the GitHub repo.
 (function () {
@@ -27,7 +27,7 @@
 
   var css =
     '#nyGate{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:24px;' +
-    'background:rgba(8,8,12,.92);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-user-select:none;user-select:none}' +
+    'background:rgba(8,8,12,.35);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-user-select:none;user-select:none}' +
     '#nyGate .ny-box{max-width:440px;width:100%;text-align:center;padding:32px 28px;border-radius:14px;color:#f2f2f5;' +
     'background:#1a1a22;border:1px solid #33333f;box-shadow:0 20px 60px rgba(0,0,0,.6)}' +
     '#nyGate h1{margin:0;font-size:20px;line-height:1.4;font-weight:600}';
@@ -52,7 +52,4 @@
       build();
     }
   }).observe(document.documentElement, { childList: true });
-
-  // keep the app itself from loading behind the popup
-  try { window.stop(); } catch (e) {}
 })();
