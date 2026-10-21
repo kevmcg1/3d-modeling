@@ -4389,6 +4389,10 @@ html.calm *, html.calm *::before, html.calm *::after { transition: none !importa
 #panel.pn-enter .pn-body { animation-delay: 30ms; }
 .tree li { transition: background-color var(--mo-fast) var(--mo-ease), color var(--mo-fast) var(--mo-ease), box-shadow var(--mo-fast) var(--mo-ease), opacity var(--mo) var(--mo-ease); }
 </style>
+<script>/* no right-click, view-source (Ctrl+U) or dev tools (Ctrl+Shift+I) */
+document.addEventListener('contextmenu',function(e){e.preventDefault();});
+document.addEventListener('keydown',function(e){var k=(e.key||'').toLowerCase();if((e.ctrlKey||e.metaKey)&&(k==='u'||(e.shiftKey&&k==='i')))e.preventDefault();},true);
+</script>
 </head>
 <body>
 <header class="site-head" role="banner"><a href="https://kevmcg1.github.io/portfolio" target="_top" aria-label="Back to the portfolio at kevmcg1.github.io">KEVMCG1.GITHUB.IO</a></header>

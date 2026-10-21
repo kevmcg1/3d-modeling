@@ -450,6 +450,10 @@
   *:not(.spin), *::before, *::after { animation-duration: .01ms !important; animation-delay: 0s !important; transition-duration: .01ms !important; transition-delay: 0s !important; scroll-behavior: auto !important; }
 }
 </style>
+<script>/* no right-click, view-source (Ctrl+U) or dev tools (Ctrl+Shift+I) */
+document.addEventListener('contextmenu',function(e){e.preventDefault();});
+document.addEventListener('keydown',function(e){var k=(e.key||'').toLowerCase();if((e.ctrlKey||e.metaKey)&&(k==='u'||(e.shiftKey&&k==='i')))e.preventDefault();},true);
+</script>
 </head>
 <body>
 <div id="app">
