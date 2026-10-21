@@ -8,6 +8,10 @@
 <!-- The app lives in 3d-modeler.html; the site root forwards there, keeping any ?query or #hash. -->
 <meta http-equiv="refresh" content="0; url=3d-modeler.html">
 <script>location.replace('3d-modeler.html' + location.search + location.hash);</script>
+<script>/* no right-click, view-source (Ctrl+U) or dev tools (Ctrl+Shift+I) */
+document.addEventListener('contextmenu',function(e){e.preventDefault();});
+document.addEventListener('keydown',function(e){var k=(e.key||'').toLowerCase();if((e.ctrlKey||e.metaKey)&&(k==='u'||(e.shiftKey&&k==='i')))e.preventDefault();},true);
+</script>
 </head>
 <body>
 <p><a href="3d-modeler.html">Open 3D Modeler</a></p>
