@@ -86,7 +86,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
     await page.evaluate(() => { CMD.f.shape = 'sphere'; featSync(); }); await page.waitForTimeout(900);
     await page.waitForFunction(() => MODEL.bodies && MODEL.bodies.length === 1); await page.click('[data-fdo="ok"]'); await page.waitForTimeout(300);
     await page.evaluate(() => action('f:pushpull')); await page.waitForTimeout(700);
-    const [x, y] = await page.evaluate(() => { const b = MODEL.bodies[0].bb, s = toScreen([(b[0] + b[3]) / 2, b[4] - 0.001, (b[2] + b[5]) / 2 - 0]), r = ov.getBoundingClientRect(); return [s.x + r.left, s.y + r.top]; });
+    const [x, y] = await page.evaluate(() => { const b = MODEL.bodies[0].bb, s = toScreen([(b[0] + b[3]) / 2, (b[1] + b[4]) / 2, (b[2] + b[5]) / 2]), r = ov.getBoundingClientRect(); return [s.x + r.left, s.y + r.top]; });
     await page.mouse.move(x, y); await page.waitForTimeout(250); await page.mouse.click(x, y); await page.waitForTimeout(900);
     assert.strictEqual(await page.evaluate(() => CMD.f.faces.length), 1, 'a click picks the sphere face');
   });
