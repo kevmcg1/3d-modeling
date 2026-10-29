@@ -190,6 +190,37 @@ const distPoly = (p, poly, closed) => { let best = Infinity; for (let i = 0; i +
     assert.deepStrictEqual(dev, [], 'wear mode posts the tool-center path: ' + JSON.stringify(dev));
   });
 
+  await ok('Heidenhain: Control posts RR / RL on the start-up block, CC + C arcs under the same compensation, R0 on the cancel block; the contour is the chain', async () => {
+    const r = await page.evaluate(() => runComp('big', { comp: 'control', ctrl: 'heidenhain' })), k = r.inch ? 25.4 : 1;
+    const L = r.text.split('\n').map(l => l.replace(/^\d+ /, '')), probs = [], spans = [];
+    let rc = 'R0', x = null, y = null, cc = null, poly = null;
+    const nm = (l, c) => { const m = l.match(new RegExp('(?:^|\\s)' + c + '([+-]?\\d*\\.?\\d+)')); return m ? parseFloat(m[1]) * k : null; };
+    L.forEach(l => {
+      if (/^CC /.test(l)) { cc = [nm(l, 'X'), nm(l, 'Y')]; return; }
+      const mm = l.match(/^(L|C) .*?\b(R[0LR])\b/); if (!mm) return;
+      const X = nm(l, 'X'), Y = nm(l, 'Y'), want = mm[2];
+      if (want !== 'R0' && rc === 'R0') { if (/FMAX/.test(l)) probs.push('start-up must be a feed move: ' + l); poly = [[x, y]]; spans.push({ rc: want, poly, arcs: 0 }); }
+      if (want === 'R0' && rc !== 'R0' && /FMAX/.test(l)) probs.push('cancel must be a feed move: ' + l);
+      if (rc !== 'R0' && want !== 'R0' && want !== rc) probs.push('compensation changed inside a stretch: ' + l);
+      if (poly && (rc !== 'R0' || want !== 'R0')) {
+        if (mm[1] === 'C' && cc) {
+          const ccw = /DR\+/.test(l), rr = Math.hypot(x - cc[0], y - cc[1]); let a0 = Math.atan2(y - cc[1], x - cc[0]), a1 = Math.atan2(Y - cc[1], X - cc[0]);
+          if (ccw) { while (a1 <= a0 + 1e-9) a1 += 2 * Math.PI; } else { while (a1 >= a0 - 1e-9) a1 -= 2 * Math.PI; }
+          const n = Math.max(4, Math.ceil(Math.abs(a1 - a0) * rr / 0.05)); for (let q = 1; q <= n; q++) { const t = a0 + (a1 - a0) * q / n; poly.push([cc[0] + rr * Math.cos(t), cc[1] + rr * Math.sin(t)]); }
+          spans[spans.length - 1].arcs++;
+        } else poly.push([X == null ? x : X, Y == null ? y : Y]);
+      }
+      if (X != null) x = X; if (Y != null) y = Y; rc = want;
+      if (want === 'R0') poly = null;
+    });
+    assert(spans.length >= 3, 'compensated stretches: ' + spans.length);
+    assert(probs.length === 0 && rc === 'R0', JSON.stringify(probs) + ' ends ' + rc);
+    assert(spans.every(sp => sp.rc === 'RR' && sp.arcs === 2), 'tool on the right is RR with a lead-in and a lead-out arc: ' + JSON.stringify(spans.map(sp => [sp.rc, sp.arcs])));
+    assert(!/\bG4[12]\b/.test(r.text), 'never G41 / G42');
+    const sp = spans[0]; let miss = 0; for (const p of r.chain) miss = Math.max(miss, distPoly(p, sp.poly, false));
+    assert(miss < 0.01, 'a chain point is ' + miss.toFixed(4) + ' mm off the programmed contour');
+  });
+
   await ok('A control without compensation (Grbl) gets the tool-center path and a note, never a G41', async () => {
     const r = await page.evaluate(() => runComp('big', { comp: 'control', ctrl: 'grbl' }));
     assert(!/\bG4[12]\b/.test(r.text) && /NOT AVAILABLE FOR THIS OPERATION ON GRBL/.test(r.text), 'grbl: ' + r.text.split('\n').filter(l => /CUTTER|G4[012]/.test(l)).join(' | '));

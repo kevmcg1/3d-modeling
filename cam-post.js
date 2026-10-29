@@ -151,12 +151,28 @@
       }
       const rel = m => [m.x - o[0], m.y - o[1], m.z - o[2]];
       const cur = { x: null, y: null, z: null, f: null };
-      const line = (rapid, x, y, z, f) => {
+      const line = (rapid, x, y, z, f, rc = 'R0') => {
         const w = [], nx = x == null ? null : N(x), ny = y == null ? null : N(y), nz = z == null ? null : N(z);
         if (nx !== null && nx !== cur.x) w.push('X' + nx); if (ny !== null && ny !== cur.y) w.push('Y' + ny); if (nz !== null && nz !== cur.z) w.push('Z' + nz);
         if (!w.length) return;
-        out(`L ${w.join(' ')} R0 ${rapid ? 'FMAX' : 'F' + Fd(f)}`);
+        out(`L ${w.join(' ')} ${rc} ${rapid ? 'FMAX' : 'F' + Fd(f)}`);
         if (nx !== null) cur.x = nx; if (ny !== null) cur.y = ny; if (nz !== null) cur.z = nz;
+      };
+      // radius compensation (RL / RR ... R0): the radius comes from the tool table, so Control posts the part contour with RL / RR
+      const emitCompH = i => {
+        const pl = ccPlan(P, i, o, t); if (!pl) return 0;
+        const rc = pl.left ? 'RL' : 'RR';
+        out(pl.mode === 'control' ? `; RADIUS COMPENSATION ${rc}: THE PROGRAM IS THE PART CONTOUR - THE RADIUS ${N(pl.rad)} IS TAKEN FROM THE TOOL TABLE` : `; ${pl.mode === 'rwear' ? 'REVERSE ' : ''}WEAR COMPENSATION ${rc}: THE PROGRAM IS THE TOOL CENTER PATH - USE DR IN THE TOOL CALL FOR THE WEAR`);
+        SRC = { op: op.id, mi: i };
+        line(false, pl.Q[0].x, pl.Q[0].y, null, pl.fEng, rc);
+        for (let u = 1; u < pl.Q.length; u++) {
+          const q = pl.Q[u]; SRC = { op: op.id, mi: pl.mi(u) };
+          if (q.arc) { out(`CC X${N(q.arc.cx)} Y${N(q.arc.cy)}`); out(`C X${N(q.x)} Y${N(q.y)} DR${q.arc.ccw ? '+' : '-'} ${rc} F${Fd(pl.fRun)}`); cur.x = N(q.x); cur.y = N(q.y); }
+          else line(false, q.x, q.y, null, pl.fRun, rc);
+        }
+        SRC = { op: op.id, mi: pl.j };
+        line(false, pl.end.x, pl.end.y, null, pl.fEnd, 'R0');
+        return pl.j + 1;
       };
       const m0 = rel(P.m[0]); line(true, m0[0], m0[1], null); line(true, null, null, m0[2]);
       const cyc = isDrillOp(op) && P.holes ? (P.cycle || drillSpec(op, t)) : null;
@@ -188,6 +204,7 @@
       let i = 1;
       while (i < P.m.length) {
         const m = P.m[i]; SRC = { op: op.id, mi: i };
+        if (m.cc === 'on') { const nx = emitCompH(i); if (nx) { i = nx; continue; } }
         if (m.hold) { if (m.dw) { out('CYCL DEF 9.0 DWELL TIME'); out(`CYCL DEF 9.1 DWELL ${+m.dw.toFixed(2)}`); } i++; continue; }
         if (m.r) { const p = rel(m); line(true, p[0], p[1], p[2]); i++; continue; }
         let j = i;
@@ -246,6 +263,22 @@
     for (let k = i0; k < n; k++) P.m[k].cc = k === i0 ? 'on' : k === n - 1 ? 'off' : 'run';
     Object.assign(P.m[i0], { ccSide: side, ccMode: mode, ccD: d, ccNom: nom || null });
     return true;
+  };
+  // The plan for one compensated stretch that starts at move i (its 'on' move), shared by every post: the programmed points (the contour
+  // with its lead arcs for Control, the tool-center path for Wear), the cancel position, the feeds and where each point came from.
+  // Returns null when the stretch is damaged (moves were dropped after it was planned) so the post falls back to the tool-center path.
+  window.ccPlan = function (P, i, o, t) {
+    let j = i; while (j < P.m.length - 1 && P.m[j].cc !== 'off' && P.m[j + 1].cc) j++;
+    const seq = P.m.slice(i - 1, j + 1), m1 = P.m[i], last = seq.length - 1, mode = m1.ccMode;
+    if (P.m[j].cc !== 'off' || last < 3 || seq.some(q => q.r || Math.abs(q.z - m1.z) > 1e-9) || (mode === 'control' && !(m1.ccNom && m1.ccNom.length > 2))) return null;
+    const src = mode === 'control' ? m1.ccNom.map(q => ({ x: q.x - o[0], y: q.y - o[1], arc: q.arc ? { cx: q.arc.cx - o[0], cy: q.arc.cy - o[1], ccw: q.arc.ccw } : null }))
+      : seq.slice(1, last).map(q => ({ x: q.x - o[0], y: q.y - o[1], arc: null })), Q = [src[0]];
+    for (let u = 1; u < src.length; u++) if (src[u].arc || Math.hypot(src[u].x - Q[Q.length - 1].x, src[u].y - Q[Q.length - 1].y) > 5e-4) Q.push(src[u]);
+    return {
+      j, mode, Q, side: m1.ccSide, rad: t.d / 2, D: m1.ccD || t.n, left: (m1.ccSide === 'left') !== (mode === 'rwear'), z: m1.z - o[2],
+      fEng: m1.f, fRun: P.m[i + 1].f, fEnd: seq[last].f, end: { x: seq[last].x - o[0], y: seq[last].y - o[1] },
+      mi: u => Math.min(j - 1, i + Math.round(u / Math.max(1, Q.length - 1) * (j - 1 - i))),
+    };
   };
   window.ccModeOf = op => (op && (op.comp === 'control' || op.comp === 'wear' || op.comp === 'rwear')) ? op.comp : null;
   window.POSTS = POSTS;

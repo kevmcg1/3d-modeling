@@ -16765,20 +16765,13 @@ function postGcode() {
     const ccOK = !fr && !PF.noComp, ccSeen = P.m.some(q => q.cc);
     if (ccSeen && !ccOK) L.push(`(CUTTER COMPENSATION IN THE CONTROL IS NOT AVAILABLE FOR THIS OPERATION ON ${PF.name.toUpperCase()} - POSTED AS THE TOOL CENTER PATH)`);
     const emitComp = i => {
-      let j = i; while (j < P.m.length - 1 && P.m[j].cc !== 'off' && P.m[j + 1].cc) j++;
-      const seq = P.m.slice(i - 1, j + 1), m1 = P.m[i], last = seq.length - 1, mode = m1.ccMode;
-      if (P.m[j].cc !== 'off' || last < 3 || seq.some(q => q.r || Math.abs(q.z - m1.z) > 1e-9) || (mode === 'control' && !(m1.ccNom && m1.ccNom.length > 2))) return 0;   // a damaged stretch (moves dropped) stays the tool center path
-      const rad = t.d / 2, left = (m1.ccSide === 'left') !== (mode === 'rwear'), g = left ? 'G41' : 'G42', D = m1.ccD || t.n, dw = PF.noCompD ? '' : ` D${D}`, z = m1.z - o[2];
-      // the programmed points: the part contour with its lead arcs for Control, the tool center path itself for Wear
-      const src = mode === 'control' ? m1.ccNom.map(q => ({ x: q.x - o[0], y: q.y - o[1], arc: q.arc ? { cx: q.arc.cx - o[0], cy: q.arc.cy - o[1], ccw: q.arc.ccw } : null }))
-        : seq.slice(1, last).map(q => ({ x: q.x - o[0], y: q.y - o[1], arc: null })), Q = [src[0]];
-      for (let u = 1; u < src.length; u++) if (src[u].arc || Math.hypot(src[u].x - Q[Q.length - 1].x, src[u].y - Q[Q.length - 1].y) > 5e-4) Q.push(src[u]);
-      const mi = u => Math.min(j - 1, i + Math.round(u / Math.max(1, Q.length - 1) * (j - 1 - i))), f2 = P.m[i + 1].f;
+      const pl = ccPlan(P, i, o, t); if (!pl) return 0;                                        // a damaged stretch (moves dropped) stays the tool center path
+      const { j, mode, Q, rad, z } = pl, g = pl.left ? 'G41' : 'G42', D = pl.D, dw = PF.noCompD ? '' : ` D${D}`, f2 = pl.fRun, mi = pl.mi;
       L.push(mode === 'control' ? `(CUTTER COMPENSATION ${g}${dw}: THE PROGRAM IS THE PART CONTOUR${op.leave ? ' PLUS THE STOCK LEFT' : ''} - SET THE TOOL RADIUS ${N(rad)} IN THE OFFSET REGISTER)`
         : `(${mode === 'rwear' ? 'REVERSE ' : ''}WEAR COMPENSATION ${g}${dw}: THE PROGRAM IS THE TOOL CENTER PATH - KEEP THE REGISTER AT THE WEAR VALUE ONLY)`);
       SRC = { op: op.id, mi: i };
-      st.x = N(Q[0].x); st.y = N(Q[0].y); st.g = 'G1'; st.f = m1.f;
-      L.push(`G1 ${g} X${st.x} Y${st.y}${dw} F${F(m1.f)}`);
+      st.x = N(Q[0].x); st.y = N(Q[0].y); st.g = 'G1'; st.f = pl.fEng;
+      L.push(`G1 ${g} X${st.x} Y${st.y}${dw} F${F(pl.fEng)}`);
       const arcLine = (g2, to, c, from) => {
         const w = [];
         if (g2 !== st.g) w.push(g2);
@@ -16802,7 +16795,7 @@ function postGcode() {
         u = e + 1;
       }
       SRC = { op: op.id, mi: j };
-      const fx = seq[last].f, ex = P2(seq[last].x - o[0], seq[last].y - o[1]); st.x = N(ex.x); st.y = N(ex.y); st.g = 'G1';
+      const fx = pl.fEnd; st.x = N(pl.end.x); st.y = N(pl.end.y); st.g = 'G1';
       L.push(`G1 G40 X${st.x} Y${st.y}${fx !== st.f ? ' F' + F(fx) : ''}`); st.f = fx;
       return j + 1;
     };
