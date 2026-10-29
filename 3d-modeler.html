@@ -10589,6 +10589,7 @@ function frame(now) {
   if (typeof buildTick === 'function') buildTick(now);
   if (typeof motionTick === 'function') motionTick(now);
   if (typeof camPoseTick === 'function') camPoseTick(now);
+  if (typeof SECTION === 'object') SECTION.tick();
   updateCamera();
   syncSketch3D();
   // Scale construction planes' outlines with zoom? They are world-sized; fine.
@@ -10604,7 +10605,9 @@ function frame(now) {
   renderer.clearDepth();
   renderer.setViewport(r.x, H - r.y - r.h, r.w, r.h);
   renderer.setScissor(r.x, H - r.y - r.h, r.w, r.h); renderer.setScissorTest(true);
+  const secPlanes = renderer.clippingPlanes; renderer.clippingPlanes = [];                    // the view cube is never cut by the section plane
   renderer.render(cubeScene, cubeCam);
+  renderer.clippingPlanes = secPlanes;
   renderer.setScissorTest(false);
   drawOverlay();
   update2D3D();
@@ -38456,6 +38459,7 @@ function gsPick(i) {
 <!-- Export log, settings cog, mouse and keyboard layouts: own file so it can be loaded last -->
 <script src="input-settings.js"></script>
 <script src="cam-premium.js"></script>
+<script src="section.js"></script>
 <!-- Import and export previews (Shaded, Wireframe, Solid) and the closed-mesh check -->
 <script src="io-preview.js"></script>
 <!-- Early-access release: hides tabs and export formats, shows the notice (release-config.js lists what is hidden) -->
