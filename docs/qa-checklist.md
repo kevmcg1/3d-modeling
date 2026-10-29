@@ -20,6 +20,22 @@ Legend: PASS = checked and correct · FIXED = a bug was found, fixed and has an 
 | Sharpness | Press ` and look at the **Sharpness** line in the dev panel: a grade (Sharp / Soft / Blurry) with the findings under it, refreshed every few seconds while the panel is open (**Live**) or when you press **Check now**. Try browser zoom (Ctrl +), a small window and a long orbit on a slow machine: the grade should drop to Soft or Blurry and say why (a stretched canvas, the 3D view lowered its pixel ratio, a fractional screen pixel ratio, text under 9 screen pixels, edges spread over more than 2 pixels). **Export status** includes a SHARPNESS section with the same readings, and the step list gets a `blur` step when the sharpness changes. |
 | Ribbon fit | Resize the window from 2560 px down to 640 px, and try browser zoom 125% to 200%, in Design (also with a sketch open and with Extrude open), Manufacture, Setup Sheet and Print. Every ribbon button is shown whole or not at all: nothing is cut by the right or left edge, nothing is under an arrow or fading out, icons stay centered, labels are whole. When the ribbon is wider than the window the arrows (or the mouse wheel) page it by whole groups, and a group the edge would cut in half stays hidden until paged in. `node test/ribbon.fit.e2e.js` does this sweep; the dev tool also reports `ribbon clipped` during a run. |
 
+## Fourth sweep (added tests)
+
+| Test | What it checks |
+|---|---|
+| `test/cam.comp.e2e.js` | Compensation in the control: G41 / G42 with D, G40 on a move, never on through a rapid, tool change or the end; the programmed contour lies on the chain (or chain plus the stock left); lead arcs post as G2 / G3; every simulated tool-center point is one radius from the programmed path; wear and reverse wear; Siemens without D; Heidenhain RL / RR; Grbl falls back with a note; Verify finds nothing |
+| `test/cam.post2.e2e.js` | Z home before each tool change on every controller, the tool list, coolant modes and the per-operation override, the G-code panel and operation panel controls |
+| `test/cam.contour2.e2e.js` | Rough passes and spacing, tabs on the final pass only, lead radius, three passes with Control compensation |
+| `test/cam.material.e2e.js` | Eleven materials: speed ordering, sane spindle speeds and feeds, a clean program in each |
+| `test/cam.autolock.e2e.js` | Auto Program and Auto Detect locked and labeled coming soon, manual toolpaths unaffected |
+| `test/view.section.e2e.js` | Section view on the rendered pixels: plane position and side, cut and hatch, outline, sweep in and out, pick, units, Manufacture, light theme |
+| `test/design.fx.e2e.js` | Feature animation: grows, turns, dissolves, copies cleaned up, final model identical |
+| `test/ui.icons.e2e.js` | CSS tooltips (no HTML element), placement and clipping, long hover, per-icon motion, reduced motion, light theme |
+| `test/ui.defaults.e2e.js` | Dark by default with a working light theme, inches with metric in parentheses, American spellings |
+
+Test harness notes: the e2e tests block `gate.js` (the lock overlay) and set `DATUM_NOFX`; run them with `NODE_PATH` holding playwright, three@0.128 and clipper-lib. `test/lib/gcode-check.js` reads Fanuc's `T05 M06`.
+
 ## Third sweep (added tests)
 
 | Test | What it checks |
