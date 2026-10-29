@@ -15,6 +15,11 @@ const CAM_LOCK = (() => {
   const isPremium = false;   // flip to true (or sign the user in, once accounts exist) to lift every Premium lock
   const MSG = 'These features will be coming soon for Premium users';
   let on = !(isPremium || window.DATUM_PREMIUM === true);
+  // Auto Program and Auto Detect are locked for everyone, Premium included, while the 2D and 3D toolpaths are proven by hand.
+  // Tests that need them set window.DATUM_AUTO = true before this script runs.
+  const AUTO_MSG = 'Auto Program and Auto Detect are coming soon';
+  const autoLocked = window.DATUM_AUTO !== true;
+  const isAutoAct = a => a === 'autoprog' || a === 'auto';
   // what stays usable for a free user: nothing. (Kept as lists so a feature can be opened up again by adding it here.)
   const FREE_VIEWS = new Set();
   const FREE_OPS = new Set();
@@ -54,9 +59,9 @@ const CAM_LOCK = (() => {
 
   // the entry points a blocked feature can be reached through (ribbon, panels, search, shortcuts): each says whether this call is blocked
   const gates = {
-    camAction: a => api.act(a[0]),
+    camAction: a => api.act(a[0]) || (autoLocked && isAutoAct(a[0])),
     camAddOp: a => api.op(a[0]),
-    autoProgram: () => on, verifyAndFix: () => on, openSetupSheet: () => on,
+    autoProgram: () => on || autoLocked, verifyAndFix: () => on, openSetupSheet: () => on,
     setMachine: a => on && a[0] !== 'mill',
     cmdMeasure: () => on && UIX.ws === 'cam',
   };
@@ -65,7 +70,7 @@ const CAM_LOCK = (() => {
     if (typeof orig !== 'function') continue;
     window[name] = function () {
       if (!gates[name](arguments)) return orig.apply(this, arguments);
-      api.say();
+      if (!on && autoLocked && (name === 'autoProgram' || (name === 'camAction' && isAutoAct(arguments[0])))) { try { toast(AUTO_MSG); } catch (e) { /* toast not ready */ } } else api.say();
       return /^(autoProgram|verifyAndFix|openSetupSheet)$/.test(name) ? Promise.resolve() : undefined;
     };
   }
@@ -75,14 +80,21 @@ const CAM_LOCK = (() => {
   const tb0 = camToolbar;
   camToolbar = function () {
     const h = tb0.apply(this, arguments);
-    if (!on) return h;
+    if (!on && !autoLocked) return h;
     return h.replace(/<button class="rb-btn ([^"]*)"([^>]*?) data-cam="([^"]*)"([^>]*)>([\s\S]*?)<\/button>/g, (m, cls, a, act, b, inner) =>
-      api.act(act) ? `<button class="rb-btn ${cls} prem-lock"${a} data-cam="${act}"${b} aria-disabled="true">${inner}${lockIcon}</button>` : m);
+      api.act(act) || (autoLocked && isAutoAct(act)) ? `<button class="rb-btn ${cls} prem-lock"${a} data-cam="${act}"${b} aria-disabled="true">${inner}${lockIcon}</button>` : m);
   };
+  const autoPanel0 = () => `<div class="pn-head"><h2>Auto Detect</h2><span class="tag">coming soon</span></div><div class="pn-body"><div class="prem-note">${LOCK_SVG}<p>${AUTO_MSG}</p></div>
+        <p class="note">Until then, build each toolpath by hand: press N for the New Toolpath list, or use the Chain, Contour, Pocket and Drill buttons in the toolbar.</p></div>`;
   const pn0 = camPanel;
   camPanel = function () {
     if (on) return api.panel();   // every view is Premium
-    const h = pn0.apply(this, arguments);
+    if (autoLocked && CAMUI.view === 'auto') return autoPanel0();
+    let h = pn0.apply(this, arguments);
+    if (autoLocked && typeof h === 'string') {                                   // the Auto buttons in the other views stay, locked
+      h = h.replace(/<button class="btn primary" data-camdo="auto">Auto-detect features<\/button>/g, `<button class="btn primary prem-lock" data-camdo="auto" aria-disabled="true">Auto-detect features${lockIcon}</button>`)
+        .replace(/<button class="btn" data-automenu>Options…<\/button>/g, '');
+    }
     // (the simulation itself is Premium too; this keeps the Verify button honest if it is ever opened up)
     return on && typeof h === 'string' ? h.replace('<button class="btn" data-camdo="reverify">Verify now</button>', `<button class="btn prem-lock" data-camdo="reverify" aria-disabled="true">Verify now${lockIcon}</button>`) : h;
   };
@@ -90,21 +102,25 @@ const CAM_LOCK = (() => {
   catRailRender = function () {
     rail0.apply(this, arguments);
     const b = document.querySelector('#catrail [data-cat="auto"]');
-    if (b) { b.classList.toggle('prem-lock', on); if (on && !b.querySelector('.lk')) b.insertAdjacentHTML('beforeend', lockIcon); }
+    if (b) { b.classList.toggle('prem-lock', on || autoLocked); if ((on || autoLocked) && !b.querySelector('.lk')) b.insertAdjacentHTML('beforeend', lockIcon); }
   };
   const tip0 = tipInfoFor;
   tipInfoFor = function (b) {
     const r = tip0.apply(this, arguments);
-    if (r && r.tx && b && b.classList && b.classList.contains('prem-lock')) r.tx = [`${r.tx[0] || ''}<span class="tip-prem">${MSG}</span>`, null];
+    if (r && r.tx && b && b.classList && b.classList.contains('prem-lock')) r.tx = [`${r.tx[0] || ''}<span class="tip-prem">${!on && b.matches && b.matches('[data-cam="auto"], [data-cam="autoprog"], [data-cat="auto"], [data-camdo="auto"]') ? AUTO_MSG : MSG}</span>`, null];
     return r;
   };
 
   // clicks on blocked things are swallowed before anything else sees them
   document.addEventListener('click', e => {
-    if (!on || !e.target.closest) return;
+    if ((!on && !autoLocked) || !e.target.closest) return;
     const t = e.target.closest('[data-cam], [data-camdo], [data-camview], [data-cat], [data-automenu], [data-ws="sheet"]');
     if (!t) return;
     const d = t.dataset;
+    if (!on) {                                                                     // only Auto is locked
+      if (!(isAutoAct(d.cam) || d.camdo === 'auto' || d.camview === 'auto' || d.cat === 'auto' || d.automenu !== undefined)) return;
+      e.stopImmediatePropagation(); e.preventDefault(); try { toast(AUTO_MSG); } catch (er) { /* toast not ready */ } return;
+    }
     const blocked = d.cam !== undefined ? api.act(d.cam) : d.camdo !== undefined ? !FREE_DO.test(d.camdo) : d.camview !== undefined ? api.view(d.camview)
       : d.cat !== undefined ? true : d.automenu !== undefined ? true : d.ws === 'sheet';
     if (!blocked) return;
@@ -115,6 +131,7 @@ const CAM_LOCK = (() => {
   const rf0 = camRefresh;
   camRefresh = function () {
     if (on && api.view(CAMUI.view)) { if (SIM.on) simStop(); CAMUI.view = 'overview'; }
+    if (autoLocked && CAMUI.view === 'auto') CAMUI.view = 'overview';
     return rf0.apply(this, arguments);
   };
   return api;

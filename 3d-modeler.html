@@ -17284,7 +17284,10 @@ GEN.chain = function (op, tool, st, part, P) {
   chainContour(op, tool, st, part, P, chains);
 };
 function chainContour(op, tool, st, part, P, chains) {
-  const r = tool.d / 2, leave = op.leave || 0, off = r + leave, safe = st.z1 + cam().safe, ret = st.z1 + cam().retract, rho = r * 0.6 + 1;
+  const r = tool.d / 2, leave = op.leave || 0, off = r + leave, safe = st.z1 + cam().safe, ret = st.z1 + cam().retract, rho = op.leadR > 0 ? op.leadR : r * 0.6 + 1;
+  // multiple passes (Fusion's multiple stepovers, Mastercam's multi passes): roughing offsets outside the final one, which keeps Leave
+  const nRough = op._single ? 0 : clamp(Math.round(op.roughN) || 0, 0, 10), spRough = op.roughSp > 0 ? op.roughSp : 0.4 * tool.d;
+  const passLeaves = [...Array.from({ length: nRough }, (_, k) => leave + (nRough - k) * spRough), leave];
   let started = false, notes = [];
   for (const c of chains) {
     const pts = chainTravel(c);
@@ -17301,22 +17304,29 @@ function chainContour(op, tool, st, part, P, chains) {
       const fl = chainSideFloor(c, pts, toolSide);
       return Math.min(c.z, fl === -Infinity ? part.z0 - (op.through == null ? 0.5 : op.through) : fl);
     })();
-    let paths = [];                                       // each: { pts (travel order), closed }
+    let paths = [];                                       // each: { pts (travel order), closed, rough }
     if (c.closed) {
       const ccw = cArea(cP(pts)) > 0;
       if (side === 'on') paths.push({ pts, closed: true });
       else {
         const inside = (side === 'left') === ccw, base = ccw ? cP(pts) : cP(pts.slice().reverse());
-        const nom = ccModeOf(op) === 'control' ? (leave ? cOffset([base], inside ? -leave : leave).map(uP) : [pts]) : null;      // the contour the control offsets: the chain itself, or the chain with the stock left
-        for (const q of cOffset([base], inside ? -off : off)) {
-          if (cArea(q) <= 1e-4) continue;
-          let u = uP(q); if (!ccw) u = u.reverse();
-          paths.push({ pts: startNear(u, pts[0]), closed: true, nom });
+        for (const lv of passLeaves) {
+          const rough = lv > leave + 1e-9, nom = ccModeOf(op) === 'control' ? (lv ? cOffset([base], inside ? -lv : lv).map(uP) : [pts]) : null;      // the contour the control offsets: the chain itself, or the chain with the stock left
+          const before = paths.length;
+          for (const q of cOffset([base], inside ? -(r + lv) : r + lv)) {
+            if (cArea(q) <= 1e-4) continue;
+            let u = uP(q); if (!ccw) u = u.reverse();
+            paths.push({ pts: startNear(u, pts[0]), closed: true, nom, rough });
+          }
+          if (paths.length === before && !rough) { P.warn.push(`The Ø${fmtTool(tool.d)} tool is too large for ${op.chains.length > 1 ? 'one of these chains' : 'this chain'}.`); paths = []; break; }
         }
-        if (!paths.length) { P.warn.push(`The Ø${fmtTool(tool.d)} tool is too large for ${op.chains.length > 1 ? 'one of these chains' : 'this chain'}.`); continue; }
+        if (!paths.length) continue;
       }
     } else {
-      paths.push({ pts: side === 'on' ? pts : offsetOpen(pts, off, side === 'left' ? 1 : -1), closed: false, nomOpen: side !== 'on' && ccModeOf(op) === 'control' ? (leave ? offsetOpen(pts, leave, side === 'left' ? 1 : -1) : pts) : null });
+      for (const lv of side === 'on' ? [leave] : passLeaves) {
+        const rough = lv > leave + 1e-9, dir = side === 'left' ? 1 : -1;
+        paths.push({ pts: side === 'on' ? pts : offsetOpen(pts, r + lv, dir), closed: false, rough, nomOpen: side !== 'on' && ccModeOf(op) === 'control' ? (lv ? offsetOpen(pts, lv, dir) : pts) : null });
+      }
     }
     const zs = op._single ? [bottom] : levels(st.z1, bottom, op.stepdown || 2), tabZ = !op._single && op.tabs > 0 ? bottom + Math.max(0.2, op.tabH || 1.5) : -Infinity;
     const outsideLoop = c.closed && side !== 'on' && (side === 'left') !== (cArea(cP(pts)) > 0);
@@ -17327,7 +17337,8 @@ function chainContour(op, tool, st, part, P, chains) {
       let L = path.pts, n = L.length;
       if (n < 2) continue;
       const ccm = typeof ccModeOf === 'function' ? ccModeOf(op) : null;
-      let wantCC = !!ccm && side !== 'on' && !op.ramp && !(tabZ > -Infinity);              // compensation in the control needs a lead in and out; ramping and tabs stay computer-compensated
+      const tabZp = path.rough ? -Infinity : tabZ;                       // holding tabs belong to the final pass only
+      let wantCC = !!ccm && side !== 'on' && !op.ramp && !(tabZp > -Infinity);              // compensation in the control needs a lead in and out; ramping and tabs stay computer-compensated
       if (ccm && !wantCC && !P.ccWarned) { P.ccWarned = true; P.warn.push(`Cutter compensation in the control is off for this toolpath: ${side === 'on' ? 'the tool is on the line' : op.ramp ? 'it ramps down the loop' : 'it has tabs'}. The path is compensated in the computer.`); }
       let useArc = op.lead !== 'none' || wantCC, rh = rho; const leadAt = i => { const t = nrm2(sub2(L[(i + 1) % n], L[i])); return sub2(add2(L[i], mul2(nrmAt(t), rho)), mul2(t, useArc ? rho : 0)); };
       if (wantCC && path.closed && !c.sp && !c.start) {                  // no start picked: lead in mid-edge on the longest side, where an arc can swing in (never off a corner)
@@ -17403,7 +17414,7 @@ function chainContour(op, tool, st, part, P, chains) {
       }
       zs.forEach((z, li) => {
         const zAbove = Math.min(ret, (li ? zs[li - 1] : st.z1) + 1);
-        if (op.ramp && path.closed && !(z < tabZ - 1e-6)) {            // ramp contour: one spiral down the loop, no plunge and lead at every level
+        if (op.ramp && path.closed && !(z < tabZp - 1e-6)) {            // ramp contour: one spiral down the loop, no plunge and lead at every level
           if (!li) { if (!started) { P.rapid(L[0].x, L[0].y, safe); started = true; } else P.rapid(P.cur[0], P.cur[1], ret); P.rapid(L[0].x, L[0].y, ret); P.rapid(L[0].x, L[0].y, zAbove); }
           rampLoop(P, L, li ? zs[li - 1] : zAbove, z, op.rampAngle || 3, 0);
           return;
@@ -17411,7 +17422,7 @@ function chainContour(op, tool, st, part, P, chains) {
         if (!started) { P.rapid(Sx.x, Sx.y, safe); started = true; } else P.rapid(P.cur[0], P.cur[1], ret);
         P.rapid(Sx.x, Sx.y, ret); P.rapid(Sx.x, Sx.y, zAbove); P.plunge(Sx.x, Sx.y, z); const i0 = P.m.length; if (Sx !== S) P.feed(S.x, S.y, z);
         if (useArc) for (let k = 1; k <= 8; k++) { const q = arcIn(k); P.feed(q.x, q.y, z); } else P.feed(L[0].x, L[0].y, z);
-        if (z < tabZ - 1e-6) chainTabbed(P, path.closed ? [...L, L[0]] : L, z, tabZ, op.tabs, Math.max(0.5, op.tabW || 4), path.closed, tool);
+        if (z < tabZp - 1e-6) chainTabbed(P, path.closed ? [...L, L[0]] : L, z, tabZp, op.tabs, Math.max(0.5, op.tabW || 4), path.closed, tool);
         else { for (let i = 1; i < n; i++) P.feed(L[i].x, L[i].y, z); if (path.closed) P.feed(L[0].x, L[0].y, z); }
         if (useArc) for (let k = 9; k <= 16; k++) { const q = arcOut(k); P.feed(q.x, q.y, z); }
         if (wantCC) { P.feed(Ee.x, Ee.y, z); if (ccMark(P, i0, toolSide, ccm, op.compD || tool.n, nomList)) P.ccUsed = true; }
@@ -17667,7 +17678,8 @@ function compFields(op) {
 function chainxFields(op, cm) {
   const seg = (k, items, cur) => `<div class="seg">${items.map(([v, l, t]) => `<button data-opset="${k}:${v}" class="${cur === v ? 'on' : ''}" ${t ? `data-tip="${t}"` : ''}>${l}</button>`).join('')}</div>`;
   const t = toolOf(op.tool), wide = (op.slotW || 0) > t.d + 0.01;
-  if (cm === 'contour') return `${compFields(op)}<h3 class="sub">Holding tabs</h3><div class="row3">${num('opTabs', op.tabs || 0, 'Tabs (0 = off)', 1, 'min="0" max="12"')}${num('opTabW', op.tabW || 4, 'Width', 0.5)}${num('opTabH', op.tabH || 1.5, 'Height', 0.25)}</div>
+  if (cm === 'contour') return `${compFields(op)}<h3 class="sub">Passes and lead</h3><div class="row3">${num('opRoughN', op.roughN || 0, 'Rough passes', 1, 'min="0" max="10"')}${num('opRoughSp', op.roughSp > 0 ? op.roughSp : 0.4 * t.d, 'Spacing', 0.1)}${num('opLeadR', op.leadR > 0 ? op.leadR : t.d / 2 * 0.6 + 1, 'Lead radius', 0.1)}</div>
+    <p class="note">${op.roughN > 0 ? `${op.roughN} rough pass${op.roughN > 1 ? 'es' : ''} ${fmtLs(op.roughSp > 0 ? op.roughSp : 0.4 * t.d)} apart, outermost first, then the final pass at Leave.` : 'Rough passes cut offset contours outside the final one, so the last pass takes a light, even cut.'}</p><h3 class="sub">Holding tabs</h3><div class="row3">${num('opTabs', op.tabs || 0, 'Tabs (0 = off)', 1, 'min="0" max="12"')}${num('opTabW', op.tabW || 4, 'Width', 0.5)}${num('opTabH', op.tabH || 1.5, 'Height', 0.25)}</div>
     <p class="note">${op.tabs > 0 ? 'The last passes lift over each tab so the part stays held in the stock. Snap them off and file the stubs.' : 'Tabs leave small bridges at the bottom of a through cut so the part cannot move when it is free.'}</p>`;
   if (cm === 'slot') return `<div class="row3">${num('opSlotW', op.slotW || t.d, 'Slot width', 0.5)}${num('opSd', op.stepdown || 2, 'Stepdown', 0.1)}${num('opDepth', op.depth > 0 ? op.depth : Math.min(3, Math.max(1, t.d * 0.5)), 'Depth below chain', 0.1)}</div>
     <div class="row2">${num('opRamp', op.rampAngle || 3, 'Ramp angle °', 1)}${wide ? num('opTroch', op.trochStep || 0.2, 'Advance per loop ×Ø', 0.05) : ''}</div>
@@ -17685,6 +17697,7 @@ function camxBind(op, setN) {
   const set = (k, lo) => v => camEdit(op, k, Math.max(lo, v));
   setN('opTabs', v => camEdit(op, 'tabs', clamp(Math.round(v), 0, 12))); setN('opTabW', set('tabW', 0.5)); setN('opTabH', set('tabH', 0.2));
   setN('opCompD', v => camEdit(op, 'compD', clamp(Math.round(v), 1, 99)));
+  setN('opRoughN', v => camEdit(op, 'roughN', clamp(Math.round(v), 0, 10))); setN('opRoughSp', set('roughSp', 0.05)); setN('opLeadR', set('leadR', 0.2));
   setN('opSlotW', set('slotW', 0.1)); setN('opRamp', v => camEdit(op, 'rampAngle', clamp(v, 0.5, 30))); setN('opTroch', set('trochStep', 0.02));
   setN('opPitch', set('pitch', 0.05)); setN('opChSize', set('chSize', 0.02)); setN('opTipBelow', set('tipBelow', 0));
 }
@@ -18021,7 +18034,7 @@ function camOpMenu(op, x, y) {
 }
 // ── Right panel views ──────────────────────────────────────────────
 // Length fields show display units; setN converts them back to mm.
-const CAM_LEN = new Set(['stSide', 'stTop', 'stBot', 'camSafe', 'camRet', 'opSd', 'opLeave', 'opThrough', 'opLw', 'opLf', 'opPeck', 'opSoL', 'opRest', 'opFs', 'opRough', 'opPkI', 'opPkJ', 'opPkK', 'opRpl', 'opS22', 'opS52', 'opDepth', 'opBsD', 'opBsC', 'opTabW', 'opTabH', 'opSlotW', 'opPitch', 'opChSize', 'opTipBelow', 'opWlBot']);
+const CAM_LEN = new Set(['stSide', 'stTop', 'stBot', 'camSafe', 'camRet', 'opSd', 'opLeave', 'opThrough', 'opLw', 'opLf', 'opPeck', 'opSoL', 'opRest', 'opFs', 'opRough', 'opPkI', 'opPkJ', 'opPkK', 'opRpl', 'opS22', 'opS52', 'opDepth', 'opBsD', 'opBsC', 'opTabW', 'opTabH', 'opRoughSp', 'opLeadR', 'opSlotW', 'opPitch', 'opChSize', 'opTipBelow', 'opWlBot']);
 const num = (id, v, lab, step = 'any', extra = '') => CAM_LEN.has(id)
   ? `<label class="field"><span>${lab} (${uName()})</span><input type="number" id="${id}" data-cam-input="1" data-len="1" step="any" value="${uval(+v)}" ${extra}></label>`
   : `<label class="field"><span>${lab}</span><input type="number" id="${id}" data-cam-input="1" step="${step}" value="${+(+v).toFixed(4)}" ${extra}></label>`;

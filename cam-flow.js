@@ -376,7 +376,7 @@
   const STEP_NAME = { geo: 'Select geometry', tool: 'Choose the tool', params: 'Set the parameters' };
   const TABS = [['tool', 'Tool'], ['cut', 'Cut'], ['depth', 'Depths'], ['lead', 'Lead in/out'], ['link', 'Linking'], ['feeds', 'Feeds & speeds']];
   const DEPTH = new Set(['opSd', 'opMcAp', 'opDepth', 'opThrough', 'opWlBot', 'opPeck', 'opPkI', 'opPkJ', 'opPkK', 'opRpl', 'opS22', 'opS52', 'opDwell', 'opTapJ', 'opBsD', 'opBsC']);
-  const LEAD = new Set(['opTabs', 'opTabW', 'opTabH']);
+  const LEAD = new Set(['opTabs', 'opTabW', 'opTabH', 'opLeadR']);
   const LINK = new Set(['opMcRamp', 'opRamp', 'opMcRamping']);
   const FEEDS = new Set(['opCool']);
   function bucketOf(el) {

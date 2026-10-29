@@ -20,7 +20,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
   await page.route(/fonts\.g/, r => r.abort());
   const url = 'file://' + path.resolve(__dirname, '..', '3d-modeler.html') + '?dev=1';
   await page.goto(url); await page.waitForTimeout(2500);
-  await page.evaluate(() => { window.DATUM_PREMIUM = true; loadDoc(SAMPLES.find(s => s.name === 'Pocketed plate').make(), 't'); });
+  await page.evaluate(() => { window.DATUM_PREMIUM = true; window.DATUM_AUTO = true; loadDoc(SAMPLES.find(s => s.name === 'Pocketed plate').make(), 't'); });
   await page.waitForTimeout(800);
   const extrude = () => page.evaluate(() => { const sk = doc.features.find(f => f.type === 'sketch'); selProfiles.push({ sketch: sk.id, pt: { x: 0, y: 0 } }); cmdExtrude(); });
   const steps = () => page.evaluate(() => Trace.buf.map(e => `${e.kind} ${e.what}`));
