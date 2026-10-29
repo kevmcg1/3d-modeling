@@ -20,10 +20,10 @@ const SECTION = (() => {
   const host = () => glCanvas.parentElement;
   const css = document.createElement('style');
   css.textContent = `
-#secBar { position: absolute; left: 50%; top: 12px; transform: translate(-50%, 0); z-index: 7; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; max-width: calc(100% - 24px);
+#secBar { position: absolute; left: 0; right: 0; margin: 0 auto; width: fit-content; top: 12px; z-index: 7; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; max-width: calc(100% - 24px);
   background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 8px 12px; box-shadow: 0 6px 24px rgba(0,0,0,.28); font-size: 12px; color: var(--ink);
-  opacity: 1; transition: opacity .28s ease, transform .28s ease; }
-#secBar.sec-hidden { opacity: 0; transform: translate(-50%, -8px); pointer-events: none; }
+  opacity: 1; translate: 0 0; transition: opacity .28s ease, translate .28s ease; }
+#secBar.sec-hidden { opacity: 0; translate: 0 -8px; pointer-events: none; }
 #secBar b { font-weight: 600; }
 #secBar .sec-seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 7px; overflow: hidden; }
 #secBar button { height: 28px; padding: 0 10px; border: 1px solid var(--rule); border-radius: 7px; background: transparent; color: var(--ink); cursor: pointer; font: inherit; transition: color .18s ease, border-color .18s ease, box-shadow .18s ease; }

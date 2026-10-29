@@ -13015,8 +13015,7 @@ addEventListener('pointerdown', e => { if (!ctxmenu.hidden && !ctxmenu.contains(
 //    Any title="…" in the page (now or rendered later) becomes data-tip="…".
 (() => {
   const tip = document.createElement('div');
-  tip.id = 'tip'; tip.setAttribute('role', 'tooltip');
-  document.body.appendChild(tip);
+  tip.id = 'tip'; tip.setAttribute('role', 'tooltip');                                    // (kept detached: the one-line label is pure CSS now, see icon-ux.js)
   const adopt = el => { const t = el.getAttribute('title'); if (t != null) { if (t) el.setAttribute('data-tip', t); el.removeAttribute('title'); } };
   const sweep = root => { if (root.nodeType !== 1) return; if (root.hasAttribute('title')) adopt(root); root.querySelectorAll('[title]').forEach(adopt); };
   sweep(document.body);
@@ -13025,6 +13024,7 @@ addEventListener('pointerdown', e => { if (!ctxmenu.hidden && !ctxmenu.contains(
   let target = null, timer = 0;
   const hide = () => { clearTimeout(timer); target = null; tip.classList.remove('show'); };
   const show = el => {
+    return;                                                                         // the label is CSS (data-ctip), the rich card comes on a long hover
     if (!el.isConnected) return;
     tip.textContent = el.getAttribute('data-tip');
     tip.classList.remove('below');
@@ -32832,7 +32832,7 @@ const TIP_TXT = {
   document.body.appendChild(card);
   let el = null, t1 = 0, t2 = 0;
   const keyOf = b => b.dataset.tipkey || b.dataset.act || b.dataset.cam || b.dataset.sheet || b.dataset.tool || '';
-  const hide = () => { clearTimeout(t1); clearTimeout(t2); if (typeof TipAnim !== 'undefined') TipAnim.stop(); card.classList.remove('in', 'more'); card.hidden = true; if (el && el.dataset.tipTitle) { el.title = el.dataset.tipTitle; delete el.dataset.tipTitle; } el = null; };
+  const hide = () => { clearTimeout(t1); clearTimeout(t2); document.body.classList.remove('card-open'); if (typeof TipAnim !== 'undefined') TipAnim.stop(); card.classList.remove('in', 'more'); card.hidden = true; if (el && el.dataset.tipTitle) { el.title = el.dataset.tipTitle; delete el.dataset.tipTitle; } el = null; };
   const place = () => {
     if (!el) return;
     const r = el.getBoundingClientRect(), w = card.offsetWidth, h = card.offsetHeight;
@@ -32853,11 +32853,11 @@ const TIP_TXT = {
     const pic = TipAnim.pic(k, art ? () => TipAnim.legacyPics(TipArt.wrap(art[0]()), TipArt.wrap(art[1]())) : null)
       || (ic && el.closest('#toolbar') ? `<div class="tip-plate" style="--h:${hue || 214}">${ic.outerHTML}</div>` : '');
     card.innerHTML = `<div class="tip-head"><b>${name}</b>${key ? `<span class="kbd">${key}</span>` : ''}${grp ? `<span class="tip-group">${grp}</span>` : ''}</div>${tx[0] ? `<p class="tip-what">${tx[0]}</p>` : ''}${pic}${tx[1] ? `<div class="tip-more"><div class="tip-step">How to use it</div><ol>${tx[1].map(s => `<li>${s}</li>`).join('')}</ol></div><div class="tip-hold">Keep hovering for the steps</div>` : ''}`;
-    card.hidden = false; place(); TipAnim.start(card);
+    card.hidden = false; document.body.classList.add('card-open'); place(); TipAnim.start(card);
     const small = document.getElementById('tip'); if (small) small.classList.remove('show');       // the card takes over from the one-line label
     requestAnimationFrame(() => card.classList.add('in'));
     // step 2: keep holding and it grows the how-to
-    if (tx[1]) t2 = setTimeout(() => { card.classList.add('more'); requestAnimationFrame(place); setTimeout(place, 260); }, 1400);
+    if (tx[1]) t2 = setTimeout(() => { card.classList.add('more'); requestAnimationFrame(place); setTimeout(place, 260); }, 900);
   };
   document.addEventListener('pointerover', e => {
     const b = e.target.closest && e.target.closest('[data-tipkey], #toolbar button:not(.rb-arrow), #toolbar [data-act], #toolbar [data-cam], #topbar button:not(.rb-arrow), #viewtools button, #visGroup button, [data-selmode], #simbar button, #simbar .play, #phy .phy-bar button');
@@ -32867,7 +32867,7 @@ const TIP_TXT = {
     el = b;
     // the card replaces the browser's own tooltip
     if (b.title) { b.dataset.tipTitle = b.title; b.removeAttribute('title'); }
-    t1 = setTimeout(show, 550);
+    t1 = setTimeout(show, 1400);                                                  // the CSS label is there at once; hold the hover and the card takes over
   });
   document.addEventListener('pointerdown', hide, true);
   document.addEventListener('keydown', hide, true);
@@ -38462,6 +38462,7 @@ function gsPick(i) {
 <script src="cam-premium.js"></script>
 <script src="section.js"></script>
 <script src="fx-anim.js"></script>
+<script src="icon-ux.js"></script>
 <!-- Import and export previews (Shaded, Wireframe, Solid) and the closed-mesh check -->
 <script src="io-preview.js"></script>
 <!-- Early-access release: hides tabs and export formats, shows the notice (release-config.js lists what is hidden) -->
