@@ -27,7 +27,7 @@ const check = (r, label) => {
   const page = await browser.newPage({ viewport: { width: 1920, height: 800 } }); await page.addInitScript(() => { window.DATUM_PREMIUM = true; });   // the CAM Premium lock is off while testing the features it blocks
   const errs = []; page.on('pageerror', e => errs.push(e.message));
   await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
-  await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' }));
+  await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' })); await page.route(/gate\.js/, r => r.abort());
   await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html') + '?dev=1'); await page.waitForTimeout(2000);
   await page.evaluate(() => { const s = SAMPLES.find(x => x.name === 'Pocketed plate'); loadDoc(s.make(), 'test'); });
   await page.waitForTimeout(1500);

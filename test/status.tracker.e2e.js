@@ -16,7 +16,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
   page.on('console', m => { const t = m.text(); if (/\[3D Modeler/.test(t)) logs.push(t); });
   page.on('pageerror', e => errs.push(e.message)); page.on('dialog', d => d.dismiss());
   await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
-  await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' }));
+  await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' })); await page.route(/gate\.js/, r => r.abort());
   await page.route(/fonts\.g/, r => r.abort());
   const url = 'file://' + path.resolve(__dirname, '..', '3d-modeler.html') + '?dev=1';
   await page.goto(url); await page.waitForTimeout(2500);

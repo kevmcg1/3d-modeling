@@ -11,7 +11,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
   const page = await browser.newPage({ viewport: { width: 1400, height: 850 } }); await page.addInitScript(() => { window.DATUM_PREMIUM = true; });   // the CAM Premium lock is off while testing the features it blocks
   const errs = []; page.on('pageerror', e => errs.push(e.message));
   await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
-  await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' }));
+  await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' })); await page.route(/gate\.js/, r => r.abort());
   await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await page.waitForTimeout(1500);
   // a 20 × 10 × 5 box (sketch on the XY plane, extruded 5) plus whatever features a test adds; returns volumes and boxes of every body
   const run = feats => page.evaluate(F => {

@@ -12,7 +12,7 @@ const close = (a, b, tol, what) => assert(Math.abs(a - b) <= tol, `${what}: ${a}
   const page = await browser.newPage({ viewport: { width: 1400, height: 850 } });
   const errs = []; page.on('pageerror', e => errs.push(e.message));
   await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
-  await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' }));
+  await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' })); await page.route(/gate\.js/, r => r.abort());
   await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await page.waitForTimeout(1500);
   const run = feats => page.evaluate(F => {
     loadDoc({ features: F, next: 200 }, 'x');
@@ -80,7 +80,7 @@ const close = (a, b, tol, what) => assert(Math.abs(a - b) <= tol, `${what}: ${a}
     const ctx = await browser.newContext(), p2 = await ctx.newPage(); const e2 = []; p2.on('pageerror', e => e2.push(e.message));
     await ctx.route(/cdnjs.*three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
     await p2.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
-    await p2.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' }));
+    await p2.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' })); await p2.route(/gate\.js/, r => r.abort());
     await p2.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await p2.waitForTimeout(2500);
     const r = await p2.evaluate(async F => {
       if (!Kernel.worker) return { worker: false };
