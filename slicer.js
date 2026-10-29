@@ -323,7 +323,7 @@ const islandPaths = is => [is.outer, ...is.holes];
 
 /* ── Mesh slicing ─────────────────────────────────────────────────── */
 function transformMesh(mesh, cfg) {
-  // returns Z-up mesh dropped on the bed (min z = 0), centred, with rotation/scale applied
+  // returns Z-up mesh dropped on the bed (min z = 0), centerd, with rotation/scale applied
   const t = cfg.xform || {}, sx = (t.scale || 100) / 100;
   const rx = (t.rx || 0) * Math.PI / 180, ry = (t.ry || 0) * Math.PI / 180, rz = (t.rz || 0) * Math.PI / 180;
   const cx = Math.cos(rx), sxr = Math.sin(rx), cy = Math.cos(ry), syr = Math.sin(ry), cz = Math.cos(rz), szr = Math.sin(rz);
@@ -369,7 +369,7 @@ function sliceLoops(M, buckets, li, z) {
     if ((q.x - p.x) * dx + (q.y - p.y) * dy < 0) [p, q] = [q, p];
     segs.push([p, q]);
   }
-  // chain by position (10 µm grid, neighbours too): robust to T-junctions, tiny seams and meshes whose edges are not shared index-for-index
+  // chain by position (10 µm grid, neighbors too): robust to T-junctions, tiny seams and meshes whose edges are not shared index-for-index
   const Q = 100, qk = (ix, iy) => (ix + 5e6) * 1e7 + (iy + 5e6);
   const cell = p => [Math.round(p.x * Q), Math.round(p.y * Q)];
   const next = new Map();
@@ -486,7 +486,7 @@ function gyroidLines(bb, pitch, z) {
   }
   return chainSegments(segs);
 }
-// drop points that lie within tol of the line through their neighbours (Douglas–Peucker)
+// drop points that lie within tol of the line through their neighbors (Douglas–Peucker)
 function simplify(l, tol) {
   if (l.length < 3) return l;
   const keep = new Uint8Array(l.length); keep[0] = keep[l.length - 1] = 1;

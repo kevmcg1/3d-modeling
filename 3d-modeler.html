@@ -10,7 +10,7 @@
 <meta name="robots" content="noai, noimageai">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>3D Modeler</title>
-<script>try { document.documentElement.setAttribute("data-theme", localStorage.getItem("datum.theme") === "dark" ? "dark" : "light"); } catch (e) { document.documentElement.setAttribute("data-theme", "light"); }   // light unless the user chose dark</script>
+<script>try { document.documentElement.setAttribute("data-theme", localStorage.getItem("datum.theme") === "light" ? "light" : "dark"); } catch (e) { document.documentElement.setAttribute("data-theme", "dark"); }   // dark unless the user chose light</script>
 <script>
 // Early capture for the exported log: errors, rejections and console warnings/errors from page load, before the trace module exists.
 (function () {
@@ -3771,7 +3771,7 @@ body.col-drag { cursor: col-resize; user-select: none; }
 #viewport { position: relative; min-width: 0; min-height: 0; overflow: hidden;
   background: linear-gradient(180deg, var(--view-top), var(--view-bot)); touch-action: none; }
 #gl, #ov { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-/* Shaded mode "studio look": a light vignette backdrop (warm white centre, cool grey edges); sketch ink and grid use the light-theme set so they read on it in either UI theme */
+/* Shaded mode "studio look": a light vignette backdrop (warm white center, cool gray edges); sketch ink and grid use the light-theme set so they read on it in either UI theme */
 :root[data-look="shaded"] { --look-a: #fbf7f4; --look-b: #e6e5e7; --look-c: #bcc2cd; --edge: #1c232d; --body: #b4bec9; }
 /* light theme: sketch ink and grid use the dark set so they read on the pale backdrop */
 :root[data-look="shaded"]:not([data-theme="dark"]) {
@@ -3779,7 +3779,7 @@ body.col-drag { cursor: col-resize; user-select: none; }
   --sk-profile: rgba(236, 166, 52, .20); --sk-profile-hot: rgba(236, 166, 52, .42); --sk-profile-sel: rgba(36, 96, 200, .30);
   --sk-dim: rgba(23, 32, 44, .45); --grid-minor: rgba(35, 52, 76, .07); --grid-major: rgba(35, 52, 76, .15);
   --axis-u: #cf4236; --axis-v: #2b9650; --snap: #e2630f; --face-hot: #3d7cf0; --plane: #6f9be8; }
-/* dark theme: a dark studio backdrop (cool charcoal centre, near-black edges) and the dark theme's light ink */
+/* dark theme: a dark studio backdrop (cool charcoal center, near-black edges) and the dark theme's light ink */
 :root[data-look="shaded"][data-theme="dark"] { --look-a: #3a414c; --look-b: #262b33; --look-c: #111317; --edge: #0b0e12; --body: #9aa6b4; }
 :root[data-look="shaded"] #viewport, :root[data-look="shaded"] body.ws-cam #viewport { background:
   radial-gradient(ellipse 90% 80% at 42% 38%, var(--look-a) 0%, var(--look-b) 58%, var(--look-c) 100%); }
@@ -6251,7 +6251,7 @@ function evalThread(f, ctx) {
           return G;
         };
         items.push({ mk, zA, zB, P, must: t.must });
-      } catch (e) { if (t.must) throw e; }                          // a neighbour that cannot take it is skipped; the picked one must
+      } catch (e) { if (t.must) throw e; }                          // a neighbor that cannot take it is skipped; the picked one must
     }
     let polys = body.polys;
     items.sort((x, y) => (y.must ? 1 : 0) - (x.must ? 1 : 0));          // the picked hole first: it shows how much a mm of this thread takes out
@@ -6260,7 +6260,7 @@ function evalThread(f, ctx) {
         const v0 = polyVolume(polys);
         polys = threadCut(polys, it.mk, it.zA, it.zB, N, it.P, rate);
         if (it.must) rate = (v0 - polyVolume(polys)) / Math.max(1e-6, it.zB - it.zA);
-      } catch (e) { if (it.must) throw e; }                         // a neighbour that cannot take it is skipped
+      } catch (e) { if (it.must) throw e; }                         // a neighbor that cannot take it is skipped
     }
     ctx.bodies = ctx.bodies.map(b => b === body ? { id: b.id, polys, bb: bboxPolys(polys) } : b);
   }
@@ -8235,7 +8235,7 @@ const LH_OPTS = [['none', 'Solid web'], ['holes', 'Lightening holes']];
 // ── Axles & shafts ──
 SHOP.axle = {
   name: 'Stepped axle', grp: 'Axles & shafts', drive: 1, parts: [['Axle', SHOP_COL.steel]],
-  p: [['L', 'Length', 200, 'len'], ['D', 'Main Ø', 25, 'len'], ['jd', 'End journal Ø', 20, 'len'], ['jl', 'Journal length', 30, 'len'], ['cd', 'Shoulder Ø (0 = none)', 35, 'len'], ['cw', 'Shoulder width', 8, 'len'], ['sx', 'Shoulder position', 70, 'len'], ['key', 'Keyway', true, 'chk'], ['kl', 'Keyway length', 50, 'len'], ['rg', 'Circlip grooves', true, 'chk'], ['ch', 'End chamfer', 1.5, 'len'], ['cen', 'Centre holes', true, 'chk']],
+  p: [['L', 'Length', 200, 'len'], ['D', 'Main Ø', 25, 'len'], ['jd', 'End journal Ø', 20, 'len'], ['jl', 'Journal length', 30, 'len'], ['cd', 'Shoulder Ø (0 = none)', 35, 'len'], ['cw', 'Shoulder width', 8, 'len'], ['sx', 'Shoulder position', 70, 'len'], ['key', 'Keyway', true, 'chk'], ['kl', 'Keyway length', 50, 'len'], ['rg', 'Circlip grooves', true, 'chk'], ['ch', 'End chamfer', 1.5, 'len'], ['cen', 'Center holes', true, 'chk']],
   build(P, K) {
     const L = P.L, R = P.D / 2, rj = Math.min(P.jd / 2, R), jl = Math.min(P.jl, L * 0.4), rc = P.cd > P.D ? P.cd / 2 : 0, ch = Math.min(P.ch, rj * 0.5);
     const cw = Math.min(P.cw, L / 4), cx = rc ? Math.max(jl, Math.min(P.sx, L - jl - cw)) : 0, zc = Math.max(R, rc), segs = [];
@@ -8262,8 +8262,8 @@ SHOP.axle = {
   },
 };
 SHOP.wheelAxle = {
-  name: 'Wheel and axle set', grp: 'Axles & shafts', drive: 1, parts: [['Axle', SHOP_COL.steel], ['Wheel L', SHOP_COL.alu], ['Wheel R', SHOP_COL.alu], ['Tyre L', SHOP_COL.black], ['Tyre R', SHOP_COL.black], ['Collar L', SHOP_COL.brass], ['Collar R', SHOP_COL.brass]],
-  p: [['L', 'Axle length', 180, 'len'], ['d', 'Axle Ø', 12, 'len'], ['Dw', 'Wheel Ø', 90, 'len'], ['ww', 'Wheel width', 22, 'len'], ['tt', 'Tyre thickness', 6, 'len'], ['sp', 'Wheel spacing', 120, 'len'], ['lh', 'Wheel web', 'holes', 'sel', LH_OPTS]],
+  name: 'Wheel and axle set', grp: 'Axles & shafts', drive: 1, parts: [['Axle', SHOP_COL.steel], ['Wheel L', SHOP_COL.alu], ['Wheel R', SHOP_COL.alu], ['Tire L', SHOP_COL.black], ['Tire R', SHOP_COL.black], ['Collar L', SHOP_COL.brass], ['Collar R', SHOP_COL.brass]],
+  p: [['L', 'Axle length', 180, 'len'], ['d', 'Axle Ø', 12, 'len'], ['Dw', 'Wheel Ø', 90, 'len'], ['ww', 'Wheel width', 22, 'len'], ['tt', 'Tire thickness', 6, 'len'], ['sp', 'Wheel spacing', 120, 'len'], ['lh', 'Wheel web', 'holes', 'sel', LH_OPTS]],
   build(P, K) {
     const rw = P.Dw / 2, zc = rw, r = P.d / 2, ww = P.ww, tt = Math.min(P.tt, rw * 0.3), hub = Math.max(r * 2.2, 10), x1 = (P.L - P.sp) / 2, x2 = x1 + P.sp, rim = rw - tt;
     const axle = K.turnX(0, zc, 0, [[0, 0], [r - 0.8, 0], [r, 0.8], [r, P.L - 0.8], [r - 0.8, P.L], [0, P.L]]);
@@ -8274,14 +8274,14 @@ SHOP.wheelAxle = {
       if (P.lh === 'holes' && rim - 4 - hub > 12) { const n = 6, rc = (hub + rim - 4) / 2, rr = (rim - 4 - hub) / 2 - 3; for (let i = 0; i < n; i++) { const t = TAU * (i + 0.5) / n; cuts.push(K.cylX(rc * Math.sin(t), zc + rc * Math.cos(t), rr, x0 - 1, x0 + ww + 1)); } }
       return K.sub(body, ...cuts);
     };
-    const tyre = x0 => K.turnX(0, zc, x0, [[rim, 0], [rw - 1.5, 0], [rw, 1.5], [rw, ww - 1.5], [rw - 1.5, ww], [rim, ww]]);
+    const tire = x0 => K.turnX(0, zc, x0, [[rim, 0], [rw - 1.5, 0], [rw, 1.5], [rw, ww - 1.5], [rw - 1.5, ww], [rim, ww]]);
     const collar = x0 => K.sub(K.turnX(0, zc, x0, [[0, 0], [r + 5, 0], [r + 5, 7], [0, 7]]), K.cylX(0, zc, r, x0 - 1, x0 + 8));
-    return [axle, wheel(x1, -1), wheel(x2, 1), tyre(x1 - ww), tyre(x2), collar(x1 - ww - 8), collar(x2 + ww + 1)];
+    return [axle, wheel(x1, -1), wheel(x2, 1), tire(x1 - ww), tire(x2), collar(x1 - ww - 8), collar(x2 + ww + 1)];
   },
 };
 
 // ── Pulleys & sprockets ──
-// V-belt sections: [label, pitch width, groove depth, groove spacing, edge to centre, height above the pitch line]
+// V-belt sections: [label, pitch width, groove depth, groove spacing, edge to center, height above the pitch line]
 const VBELT = { z: ['Z / SPZ', 8.5, 11, 12, 8, 2], a: ['A / SPA', 11, 13.75, 15, 10, 2.75], b: ['B / SPB', 14, 17.5, 19, 12.5, 3.5], c: ['C / SPC', 19, 23.8, 25.5, 17, 4.8] };
 const VBELT_OPTS = Object.entries(VBELT).map(([k, v]) => [k, v[0]]);
 // a V-groove rim profile: points (radius, axial) for the grooves of an n-groove sheave starting at xr0
@@ -8378,10 +8378,10 @@ SHOP.ropeSheave = {
 // ── Belt drive: two V pulleys on shafts joined by a belt, standing on a base plate ──
 SHOP.beltDrive = {
   name: 'V-belt drive', grp: 'Drives', drive: 1, parts: [['Drive shaft', SHOP_COL.steel], ['Driven shaft', SHOP_COL.steel], ['Drive pulley', SHOP_COL.iron], ['Driven pulley', SHOP_COL.iron], ['Belt', SHOP_COL.black], ['Base plate', SHOP_COL.blue]],
-  p: [['d1', 'Drive pulley pitch Ø', 80, 'len'], ['d2', 'Driven pulley pitch Ø', 160, 'len'], ['cd', 'Centre distance', 220, 'len'], ['sec', 'Belt section', 'a', 'sel', VBELT_OPTS], ['sd', 'Shaft Ø', 19, 'len'], ['plate', 'Base plate', true, 'chk']],
+  p: [['d1', 'Drive pulley pitch Ø', 80, 'len'], ['d2', 'Driven pulley pitch Ø', 160, 'len'], ['cd', 'Center distance', 220, 'len'], ['sec', 'Belt section', 'a', 'sel', VBELT_OPTS], ['sd', 'Shaft Ø', 19, 'len'], ['plate', 'Base plate', true, 'chk']],
   build(P, K) {
     const [, wp, dep, , f, hb] = VBELT[P.sec], r1 = P.d1 / 2, r2 = P.d2 / 2, cd = P.cd, tn = Math.tan(17 * Math.PI / 180);
-    if (cd <= r1 + r2 + hb * 2) throw new Error('The pulleys would touch: increase the centre distance');
+    if (cd <= r1 + r2 + hb * 2) throw new Error('The pulleys would touch: increase the center distance');
     const z0 = P.plate ? 12 : 0, zp = z0 + 22, W = 2 * f, hubR = P.sd / 2 + 7, sh = zp + W + 30;
     const sheave = (cx, pd) => {
       const R = pd / 2 + hb, rbot = R - dep, ri = Math.max(hubR + 3, rbot - 5), g = vGroovePts(P.sec, 1, pd, 0, ri + 1);
@@ -8389,7 +8389,7 @@ SHOP.beltDrive = {
       const prof = [[0, 0], [hubR, 0], [hubR, 7], [ri, 7], [ri, 0], [R - 1, 0], [R, 1], ...g.pts, [R, W - 1], [R - 1, W], [ri, W], [ri, W - 7], [hubR, W - 7], [hubR, W], [0, W]];
       return K.sub(K.turn('z', cx, 0, zp, prof), K.cyl('z', cx, 0, P.sd / 2, zp - 1, zp + W + 1));
     };
-    const rp1 = r1, rp2 = r2, gam = Math.acos((rp1 - rp2) / cd), N = 28, loop = rr1 => {        // the belt centre-line offset by the belt's half thickness
+    const rp1 = r1, rp2 = r2, gam = Math.acos((rp1 - rp2) / cd), N = 28, loop = rr1 => {        // the belt center-line offset by the belt's half thickness
       const out = [], a = rp1 + rr1, b = rp2 + rr1;
       for (let i = 0; i <= N; i++) { const t = gam + (TAU - 2 * gam) * i / N; out.push([a * Math.cos(t), a * Math.sin(t)]); }
       for (let i = 0; i <= N; i++) { const t = -gam + 2 * gam * i / N; out.push([cd + b * Math.cos(t), b * Math.sin(t)]); }
@@ -8409,7 +8409,7 @@ SHOP.beltDrive = {
 // ═══════════════════════════════════════════════════════════════════
 //  Deform — bend, twist, taper and warp any bodies, or flow them along a
 //  path. The bodies are cut on a lattice aligned with the world axes (so
-//  neighbouring faces split identically and stay crack-free), every vertex
+//  neighboring faces split identically and stay crack-free), every vertex
 //  goes through the deformation, and each original face becomes one smooth
 //  freeform face whose normals come from the deformation's own slope.
 // ═══════════════════════════════════════════════════════════════════
@@ -10239,7 +10239,7 @@ function restore(s) {
   if (UIX.ws === 'cam') camDraw();
   modelChanged();
 }
-function undo() { if (typeof LIVE !== 'undefined' && LIVE.on) { liveCancel(); setTool('select'); toast('Cancelled'); return; } if (hist.cur <= 0) return; jumpTo(hist.cur - 1); toast('Undid ' + hist.labels[hist.cur + 1]); }
+function undo() { if (typeof LIVE !== 'undefined' && LIVE.on) { liveCancel(); setTool('select'); toast('Canceled'); return; } if (hist.cur <= 0) return; jumpTo(hist.cur - 1); toast('Undid ' + hist.labels[hist.cur + 1]); }
 function redo() { if (hist.cur >= hist.states.length - 1) return; jumpTo(hist.cur + 1); toast('Redid ' + hist.labels[hist.cur]); }
 function saveLocal() { try { localStorage.setItem('datum.doc', snap()); } catch (e) { /* storage unavailable */ } }
 
@@ -13819,7 +13819,7 @@ document.getElementById('btnFit').addEventListener('click', () => fitAll());
 // How bodies are drawn: Solid (lit, with edge lines), Shaded (lit, no lines), Wireframe (edges only).
 let SHADE = 'solid';
 try { const v = localStorage.getItem('datum.shade'); if (v === 'shaded' || v === 'wire') SHADE = v; } catch (e) { /* storage unavailable */ }
-// Studio look (Shaded mode): a product-render finish. Satin aluminium lit by a softbox environment (the scene is Y-up), reflections that
+// Studio look (Shaded mode): a product-render finish. Satin aluminum lit by a softbox environment (the scene is Y-up), reflections that
 // shift across each face as if seen through a wide lens (the camera is orthographic, so a flat face would otherwise be one
 // flat tone), screen-space ambient occlusion in the corners, soft edge lines and a contact shadow, over a light vignette.
 // Solid and Wireframe keep the plain engineering look.
@@ -13834,7 +13834,7 @@ function lookEnv() {
   try {
     const sc = new THREE.Scene(), sg = new THREE.SphereGeometry(50, 48, 24), pos = sg.attributes.position, col = new Float32Array(pos.count * 3);
     const lerp = (a, b, k) => a.map((v, i) => v + (b[i] - v) * k), sm = k => k * k * (3 - 2 * k);
-    const ramp = h => {   // height → colour: bright ceiling, cool grey horizon band, dark floor
+    const ramp = h => {   // height → color: bright ceiling, cool gray horizon band, dark floor
       const T = [0.97, 0.97, 1.0], M = [0.88, 0.91, 0.98], F = [0.78, 0.79, 0.85];
       return h > 0 ? lerp(M, T, sm(Math.min(1, h / 0.75))) : lerp(M, F, sm(Math.min(1, -h / 0.6)));
     };
@@ -13869,7 +13869,7 @@ function lookStyle(m) {
     m.customProgramCacheKey = () => 'datumLook';
     m.needsUpdate = true;
   }
-  const on = LOOK.on && LOOK.env, paint = m !== bodyMat;   // a body with its own colour reads as painted / anodised, the default as bare aluminium
+  const on = LOOK.on && LOOK.env, paint = m !== bodyMat;   // a body with its own color reads as painted / anodised, the default as bare aluminum
   m.envMap = on ? LOOK.env : null;
   m.envMapIntensity = paint ? 0.55 : 1;
   m.metalness = on ? (paint ? 0.12 : 0.9) : 0.08;
@@ -13927,7 +13927,7 @@ function lookAO() {
             vec2 o = vec2(cos(a), sin(a)) * r;
             vec2 u2 = uv + o / uRes;
             if (texture2D(tDepth, u2).x >= 0.99999) continue;
-            vec3 d = vec3(o * uWpp, z0 - lin(u2));                         // from this pixel to the neighbour surface point, in world units (z toward the camera)
+            vec3 d = vec3(o * uWpp, z0 - lin(u2));                         // from this pixel to the neighbor surface point, in world units (z toward the camera)
             float len = length(d);
             if (len < 1e-5) continue;
             occ += max(dot(N, d / len) - 0.2, 0.0) * (1.0 - smoothstep(uRw * 0.6, uRw * 1.6, len));
@@ -13975,7 +13975,7 @@ function applyLook() {
   lookShadowUpdate();
   headLight.intensity = on ? 0.4 : LOOK.plain.head; hemi.intensity = on ? 0.12 : LOOK.plain.hemi;
   for (const m of [bodyMat, ...(typeof BODY_MATS !== 'undefined' ? BODY_MATS.values() : [])]) lookStyle(m);
-  readTheme();   // re-reads the sketch ink / body colours for the backdrop that is now showing
+  readTheme();   // re-reads the sketch ink / body colors for the backdrop that is now showing
   applyShadeVis();
 }
 // Which of a body's two objects show: Solid = surface + edges, Shaded = surface + faint edges, Wireframe = edges only.
@@ -14448,7 +14448,7 @@ function camHoles() {
   // Only holes that open upward can be drilled from the top; one opening
   // underneath (material above it) is left for another setup.
   // open to the sky across its whole mouth, not just at the center (a cavity under a
-  // wall with a small hole in the middle is not a hole drilled from the top). Nor is the outer wall of a ring groove: its centre stands up.
+  // wall with a small hole in the middle is not a hole drilled from the top). Nor is the outer wall of a ring groove: its center stands up.
   for (const h of out) h.fromTop = [[0, 0], [0.7, 0], [-0.7, 0], [0, 0.7], [0, -0.7]].every(([u, v]) => partTopAt(h.x + u * h.d / 2, h.y + v * h.d / 2) <= h.bot + 0.01);
   return (g.holes = out.filter(h => h.fromTop));
 }
@@ -17112,7 +17112,7 @@ function chainTravel(c) {
 // real wall. Every segment whose ends lie on one circle with the points beside them gets points on the true arc,
 // until the flats are within ARC_SAG of it.
 // Least-squares circle through points {x, y}: a chain read off the mesh has unevenly spaced points, so their average is
-// not the centre (an 8 mm hole's points averaged 0.2 mm off). d from the mean radius.
+// not the center (an 8 mm hole's points averaged 0.2 mm off). d from the mean radius.
 function circleFit(pts) {
   const n = pts.length;
   let cx = 0, cy = 0; pts.forEach(q => { cx += q.x; cy += q.y; }); cx /= n; cy /= n;
@@ -17125,7 +17125,7 @@ function circleFit(pts) {
 }
 const ARC_SAG = 0.004;
 function chainArcs(p0, closed) {
-  // points in the middle of a straight run (where a neighbouring face split the edge) say nothing about the curve and
+  // points in the middle of a straight run (where a neighboring face split the edge) say nothing about the curve and
   // break the four-points-on-a-circle test: leave them out (the shape is the same; the start point is kept)
   const p = [];
   for (let i = 0; i < p0.length; i++) {
@@ -17159,7 +17159,7 @@ function chainArcs(p0, closed) {
   for (let i = 0; i < (closed ? n : n - 1); i++) {
     const j = at(i + 1), a = p[i], b = p[j];
     out.push(a);
-    // the segment is on an arc when four points in a row (it and a neighbour on either side) share one circle and it is short beside the radius
+    // the segment is on an arc when four points in a row (it and a neighbor on either side) share one circle and it is short beside the radius
     // (and all three segments between those four points are short beside the radius: a rectangle's corners also lie on one circle)
     const seg = (u, v) => (closed || (u >= 0 && v < n)) ? Math.hypot(p[at(v)].x - p[at(u)].x, p[at(v)].y - p[at(u)].y) : Infinity;
     const short = (o, k) => o && [k, k + 1, k + 2].every(u => seg(u, u + 1) <= 0.6 * o.R);
@@ -17330,7 +17330,7 @@ function chainContour(op, tool, st, part, P, chains) {
     }
     const zs = op._single ? [bottom] : levels(st.z1, bottom, op.stepdown || 2), tabZ = !op._single && op.tabs > 0 ? bottom + Math.max(0.2, op.tabH || 1.5) : -Infinity;
     const outsideLoop = c.closed && side !== 'on' && (side === 'left') !== (cArea(cP(pts)) > 0);
-    // how far a tool centred at q reaches into the stock block (≤ 0: clear of it)
+    // how far a tool centerd at q reaches into the stock block (≤ 0: clear of it)
     const pen = q => { const dx = Math.max(st.x0 - q.x, 0, q.x - st.x1), dy = Math.max(st.y0 - q.y, 0, q.y - st.y1); return r - (dx || dy ? Math.hypot(dx, dy) : -Math.min(q.x - st.x0, st.x1 - q.x, q.y - st.y0, st.y1 - q.y)); };
     const sgn = toolSide === 'left' ? 1 : -1, nrmAt = t => P2(-t.y * sgn, t.x * sgn);
     for (const path of paths) {
@@ -17485,7 +17485,7 @@ function chainPocket(op, tool, st, part, P, chains) {
     if (fs > 0) {
       const fin = cOffset(area, -(r + lw)).filter(p => Math.abs(cArea(p)) > 1e-4).map(q => ({ k: 0, pts: uP(q) }));
       const rough = items.filter(q => q.k === 0).flatMap(q => q.pts);
-      const finLink = cOffset(area, -(r + lw) + 0.002);           // where the tool's centre may go at the finish
+      const finLink = cOffset(area, -(r + lw) + 0.002);           // where the tool's center may go at the finish
       const inner = q => { let b = null; for (const p of rough) if ((!b || dst2(p, q) < dst2(b, q)) && !segHitsPaths(p, q, finLink)) b = p; return b || q; };
       // a finish ring no roughing ring reaches (a corner the roughing tool did not fit, with its wall stock) has full-height
       // material on it: it is cut down level by level like the roughing, not entered at depth
@@ -18684,7 +18684,7 @@ refreshUI = function () { refreshUI1S(); snapBarSync(); };
 //  Stress analysis (linear static): constraints, loads and a material go
 //  to a voxel-brick solver in a worker; the result is a full stress tensor
 //  and displacement at every node, which is turned into Fusion-style
-//  colour maps (von Mises, principal, normal and shear stress,
+//  color maps (von Mises, principal, normal and shear stress,
 //  displacement, strain, safety factor), with a legend you can band or
 //  range, min/max markers, probes, a section through the part,
 //  reactions, a mesh-convergence study and an HTML report.
@@ -18712,7 +18712,7 @@ const STRESS_MODES = [
 ];
 const STRESS_MODE = Object.fromEntries(STRESS_MODES.flatMap(([, l]) => l.map(m => [m[0], m])));
 const STRESS_SIGNED = new Set(['s1', 's3', 'sx', 'sy', 'sz', 'txy', 'tyz', 'txz', 'dx', 'dy', 'dz']);
-// colour maps (stops from low to high)
+// color maps (stops from low to high)
 const STRESS_PALS = {
   rainbow: ['Rainbow (Fusion)', [[0.1, 0.25, 0.95], [0.1, 0.75, 0.95], [0.25, 0.85, 0.35], [0.98, 0.9, 0.2], [0.95, 0.2, 0.15]]],
   jet: ['Jet', [[0, 0, 0.55], [0, 0.4, 1], [0.1, 1, 0.9], [0.6, 1, 0.1], [1, 0.75, 0], [1, 0.1, 0], [0.55, 0, 0]]],
@@ -18960,7 +18960,7 @@ const stressScaleInfo = (mode, R) => {                              // [label, u
   if (k === 'e') return [nm, '', v => v, k];
   return [nm, '', v => v, k];
 };
-// the value range the colours span: automatic from what is visible, or typed in
+// the value range the colors span: automatic from what is visible, or typed in
 function stressRange(R, s) {
   if (s.range && isFinite(s.range[0]) && isFinite(s.range[1]) && s.range[1] > s.range[0]) return s.range;
   const a = STRESS.vals; let lo = Infinity, hi = -Infinity;
@@ -18971,7 +18971,7 @@ function stressRange(R, s) {
   return [lo, hi];
 }
 
-// ── the colour map as a texture (smooth or banded) ──
+// ── the color map as a texture (smooth or banded) ──
 function stressPalTexture(s) {
   const stops = STRESS_PALS[s.pal] ? STRESS_PALS[s.pal][1] : STRESS_PALS.rainbow[1], data = new Uint8Array(256 * 4), nb = s.bands > 1 ? Math.min(32, Math.round(s.bands)) : 0;
   for (let i = 0; i < 256; i++) {
@@ -19853,7 +19853,7 @@ function fxPanel() {
     <label class="chk"><input type="checkbox" data-fx-fix="1" ${s.fxFix !== false ? 'checked' : ''}> Keep the colors on one scale (zero to yield, ${stressNum(m.sy / U.s)} ${U.sn}) so a tighter clamp reads hotter</label>
     <label class="chk"><input type="checkbox" data-sx-mark="1" ${s.markers ? 'checked' : ''}> Mark the max and min</label>
     <label class="field"><span>Deformation shown ×</span><input type="number" min="0" step="1" value="${s.scale}" data-sx-scale="1" data-live="1"></label>
-    <p class="note">Pads and screws are green when the tightness is right, amber when too loose, red when too tight. The orange arrow is the cut. Grey bars are the parallels, plate or vise.</p>
+    <p class="note">Pads and screws are green when the tightness is right, amber when too loose, red when too tight. The orange arrow is the cut. Gray bars are the parallels, plate or vise.</p>
     <div class="btns"><button class="btn" data-do="cancel">Close</button><button class="btn primary" data-fx-do="run">Run again</button></div></div>`;
 }
 
@@ -20134,7 +20134,7 @@ function brickK(nu) {
   const Kinv = A.map(r => r.slice(n)), T = new Float64Array(24 * 9), K = new Float64Array(576);
   for (let i = 0; i < 24; i++) for (let j = 0; j < 9; j++) { let s = 0; for (let k = 0; k < 9; k++) s += Kua[i * 9 + k] * Kinv[k][j]; T[i * 9 + j] = s; }
   for (let i = 0; i < 24; i++) for (let j = 0; j < 24; j++) { let s = 0; for (let k = 0; k < 9; k++) s += T[i * 9 + k] * Kua[j * 9 + k]; K[i * 24 + j] = Kuu[i * 24 + j] - s; }
-  // stress at the centre of a unit cube per unit displacement (E = 1): S = D·Bu(0)
+  // stress at the center of a unit cube per unit displacement (E = 1): S = D·Bu(0)
   const S = new Float64Array(6 * 24), B0 = new Float64Array(6 * 24);
   for (let a = 0; a < 8; a++) {
     const dx = 2 * cx[a] / 8, dy = 2 * cy[a] / 8, dz = 2 * cz[a] / 8;
@@ -20233,7 +20233,7 @@ function solveStress(d) {
     }
     return bd <= (1.8 * h) ** 2 ? best : -1;
   };
-  // a patch limits a face to the part of it under a clamp or a jaw: {c: centre, ax: axis normal to the patch, r: circle radius or hx, hy: rectangle half sizes, zt: depth band along ax}
+  // a patch limits a face to the part of it under a clamp or a jaw: {c: center, ax: axis normal to the patch, r: circle radius or hx, hy: rectangle half sizes, zt: depth band along ax}
   const inPatch = (P, x, y, z) => {
     const q = [x, y, z], ax = P.ax, i1 = (ax + 1) % 3, i2 = (ax + 2) % 3, du = q[i1] - P.c[i1], dv = q[i2] - P.c[i2];
     if (P.zt !== undefined && Math.abs(q[ax] - P.c[ax]) > P.zt) return false;
@@ -20296,7 +20296,7 @@ function solveStress(d) {
       });
       if (!(den > 0)) throw new Error('A bearing load needs a hole face the force pushes against.');
       for (const [id, rh, wc] of list) { const k = L.mag * wc / den; put(id, [rh[0] * k, rh[1] * k, rh[2] * k]); }
-    } else if (L.kind === 'moment') {                                     // a torque about an axis through the face centre
+    } else if (L.kind === 'moment') {                                     // a torque about an axis through the face center
       let a = L.dir; if (a === 'in' || a === 'out') { let sn = [0, 0, 0]; samples(L.tris, (x, y, z, w, n1, n2, n3) => { sn[0] += w * n1; sn[1] += w * n2; sn[2] += w * n3; }); const l = Math.hypot(...sn) || 1; a = sn.map(v => v / l * (L.dir === 'in' ? -1 : 1)); }
       const list = []; let den = 0;
       samples(L.tris, (x, y, z, w) => {
@@ -20386,7 +20386,7 @@ function solveStress(d) {
       const id = nodeId[(c * NY + b) * NX + a]; if (id >= 0) near[id] = 1;
     }
   }
-  // ── refine the surface to about one cell per triangle so colours follow the field
+  // ── refine the surface to about one cell per triangle so colors follow the field
   say(0.93, 'Refining the surface');
   const maxTris = 350000; let hd = h, nTot = 0;
   const subs = new Int32Array(T);
@@ -26838,7 +26838,7 @@ function sGearWorm() {
   const wheel = K.gear(wheelProps); K.color(wheel, '#c8963e');
   // worm: its thread passes the wheel's mid-plane (X = 0) on the side facing the wheel
   const bl = 0.04 * m, s0 = Math.PI * m / 2 - bl, rIn = rpw - 1.25 * m - 0.2 * m, wr = s0 + 2 * (rpw - rIn) * Math.tan(20 * Math.PI / 180), x0 = -30 + wr / 2 + 0.02;
-  const worm = K.gear({ gtype: 'worm', m, starts, q, length: 60, hand: 'R', base: 'YZ', cx: -a, cy: yc, off: -30, bore: 0, phase: +((((-x0 / lead) % 1) + 1) % 1 * 360 + 100).toFixed(4) % 360 });   // centred in the clear window found by the mechanism check K.color(worm, '#9aa3ad');
+  const worm = K.gear({ gtype: 'worm', m, starts, q, length: 60, hand: 'R', base: 'YZ', cx: -a, cy: yc, off: -30, bore: 0, phase: +((((-x0 / lead) % 1) + 1) % 1 * 360 + 100).toFixed(4) % 360 });   // centerd in the clear window found by the mechanism check K.color(worm, '#9aa3ad');
   const ws = K.shaft('YZ', -a, yc, 4, -58, 58); K.color(ws, '#5b6470');
   const hs = K.shaft('XZ', 0, 0, 4, 6, 52); K.color(hs, '#5b6470');
   [[base, 'Base'], [wheel, 'Worm wheel'], [worm, 'Worm'], [ws, 'Worm shaft'], [hs, 'Wheel shaft']].forEach(([f, n]) => K.name(f, n));
@@ -27207,7 +27207,7 @@ function bpSVG(d) {
     for (const g of D.cham) if (g.at && callout('front', g.at, `${g.n > 1 ? g.n + '× ' : ''}${bpNum(g.s)} × 45°`)) placed.cham.push(g);
     for (const t of D.threads) if (t.at && callout(t.ax === 'Z' ? 'front' : 'top', t.at, t.text)) placed.threads.push(t.text);
   }
-  // isometric view, top right, in shades of grey
+  // isometric view, top right, in shades of gray
   const ix0 = place.right[0], iy0 = area.y, iw = area.x + area.w - ix0, ih = place.right[1] - gapY * 0.6 - iy0;
   if (iw > 20 && ih > 20) {
     let w = iw, hh = iw / d.iso.aspect; if (hh > ih) { hh = ih; w = ih * d.iso.aspect; }
@@ -27235,7 +27235,7 @@ function bpSVG(d) {
   const check = BP.dims ? bpCheck(d, placed) : [];
   return { svg: `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${SW} ${SH}" width="${SW}mm" height="${SH}mm" font-family="Inter, Helvetica, Arial, sans-serif">${svg}</svg>`, SW, SH, scale: sc, check, boxes };
 }
-// the isometric picture in greys: black and white like the rest of the sheet
+// the isometric picture in grays: black and white like the rest of the sheet
 const bpIsoColor = bpIso;
 bpIso = function (meshes, bodies, bb) {
   const saved = doc.colors; doc.colors = {};
@@ -27835,7 +27835,7 @@ function sWatch() {
   const E2 = P2(E[0], E[1]), B2 = P2(BAL[0], BAL[1]), be = nrm2(sub2(B2, E2)), PV = add2(E2, mul2(be, 4.6));   // fork pivot, clear of the wheel
   const raE = 0.45 * 15 / 2 + 0.45, rs = 0.2, R0 = raE + rs + 0.12, Rin = raE - 0.3 + rs;
   const rot2 = (v, a) => P2(v.x * Math.cos(a) - v.y * Math.sin(a), v.x * Math.sin(a) + v.y * Math.cos(a)), ang = v => Math.atan2(v.y, v.x), bA = ang(be);
-  let best = null;                                             // stone place and fork swing: the swing drops it 0.3 deep, centred 18° off the line
+  let best = null;                                             // stone place and fork swing: the swing drops it 0.3 deep, centerd 18° off the line
   for (let g = -40; g <= 40; g += 0.05) {
     const S = add2(E2, mul2(P2(Math.cos(bA + g * Math.PI / 180), Math.sin(bA + g * Math.PI / 180)), R0));
     for (let a = 0.0005; a < 0.8; a += 0.0005) {
@@ -29005,7 +29005,7 @@ bpSVG = function (d) {
     } else runJobs(jobs);
   }
   for (const k of Object.keys(views)) svg += `<g data-bpv="${k}">${parts[k]}</g>`;
-  // isometric view, top right, in greys
+  // isometric view, top right, in grays
   const isoBox = isoG;
   if (isoBox) {
     const { x, y, w, h: hh } = isoBox;
@@ -29958,9 +29958,9 @@ ToolLook.build = function (tool) {
 
 <script>
 // ═══════════════════════════════════════════════════════════════════
-//  Icons: Font Awesome Free (solid), one colour — the text colour, so
+//  Icons: Font Awesome Free (solid), one color — the text color, so
 //  black on light, white on dark. Each glyph sits in the same 20 × 20
-//  box the old icons used, scaled to fit and centred both ways with its
+//  box the old icons used, scaled to fit and centerd both ways with its
 //  own proportions kept. The glyphs are fetched once from jsDelivr and kept
 //  in this browser, so later visits (and offline ones) have them at once;
 //  any that can't be had keep the drawn icon.
@@ -30282,7 +30282,7 @@ ov.addEventListener('pointerup', e => {
 addEventListener('keydown', e => {
   if (!skmvLive()) return;
   const t = e.target; if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
-  if ((e.ctrlKey || e.metaKey) && /^[zy]$/i.test(e.key)) { e.preventDefault(); e.stopImmediatePropagation(); skmvCancel(); toast('Move cancelled'); return; }
+  if ((e.ctrlKey || e.metaKey) && /^[zy]$/i.test(e.key)) { e.preventDefault(); e.stopImmediatePropagation(); skmvCancel(); toast('Move canceled'); return; }
   if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); if (SKMV.pick) { SKMV.pick = null; SKMV.hover = null; refreshPanel(); requestDraw(); } else skmvCancel(); }
   else if (e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); skmvOK(); }
 }, true);
@@ -31929,7 +31929,7 @@ const COLOR_NAMES = { red: '#d9443a', blue: '#2f6fe0', green: '#2ea052', orange:
 const CMD_UNITS = {
   mm: 1, millimeter: 1, millimeters: 1, millimetre: 1, millimetres: 1,
   cm: 10, centimeter: 10, centimeters: 10, centimetre: 10, centimetres: 10,
-  m: 1000, meter: 1000, meters: 1000, metre: 1000, metres: 1000,
+  m: 1000, meter: 1000, meters: 1000, meter: 1000, meters: 1000,
   um: 0.001, 'µm': 0.001, micron: 0.001, microns: 0.001, micrometer: 0.001, micrometers: 0.001,
   in: 25.4, inch: 25.4, inches: 25.4, '"': 25.4, '″': 25.4,
   ft: 304.8, foot: 304.8, feet: 304.8, "'": 304.8, '′': 304.8,
@@ -32048,8 +32048,8 @@ function runCommand(line) {
   if (head === 'cut') { op = 'cut'; words = words.slice(1); }
   if (words[words.length - 1] === 'new') { op = 'new'; words.pop(); }
   let kind = words[0], args = words.slice(1), note = '';
-  if (kind !== 'color' && kind !== 'colour' && kind !== 'paint') { const nr = cmdNatural(kind, args); args = nr.args; note = nr.note || ''; if (nr.shape) kind = nr.shape; }
-  if (kind === 'color' || kind === 'colour' || kind === 'paint') {
+  if (kind !== 'color' && kind !== 'color' && kind !== 'paint') { const nr = cmdNatural(kind, args); args = nr.args; note = nr.note || ''; if (nr.shape) kind = nr.shape; }
+  if (kind === 'color' || kind === 'color' || kind === 'paint') {
     const c = COLOR_NAMES[args[0]] || (/^#?[0-9a-f]{6}$/i.test(args[0] || '') ? '#' + args[0].replace('#', '') : null);
     if (!c) throw new Error('color needs a name or #rrggbb');
     const bs = visibleBodies(), b = bs[bs.length - 1];
@@ -33823,7 +33823,7 @@ function umcCard() {
 // LAB-BEGIN: chips, fluid, mechanics, machines and the touch-off lesson (they plug into the physics lab)
 // ── ChipFX: chips as small rigid bodies — shaped by how the metal was cut, flung off the tool, tumbling, bouncing, piling up ──
 // One system for every cutting simulation. A chip is a ribbon: a tight spiral (stringy), a comma (what a milling tooth
-// takes), a saw-tooth segment, a short flake or dust. They carry a temperature that drives the temper colour of steel
+// takes), a saw-tooth segment, a short flake or dust. They carry a temperature that drives the temper color of steel
 // and stainless, fly under gravity and air drag, bounce on the surfaces the host provides, and come to rest.
 const CHIP_KINDS = {
   spiral: { turns: 5, pitch: 0.34, bend: 0, arc: 0 },       // long continuous chip: a coil
@@ -33857,7 +33857,7 @@ function chipFX(parent, o = {}) {
   const tmpM = new THREE.Matrix4(), tmpQ = new THREE.Quaternion(), tmpV = new THREE.Vector3(), tmpS = new THREE.Vector3(), dq = new THREE.Quaternion(), tmpC = new THREE.Color(), up = new THREE.Vector3(0, 1, 0);
   fx.count = () => fx.bodies.length;
   fx.clear = () => { fx.bodies.length = 0; for (const k of kinds) fx.kinds[k].count = 0; };
-  // kind, position, velocity, size (x, y, z), temperature °C, base colour
+  // kind, position, velocity, size (x, y, z), temperature °C, base color
   fx.spawn = (kind, p, v, s, T, col, spin = 1) => {
     const same = fx.bodies.filter(b => b.kind === kind);
     if (same.length >= CAPK) { const i = fx.bodies.findIndex(b => b.kind === kind && b.rest); const j = i >= 0 ? i : fx.bodies.findIndex(b => b.kind === kind); fx.bodies.splice(j, 1); }
@@ -33866,7 +33866,7 @@ function chipFX(parent, o = {}) {
     return fx.bodies[fx.bodies.length - 1];
   };
   fx.wakeAll = () => { for (const b of fx.bodies) b.rest = false; };
-  // the colour a chip shows at temperature T: steel's temper colours, otherwise it just glows a little when very hot
+  // the color a chip shows at temperature T: steel's temper colors, otherwise it just glows a little when very hot
   fx.colorOf = (b, out) => {
     if (b.temper && typeof chipColor === 'function') return out.copy(chipColor(b.T, b.temper));
     out.copy(b.col); if (b.T > 420) out.lerp(tmpC.set(0xff6a2b), Math.min(1, (b.T - 420) / 300)); return out;
@@ -34359,7 +34359,7 @@ function wjCalc(o) {
   const pf = Math.pow(o.psi / 60000, 1.5) * Math.pow(o.orifice / 0.36, 2), af = Math.pow(Math.min(o.abr, 1.4 * Math.pow(o.orifice / 0.36, 2)) / 0.45, 0.35);
   const umax = 1566 * m.f * q[1] * pf * af / Math.pow(t, 1.15);                // mm/min that still cuts through
   const tube = o.orifice < 0.3 ? 0.76 : o.orifice < 0.38 ? 1.0 : 1.2, kerf = tube * 1.18 + 0.05;
-  const tmin = 1000 / umax, cost = o.abr * 1.1 * tmin + (hyd / 0.6) * 0.15 * tmin / 60 + Lmin * 0.004 * tmin;                // garnet, pump power and water per metre of cut
+  const tmin = 1000 / umax, cost = o.abr * 1.1 * tmin + (hyd / 0.6) * 0.15 * tmin / 60 + Lmin * 0.004 * tmin;                // garnet, pump power and water per meter of cut
   return { v, mach: v / 343, Lmin, hyd, mw, ratio: o.abr / mw, umax, kerf, tube, taper: q[2], cost, pf, af };
 }
 function phyWaterjet() {
@@ -34502,7 +34502,7 @@ function phyWaterjet() {
     frame(dt) { if (PHY.orbit && !PHY.drag) PHY.orbit.t.x += (xn * 0.85 - PHY.orbit.t.x) * 0.08; if (!PHY.paused) frameFx(Math.min(0.05, dt * (PHY.speed || 1))); spMat.uniforms.uPx.value = (PHY.rend ? PHY.rend.domElement.height : 700) / (2 * Math.tan(THREE.MathUtils.degToRad(PHY.cam.fov / 2))); },
     info() {
       const c = C(), u = U(), m = WJ_MATS[S.mat], through = u <= c.umax * 1.001, dx = (c.kerf - 2 * S.t * Math.tan(c.taper * Math.PI / 180));
-      return `${m.name} ${S.t} mm · jet ${c.v.toFixed(0)} m/s (Mach ${c.mach.toFixed(1)}) · ${c.Lmin.toFixed(2)} L/min · ${c.hyd.toFixed(1)} kW at the nozzle · garnet ${(c.ratio * 100).toFixed(0)}% of the water · fastest through-cut ${c.umax.toFixed(0)} mm/min (${S.q ? WJ_Q[S.q][0] : ''}) · cutting at ${u.toFixed(0)} mm/min — ${through ? 'cuts through' : `<b>too fast: only ${(Math.pow(c.umax / u, 0.85) * 100).toFixed(0)}% of the depth</b>`} · kerf ${c.kerf.toFixed(2)} mm, taper ${c.taper}° (bottom ${Math.max(0.2, dx).toFixed(2)} mm) · about $${c.cost.toFixed(2)} per metre of cut.`.replace(/<\/?b>/g, '');
+      return `${m.name} ${S.t} mm · jet ${c.v.toFixed(0)} m/s (Mach ${c.mach.toFixed(1)}) · ${c.Lmin.toFixed(2)} L/min · ${c.hyd.toFixed(1)} kW at the nozzle · garnet ${(c.ratio * 100).toFixed(0)}% of the water · fastest through-cut ${c.umax.toFixed(0)} mm/min (${S.q ? WJ_Q[S.q][0] : ''}) · cutting at ${u.toFixed(0)} mm/min — ${through ? 'cuts through' : `<b>too fast: only ${(Math.pow(c.umax / u, 0.85) * 100).toFixed(0)}% of the depth</b>`} · kerf ${c.kerf.toFixed(2)} mm, taper ${c.taper}° (bottom ${Math.max(0.2, dx).toFixed(2)} mm) · about $${c.cost.toFixed(2)} per meter of cut.`.replace(/<\/?b>/g, '');
     },
     dispose() { phyDisposeGroup(g); },
   };
@@ -34595,7 +34595,7 @@ function phyHose() {
     const period = sp * 0.95 / Math.max(0.5, S.speed); emitT += dt;
     while (emitT >= period && N < CAP - 40) { emitT -= period; slice(S.speed * emitT); }
     for (let i = 0; i < N; i++) { vy[i] -= 9.81 * dt; ox[i] = px[i]; oy[i] = py[i]; oz[i] = pz[i]; px[i] += vx[i] * dt; py[i] += vy[i] * dt; pz[i] += vz[i] * dt; }
-    // hash grid and neighbour lists
+    // hash grid and neighbor lists
     head.fill(-1);
     for (let i = 0; i < N; i++) { const c = cellOf(px[i], py[i], pz[i]); nextI[i] = head[c]; head[c] = i; }
     const h2 = h * h;
@@ -35933,7 +35933,7 @@ function studyDialog(mode) {
     STUDY.busy = false; go.disabled = false;
   });
 }
-// open one setup and alloy in the model and solve it, to look at the colours
+// open one setup and alloy in the model and solve it, to look at the colors
 function studyOpen(c, key) {
   try { if (!(CMD && CMD.type === 'stress')) cmdStress(); studyApply(c); stressSetup().mat = key; stressClear(true); STRESS.result = null; refreshPanel(); rebuildHighlights(); requestDraw(); setTimeout(() => stressRun(), 60); } catch (e) { toast(e.message); }
 }
@@ -36794,7 +36794,7 @@ refreshPanel = function () {
   panel.dataset.mode = 'guided'; panel.innerHTML = gsPanel(); panel.hidden = false;
 };
 addEventListener('resize', () => { if (GS.open) refreshPanel(); });
-// theme: light by default, dark when the user picks it
+// theme: dark by default, light when the user picks it
 document.getElementById('btnTheme').addEventListener('click', () => {
   const dark = document.documentElement.getAttribute('data-theme') !== 'dark';
   document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
@@ -37416,9 +37416,9 @@ const RB_TXT = {
   'f:deform': ['Bend, twist, taper or warp a body — or flow it along a path.', ['Pick the bodies to deform.', 'Choose Bend, Twist, Taper, Warp or Flow along a path.', 'Set the amount and the axis, then OK.']],
   'hw:fast': ['Screws, bolts, nuts and washers in any metric or inch size.', ['Choose the kind (socket cap, hex, nut, washer…) and the size.', 'Change the drive, head or length if you need to.', 'Place it on a hole or a point, then OK.']],
   'hw:shop': ['Vises, toe clamps, parallels, 1-2-3 blocks and fixtures to hold the part.', ['Pick the item from the list.', 'Set its size and where it sits — or place it on a point.', 'OK. Fixtures also show up in the Manufacture view.']],
-  'hw:drive': ['Axles, V-belt, flat and timing pulleys, sprockets, sheaves and belt drives.', ['Pick an axle, pulley or drive.', 'Set the diameters, tooth counts and centre distance.', 'Place it, then run it in the Physics lab.']],
+  'hw:drive': ['Axles, V-belt, flat and timing pulleys, sprockets, sheaves and belt drives.', ['Pick an axle, pulley or drive.', 'Set the diameters, tooth counts and center distance.', 'Place it, then run it in the Physics lab.']],
   'hw:phys': ['The physics lab: swinging sticks, marble tower, drone, water, hoses, chips and more.', ['Pick an experiment.', 'Press play and adjust the sliders.', 'Drag things with the mouse to poke at them.']],
-  stress: ['Stress analysis with Fusion-style colour maps: von Mises, displacement, safety factor.', ['Pick the material.', 'Click the faces that are held fixed.', 'Add loads: force, pressure, torque or gravity.', 'Solve, then read the colour map and probe any point.']],
+  stress: ['Stress analysis with Fusion-style color maps: von Mises, displacement, safety factor.', ['Pick the material.', 'Click the faces that are held fixed.', 'Add loads: force, pressure, torque or gravity.', 'Solve, then read the color map and probe any point.']],
   'mach:umc400': ['Haas UMC-400 5-axis machine. Its trunnion table loads into the view.', ['Click it to make it the machine.', 'The Ø230 platter, cradle and C drive appear with their real hole patterns.', 'Tilted operations post as B and C; the setup checks fit and travel.']],
   'add:drill:cbore': ['Counterbore every matching hole: a flat-bottomed larger pocket for a screw head.', ['Pick the counterbore tool.', 'Choose the holes (or leave Auto).', 'Set the depth, then simulate.']],
   'add:drill:bsf': ['Back spot-face: the tool reaches through the hole and cuts the underside flat.', ['Pick the back spot-face tool.', 'Choose the holes and the depth.', 'Simulate to check the tool clears the part.']],
@@ -37634,7 +37634,7 @@ const GD = {
       gS('Fix some faces', 'Add a <b>Constraint</b> and click the faces that are held: bolt holes, a clamped end.', () => nc > 0),
       gS('Apply loads', 'Add a <b>Load</b> — force, pressure, torque or bearing — and click the faces it acts on.', () => nl > 0),
       gS('Solve', 'Press <b>Solve</b>. A coarse mesh is quick; refine it to check the answer converges.', () => !!R),
-      gS('Read the colour map', 'Switch between von Mises, displacement and safety factor. Click the part to probe a point.', () => !!R, true),
+      gS('Read the color map', 'Switch between von Mises, displacement and safety factor. Click the part to probe a point.', () => !!R, true),
       gS('Compare alloys', 'Use <b>Compare alloys</b> to read the same setup for many materials at once.', null, true)];
   }],
   'cam:overview': ['Manufacture steps', () => {
@@ -37728,7 +37728,7 @@ GD['feat:shop'] = ['Workholding & drives', () => {
   const dr = !!((typeof SHOP !== 'undefined' && SHOP[CMD.f.kind]) || {}).drive;
   return [
     gS(dr ? 'Choose the axle, pulley or drive' : 'Choose the item', dr ? 'Axles, V-belt, flat and timing pulleys, sprockets and belt drives.' : 'Vises, toe clamps, parallels, 1-2-3 blocks, fixtures.'),
-    gS('Set its size', dr ? 'Diameters, tooth counts, belt width, centre distance.' : 'Length, width, jaw opening and so on.', null, true),
+    gS('Set its size', dr ? 'Diameters, tooth counts, belt width, center distance.' : 'Length, width, jaw opening and so on.', null, true),
     gS('Put it in place', 'Which way it points, where it sits — or <b>Place on a point</b>.', () => !!CMD.f && (CMD.f.cx || CMD.f.cy || CMD.f.off) ? true : false, true),
     gS('Confirm', 'Press <b>OK</b>.' + (dr ? ' Then try it in the Physics lab.' : ''))];
 }];

@@ -81,7 +81,7 @@
     const bad = [];
     if (r.open) bad.push(r.open.toLocaleString() + ' open edge' + (r.open > 1 ? 's' : '') + ' (holes or gaps, drawn in red)');
     if (r.nonManifold) bad.push(r.nonManifold.toLocaleString() + ' edge' + (r.nonManifold > 1 ? 's' : '') + ' shared by more than two triangles');
-    if (r.flipped) bad.push(r.flipped.toLocaleString() + ' edge' + (r.flipped > 1 ? 's' : '') + ' where neighbouring triangles face opposite ways');
+    if (r.flipped) bad.push(r.flipped.toLocaleString() + ' edge' + (r.flipped > 1 ? 's' : '') + ' where neighboring triangles face opposite ways');
     return 'Not closed: ' + bad.join(', ') + '. ' + r.tris.toLocaleString() + ' triangles.' + (r.degenerate ? ' ' + r.degenerate + ' with no area skipped.' : '');
   }
   // parts as the exporter holds them ({ weld: { V: [[x,y,z]…], T } }) joined into one indexed mesh per part, then checked one by one and summed

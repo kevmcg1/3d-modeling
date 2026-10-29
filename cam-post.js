@@ -251,7 +251,7 @@
     let fwd = [bq, ...pts, bq];
     const nxt = fwd.find(p => Math.hypot(p.x - bq.x, p.y - bq.y) > 1e-6) || fwd[1];
     if ((nxt.x - bq.x) * t.x + (nxt.y - bq.y) * t.y < 0) { const rev = [bq]; for (let k = 0; k < n; k++) rev.push(ring[((bi - k) % n + n) % n]); rev.push(bq); fwd = rev; }
-    const out = [fwd[0]];                                                          // no two neighbours alike (a start on a vertex would repeat it)
+    const out = [fwd[0]];                                                          // no two neighbors alike (a start on a vertex would repeat it)
     for (let k = 1; k < fwd.length; k++) if (Math.hypot(fwd[k].x - out[out.length - 1].x, fwd[k].y - out[out.length - 1].y) > 1e-6 || k === fwd.length - 1) out.push(fwd[k]);
     if (out.length > 2 && Math.hypot(out[out.length - 1].x - out[out.length - 2].x, out[out.length - 1].y - out[out.length - 2].y) <= 1e-6) out.splice(out.length - 2, 1);
     return { pts: out, off: bd };

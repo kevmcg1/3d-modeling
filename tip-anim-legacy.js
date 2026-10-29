@@ -9,7 +9,7 @@
      TipAnim.stop();                                                     // when the card hides
 
    Any tool that already has a before/after SVG pair animates with no extra data: shapes are matched between the two
-   drawings and tweened (corners, colours, line widths); shapes only one side has fade and grow in or out.
+   drawings and tweened (corners, colors, line widths); shapes only one side has fade and grow in or out.
    Falls back to the original two still pictures when canvas is missing, the pair is not plain SVG, or the person asks
    for reduced motion. WebGL missing → the same morph is drawn flat with a CSS tilt. */
 (function (root) {

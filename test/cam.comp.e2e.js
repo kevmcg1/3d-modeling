@@ -107,7 +107,7 @@ const distPoly = (p, poly, closed) => { let best = Infinity; for (let i = 0; i +
     assert(!/\bG4[12]\b/.test(r.text) && !/G40 X/.test(r.text) && r.nCC === 0 && !/CUTTER COMP/.test(r.text), 'computer compensation must stay as it was');
   });
 
-  await ok('Control: one G41 / G42 line with a D register per level, cancelled by G40 on a move; never on through a rapid, tool change or the end', async () => {
+  await ok('Control: one G41 / G42 line with a D register per level, canceled by G40 on a move; never on through a rapid, tool change or the end', async () => {
     const r = await page.evaluate(() => runComp('big', { comp: 'control' }));
     const rd = readComp(r.text, r.inch, { minLen: r.r });
     assert.deepStrictEqual(rd.probs, [], JSON.stringify(rd.probs));

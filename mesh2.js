@@ -29,7 +29,7 @@
     label: 'Smooth', home: 'bodies', need: 'Pick the bodies to smooth.',
     init: () => ({ bodies: [], iter: 3, amount: 0.5 }),
     panel: f => bodyPickPanel(f, 'bodies', 'Bodies') + pf.num('Passes', 'iter', { step: 1, min: 1 }) + pf.num('Amount (0 to 1)', 'amount', { step: 0.1, min: 0 })
-      + pf.note('Moves each point toward the middle of its neighbours, which evens out bumps in a rough mesh. Each pass shrinks the body a little; the result is a plain triangle mesh with no round faces.'),
+      + pf.note('Moves each point toward the middle of its neighbors, which evens out bumps in a rough mesh. Each pass shrinks the body a little; the result is a plain triangle mesh with no round faces.'),
     hint: () => 'click the bodies, then set the passes', sub: f => f.iter + ' × ' + f.amount,
   });
   Object.assign(IC, {

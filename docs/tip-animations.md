@@ -23,7 +23,7 @@ One shared player (`tip-anim.js`) draws on one canvas, starts when a card opens,
 
 ```js
 TipAnim.scene('f:newtool', g => {
-  g.view(120, 138, 3);                         // isometric: centre x, centre y, pixels per unit
+  g.view(120, 138, 3);                         // isometric: center x, center y, pixels per unit
   const p = g.seg(0.2, 0.65);                  // 0 → 1 (eased) between 20 % and 65 % of the loop
   g.plane(0, 18, 'a');                         // ground plane
   g.prism(PROFILE, 0, 14 * p, 'a');            // the solid grows as the tool works
@@ -38,8 +38,8 @@ TipAnim.scene('f:newtool', g => {
 
 - Time: `g.t`, `g.time` (seconds), `g.seg(a, b)` eased 0→1, `g.lin(a, b)` linear, `g.mem` (state, wiped each loop).
 - Views: `g.view(ox, oy, s)` isometric, `g.view2d()` flat board (y up), `g.in2d(0, 0, 1, fn)` screen pixels (y down) for panels and sheets.
-- Solids: `box`, `prism(outline, z, h, colour, {holes})`, `cyl`, `cone`, `sphere`, `rev(profile, …)`, `loft`, `tube(path, r)`, `axisPrism`. Colours: `'n'` neutral, `'a'` accent, `'s'` stock, `'c'` orange, `'g'` green, `'r'` red, `'k'` dark, `'m'` metal.
-- Moving things: `g.turn(axis, deg, centre, draw)`, `g.move(dx, dy, dz, draw)`, `g.scale3(...)`.
+- Solids: `box`, `prism(outline, z, h, color, {holes})`, `cyl`, `cone`, `sphere`, `rev(profile, …)`, `loft`, `tube(path, r)`, `axisPrism`. Colors: `'n'` neutral, `'a'` accent, `'s'` stock, `'c'` orange, `'g'` green, `'r'` red, `'k'` dark, `'m'` metal.
+- Moving things: `g.turn(axis, deg, center, draw)`, `g.move(dx, dy, dz, draw)`, `g.scale3(...)`.
 - Drawing: `line`, `fill`, `dot`, `arrow`, `ring`, `text`, `chip` (caption), `cursorAt`, `click`.
 - Machining: `g.stock('id', {…})` is a height map; `g.mill(stock, path, f, radius, profile)` moves a cutter along `path` up to fraction `f` and removes material on the way; `stock.draw()`; `g.tool('end'|'ball'|'drill'|'spot'|'cham'|'face'|'thread'|'tap'|'engrave'|'dove'|'wire'|'nozzle', x, y, z, {r})`.
 

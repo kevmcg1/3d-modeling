@@ -47,7 +47,7 @@ Every tip card that shows a picture, opened with the real mouse in a real browse
 | 2D Drawing | Angular dimension | `dimangular` | action | yes · hover 0% changed · 4/8 steps · blend 0% |
 | 2D Drawing | Leader | `leader` | action | yes · hover 1% changed · 7/8 steps · blend 0% |
 | 2D Drawing | Layers | `layer` | action | yes · hover 0% changed · 5/8 steps · blend 0% |
-| 2D Drawing | Colour | `color` | action | yes · hover 1% changed · 5/8 steps · blend 0% |
+| 2D Drawing | Color | `color` | action | yes · hover 1% changed · 5/8 steps · blend 0% |
 | 2D Drawing | Match properties | `matchprop` | action | yes · hover 0% changed · 6/8 steps · blend 1% |
 | 2D Drawing | Make current | `layerCur` | action | yes · hover 0% changed · 5/8 steps · blend 0% |
 | 2D Drawing | Layer on | `layerOn` | action | yes · hover 0% changed · 5/8 steps · blend 0% |

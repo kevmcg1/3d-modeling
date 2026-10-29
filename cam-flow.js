@@ -253,7 +253,7 @@
   const centroid = c => { let x = 0, y = 0; c.pts.forEach(p => { x += p[0]; y += p[1]; }); return [x / c.pts.length, y / c.pts.length]; };
   function circleOf(c) {
     if (!c.closed || c.pts.length < 8) return null;
-    const f = circleFit(c.pts.map(p => P2(p[0], p[1]))), cx = f.x, cy = f.y, rs = f.rs, r = f.d / 2;      // least squares: unevenly spaced points average off centre
+    const f = circleFit(c.pts.map(p => P2(p[0], p[1]))), cx = f.x, cy = f.y, rs = f.rs, r = f.d / 2;      // least squares: unevenly spaced points average off center
     if (!rs.every(x => Math.abs(x - r) < 0.02 * r + 0.01)) return null;
     if (c.pts.some((p, i) => { const q = c.pts[(i + 1) % c.pts.length]; return Math.hypot(q[0] - p[0], q[1] - p[1]) > r; })) return null;   // a rounded square's corners lie on one circle too, but its sides span far more than an arc step
     const h = camHoles().find(q => Math.hypot(q.x - cx, q.y - cy) < 0.3 && Math.abs(q.d - 2 * r) < 0.3);   // the model's own hole: its exact size, not the mesh's
@@ -541,7 +541,7 @@
   function cancelFresh(op) {
     const f = FLOW();
     CAMUI.view = 'overview'; f.id = null;
-    if (hist.cur === f.histCur && hist.cur > 0) { jumpTo(hist.cur - 1); camRefresh(); toast('Toolpath cancelled'); return; }
+    if (hist.cur === f.histCur && hist.cur > 0) { jumpTo(hist.cur - 1); camRefresh(); toast('Toolpath canceled'); return; }
     const C = cam(), before = snap(); C.ops.splice(C.ops.indexOf(op), 1); TP.delete(op.id); record('Delete ' + op.name, before); camRefresh();
   }
   CF.go = go; CF.next = next; CF.back = back; CF.finish = finish;

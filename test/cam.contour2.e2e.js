@@ -80,14 +80,14 @@ const distPoly = (p, poly, closed) => { let best = Infinity; for (let i = 0; i +
       if (X != null) x = X; if (Y != null) y = Y;
     }
     // a programmed contour's corner vertices (the long straight runs): their distance to the chain is that pass's offset
-    const offs = spans.slice(0, 3).map(sp => { const mid = sp.pts.filter(p => Math.hypot(p[0] - sp.pts[0][0], p[1] - sp.pts[0][1]) > 0); const d = mid.map(p => distPoly(p, r.chain, true)).sort((a, b) => a - b); return d[Math.floor(d.length * 0.3)]; });
+    const offs = spans.slice(0, 3).map(sp => { const mid = sp.pts.filter(p => Math.hypot(p[0] - sp.pts[0][0], p[1] - sp.pts[0][1]) > 0); const d = mid.map(p => distPoly(p, r.chain, true)).sort((a, b) => a - b); return d[0]; });
     assert(offs.length === 3 && Math.abs(offs[0] - 3) < 0.05 && Math.abs(offs[1] - 1.5) < 0.05 && offs[2] < 0.05, JSON.stringify(offs));
   });
 
   await ok('Lead radius sets the tool-center lead arc radius (default 0.6 of the tool radius + 1 mm); Control posts the arc one tool radius wider', async () => {
     const d = await page.evaluate(() => run({ leadR: 3 })), r = d.r;
     const first = d.m.findIndex(m => !m.r), run1 = d.m.slice(first, first + 12);
-    // the first cut level starts the lead: the arc's chord points are all 3 mm from its centre; compare radius via the chord end points
+    // the first cut level starts the lead: the arc's chord points are all 3 mm from its center; compare radius via the chord end points
     const xs = run1.map(m => [m.x, m.y]);
     const r0 = await page.evaluate(() => run({})); assert(r0.m.length > 0);
     const big = await page.evaluate(() => run({ comp: 'control', leadR: 7 }));

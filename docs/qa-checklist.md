@@ -76,7 +76,7 @@ Before the fixes, 6 parts posted a wrong or missing G12 finish cycle, and severa
 | 5 | A narrow channel between two deeper holes was classed as open ground outside the stock | The channel was never cut and the tool chosen was far too big (Battery tray: a 4 mm channel with a 3/4" end mill). The planner now clears the enclosed opening and chooses a tool that reaches every part of the floor | `cam.qa.e2e.js` "narrow channel" |
 | 6 | Blind holes shallower than the drill point were drilled | A Ø16 hole 3 mm deep cannot reach full size with a 118° drill (the point is about 5 mm). Such wells are now milled as pockets | covered by "narrow channel" part sweep (Pen tray, Control knob blank) |
 | 7 | The outer wall of a ring groove was treated as a drillable hole | A drill, a hole row in the measurement table and a red Verify for a part that was fine (Coaster, Control knob) | part sweep |
-| 8 | The floor of a ring pocket was read as its inner disc when a long triangle's centre fell in the hole | Measurement probed the wrong spot and reported a floor "not cut" | part sweep (Soft jaw) |
+| 8 | The floor of a ring pocket was read as its inner disc when a long triangle's center fell in the hole | Measurement probed the wrong spot and reported a floor "not cut" | part sweep (Soft jaw) |
 | 9 | The coverage check flagged the bottom of a drilled blind hole red (flat in the model, a cone in the cut) and the wall down to the point | A correct drilled program was reported as not machined. A flat bottom or wall that a drill of that size goes down is now accepted | `cam.qa.e2e.js` "shoulder and blind holes" |
 | 10 | The floor measurement probed a point on the edge of a fin or outside the floor face | Heat sink floor "20 deep measured 0" on a correct program | part sweep |
 
@@ -120,7 +120,7 @@ The status column is the app's claim in `docs/mastercam-toolpaths.md`. "Auto" me
 | Facing | PASS | Auto, scenario (zigzag and one-way) |
 | Contour (outside, inside, on line, ramp, tabs, lead in and out, stock to leave) | PASS | Auto, scenario. G-code matches the toolpath within 0.05 mm |
 | Pocket (faces) and finish pass | PASS | Auto. Fixed: enclosed channel, shallow wells, tool choice (bugs 4 to 6) |
-| Round pocket (G12) | PASS | Fixed bug 1. The cycle plunges at the centre: the program says so in a comment and Verify marks it, because the tool must be a centre-cutting end mill |
+| Round pocket (G12) | PASS | Fixed bug 1. The cycle plunges at the center: the program says so in a comment and Verify marks it, because the tool must be a center-cutting end mill |
 | Slot, circle mill, area, peel, dynamic, rest, deburr, chamfer | PASS (chain modes) | Existing tests; scenario sweep ran each on three parts with no crash, no NaN and valid G-code. Several scenarios show gouge counts: those are the scenario's depth settings, not program faults (the same cuts verified clean when Auto Program made them) |
 | Drill: spot, drill, peck, chip break, ream, counterbore, back spot face | PASS | Auto, scenario. Canned cycle X, Y, Z checked against the model's holes |
 | Tap (G84), bore (G86, G89, G76), back bore (G87) | PASS | Existing tests, scenario for tap |
@@ -142,7 +142,7 @@ These nine parts still fail Verify. In each case the program is what a 3-axis ma
 | Part | What Verify finds | Why it is not fixed |
 |---|---|---|
 | Flanged boss | 18 faces and a ring of material 22 mm high at the thread relief | An undercut and an external thread. The plan lists "Thread Ø32 external" as a manual step; it needs a lathe or a thread mill from the side |
-| Mold cavity insert | Two narrow areas left (2.8 mm wide) and 3 plunge warnings | The round pockets use the G12 cycle, which plunges at the centre. The warnings tell the machinist to use a centre-cutting end mill |
+| Mold cavity insert | Two narrow areas left (2.8 mm wide) and 3 plunge warnings | The round pockets use the G12 cycle, which plunges at the center. The warnings tell the machinist to use a center-cutting end mill |
 | Serpentine coolant plate | Four corner slivers at the ends of the channel measure "not cut" | The Ø8 port hole leaves 0.4 mm corner wedges that no round tool can reach |
 | Gear blank, Star slot disc, Honeycomb plate, Board tray | Wall faces within a tool radius of sharp inside corners (keyway, star points, hexagon corners) | Round tools leave their own radius in sharp corners. The plan lists these as "sharp inside corners" to fillet in the design or finish by EDM or broaching. The coverage check counts them as red rather than excusing them |
 | Mold half insert | Four 28 mm² corner areas 2.2 mm high | Corners that the finishing ball mill does not reach |

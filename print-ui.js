@@ -232,7 +232,7 @@ function buildPreview() {
   const layerEnd = new Array(nL), layerStart = new Array(nL), CS = [], SN = [];
   for (let k = 0; k < K; k++) { CS.push(Math.cos(k / K * Math.PI * 2)); SN.push(Math.sin(k / K * Math.PI * 2)); }
   let v = 0, ii = 0;
-  const ring = (px, py, zc, nx, ny, hw, hh, c) => {              // one cross-section of K points, centre (px,py,zc), side vector (nx,ny)
+  const ring = (px, py, zc, nx, ny, hw, hh, c) => {              // one cross-section of K points, center (px,py,zc), side vector (nx,ny)
     for (let k = 0; k < K; k++) {
       const X = px + nx * CS[k] * hw, Y = py + ny * CS[k] * hw, Z = zc + SN[k] * hh;
       let ax = nx * CS[k] / Math.max(hw, 1e-6), ay = ny * CS[k] / Math.max(hw, 1e-6), az = SN[k] / Math.max(hh, 1e-6); const l = Math.hypot(ax, ay, az) || 1;
@@ -326,7 +326,7 @@ function renderLegend() {
   const bar = document.createElement('div'); bar.id = 'prLayers'; bar.className = 'pr-layerbar'; bar.hidden = true;
   bar.innerHTML = `<button data-l="-1" aria-label="Layer down">−</button><input type="range" min="0" max="0" value="0" aria-label="Layer"><button data-l="1" aria-label="Layer up">+</button><b>Layer 1 / 1</b><span data-z style="color:var(--muted)"></span>
     <label><input type="checkbox" id="prOnly" class="pr-sw"> this layer only</label>
-    <select id="prView" aria-label="Colour by"><option value="type">Feature type</option><option value="speed">Speed</option><option value="flow">Flow</option><option value="layer">Layer</option></select>`;
+    <select id="prView" aria-label="Color by"><option value="type">Feature type</option><option value="speed">Speed</option><option value="flow">Flow</option><option value="layer">Layer</option></select>`;
   vp.appendChild(bar); tagTips(bar);
   const lg = document.createElement('div'); lg.id = 'prLegend'; lg.className = 'pr-legend'; lg.hidden = true; vp.appendChild(lg);
   const r = bar.querySelector('input[type=range]');

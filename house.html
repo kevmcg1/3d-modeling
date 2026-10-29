@@ -363,7 +363,7 @@ function footprints(lvId, pull) {
           }
         }
       }
-      if (!done && pull && joined.length === 0) {       // T-junction: stop at the face of the wall it runs into instead of its centreline
+      if (!done && pull && joined.length === 0) {       // T-junction: stop at the face of the wall it runs into instead of its centerline
         for (const o of ws) {
           if (o === w) continue;
           const r = ptSeg(P, o.a, o.b);
@@ -380,7 +380,7 @@ function footprints(lvId, pull) {
   return C[key][lvId] = out;
 }
 const wallPoly = f => [f.aL, f.bL, f.bR, f.aR];
-/* Where does opening p sit on its wall: centre line points and the four corners of its cut */
+/* Where does opening p sit on its wall: center line points and the four corners of its cut */
 function openGeom(p, w) {
   const u = unit(sub(w.b, w.a)), n = perp(u), c = add(w.a, mul(u, p.d)), h = w.t / 2, hw = p.w / 2;
   const a = sub(c, mul(u, hw)), b = add(c, mul(u, hw));
@@ -456,7 +456,7 @@ function cleanLoop(loop) {                              // drop dead-end spikes 
   }
   return L;
 }
-function insetLoop(L) {                                 // face of the wall centrelines → clear room outline (CCW loop, edge i = L[i] → L[i+1])
+function insetLoop(L) {                                 // face of the wall centerlines → clear room outline (CCW loop, edge i = L[i] → L[i+1])
   const n = L.length, out = [];
   const lines = L.map((v, i) => { const q = L[(i + 1) % n], d = unit(sub(q.p, v.p)), nn = perp(d); return { p: add(v.p, mul(nn, v.t / 2)), d }; });
   for (let i = 0; i < n; i++) {
@@ -1117,7 +1117,7 @@ function deleteLevel(id) {
 }
 
 /* ════════ Wall location line, trim, transforms, level copy ════════ */
-/* Centre-line vertices for a drawn polyline: loc 'left'/'right' means the drawn line is that face of the wall. */
+/* Center-line vertices for a drawn polyline: loc 'left'/'right' means the drawn line is that face of the wall. */
 function chainVerts(pts, t, loc, closed) {
   const n = pts.length - 1; if (loc === 'center' || n < 1) return pts.map(p => p.slice());
   const sg = loc === 'left' ? -1 : 1, off = (i) => { const d = unit(sub(pts[i + 1], pts[i])); return mul(perp(d), sg * t / 2); };
@@ -1271,14 +1271,14 @@ function copyLevelUp() {                                 // new level above with
 /* What each tool does, step by step. The right-hand panel shows these; the cursor pill follows the current step. */
 const GUIDE = {
   select: { n: 'Select', d: 'Pick, move and edit anything on the plan.',
-    steps: [['Pick', 'Click an item. Shift-click adds more. Drag on empty space to box-select: drag right for items fully inside, left for anything touching.'], ['Adjust', 'Drag an item to move it, or drag a square handle to reshape it. Arrow keys nudge by the snap step, Shift+arrow by 1 ft.'], ['Edit', 'Fine-tune sizes, styles and colours in the properties below, or rotate, mirror and duplicate.']],
+    steps: [['Pick', 'Click an item. Shift-click adds more. Drag on empty space to box-select: drag right for items fully inside, left for anything touching.'], ['Adjust', 'Drag an item to move it, or drag a square handle to reshape it. Arrow keys nudge by the snap step, Shift+arrow by 1 ft.'], ['Edit', 'Fine-tune sizes, styles and colors in the properties below, or rotate, mirror and duplicate.']],
     tips: ['Esc while dragging puts everything back', 'Right-click empty space clears the selection', 'Ctrl+A selects the whole level'] },
   wall: { n: 'Wall', d: 'Draw straight walls, one corner at a time.',
     steps: [['Start point', 'Click where the wall starts. It snaps to wall ends, midpoints and the grid.'], ['Add corners', 'Click each corner. Type a length (or 12\'6"<90 for length and angle) and press Enter for an exact wall. Backspace removes the last corner.'], ['Finish', 'Enter, Esc, double-click or right-click ends the chain. Click the first point to close the loop.']],
     tips: ['Shift locks the direction to 45°', 'Pick "Location line" to draw along the inside or outside face', 'Turn Chain off to place single walls'] },
   rect: { n: 'Room Box', d: 'Four walls in two clicks.',
-    steps: [['First corner', 'Click a corner (or the centre, if "From" is set to Centre).'], ['Opposite corner', 'Click the opposite corner, or type width x depth (e.g. 30 x 20) and press Enter.'], ['Done', 'The four walls are selected, ready to move or edit.']],
-    tips: ['Location line decides if the box is the inside, outside or centre line', 'Add a Room afterwards to get area and a floor'] },
+    steps: [['First corner', 'Click a corner (or the center, if "From" is set to Center).'], ['Opposite corner', 'Click the opposite corner, or type width x depth (e.g. 30 x 20) and press Enter.'], ['Done', 'The four walls are selected, ready to move or edit.']],
+    tips: ['Location line decides if the box is the inside, outside or center line', 'Add a Room afterwards to get area and a floor'] },
   door: { n: 'Door', d: 'Cut a door into a wall.',
     steps: [['Choose', 'Pick the style, width, height and swing in the options.'], ['Hover a wall', 'The ghost shows the door and its distance to both wall ends. Red means it does not fit.'], ['Click to place', 'Click to place it. Space flips the hinge side; Swing "Auto" follows the side of the wall your mouse is on.']],
     tips: ['Drag a placed door along its wall in Select', 'Doors cannot overlap each other'] },
@@ -1298,7 +1298,7 @@ const GUIDE = {
     steps: [['First point', 'Click a wall end or corner.'], ['Second point', 'Click the other end. "Aligned" follows the line; Horizontal and Vertical measure along one axis.'], ['Place the line', 'Move out and click to set how far the dimension line sits from the measured points.']],
     tips: ['Dimensions snap to mitred wall corners', 'Change the mode later in the properties'] },
   text: { n: 'Text', d: 'Add a note, label or dimension remark anywhere on the plan.',
-    steps: [['Click where it goes', 'The note starts at the point you click. Click an existing note to edit it instead.'], ['Type it', 'Press Enter to finish, or Shift+Enter for a new line. Esc cancels.'], ['Style it', 'Size, rotation, weight and colour are in the options. Change them later from the properties.']],
+    steps: [['Click where it goes', 'The note starts at the point you click. Click an existing note to edit it instead.'], ['Type it', 'Press Enter to finish, or Shift+Enter for a new line. Esc cancels.'], ['Style it', 'Size, rotation, weight and color are in the options. Change them later from the properties.']],
     tips: ['Drag a note with the Select tool to move it', 'Double-click a note to edit the words', 'Notes export to DXF as text'] },
   split: { n: 'Split Wall', d: 'Cut a wall in two to move or style the parts separately.',
     steps: [['Hover a wall', 'A red cross shows where the cut will be.'], ['Click to cut', 'Click to split. "Middle" splits at the middle of whichever wall you click.']],
@@ -1558,7 +1558,7 @@ function stepIdx() {                                    // index of the step the
 /* ── wall chains ── */
 function wallThick() { return OPT.wall.t ?? (WALL_TYPES[OPT.wall.type] || WALL_TYPES[1]).t; }
 function finishChain() { S.tmp = null; S.dirty = true; closeLenInput(); }
-function syncChain(t, tail) {                            // keep the drawn walls in line with the polyline (needed for non-centre location lines)
+function syncChain(t, tail) {                            // keep the drawn walls in line with the polyline (needed for non-center location lines)
   const V = chainVerts(tail ? t.pts.concat([tail]) : t.pts, wallThick(), OPT.wall.loc, false);
   t.ids.forEach((id, i) => { const w = byId(doc.walls, id); if (w && V[i + 1]) { w.a = V[i].slice(); w.b = V[i + 1].slice(); } });
 }
@@ -1602,7 +1602,7 @@ function rectPts(a, b) {
   if (OPT.rect.from === 'center') { const dx = Math.abs(b[0] - a[0]), dy = Math.abs(b[1] - a[1]); return [[a[0] - dx, a[1] - dy], [a[0] + dx, a[1] - dy], [a[0] + dx, a[1] + dy], [a[0] - dx, a[1] + dy]]; }
   const x0 = Math.min(a[0], b[0]), x1 = Math.max(a[0], b[0]), y0 = Math.min(a[1], b[1]), y1 = Math.max(a[1], b[1]); return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
 }
-function rectWallPts(a, b) {                              // CCW corners, shifted so the drawn rectangle is the centre line, inside face or outside face
+function rectWallPts(a, b) {                              // CCW corners, shifted so the drawn rectangle is the center line, inside face or outside face
   const p = rectPts(a, b), loc = OPT.rect.loc; if (loc === 'center') return p;
   return chainVerts(p.concat([p[0]]), wallThick(), loc === 'inside' ? 'left' : 'right', true).slice(0, 4);
 }
@@ -1743,7 +1743,7 @@ function hintHTML() {
     const from = t.pts[t.pts.length - 1], cur = S.snapInfo ? S.snapInfo.p : S.cur, closing = t.pts.length >= 3 && dist(cur, t.pts[0]) < 1;
     return (closing ? B('Click') + 'to close the loop' : B(fmtLen(dist(from, cur))) + 'click the next corner') + ' · ' + K('Enter') + ' finish · ' + K('⌫') + ' back · type a length';
   }
-  if (T === 'rect') return !t ? B('Room Box') + 'click ' + (OPT.rect.from === 'center' ? 'the centre' : 'a corner') : B('Click') + 'the ' + (OPT.rect.from === 'center' ? 'corner' : 'opposite corner') + ' · or type ' + K('w x d') + ' · ' + K('Esc') + ' cancel';
+  if (T === 'rect') return !t ? B('Room Box') + 'click ' + (OPT.rect.from === 'center' ? 'the center' : 'a corner') : B('Click') + 'the ' + (OPT.rect.from === 'center' ? 'corner' : 'opposite corner') + ' · or type ' + K('w x d') + ' · ' + K('Esc') + ' cancel';
   if (T === 'door' || T === 'window') {
     if (!h || !h.ghost) return B(nm) + 'hover over a wall';
     return h.ghost.ok ? B('Click') + 'to place the ' + T + (T === 'door' ? ' · ' + K('Space') + ' flips hinge' : '') : '<span class="bad">No room here: move along the wall or make it smaller</span>';
@@ -2154,7 +2154,7 @@ function exportOBJ() {
   };
   for (const gr of M.groups) { body.push('g ' + gr.name); tris(M.t, gr.start, gr.end); }
   if (M.g.length) { body.push('g glass'); tris(M.g, 0, M.g.length / 10); }
-  const lines = ['# House Design: exported OBJ (metres, Y up)'];
+  const lines = ['# House Design: exported OBJ (meters, Y up)'];
   for (const p of vs) lines.push('v ' + (p[0] * K).toFixed(4) + ' ' + (p[1] * K).toFixed(4) + ' ' + (p[2] * K).toFixed(4));
   for (const n of nl) lines.push('vn ' + n.map(x => x.toFixed(3)).join(' '));
   return lines.concat(body).join('\n');
@@ -2270,21 +2270,21 @@ const wallThickRow = () => ({ l: 'Thickness', k: 'lenoptin', ph: () => fmtIn((WA
 function optRows(T) {
   const O = (obj, key, l, k, x) => Object.assign({ l, k, get: () => obj[key], set: (o, v) => { obj[key] = v; } }, x || {});
   if (T === 'wall') return [wallTypeRow(), wallThickRow(), O(OPT.wall, 'h', 'Height', 'lenopt', { u: 'ft', ph: 'level height', min: 12, max: 600 }),
-    O(OPT.wall, 'loc', 'Location line', 'seg', { tip: 'loc', opts: [['center', 'Centre'], ['left', 'Left'], ['right', 'Right']] }), O(OPT.wall, 'chain', 'Chain', 'bool', { label: 'Keep drawing connected walls' })];
-  if (T === 'rect') return [wallTypeRow(), wallThickRow(), O(OPT.rect, 'from', 'Draw from', 'seg', { tip: 'from', opts: [['corner', 'Corner'], ['center', 'Centre']] }), O(OPT.rect, 'loc', 'Location line', 'seg', { tip: 'rloc', opts: [['center', 'Centre'], ['inside', 'Inside'], ['outside', 'Outside']] })];
+    O(OPT.wall, 'loc', 'Location line', 'seg', { tip: 'loc', opts: [['center', 'Center'], ['left', 'Left'], ['right', 'Right']] }), O(OPT.wall, 'chain', 'Chain', 'bool', { label: 'Keep drawing connected walls' })];
+  if (T === 'rect') return [wallTypeRow(), wallThickRow(), O(OPT.rect, 'from', 'Draw from', 'seg', { tip: 'from', opts: [['corner', 'Corner'], ['center', 'Center']] }), O(OPT.rect, 'loc', 'Location line', 'seg', { tip: 'rloc', opts: [['center', 'Center'], ['inside', 'Inside'], ['outside', 'Outside']] })];
   if (T === 'door') return [O(OPT.door, 'style', 'Style', 'sel', { opts: DOOR_STYLES }), O(OPT.door, 'w', 'Width', 'len', { u: 'in', min: 12, max: 240 }), O(OPT.door, 'h', 'Height', 'len', { u: 'in', min: 24, max: 192 }),
     O(OPT.door, 'swing', 'Swings to', 'sel', { opts: [['auto', 'Mouse side (auto)'], ['left', 'Left of wall'], ['right', 'Right of wall']] }), O(OPT.door, 'hinge', 'Hinge', 'seg', { tip: 'hinge', opts: [[0, 'Left'], [1, 'Right']], set: (o, v) => { OPT.door.hinge = +v; } })];
   if (T === 'window') return [O(OPT.window, 'style', 'Style', 'sel', { opts: WIN_STYLES }), O(OPT.window, 'w', 'Width', 'len', { u: 'in', min: 12, max: 240 }), O(OPT.window, 'h', 'Height', 'len', { u: 'in', min: 12, max: 192 }), O(OPT.window, 'sill', 'Sill height', 'len0', { u: 'in', min: 0, max: 150 })];
   if (T === 'room') return [O(OPT.room, 'name', 'Name', 'text', { list: ROOM_NAMES, ph: 'Room 1, Room 2…', set: (o, v) => { OPT.room.name = String(v).slice(0, 40); } }), O(OPT.room, 'floor', 'Floor', 'bool', { label: 'Add a floor slab' }),
-    O(OPT.room, 'c', 'Floor colour', 'color', { def: '#c9a77c' }), { l: '', k: 'btn', tip: 'roomcolor', label: 'Colour from room name', run: () => { OPT.room.c = ''; } }];
+    O(OPT.room, 'c', 'Floor color', 'color', { def: '#c9a77c' }), { l: '', k: 'btn', tip: 'roomcolor', label: 'Color from room name', run: () => { OPT.room.c = ''; } }];
   if (T === 'roof') return [O(OPT.roof, 'type', 'Type', 'sel', { opts: [['gable', 'Gable'], ['hip', 'Hip'], ['shed', 'Shed'], ['flat', 'Flat']] }), O(OPT.roof, 'pitch', 'Pitch (:12)', 'num', { min: 0, max: 24 }), O(OPT.roof, 'oh', 'Overhang', 'len0', { u: 'in', min: 0, max: 72 }),
-    O(OPT.roof, 'thk', 'Thickness', 'in', { min: 1, max: 36 }), O(OPT.roof, 'ridge', 'Ridge runs', 'sel', { opts: [['auto', 'Along the long side'], ['x', 'East – West'], ['y', 'North – South']] }), O(OPT.roof, 'c', 'Colour', 'color', { def: '#7b5a4a' }),
+    O(OPT.roof, 'thk', 'Thickness', 'in', { min: 1, max: 36 }), O(OPT.roof, 'ridge', 'Ridge runs', 'sel', { opts: [['auto', 'Along the long side'], ['x', 'East – West'], ['y', 'North – South']] }), O(OPT.roof, 'c', 'Color', 'color', { def: '#7b5a4a' }),
     { l: '', k: 'btn', tip: 'fitroof', label: 'Roof over all walls on this level', run: () => { const r = fitRoofToLevel(); if (r) { doc.roofs.push(r); S.sel = [{ type: 'roof', id: r.id }]; commit(); setTool('select'); } } }];
   if (T === 'stair') return [O(OPT.stair, 'shape', 'Shape', 'sel', { opts: [['straight', 'Straight'], ['L', 'L-shaped with landing']] }), O(OPT.stair, 'turn', 'Turns', 'seg', { tip: 'turn', opts: [['left', 'Left'], ['right', 'Right']], show: () => OPT.stair.shape === 'L' }),
-    O(OPT.stair, 'w', 'Width', 'len', { u: 'in', min: 24, max: 96 }), O(OPT.stair, 'run', 'Tread depth', 'len', { u: 'in', min: 7, max: 16 }), O(OPT.stair, 'rail', 'Handrails', 'sel', { opts: [['both', 'Both sides'], ['left', 'Left only'], ['right', 'Right only'], ['none', 'None']] }), O(OPT.stair, 'c', 'Colour', 'color', { def: '#b08d62' })];
+    O(OPT.stair, 'w', 'Width', 'len', { u: 'in', min: 24, max: 96 }), O(OPT.stair, 'run', 'Tread depth', 'len', { u: 'in', min: 7, max: 16 }), O(OPT.stair, 'rail', 'Handrails', 'sel', { opts: [['both', 'Both sides'], ['left', 'Left only'], ['right', 'Right only'], ['none', 'None']] }), O(OPT.stair, 'c', 'Color', 'color', { def: '#b08d62' })];
   if (T === 'dim') return [O(OPT.dim, 'mode', 'Measure', 'seg', { tip: 'dim', opts: [['aligned', 'Aligned'], ['horizontal', 'Horiz.'], ['vertical', 'Vert.']] })];
   if (T === 'text') return [O(OPT.text, 'str', 'Text', 'text', { ph: 'Type here or after you click', set: (o, v) => { OPT.text.str = String(v).slice(0, 300); } }), O(OPT.text, 'h', 'Letter size', 'lenoptin', { min: 1, max: 240, ph: 'Auto (follows zoom)' }), O(OPT.text, 'rot', 'Rotation °', 'num', { min: -360, max: 360 }),
-    O(OPT.text, 'bold', 'Weight', 'bool', { label: 'Bold' }), O(OPT.text, 'c', 'Colour', 'color', { def: '#1f2733' })];
+    O(OPT.text, 'bold', 'Weight', 'bool', { label: 'Bold' }), O(OPT.text, 'c', 'Color', 'color', { def: '#1f2733' })];
   if (T === 'split') return [O(OPT.split, 'at', 'Cut at', 'seg', { tip: 'splitat', opts: [['click', 'Click point'], ['mid', 'Middle']] })];
   return [];
 }
@@ -2296,7 +2296,7 @@ function propRows(type, its) {
       P('Type', 'sel', o => { const i = WALL_TYPES.findIndex(t => t.t === o.t && t.c === o.c); return i < 0 ? 'x' : i; }, (o, v) => { if (v !== 'x') { const t = WALL_TYPES[+v]; o.t = t.t; o.c = t.c; } }, { opts: () => WALL_TYPES.map((t, i) => [i, t.n]).concat([['x', 'Custom']]) }),
       P('Length', 'len', o => wallLen(o), (o, v) => { if (v < 1) return; const u = unit(sub(o.b, o.a)); moveEndpoints(endpointGroup(o, 'b'), add(o.a, mul(u, v))); fixOpenings(); }),
       P('Thickness', 'in', o => o.t, (o, v) => { o.t = clamp(v, 1, 60); }), P('Height', 'lenopt', o => o.h, (o, v) => { o.h = v; }, { ph: 'level height', u: 'ft', min: 12, max: 600 }),
-      P('Colour', 'color', o => o.c, (o, v) => { o.c = v; }), P('Start', 'ro', o => fmtLen(o.a[0], { short: true }) + ', ' + fmtLen(o.a[1], { short: true })), P('End', 'ro', o => fmtLen(o.b[0], { short: true }) + ', ' + fmtLen(o.b[1], { short: true })),
+      P('Color', 'color', o => o.c, (o, v) => { o.c = v; }), P('Start', 'ro', o => fmtLen(o.a[0], { short: true }) + ', ' + fmtLen(o.a[1], { short: true })), P('End', 'ro', o => fmtLen(o.b[0], { short: true }) + ', ' + fmtLen(o.b[1], { short: true })),
     ],
     open: [
       P('Style', 'sel', o => o.style, (o, v) => { o.style = v; }, { opts: o => o.kind === 'door' ? DOOR_STYLES : WIN_STYLES }),
@@ -2306,7 +2306,7 @@ function propRows(type, its) {
     ],
     room: [
       P('Name', 'text', o => o.name, (o, v) => { o.name = String(v).slice(0, 40) || 'Room'; if (FLOOR_COLORS[o.name]) o.c = FLOOR_COLORS[o.name]; }, { list: ROOM_NAMES }),
-      P('Floor', 'bool', o => o.floor, (o, v) => { o.floor = v; }, { label: 'Add a floor slab' }), P('Floor colour', 'color', o => o.c, (o, v) => { o.c = v; }),
+      P('Floor', 'bool', o => o.floor, (o, v) => { o.floor = v; }, { label: 'Add a floor slab' }), P('Floor color', 'color', o => o.c, (o, v) => { o.c = v; }),
       P('Area', 'ro', o => { const g = roomGeom(o); return g ? fmtArea(g.area) : 'not enclosed'; }),
       P('Perimeter', 'ro', o => { const g = roomGeom(o); return g ? fmtLen(g.poly.reduce((s, p, i) => s + dist(p, g.poly[(i + 1) % g.poly.length]), 0), { short: true }) : '–'; }),
     ],
@@ -2314,7 +2314,7 @@ function propRows(type, its) {
       P('Type', 'sel', o => o.type, (o, v) => { o.type = v; }, { opts: [['gable', 'Gable'], ['hip', 'Hip'], ['shed', 'Shed'], ['flat', 'Flat']] }), P('Pitch (:12)', 'num', o => o.pitch, (o, v) => { o.pitch = clamp(v, 0, 24); }),
       P('Overhang', 'len0', o => o.oh, (o, v) => { o.oh = clamp(v, 0, 72); }, { u: 'in' }), P('Thickness', 'in', o => o.thk, (o, v) => { o.thk = clamp(v, 1, 36); }),
       P('Ridge runs', 'sel', o => o.ridge, (o, v) => { o.ridge = v; }, { opts: [['x', 'East – West'], ['y', 'North – South']] }), P('Shed rises', 'bool', o => !!o.flip, (o, v) => { o.flip = v ? 1 : 0; }, { label: 'toward the far side' }),
-      P('Colour', 'color', o => o.c, (o, v) => { o.c = v; }), P('Sits on', 'sel', o => o.lv, (o, v) => { o.lv = v; }, { opts: lvOpts }),
+      P('Color', 'color', o => o.c, (o, v) => { o.c = v; }), P('Sits on', 'sel', o => o.lv, (o, v) => { o.lv = v; }, { opts: lvOpts }),
       P('Size', 'ro', o => { const q = roofRect(o); return fmtLen(q[2] - q[0], { short: true }) + ' × ' + fmtLen(q[3] - q[1], { short: true }); }),
       { l: '', k: 'btn', tip: 'fitwalls', label: 'Fit to walls', run: o => { const b = levelBox(o.lv); if (!b) return; o.x0 = b[0]; o.y0 = b[1]; o.x1 = b[2]; o.y1 = b[3]; } },
     ],
@@ -2323,12 +2323,12 @@ function propRows(type, its) {
       P('Width', 'len', o => o.w, (o, v) => { o.w = clamp(v, 12, 120); }, { u: 'in' }), P('Tread depth', 'len', o => o.run, (o, v) => { o.run = clamp(v, 5, 20); }, { u: 'in' }),
       P('Handrails', 'sel', o => o.rail || 'both', (o, v) => { o.rail = v; }, { opts: [['both', 'Both sides'], ['left', 'Left only'], ['right', 'Right only'], ['none', 'None']] }),
       P('Direction°', 'num', o => Math.round(o.ang / D2R * 10) / 10, (o, v) => { o.ang = v * D2R; }), P('Risers', 'ro', o => { const s = stairInfo(o); return s.n + ' × ' + fmtLen(s.r, { den: 16 }); }),
-      P('Rises', 'ro', o => fmtLen(stairInfo(o).rise, { short: true })), P('Colour', 'color', o => o.c, (o, v) => { o.c = v; }),
+      P('Rises', 'ro', o => fmtLen(stairInfo(o).rise, { short: true })), P('Color', 'color', o => o.c, (o, v) => { o.c = v; }),
     ],
     text: [
       P('Text', 'text', o => String(o.str).replace(/\n/g, ' ↵ '), (o, v) => { const n = String(v).replace(/ ?↵ ?/g, '\n').slice(0, 300); if (n.trim()) o.str = n; }, { ph: 'Use ↵ for a new line' }),
       P('Letter size', 'in', o => o.h, (o, v) => { o.h = clamp(v, 1, 240); }), P('Rotation °', 'num', o => Math.round((o.rot || 0) * 10) / 10, (o, v) => { o.rot = ((v % 360) + 360) % 360; }),
-      P('Weight', 'bool', o => !!o.bold, (o, v) => { o.bold = v; }, { label: 'Bold' }), P('Colour', 'color', o => o.c, (o, v) => { o.c = v; }),
+      P('Weight', 'bool', o => !!o.bold, (o, v) => { o.bold = v; }, { label: 'Bold' }), P('Color', 'color', o => o.c, (o, v) => { o.c = v; }),
       P('Sits on', 'sel', o => o.lv, (o, v) => { o.lv = v; }, { opts: lvOpts }),
     ],
     dim: [
@@ -2573,7 +2573,7 @@ const TIPS = (() => {
   add('layout:plan', 'Plan only', 'Give the whole workspace to the 2D plan.', [() => svg(layout(true, 'split', true)), () => svg(layout(true, 'plan', true))]);
   add('layout:split', 'Plan + 3D', 'Draw on the left, watch the 3D model on the right.', [() => svg(layout(true, 'plan', true)), () => svg(layout(true, 'split', true))]);
   add('layout:3d', '3D only', 'Give the whole workspace to the 3D model.', [() => svg(layout(true, 'split', true)), () => svg(layout(true, '3d', true))]);
-  add('theme', 'Light / dark', 'Switch the colour theme.', [() => svg(house()), () => svg(house({}).replace(new RegExp(C.edge, 'g'), '#cfd7e3'), true)]);
+  add('theme', 'Light / dark', 'Switch the color theme.', [() => svg(house()), () => svg(house({}).replace(new RegExp(C.edge, 'g'), '#cfd7e3'), true)]);
   add('help', 'Help', 'Shortcuts and tips.', null, { k: '?' });
   add('zoomin', 'Zoom in', 'Magnify the plan.', [H0, () => svg(small(house(), 1.5))], { k: '+' });
   add('zoomout', 'Zoom out', 'Show more of the plan.', [() => svg(small(house(), 1.5)), H0], { k: '−' });
@@ -2598,13 +2598,13 @@ const TIPS = (() => {
   add('v:png', 'Save PNG', 'Save a picture of the 3D view.', [() => svg(cubeIso()), () => svg(TA.tile(43, 26, '.png'))]);
   // tool options
   const bar = (dy, o = {}) => wall(18, 46 + dy, 102, 46 + dy, o);
-  add('loc:center', 'Centre line', 'The line you draw runs down the middle of the wall.', [() => svg(guideline()), () => svg(bar(0) + guideline())]);
+  add('loc:center', 'Center line', 'The line you draw runs down the middle of the wall.', [() => svg(guideline()), () => svg(bar(0) + guideline())]);
   add('loc:left', 'Left face', 'The line you draw is the wall’s left face; the wall grows to the right of travel.', [() => svg(guideline()), () => svg(bar(5) + guideline())]);
   add('loc:right', 'Right face', 'The line you draw is the wall’s right face; the wall grows to the left of travel.', [() => svg(guideline()), () => svg(bar(-5) + guideline())]);
   add('from:corner', 'Draw from a corner', 'First click is a corner; the second is the opposite one.', [() => svg(dot(30, 28) + rect(30, 28, 56, 36, 'none', C.acc, 1.2, '4 3')), H0]);
-  add('from:center', 'Draw from the centre', 'First click is the middle; the second is a corner.', [() => svg(dot(60, 46) + rect(28, 28, 64, 36, 'none', C.acc, 1.2, '4 3')), H0]);
+  add('from:center', 'Draw from the center', 'First click is the middle; the second is a corner.', [() => svg(dot(60, 46) + rect(28, 28, 64, 36, 'none', C.acc, 1.2, '4 3')), H0]);
   const rl = (inset) => svg(rect(26, 28, 68, 36, 'none', C.acc, 1, '3 3') + wall(26, 28 + inset, 94, 28 + inset, {}) + wall(94 - inset, 28, 94 - inset, 64, {}) + wall(94, 64 - inset, 26, 64 - inset, {}) + wall(26 + inset, 64, 26 + inset, 28, {}));
-  add('rloc:center', 'Centre line', 'Your box is the middle of the walls.', [() => svg(rect(26, 28, 68, 36, 'none', C.acc, 1.2, '4 3')), () => rl(0)]);
+  add('rloc:center', 'Center line', 'Your box is the middle of the walls.', [() => svg(rect(26, 28, 68, 36, 'none', C.acc, 1.2, '4 3')), () => rl(0)]);
   add('rloc:inside', 'Inside face', 'Your box is the inside of the room; walls grow outward.', [() => svg(rect(30, 30, 60, 32, 'none', C.acc, 1.2, '4 3')), () => svg(house({ l: 27, t: 27, r: 93, b: 65 }) + rect(30, 30, 60, 32, 'none', C.acc, 1, '3 3'))]);
   add('rloc:outside', 'Outside face', 'Your box is the outside of the building; walls grow inward.', [() => svg(rect(22, 24, 76, 44, 'none', C.acc, 1.2, '4 3')), () => svg(house({ l: 25, t: 27, r: 95, b: 65 }) + rect(22, 24, 76, 44, 'none', C.acc, 1, '3 3'))]);
   add('dim:aligned', 'Aligned', 'Measures straight from point to point, whatever the angle.', [() => svg(dot(26, 66) + dot(92, 28)), () => svg(dot(26, 66) + dot(92, 28) + dimLine(26, 66, 92, 28, "6'-3\"", 12))]);
@@ -2618,7 +2618,7 @@ const TIPS = (() => {
   add('hinge:1', 'Hinge on the right', 'The door leaf is hinged at the right jamb.', [() => svg(wall(12, 52, 42, 52) + wall(78, 52, 108, 52)), () => svg(wall(12, 52, 42, 52) + wall(78, 52, 108, 52) + line(78, 52, 78, 18, C.edge, 1.6) + `<path d="M78,18 A34,34 0 0 0 44,52" fill="none" stroke="${C.edge}" stroke-width=".9"/>`)], { k: 'Space' });
   add('fitroof', 'Roof over all walls', 'One click: a roof sized to every wall on this level.', T.roof.a);
   add('fitwalls', 'Fit to walls', 'Resize this roof to cover the walls on its level.', [() => svg(house() + rect(40, 30, 30, 20, 'none', '#a2573f', 1.2, '4 3')), T.roof.a[1]]);
-  add('roomcolor', 'Colour from name', 'Use the standard floor colour for this room name.', [() => svg(rect(25, 27, 70, 38, '#c9d0da') + house()), () => svg(rect(25, 27, 70, 38, C.room) + house())]);
+  add('roomcolor', 'Color from name', 'Use the standard floor color for this room name.', [() => svg(rect(25, 27, 70, 38, '#c9d0da') + house()), () => svg(rect(25, 27, 70, 38, C.room) + house())]);
   add('dlgok', 'OK', 'Close this dialog.', null);
   return T;
 })();
