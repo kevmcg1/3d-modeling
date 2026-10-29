@@ -16650,11 +16650,32 @@ function postGcode() {
   L.push(`(Part: ${doc.features.length} features · generated ${new Date().toISOString().slice(0, 10)})`);
   L.push(`(WCS G54: ${wcsName(C)})`);
   L.push(`(Units: ${inch ? 'inches' : 'millimeters'})`);
+  // the tool list at the top of the program, as Fusion and Mastercam post it: what the operator loads, in order of use
+  {
+    const used = new Map();
+    for (const op of C.ops.filter(op => !op.sup)) {
+      const Pq = toolpath(op); if (!Pq || Pq.pending || Pq.m.length < 2 || (opAxis(op) && !PF.indexed)) continue;
+      const zo = opOrigin(op)[2], u = used.get(Pq.tool.n); let zmin = Infinity;
+      for (const m of Pq.m) if (!m.r && m.z - zo < zmin) zmin = m.z - zo;                           // (a loop: a 3D toolpath has too many moves to spread into Math.min)
+      used.set(Pq.tool.n, { t: Pq.tool, zmin: u ? Math.min(u.zmin, zmin) : zmin });
+    }
+    if (used.size && !grbl) { L.push('(TOOLS)'); for (const { t, zmin } of used.values()) L.push(`(T${t.n}  D=${N(t.d)}${isFinite(zmin) ? ` - ZMIN=${N(zmin)}` : ''} - ${String(TOOL_TYPES[t.type] || t.type).toUpperCase().replace(/[()]/g, '')})`); }
+  }
   const multi = pf.multi === 'g682' ? 'g682' : 'setup', SU = camSetup();
   if (!grbl && SU) L.push(multi === 'g682' ? '(Indexed ops: G68.2 tilted work plane + G53.1. Check your control has tilted-plane machining enabled.)' : `(Indexed ops on the ${SU.name}: rotation center X${N(SU.c[0] - o[0])} Y${N(SU.c[1] - o[1])} Z${N(SU.c[2] - o[2])} from G54 — set it to your rotary's centerline and check its directions.)`);
   L.push(...PF.init(inch), PF.wcs[0]);
   let wcsNow = 54;
   let lastTool = null, totalMin = 0;
+  // coolant: the program default (Off / Flood / Mist / Flood + mist / Through-spindle) with a per-operation override
+  const COOL = { off: ['', ''], flood: ['M8', 'M9'], mist: ['M7', 'M9'], both: ['M7 M8', 'M9'], tsc: ['M88', 'M89'] }, CW = PF.coolWords || COOL;
+  const coolOf = op => op.coolant && op.coolant !== 'inherit' ? op.coolant : (pf.coolant ? pf.coolMode || 'flood' : 'off');
+  let coolNow = 'off';
+  const setCool = want => {
+    if (want === coolNow) return;
+    if (coolNow !== 'off') L.push(CW[coolNow][1]);
+    if (want !== 'off') { L.push(CW[want][0]); if (want === 'tsc' && CW.tsc[0] === 'M8') L.push('(THROUGH-SPINDLE COOLANT IS NOT AVAILABLE ON THIS CONTROLLER - FLOOD INSTEAD)'); }
+    coolNow = want;
+  };
   const ops = C.ops.filter(op => !op.sup);
   for (const op of ops) {
     const o = opOrigin(op), P = toolpath(op);
@@ -16668,14 +16689,15 @@ function postGcode() {
     L.push(`(${op.name} — ${toolName(t)})`);
     if (grbl && P.tap) L.push('(WARNING: GRBL has no synchronized tapping cycle - use a floating tap holder)');
     if (lastTool !== t.n) {
-      if (lastTool !== null) { if (pf.coolant) L.push('M9'); L.push('M5'); if (pf.optStop && !grbl) L.push('M1 (OPTIONAL STOP)'); }
+      if (lastTool !== null) { setCool('off'); L.push('M5'); if (pf.optStop && !grbl) L.push('M1 (OPTIONAL STOP)'); }
+      if (pf.toolRetract !== false && PF.toolRetract) L.push(...PF.toolRetract());                // Z home before the change: a Fanuc-style control does not do it by itself
       L.push(...PF.toolChange(t, toolName(t)));
       const maxRpm = C.maxRpm || MACHINE_MAX_RPM, srpm = Math.min(Math.round(t.rpm), maxRpm);
       if (srpm < Math.round(t.rpm)) L.push(`(T${t.n}: S${Math.round(t.rpm)} is above the ${maxRpm} rpm limit, posted at S${srpm} - lower its feed to keep the chip load)`);
       L.push(op.kind === 'bsf' ? `S${srpm} (SPINDLE STAYS OFF UNTIL THE BLADE IS BELOW THE PART)` : `S${srpm} M3`);
-      if (pf.coolant && op.kind !== 'bsf') L.push('M8');
       lastTool = t.n; st.g = null; st.x = st.y = st.z = null; st.f = null;
     }
+    setCool(op.kind === 'bsf' ? 'off' : coolOf(op));
     if (fr) { L.push('G91 G28 Z0. (clear before turning the part)', 'G90', ...fr.code); st.g = null; st.x = st.y = st.z = null; }
     const endFrame = () => { if (fr) { L.push('G91 G28 Z0.', 'G90', ...fr.end); st.g = null; st.x = st.y = st.z = null; } };
     const wn = 54 + Math.max(0, Math.min(5, (op.wcs | 0) || 0));
@@ -16739,12 +16761,58 @@ function postGcode() {
       endFrame();
       continue;
     }
+    // cutter compensation in the control: a tagged stretch (start-up, run, cancel) posts as the part contour with G41 / G42 ... G40
+    const ccOK = !fr && !PF.noComp, ccSeen = P.m.some(q => q.cc);
+    if (ccSeen && !ccOK) L.push(`(CUTTER COMPENSATION IN THE CONTROL IS NOT AVAILABLE FOR THIS OPERATION ON ${PF.name.toUpperCase()} - POSTED AS THE TOOL CENTER PATH)`);
+    const emitComp = i => {
+      let j = i; while (j < P.m.length - 1 && P.m[j].cc !== 'off' && P.m[j + 1].cc) j++;
+      const seq = P.m.slice(i - 1, j + 1), m1 = P.m[i], last = seq.length - 1, mode = m1.ccMode;
+      if (P.m[j].cc !== 'off' || last < 3 || seq.some(q => q.r || Math.abs(q.z - m1.z) > 1e-9) || (mode === 'control' && !(m1.ccNom && m1.ccNom.length > 2))) return 0;   // a damaged stretch (moves dropped) stays the tool center path
+      const rad = t.d / 2, left = (m1.ccSide === 'left') !== (mode === 'rwear'), g = left ? 'G41' : 'G42', D = m1.ccD || t.n, dw = PF.noCompD ? '' : ` D${D}`, z = m1.z - o[2];
+      // the programmed points: the part contour with its lead arcs for Control, the tool center path itself for Wear
+      const src = mode === 'control' ? m1.ccNom.map(q => ({ x: q.x - o[0], y: q.y - o[1], arc: q.arc ? { cx: q.arc.cx - o[0], cy: q.arc.cy - o[1], ccw: q.arc.ccw } : null }))
+        : seq.slice(1, last).map(q => ({ x: q.x - o[0], y: q.y - o[1], arc: null })), Q = [src[0]];
+      for (let u = 1; u < src.length; u++) if (src[u].arc || Math.hypot(src[u].x - Q[Q.length - 1].x, src[u].y - Q[Q.length - 1].y) > 5e-4) Q.push(src[u]);
+      const mi = u => Math.min(j - 1, i + Math.round(u / Math.max(1, Q.length - 1) * (j - 1 - i))), f2 = P.m[i + 1].f;
+      L.push(mode === 'control' ? `(CUTTER COMPENSATION ${g}${dw}: THE PROGRAM IS THE PART CONTOUR${op.leave ? ' PLUS THE STOCK LEFT' : ''} - SET THE TOOL RADIUS ${N(rad)} IN THE OFFSET REGISTER)`
+        : `(${mode === 'rwear' ? 'REVERSE ' : ''}WEAR COMPENSATION ${g}${dw}: THE PROGRAM IS THE TOOL CENTER PATH - KEEP THE REGISTER AT THE WEAR VALUE ONLY)`);
+      SRC = { op: op.id, mi: i };
+      st.x = N(Q[0].x); st.y = N(Q[0].y); st.g = 'G1'; st.f = m1.f;
+      L.push(`G1 ${g} X${st.x} Y${st.y}${dw} F${F(m1.f)}`);
+      const arcLine = (g2, to, c, from) => {
+        const w = [];
+        if (g2 !== st.g) w.push(g2);
+        st.x = N(to.x); st.y = N(to.y);
+        w.push('X' + st.x, 'Y' + st.y, 'I' + N(c.x - from.x), 'J' + N(c.y - from.y));
+        if (f2 !== st.f) { st.f = f2; w.push('F' + F(f2)); }
+        L.push(w.join(' ')); st.g = g2;
+      };
+      let u = 1;
+      while (u < Q.length) {
+        if (Q[u].arc) { SRC = { op: op.id, mi: mi(u) }; arcLine(Q[u].arc.ccw ? 'G3' : 'G2', Q[u], { x: Q[u].arc.cx, y: Q[u].arc.cy }, Q[u - 1]); u++; continue; }
+        let e = u; while (e + 1 < Q.length && !Q[e + 1].arc) e++;
+        const pts = Q.slice(u - 1, e + 1);
+        if (pf.arcs && pts.length - 1 >= 3) {
+          for (const sg of fitArcs(pts, 0.003)) {
+            SRC = { op: op.id, mi: mi(u - 1 + sg.k) };
+            if (!sg.arc) { move('G1', sg.p.x, sg.p.y, z, f2); continue; }
+            arcLine(sg.ccw ? 'G3' : 'G2', sg.p, sg.c, sg.from);
+          }
+        } else for (let q = 1; q < pts.length; q++) { SRC = { op: op.id, mi: mi(u - 1 + q) }; move('G1', pts[q].x, pts[q].y, z, f2); }
+        u = e + 1;
+      }
+      SRC = { op: op.id, mi: j };
+      const fx = seq[last].f, ex = P2(seq[last].x - o[0], seq[last].y - o[1]); st.x = N(ex.x); st.y = N(ex.y); st.g = 'G1';
+      L.push(`G1 G40 X${st.x} Y${st.y}${fx !== st.f ? ' F' + F(fx) : ''}`); st.f = fx;
+      return j + 1;
+    };
     // group consecutive feed moves at constant Z for arc fitting
     let i = 1;
     while (i < P.m.length) {
       const m = P.m[i];
       SRC = { op: op.id, mi: i };
       if (m.code) L.push(...m.code);
+      if (m.cc === 'on' && ccOK) { const nx = emitComp(i); if (nx) { i = nx; continue; } }
       if (m.g12 && PF.g12 && !fr) {
         const g = m.g12;
         SRC = { op: op.id, mi: g.end };
@@ -16775,7 +16843,7 @@ function postGcode() {
     endFrame();
   }
   SRC = null;
-  if (pf.coolant) L.push('M9');
+  setCool('off');
   L.push('M5');
   L.push(...PF.end(N(camStock().z1 + C.safe - o[2])));
   if (PF.semi) for (let i = 0; i < L.length; i++) L[i] = PF.semi(L[i]);                // ; comments instead of ( )
@@ -17238,15 +17306,16 @@ function chainContour(op, tool, st, part, P, chains) {
       if (side === 'on') paths.push({ pts, closed: true });
       else {
         const inside = (side === 'left') === ccw, base = ccw ? cP(pts) : cP(pts.slice().reverse());
+        const nom = ccModeOf(op) === 'control' ? (leave ? cOffset([base], inside ? -leave : leave).map(uP) : [pts]) : null;      // the contour the control offsets: the chain itself, or the chain with the stock left
         for (const q of cOffset([base], inside ? -off : off)) {
           if (cArea(q) <= 1e-4) continue;
           let u = uP(q); if (!ccw) u = u.reverse();
-          paths.push({ pts: startNear(u, pts[0]), closed: true });
+          paths.push({ pts: startNear(u, pts[0]), closed: true, nom });
         }
         if (!paths.length) { P.warn.push(`The Ø${fmtTool(tool.d)} tool is too large for ${op.chains.length > 1 ? 'one of these chains' : 'this chain'}.`); continue; }
       }
     } else {
-      paths.push({ pts: side === 'on' ? pts : offsetOpen(pts, off, side === 'left' ? 1 : -1), closed: false });
+      paths.push({ pts: side === 'on' ? pts : offsetOpen(pts, off, side === 'left' ? 1 : -1), closed: false, nomOpen: side !== 'on' && ccModeOf(op) === 'control' ? (leave ? offsetOpen(pts, leave, side === 'left' ? 1 : -1) : pts) : null });
     }
     const zs = op._single ? [bottom] : levels(st.z1, bottom, op.stepdown || 2), tabZ = !op._single && op.tabs > 0 ? bottom + Math.max(0.2, op.tabH || 1.5) : -Infinity;
     const outsideLoop = c.closed && side !== 'on' && (side === 'left') !== (cArea(cP(pts)) > 0);
@@ -17254,25 +17323,83 @@ function chainContour(op, tool, st, part, P, chains) {
     const pen = q => { const dx = Math.max(st.x0 - q.x, 0, q.x - st.x1), dy = Math.max(st.y0 - q.y, 0, q.y - st.y1); return r - (dx || dy ? Math.hypot(dx, dy) : -Math.min(q.x - st.x0, st.x1 - q.x, q.y - st.y0, st.y1 - q.y)); };
     const sgn = toolSide === 'left' ? 1 : -1, nrmAt = t => P2(-t.y * sgn, t.x * sgn);
     for (const path of paths) {
-      let L = path.pts; const n = L.length;
+      let L = path.pts, n = L.length;
       if (n < 2) continue;
-      let useArc = op.lead !== 'none', rh = rho; const leadAt = i => { const t = nrm2(sub2(L[(i + 1) % n], L[i])); return sub2(add2(L[i], mul2(nrmAt(t), rho)), mul2(t, useArc ? rho : 0)); };
-      if (path.closed && outsideLoop && !c.sp && !c.start && pen(leadAt(0)) > 0) {      // no start picked: enter where the stock is thinnest (the side of a block, not its corner)
+      const ccm = typeof ccModeOf === 'function' ? ccModeOf(op) : null;
+      let wantCC = !!ccm && side !== 'on' && !op.ramp && !(tabZ > -Infinity);              // compensation in the control needs a lead in and out; ramping and tabs stay computer-compensated
+      if (ccm && !wantCC && !P.ccWarned) { P.ccWarned = true; P.warn.push(`Cutter compensation in the control is off for this toolpath: ${side === 'on' ? 'the tool is on the line' : op.ramp ? 'it ramps down the loop' : 'it has tabs'}. The path is compensated in the computer.`); }
+      let useArc = op.lead !== 'none' || wantCC, rh = rho; const leadAt = i => { const t = nrm2(sub2(L[(i + 1) % n], L[i])); return sub2(add2(L[i], mul2(nrmAt(t), rho)), mul2(t, useArc ? rho : 0)); };
+      if (wantCC && path.closed && !c.sp && !c.start) {                  // no start picked: lead in mid-edge on the longest side, where an arc can swing in (never off a corner)
+        let bi = 0, bl = -1; for (let i = 0; i < n; i++) { const l = dst2(L[i], L[(i + 1) % n]); if (l > bl) { bl = l; bi = i; } }
+        const a = L[bi], b = L[(bi + 1) % n];
+        L = path.pts = [lerp2(a, b, 0.5), ...L.slice(bi + 1), ...L.slice(0, bi + 1)]; n = L.length;
+      } else if (path.closed && outsideLoop && !c.sp && !c.start && pen(leadAt(0)) > 0) {      // no start picked: enter where the stock is thinnest (the side of a block, not its corner)
         let bi = 0, bp = pen(leadAt(0));
         for (let k = 1, N = Math.min(n, 96); k < N; k++) { const i = Math.floor(k * n / N), v = pen(leadAt(i)); if (v < bp - 0.01) { bp = v; bi = i; } }
         if (bi) L = path.pts = [...L.slice(bi), ...L.slice(0, bi)];
       }
-      const t0 = nrm2(sub2(L[1], L[0])), nside = nrmAt(t0);
+      // Compensation in the control programs the part contour. Anchor the start on the wall: the point of the contour nearest the
+      // tool-center start, and start the tool-center loop a radius out from it, square to the contour there.
+      let nomRing = null, tnom = null;
+      if (wantCC && ccm === 'control') {
+        const hint = nrm2(sub2(L[1], L[0]));
+        if (path.closed) {
+          let best = null;
+          for (const ring of path.nom || []) { const rs = ccRing(ring, L[0], hint); if (rs && (!best || rs.off < best.off)) best = rs; }
+          if (best && Math.abs(best.off - r) < 0.05) {
+            const w0 = best.pts[0], nx = best.pts.find(q => dst2(q, w0) > 1e-6), tn = nx ? nrm2(sub2(nx, w0)) : null, rl = tn ? ccRing(L, add2(w0, mul2(nrmAt(tn), r)), tn) : null;
+            if (rl && rl.off < 0.05) { L = path.pts = rl.pts.slice(0, -1); n = L.length; nomRing = best.pts; tnom = tn; }
+          }
+        } else if (path.nomOpen && path.nomOpen.length > 1) {
+          const q0 = path.nomOpen[0], tn = nrm2(sub2(path.nomOpen[1], q0));
+          if (dst2(add2(q0, mul2(nrmAt(tn), r)), L[0]) < 0.05) { nomRing = path.nomOpen; tnom = tn; }
+        }
+        if (!nomRing) { wantCC = false; if (!P.ccWarned2) { P.ccWarned2 = true; P.warn.push('The contour for compensation in the control could not be matched to the tool path here, so it is compensated in the computer.'); } }
+      }
+      const t0 = tnom || nrm2(sub2(L[1], L[0])), nside = nrmAt(t0);
       const arcIn = k => { const C = add2(L[0], mul2(nside, rh)), phi = Math.PI / 2 * k / 8; return sub2(C, mul2(add2(mul2(t0, Math.cos(phi)), mul2(nside, Math.sin(phi))), rh)); };
       const eEnd = path.closed ? L[0] : L[n - 1], tE = path.closed ? t0 : nrm2(sub2(L[n - 1], L[n - 2])), nE = path.closed ? nside : P2(-tE.y * (toolSide === 'left' ? 1 : -1), tE.x * (toolSide === 'left' ? 1 : -1));
       const arcOut = k => { const C = add2(eEnd, mul2(nE, rh)), phi = Math.PI / 2 * k / 8; return sub2(C, mul2(add2(mul2(tE, Math.cos(phi)), mul2(nE, Math.sin(phi))), rh)); };
-      if (useArc && path.closed && !outsideLoop && side !== 'on') {       // inside a narrow opening a full-size lead arc swings through the far wall: shrink it to fit, or go straight in
+      if (useArc && !wantCC && path.closed && !outsideLoop && side !== 'on') {       // inside a narrow opening a full-size lead arc swings through the far wall: shrink it to fit, or go straight in
         const loop = cP(L), fits = () => [0, 2, 4, 6, 8].every(k => ClipperLib.Clipper.PointInPolygon(cP([arcIn(k)])[0], loop) !== 0 && ClipperLib.Clipper.PointInPolygon(cP([arcOut(8 + k)])[0], loop) !== 0);
         while (rh > 0.3 && !fits()) rh *= 0.7;
         if (!fits()) useArc = false;
       }
-      const S = useArc ? arcIn(0) : L[0], ext = outsideLoop && path.closed ? pen(S) : 0;
-      const Sx = ext > 0 ? add2(S, mul2(nside, ext + 0.5)) : S;            // go down clear of the stock and feed in, rather than plunge into it
+      let S = useArc ? arcIn(0) : L[0]; const ext = outsideLoop && path.closed ? pen(S) : 0;
+      let Sx = ext > 0 ? add2(S, mul2(nside, ext + 0.5)) : S;            // go down clear of the stock and feed in, rather than plunge into it
+      let Ee = null;                                                        // the straight run-off that cancels the compensation
+      if (wantCC && !useArc) { wantCC = false; if (!P.ccWarned2) { P.ccWarned2 = true; P.warn.push('A lead arc does not fit here (the start point is at a corner or the opening is narrow), so this path is compensated in the computer. Move the start point along an edge to use compensation in the control.'); } }
+      if (wantCC) {
+        // start-up and cancel are straight moves tangent to the lead arcs, at least a tool radius long, and the whole lead must
+        // clear the part (walls, bosses) and stay inside the opening it is cutting. Try the full size first, then smaller.
+        const loop = path.closed && !outsideLoop ? cP(L) : null, inLoop = q => !loop || ClipperLib.Clipper.PointInPolygon(cP([q])[0], loop) !== 0;
+        const big = st.x1 - st.x0 + st.y1 - st.y0 + 100, rectA = [cP([P2(st.x0 - big, st.y0 - big), P2(st.x1 + big, st.y0 - big), P2(st.x1 + big, st.y1 + big), P2(st.x0 - big, st.y1 + big)])];
+        const free = cDiff(rectA, cOffset(silhouetteAbove(bottom + 0.05, true), r - 0.02)), seg = (a, b) => inPaths(a, free) && inPaths(b, free) && !segHitsPaths(a, b, free);     // where the tool center may go: not within a radius of the part
+        let done = false;
+        search: for (const rf of [1, 0.7, 0.5, 0.35]) for (const f of [1, 0.75, 0.5, 0.35]) {
+          rh = rho * rf;
+          const lenA = Math.max((r + 1) * f, ext + 0.5), A = add2(arcIn(0), mul2(nside, lenA)), E = add2(arcOut(16), mul2(nE, (r + 1) * f));
+          if (!inLoop(A) || !inLoop(E)) continue;
+          let good = seg(A, arcIn(0)), prev = arcIn(0);
+          for (let k = 1; k <= 8 && good; k++) { const q = arcIn(k); good = seg(prev, q); prev = q; }
+          prev = arcOut(8);
+          for (let k = 9; k <= 16 && good; k++) { const q = arcOut(k); good = seg(prev, q); prev = q; }
+          if (good && seg(prev, E)) { Sx = A; Ee = E; done = true; break search; }
+        }
+        if (done) S = arcIn(0);
+        else { rh = rho; wantCC = false; Sx = ext > 0 ? add2(S, mul2(nside, ext + 0.5)) : S; if (!P.ccWarned2) { P.ccWarned2 = true; P.warn.push('There is no room for the start-up and cancel moves of compensation in the control here (a wall or boss is in the way), so this path is compensated in the computer. Move the start point.'); } }
+      }
+      let nomList = null;                                                   // what the control is told: a lead arc one radius wider, the contour, the lead-out arc
+      if (wantCC && nomRing) {
+        const R = rh + r, W0 = nomRing[0], We = nomRing[nomRing.length - 1], ccw = toolSide === 'left';
+        const Cin = add2(W0, mul2(nside, R)), Cout = add2(We, mul2(nE, R));
+        const nIn = k => { const phi = Math.PI / 2 * k / 8; return sub2(Cin, mul2(add2(mul2(t0, Math.cos(phi)), mul2(nside, Math.sin(phi))), R)); };
+        const nOut = k => { const phi = Math.PI / 2 * k / 8; return sub2(Cout, mul2(add2(mul2(tE, Math.cos(phi)), mul2(nE, Math.sin(phi))), R)); };
+        const a0 = nIn(0), a1 = nOut(16);
+        nomList = [{ x: a0.x, y: a0.y }, { x: W0.x, y: W0.y, arc: { cx: Cin.x, cy: Cin.y, ccw } }];
+        for (let k = 1; k < nomRing.length; k++) nomList.push({ x: nomRing[k].x, y: nomRing[k].y });
+        nomList.push({ x: a1.x, y: a1.y, arc: { cx: Cout.x, cy: Cout.y, ccw } });
+      }
       zs.forEach((z, li) => {
         const zAbove = Math.min(ret, (li ? zs[li - 1] : st.z1) + 1);
         if (op.ramp && path.closed && !(z < tabZ - 1e-6)) {            // ramp contour: one spiral down the loop, no plunge and lead at every level
@@ -17281,14 +17408,15 @@ function chainContour(op, tool, st, part, P, chains) {
           return;
         }
         if (!started) { P.rapid(Sx.x, Sx.y, safe); started = true; } else P.rapid(P.cur[0], P.cur[1], ret);
-        P.rapid(Sx.x, Sx.y, ret); P.rapid(Sx.x, Sx.y, zAbove); P.plunge(Sx.x, Sx.y, z); if (Sx !== S) P.feed(S.x, S.y, z);
+        P.rapid(Sx.x, Sx.y, ret); P.rapid(Sx.x, Sx.y, zAbove); P.plunge(Sx.x, Sx.y, z); const i0 = P.m.length; if (Sx !== S) P.feed(S.x, S.y, z);
         if (useArc) for (let k = 1; k <= 8; k++) { const q = arcIn(k); P.feed(q.x, q.y, z); } else P.feed(L[0].x, L[0].y, z);
         if (z < tabZ - 1e-6) chainTabbed(P, path.closed ? [...L, L[0]] : L, z, tabZ, op.tabs, Math.max(0.5, op.tabW || 4), path.closed, tool);
         else { for (let i = 1; i < n; i++) P.feed(L[i].x, L[i].y, z); if (path.closed) P.feed(L[0].x, L[0].y, z); }
         if (useArc) for (let k = 9; k <= 16; k++) { const q = arcOut(k); P.feed(q.x, q.y, z); }
+        if (wantCC) { P.feed(Ee.x, Ee.y, z); if (ccMark(P, i0, toolSide, ccm, op.compD || tool.n, nomList)) P.ccUsed = true; }
       });
     }
-    notes.push(`${c.closed ? 'closed' : 'open'} chain, tool ${side === 'on' ? 'on the line' : side === 'left' ? 'left' : 'right'} of travel, ${fmtLs(st.z1 - bottom)} below the stock top${tabZ > -Infinity ? `, ${op.tabs} tab${op.tabs > 1 ? 's' : ''}` : ''}`);
+    notes.push(`${c.closed ? 'closed' : 'open'} chain, tool ${side === 'on' ? 'on the line' : side === 'left' ? 'left' : 'right'} of travel, ${fmtLs(st.z1 - bottom)} below the stock top${tabZ > -Infinity ? `, ${op.tabs} tab${op.tabs > 1 ? 's' : ''}` : ''}${P.ccUsed ? `, cutter compensation in the ${op.comp === 'control' ? 'control (G41/G42): set the radius of offset D' + (op.compD || tool.n) : 'wear register D' + (op.compD || tool.n)}` : ''}`);
   }
   if (P.cur) P.rapid(P.cur[0], P.cur[1], safe);
   if (notes.length) P.info = notes.length === 1 ? notes[0] : `${notes.length} chains`;
@@ -17526,11 +17654,19 @@ function chainDeburr(op, tool, st, part, P, chains) {
   chainContour({ ...op, leave: s - tool.d / 2, depthMode: 'chain', _delta: -(v + clr), _single: true, tabs: 0, lead: op.lead || 'arc' }, tool, st, part, P, chains);
   P.info = `${fmtLs(w)} × ${fmtLs(v)} break (${tool.cone || 90}° cone), tool tip ${fmtLs(v + clr)} below the edge`;
 }
+// Cutter compensation: where the tool radius is taken into account (Fusion's Compensation type, Mastercam's Compensation)
+function compFields(op) {
+  const cur = op.comp === 'control' || op.comp === 'wear' || op.comp === 'rwear' ? op.comp : 'computer', t = toolOf(op.tool);
+  const items = [['computer', 'Computer', 'The program is the tool center path, already offset by the tool radius. Nothing to set at the machine.'], ['control', 'Control', 'The program is the part contour with G41 / G42: the control offsets it by the radius in the tool\'s register, so a worn tool is fixed at the machine.'], ['wear', 'Wear', 'Tool center path with G41 / G42 on, so the register holds only the wear: a small number that grows or shrinks the cut.'], ['rwear', 'Reverse wear', 'As Wear on the other side (G41 and G42 swapped), for climb or conventional the other way round.']];
+  return `<div class="field"><span>Compensation</span><div class="seg">${items.map(([v, l, tip]) => `<button data-opset="comp:${v}" class="${cur === v ? 'on' : ''}" data-tip="${tip}">${l}</button>`).join('')}</div></div>
+    ${cur !== 'computer' ? `<div class="row3">${num('opCompD', op.compD || t.n, 'Offset register (D)', 1, 'min="1" max="99"')}</div>
+    <p class="note">${cur === 'control' ? `Set D${op.compD || t.n} in the control to the tool radius (${fmtLs(t.d / 2)}). It needs a lead in and out; ramping and tabs stay computer-compensated.` : 'Keep the register at the wear value only (0 to start).'}</p>` : ''}`;
+}
 // Fields for the new chain modes and tabs
 function chainxFields(op, cm) {
   const seg = (k, items, cur) => `<div class="seg">${items.map(([v, l, t]) => `<button data-opset="${k}:${v}" class="${cur === v ? 'on' : ''}" ${t ? `data-tip="${t}"` : ''}>${l}</button>`).join('')}</div>`;
   const t = toolOf(op.tool), wide = (op.slotW || 0) > t.d + 0.01;
-  if (cm === 'contour') return `<h3 class="sub">Holding tabs</h3><div class="row3">${num('opTabs', op.tabs || 0, 'Tabs (0 = off)', 1, 'min="0" max="12"')}${num('opTabW', op.tabW || 4, 'Width', 0.5)}${num('opTabH', op.tabH || 1.5, 'Height', 0.25)}</div>
+  if (cm === 'contour') return `${compFields(op)}<h3 class="sub">Holding tabs</h3><div class="row3">${num('opTabs', op.tabs || 0, 'Tabs (0 = off)', 1, 'min="0" max="12"')}${num('opTabW', op.tabW || 4, 'Width', 0.5)}${num('opTabH', op.tabH || 1.5, 'Height', 0.25)}</div>
     <p class="note">${op.tabs > 0 ? 'The last passes lift over each tab so the part stays held in the stock. Snap them off and file the stubs.' : 'Tabs leave small bridges at the bottom of a through cut so the part cannot move when it is free.'}</p>`;
   if (cm === 'slot') return `<div class="row3">${num('opSlotW', op.slotW || t.d, 'Slot width', 0.5)}${num('opSd', op.stepdown || 2, 'Stepdown', 0.1)}${num('opDepth', op.depth > 0 ? op.depth : Math.min(3, Math.max(1, t.d * 0.5)), 'Depth below chain', 0.1)}</div>
     <div class="row2">${num('opRamp', op.rampAngle || 3, 'Ramp angle °', 1)}${wide ? num('opTroch', op.trochStep || 0.2, 'Advance per loop ×Ø', 0.05) : ''}</div>
@@ -17547,6 +17683,7 @@ function camxBind(op, setN) {
   if (typeof mcBind === 'function') mcBind(op, setN);
   const set = (k, lo) => v => camEdit(op, k, Math.max(lo, v));
   setN('opTabs', v => camEdit(op, 'tabs', clamp(Math.round(v), 0, 12))); setN('opTabW', set('tabW', 0.5)); setN('opTabH', set('tabH', 0.2));
+  setN('opCompD', v => camEdit(op, 'compD', clamp(Math.round(v), 1, 99)));
   setN('opSlotW', set('slotW', 0.1)); setN('opRamp', v => camEdit(op, 'rampAngle', clamp(v, 0.5, 30))); setN('opTroch', set('trochStep', 0.02));
   setN('opPitch', set('pitch', 0.05)); setN('opChSize', set('chSize', 0.02)); setN('opTipBelow', set('tipBelow', 0));
 }

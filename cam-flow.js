@@ -378,11 +378,13 @@
   const DEPTH = new Set(['opSd', 'opMcAp', 'opDepth', 'opThrough', 'opWlBot', 'opPeck', 'opPkI', 'opPkJ', 'opPkK', 'opRpl', 'opS22', 'opS52', 'opDwell', 'opTapJ', 'opBsD', 'opBsC']);
   const LEAD = new Set(['opTabs', 'opTabW', 'opTabH']);
   const LINK = new Set(['opMcRamp', 'opRamp', 'opMcRamping']);
+  const FEEDS = new Set(['opCool']);
   function bucketOf(el) {
     const ids = [...el.querySelectorAll('[id]')].map(x => x.id), sets = [...el.querySelectorAll('[data-opset]')].map(x => x.dataset.opset.split(':')[0]);
     if (el.id && !ids.includes(el.id)) ids.push(el.id);
     if (el.querySelector('#opTool')) return 'tool';
     if (el.querySelector('[data-chmode],[data-chdo],[data-dia],[data-chrow],[data-opbool],.pick,.drill-table,table') || sets.includes('cm')) return 'geo';
+    if (ids.some(i => FEEDS.has(i))) return 'feeds';
     if (ids.some(i => DEPTH.has(i)) || sets.includes('depthMode')) return 'depth';
     if (sets.includes('lead') || ids.some(i => LEAD.has(i))) return 'lead';
     if (sets.includes('entry') || ids.some(i => LINK.has(i))) return 'link';
