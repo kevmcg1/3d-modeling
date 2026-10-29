@@ -6,7 +6,7 @@ let pass = 0, fail = 0;
 const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + name); } catch (e) { fail++; console.log('FAIL - ' + name + ' :: ' + String(e.message).slice(0, 300)); } };
 (async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox'] });
-  const page = await browser.newPage({ viewport: { width: 1400, height: 850 } }); await page.addInitScript(() => { window.DATUM_PREMIUM = true; window.DATUM_AUTO = true; });   // the CAM Premium lock is off while testing the features it blocks
+  const page = await browser.newPage({ viewport: { width: 1400, height: 850 } }); await page.addInitScript(() => { window.DATUM_PREMIUM = true; window.DATUM_AUTO = true; window.DATUM_NOFX = true; });   // the CAM Premium lock is off while testing the features it blocks
   const errs = []; page.on('pageerror', e => errs.push(e.message));
   await page.goto('file://' + path.resolve(__dirname, '..', 'house.html')); await page.waitForTimeout(500);
   const pos = (x, y) => page.evaluate(([x, y]) => { const p = HOUSE.toS([x, y]), r = document.querySelector('#pc').getBoundingClientRect(); return [p[0] + r.left, p[1] + r.top]; }, [x, y]);

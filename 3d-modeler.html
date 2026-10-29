@@ -10587,6 +10587,7 @@ function frame(now) {
   stepMotion(now);
   simTick(now);
   if (typeof buildTick === 'function') buildTick(now);
+  if (typeof FEATFX === 'object') FEATFX.tick(now);
   if (typeof motionTick === 'function') motionTick(now);
   if (typeof camPoseTick === 'function') camPoseTick(now);
   if (typeof SECTION === 'object') SECTION.tick();
@@ -38460,6 +38461,7 @@ function gsPick(i) {
 <script src="input-settings.js"></script>
 <script src="cam-premium.js"></script>
 <script src="section.js"></script>
+<script src="fx-anim.js"></script>
 <!-- Import and export previews (Shaded, Wireframe, Solid) and the closed-mesh check -->
 <script src="io-preview.js"></script>
 <!-- Early-access release: hides tabs and export formats, shows the notice (release-config.js lists what is hidden) -->

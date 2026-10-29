@@ -13,7 +13,7 @@ const close = (a, b, tol, what) => assert(Math.abs(a - b) <= tol, `${what}: ${a}
   const errs = []; page.on('pageerror', e => errs.push(e.message));
   await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
   await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' })); await page.route(/gate\.js/, r => r.abort());
-  await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await page.waitForTimeout(1500);
+  await page.addInitScript(() => { window.DATUM_NOFX = true; }); await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await page.waitForTimeout(1500);
   const run = feats => page.evaluate(F => {
     loadDoc({ features: F, next: 200 }, 'x');
     const c = evaluate(0.05), vol = b => { let v = 0; for (const p of b.polys) for (let i = 1; i + 1 < p.v.length; i++) v += dot3(p.v[0], crs3(p.v[i], p.v[i + 1])) / 6; return v; };
@@ -81,7 +81,7 @@ const close = (a, b, tol, what) => assert(Math.abs(a - b) <= tol, `${what}: ${a}
     await ctx.route(/cdnjs.*three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
     await p2.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
     await p2.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' })); await p2.route(/gate\.js/, r => r.abort());
-    await p2.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await p2.waitForTimeout(2500);
+    await p2.addInitScript(() => { window.DATUM_NOFX = true; }); await p2.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await p2.waitForTimeout(2500);
     const r = await p2.evaluate(async F => {
       if (!Kernel.worker) return { worker: false };
       loadDoc({ features: F, next: 200 }, 'x');

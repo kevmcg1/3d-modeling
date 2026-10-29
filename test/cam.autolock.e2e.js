@@ -11,7 +11,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
   const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox', '--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'] });
   const open = async auto => {
     const page = await browser.newPage({ viewport: { width: 1400, height: 850 } });
-    await page.addInitScript(a => { window.DATUM_PREMIUM = true; if (a) window.DATUM_AUTO = true; }, auto);
+    await page.addInitScript(a => { window.DATUM_PREMIUM = true; if (a) window.DATUM_AUTO = true; window.DATUM_NOFX = true; }, auto);
     page.errs = []; page.on('pageerror', e => page.errs.push(e.message));
     await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
     await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' })); await page.route(/gate\.js/, r => r.abort());

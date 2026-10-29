@@ -14,7 +14,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
   await page.addInitScript(() => { try { localStorage.setItem('datum.units', 'mm'); } catch (e) { /* no storage */ } });
   await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
   await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' })); await page.route(/gate\.js/, r => r.abort());
-  await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await page.waitForTimeout(1500);
+  await page.addInitScript(() => { window.DATUM_NOFX = true; }); await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await page.waitForTimeout(1500);
   const box = { id: 10, type: 'primitive', name: 'Box', shape: 'box', base: 'XY', cx: 0, cy: 0, off: 0, op: 'new', w: 10, d: 10, h: 10, dia: 10, dia2: 0, tube: 6, center: true, sit: true };
   // a held key = one keydown per auto-repeat, then a single keyup
   const hold = async (key, n, mods = []) => { for (const m of mods) await page.keyboard.down(m); for (let i = 0; i < n; i++) await page.keyboard.down(key); await page.keyboard.up(key); for (const m of mods) await page.keyboard.up(m); await page.waitForTimeout(80); };

@@ -14,7 +14,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
   await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
   await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' })); await page.route(/gate\.js/, r => r.abort());
   const url = 'file://' + path.resolve(__dirname, '..', '3d-modeler.html') + '?dev=1';
-  const load = async () => { await page.goto(url); await page.waitForTimeout(1200); };
+  const load = async () => { await page.addInitScript(() => { window.DATUM_NOFX = true; }); await page.goto(url); await page.waitForTimeout(1200); };
   await load();
   const exportText = async () => {
     const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnExportLog')]);

@@ -35,7 +35,7 @@ const log = m => console.log(m);
     if (u.startsWith('http://localhost:' + port)) return route.continue();
     return route.abort();
   });
-  await page.goto(`http://localhost:${port}/`);
+  await page.addInitScript(() => { window.DATUM_NOFX = true; }); await page.goto(`http://localhost:${port}/`);
   await page.waitForFunction(() => typeof SAMPLES !== 'undefined' && window.PRINT, null, { timeout: 60000 });
   await page.evaluate(() => { const s = SAMPLES.find(x => x.name === 'Flanged boss'); loadDoc(s.make(), s.name); });
   await page.waitForTimeout(800);

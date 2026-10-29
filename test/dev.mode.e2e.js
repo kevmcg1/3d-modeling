@@ -15,7 +15,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
     await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
     await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' })); await page.route(/gate\.js/, r => r.abort());
     await page.route(/fonts\.g/, r => r.abort());
-    await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html') + (query || '')); await page.waitForTimeout(3500);
+    await page.addInitScript(() => { window.DATUM_NOFX = true; }); await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html') + (query || '')); await page.waitForTimeout(3500);
     return page;
   };
   const traces = p => p.evaluate(() => ({ el: document.querySelectorAll('.dev, [aria-label="Dev mode"]').length, text: /Dev mode/i.test(document.body.innerText), css: [...document.querySelectorAll('style')].some(s => /\.dev\b/.test(s.textContent)) }));

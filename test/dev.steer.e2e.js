@@ -14,7 +14,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
     const page = await browser.newPage({ viewport: { width: 1500, height: 900 } });
     page.errs = []; page.on('pageerror', e => { if (!/injected fault/.test(e.message)) page.errs.push(e.message); }); page.on('dialog', d => d.dismiss());
     await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' })); await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' })); await page.route(/gate\.js/, r => r.abort()); await page.route(/fonts\.g/, r => r.abort());
-    await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html') + query); await page.waitForTimeout(3500);
+    await page.addInitScript(() => { window.DATUM_NOFX = true; }); await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html') + query); await page.waitForTimeout(3500);
     await page.locator('body').click({ position: { x: 700, y: 400 } }); await page.keyboard.press('`'); await page.waitForTimeout(500);
     return page;
   };

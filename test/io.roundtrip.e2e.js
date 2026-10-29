@@ -24,7 +24,7 @@ const near = (a, b, rel, what) => assert(Math.abs(a - b) <= rel * Math.max(1, Ma
     page.on('pageerror', e => errs.push(e.message)); page.on('dialog', d => d.dismiss());
     await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' })); await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' })); await page.route(/gate\.js/, r => r.abort()); await page.route(/fonts\.g/, r => r.abort());
     await page.route(/cdn\.jsdelivr\.net\/npm\/occt-import-js@0\.0\.23\/dist\//, (r, req) => { const f = req.url().split('/dist/')[1]; r.fulfill({ path: libs.occt(f), contentType: f.endsWith('.wasm') ? 'application/wasm' : 'text/javascript', headers: { 'access-control-allow-origin': '*' } }); });
-    await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await page.waitForTimeout(2500);
+    await page.addInitScript(() => { window.DATUM_NOFX = true; }); await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await page.waitForTimeout(2500);
     await page.evaluate(() => { loadDoc(SAMPLES.find(s => s.name === 'Pocketed plate').make(), 't'); }); await page.waitForTimeout(1000);
     return page;
   };

@@ -10,7 +10,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
   const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox', '--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'] });
   const mk = async () => {
     const ctx = await browser.newContext({ viewport: { width: 1400, height: 850 }, colorScheme: 'light' });      // a light OS must not turn the app light on its own
-    const page = await ctx.newPage(); await page.addInitScript(() => { window.DATUM_PREMIUM = true; window.DATUM_AUTO = true; });
+    const page = await ctx.newPage(); await page.addInitScript(() => { window.DATUM_PREMIUM = true; window.DATUM_AUTO = true; window.DATUM_NOFX = true; });
     page.errs = []; page.on('pageerror', e => page.errs.push(e.message));
     await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
     await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' })); await page.route(/gate\.js/, r => r.abort());
