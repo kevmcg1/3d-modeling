@@ -14134,6 +14134,14 @@ const MATERIALS = {
   aluminum: { name: 'Aluminum 6061-T6', short: 'Aluminum', vc: { mill: 300, face: 450, drill: 100, tap: 15 }, fz: 1.0, raw: 0xaeb4bb, cut: 0xdfe3e8 },
   stainless: { name: 'Stainless 304', short: 'Stainless', vc: { mill: 90, face: 150, drill: 30, tap: 5 }, fz: 0.55, raw: 0x8f969e, cut: 0xc6cbd1 },
   brass: { name: 'Brass 360', short: 'Brass', vc: { mill: 220, face: 320, drill: 80, tap: 12 }, fz: 1.1, raw: 0xa88a4c, cut: 0xe2c27a },
+  // Surface speeds vc (m/min) for coated carbide, chip-load factors fz against aluminum (1.0): starting points from tool-maker charts, to be tuned at the machine
+  copper: { name: 'Copper C110', short: 'Copper', vc: { mill: 180, face: 250, drill: 60, tap: 10 }, fz: 0.8, raw: 0xa86a4a, cut: 0xe3a07a },
+  mildsteel: { name: 'Mild steel 1018', short: 'Mild steel', vc: { mill: 120, face: 180, drill: 40, tap: 10 }, fz: 0.7, raw: 0x7e858c, cut: 0xb9bfc6 },
+  alloysteel: { name: 'Alloy steel 4140, pre-hard', short: 'Alloy steel', vc: { mill: 90, face: 140, drill: 30, tap: 8 }, fz: 0.6, raw: 0x727880, cut: 0xaab0b7 },
+  castiron: { name: 'Gray cast iron', short: 'Cast iron', vc: { mill: 110, face: 180, drill: 40, tap: 10 }, fz: 0.8, raw: 0x5f6368, cut: 0x93979c },
+  titanium: { name: 'Titanium Ti-6Al-4V', short: 'Titanium', vc: { mill: 45, face: 60, drill: 15, tap: 3 }, fz: 0.4, raw: 0x8a8d93, cut: 0xbfc2c8 },
+  inconel: { name: 'Inconel 718', short: 'Inconel', vc: { mill: 25, face: 35, drill: 8, tap: 2 }, fz: 0.3, raw: 0x6f747b, cut: 0xa4a9b0 },
+  acetal: { name: 'Acetal (Delrin)', short: 'Acetal', vc: { mill: 400, face: 600, drill: 100, tap: 25 }, fz: 1.5, raw: 0xe8e6df, cut: 0xf6f4ee },
 };
 const matOf = () => MATERIALS[(typeof doc !== 'undefined' && doc && doc.cam && doc.cam.material) || 'aluminum'] || MATERIALS.aluminum;
 // Feeds & speeds for a tool in the current material.
@@ -18097,7 +18105,7 @@ function camPanel() {
     return `<div class="pn-head"><h2>Setup</h2><span class="tag">stock · WCS</span></div><div class="pn-body">
       <div class="field"><span>Stock</span><div class="row3">${num('stSide', C.stock.side, 'Sides', 0.5, 'min="0"')}${num('stTop', C.stock.top, 'Top', 0.5, 'min="0"')}${num('stBot', C.stock.bottom, 'Bottom', 0.5, 'min="0"')}</div></div>
       <dl class="kv"><dt>Stock size</dt><dd>${[st.x1 - st.x0, st.y1 - st.y0, st.z1 - st.z0].map(x => fmtLs(x)).join(' × ')}</dd></dl>
-      <div class="field"><span>Material</span><div class="seg">${Object.entries(MATERIALS).map(([k, m]) => `<button data-mat="${k}" class="${(C.material || 'aluminum') === k ? 'on' : ''}">${m.short}</button>`).join('')}</div></div>
+      <div class="field"><span>Material</span><div class="seg" style="flex-wrap:wrap">${Object.entries(MATERIALS).map(([k, m]) => `<button data-mat="${k}" class="${(C.material || 'aluminum') === k ? 'on' : ''}">${m.short}</button>`).join('')}</div></div>
       <p class="note">${matOf().name}. Changing it re-derives the speeds and feeds of every tool.</p>
       <div class="field"><span>Work origin (G54)</span><select id="camOrigin">${opts}</select></div>
       <dl class="kv"><dt>Origin in model (X, Y, Z)</dt><dd>${o.map(x => fmtLs(x)).join(', ')}</dd></dl>
@@ -33891,7 +33899,7 @@ function chipRecipe(matKey, c) {
   if (br) return r < 0.6 ? ['flake', 1, 1] : r < 0.85 ? ['dust', 0.7, 1] : ['comma', 0.8, 1];
   return ['comma', 1, 1];
 }
-const CHIP_MAT_OF = { aluminum: 'al', stainless: 'ss', brass: 'brass' };
+const CHIP_MAT_OF = { aluminum: 'al', stainless: 'ss', brass: 'brass', copper: 'mild', mildsteel: 'mild', alloysteel: 'mild', toolsteel: 'mild', castiron: 'ci', titanium: 'ti', inconel: 'ss', acetal: 'plastic' };
 
 // ── Chips: orthogonal cutting (Merchant) with the chips built as they leave the tool, and the bar cut away ──
 const CHIP_MATS = {
@@ -36722,7 +36730,7 @@ function gsPanel() {
     const sz = st ? [st.x1 - st.x0, st.y1 - st.y0, st.z1 - st.z0].map(x => fmtLs(x)).join(' × ') : '';
     const f = (id, lab, v) => `<label>${lab}<input type="number" id="${id}" step="${isIn() ? 0.01 : 0.5}" min="0" value="${+toU(v).toFixed(4)}"></label>`;
     body = `<h3 class="gs-h3">2 · Decide the stock</h3><p class="gs-lead">The material the part is cut from: its type, and how much extra there is around the part. You can also drag the arrows on the stock in the view.</p>
-      <div class="field"><span>Material</span><div class="seg">${Object.entries(MATERIALS).map(([k, m]) => `<button data-gs="mat:${k}" class="${(C.material || 'aluminum') === k ? 'on' : ''}">${m.short}</button>`).join('')}</div></div>
+      <div class="field"><span>Material</span><div class="seg" style="flex-wrap:wrap">${Object.entries(MATERIALS).map(([k, m]) => `<button data-gs="mat:${k}" class="${(C.material || 'aluminum') === k ? 'on' : ''}">${m.short}</button>`).join('')}</div></div>
       <div class="field"><span>Extra stock (${uName()})</span><div class="gs-fields">${f('gsSide', 'Sides', C.stock.side)}${f('gsTop', 'Top', C.stock.top)}${f('gsBot', 'Bottom', C.stock.bottom)}</div></div>
       <div class="gs-row"><button class="btn" data-gs="fit">Fit the part exactly</button><button class="btn" data-gs="round">Round up to bar size</button></div>
       <div class="gs-stat ok">Stock ${sz} · ${matOf().name}</div>`;
