@@ -36,6 +36,8 @@ What the Manufacture tab does compared with Fusion's Manufacture workspace and M
 | Stock to leave | Radial and axial | Wall and floor | Done |
 | Ramp, tabs | Done | Done | Done (computer compensation only, with a warning that says so) |
 
+Compensation in the control, rough passes and the lead radius are on the chain-based Contour (Manufacture > Chain, mode Contour). The older face-based 2D Contour (a picked face's outline, with its own roughing passes and corner leads) is still compensated in the computer only.
+
 How compensation in the control works: the simulation keeps the tool-center path, so Verify, collision checks and the stock model are unchanged. The post replaces the stretch with the programmed contour (the chain itself, or the chain plus the stock left; the corners are exact because it is built from the model's edges, not by inverting an offset). The lead arc is one tool radius wider in the programmed path, and the start-up and cancel moves are straight lines tangent to it, at least a tool radius long. Every lead is checked against walls and bosses; if none fits, the path falls back to computer compensation with a warning. A control without compensation (Grbl) gets the tool-center path and a note.
 
 ## Post processing
