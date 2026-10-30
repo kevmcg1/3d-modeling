@@ -32,6 +32,8 @@ Legend: PASS = checked and correct · FIXED = a bug was found, fixed and has an 
 | `test/view.section.e2e.js` | Section view on the rendered pixels: plane position and side, cut and hatch, outline, sweep in and out, pick, units, Manufacture, light theme |
 | `test/design.fx.e2e.js` | Feature animation: grows, turns, dissolves, copies cleaned up, final model identical |
 | `test/ui.icons.e2e.js` | CSS tooltips (no HTML element), placement and clipping, long hover, per-icon motion, reduced motion, light theme |
+| `test/ui.outlines.e2e.js` | Every button (ordinary, primary, selected, toggles, ribbon, panels, the four embedded apps) is an outline in both themes; hover, focus and disabled; swatches keep their fill |
+| `test/dev.features.e2e.js` | The dev tool's twelve feature checks, each must pass: section view, feature animation, icons, outlines, defaults, cutter compensation, post options, materials, the Auto lock, contour passes, the UX audit, and visual intelligence on the 3D view |
 | `test/ui.defaults.e2e.js` | Dark by default with a working light theme, inches with metric in parentheses, American spellings |
 
 Test harness notes: the e2e tests block `gate.js` (the lock overlay) and set `DATUM_NOFX`; run them with `NODE_PATH` holding playwright, three@0.128 and clipper-lib. `test/lib/gcode-check.js` reads Fanuc's `T05 M06`.
