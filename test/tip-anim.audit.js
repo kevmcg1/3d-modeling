@@ -20,8 +20,9 @@ async function openPage(browser, file) {
   const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
   const errs = []; page.on('pageerror', e => errs.push(e.message));
   if (libs) { await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' })); await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' })); }
-  await page.route(/fonts\.g/, r => r.abort());
-  await page.goto('file://' + path.join(ROOT, file)); await page.waitForTimeout(1500);
+  await page.route(/fonts\.g/, r => r.abort()); await page.route(/gate\.js/, r => r.abort());
+  await page.addInitScript(() => { window.DATUM_PREMIUM = true; window.DATUM_AUTO = true; window.DATUM_NOFX = true; });
+  await page.goto('file://' + path.join(ROOT, file) + '?dev=1'); await page.waitForTimeout(1500);
   page.__errs = errs; return page;
 }
 // small fingerprint of the picture now on the card's canvas
@@ -49,7 +50,7 @@ async function sweep(browser, opt = {}) {
           let ok = true; try { await loc.scrollIntoViewIfNeeded({ timeout: 800 }); await page.mouse.move(2, 2); await loc.hover({ timeout: 800, force: true }); } catch (e) { ok = false; }
           if (!ok) continue;
           const n0 = await page.evaluate(() => window.__calls.length);
-          await page.waitForTimeout(680);
+          await page.waitForTimeout(1750);                    // the rich card opens after a ~1.4 s hold; the CSS label is shown before it
           const info = await page.evaluate(n0 => ({ calls: window.__calls.slice(n0), title: ((document.querySelector('#tipcard .tip-head b, #tip .tip-head b') || {}).textContent || '').trim(), svgInPic: !!document.querySelector('#tipcard .tip-pics, #tip .tip-pics, #tipcard .tip-anim svg, #tip .tip-anim svg, #tipcard .tip-anim img, #tip .tip-anim img') }), n0);
           if (!info.calls.length) { await page.mouse.move(2, 2); continue; }
           const [key, has] = info.calls[info.calls.length - 1];
@@ -57,8 +58,8 @@ async function sweep(browser, opt = {}) {
           if (seenKeys.has(key)) { await page.mouse.move(2, 2); continue; }
           seenKeys.add(key);
           let frames = [];
-          if (has) { for (let f = 0; f < 3; f++) { frames.push(await page.evaluate(grab)); await page.waitForTimeout(330); } }
-          const moved = frames.length > 1 && frames.every(Boolean) ? Math.max(frac(frames[0], frames[1]), frac(frames[1], frames[2]), frac(frames[0], frames[2])) : 0;
+          if (has) { for (let f = 0; f < 8; f++) { frames.push(await page.evaluate(grab)); await page.waitForTimeout(400); } }       // a scene can hold still at its end, so look across most of the loop
+          const moved = frames.length > 1 && frames.every(Boolean) ? Math.max(...frames.slice(1).map((fr, i) => frac(frames[i], fr)), frac(frames[0], frames[frames.length - 1])) : 0;
           rows.push({ page: P.file, tab, key, title: info.title, scene: has, hover: has && frames.every(Boolean), moved, still: info.svgInPic });
           await page.mouse.move(2, 2); await page.waitForTimeout(60);
         }
