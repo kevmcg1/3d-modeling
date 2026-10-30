@@ -18,6 +18,11 @@ const OUTLINES = (() => {
 :is(${BTN}):not(${KEEP}) {
   background: transparent !important; background-image: none !important;
   transition: color .18s ease, border-color .18s ease, box-shadow .18s ease, opacity .18s ease, transform .18s ease !important; }
+/* text that was white because the button was filled is now readable on the page: the page's ink, the accent when selected or hovered */
+:is(${BTN}):not(.rb-btn):not(${KEEP}) { color: var(--ink, currentColor) !important; }
+:is(${BTN}):not(.rb-btn):is(${SELECTED}):not(${KEEP}), :is(${BTN}):not(.rb-btn):not(${KEEP}):hover:not(:disabled):not([aria-disabled="true"]) { color: var(--ol-accent) !important; }
+/* a key hint inside a button (Enter, Esc) was white on the button's fill: now an outlined tag in the text color */
+:is(${BTN}):not(.rb-btn):not(${KEEP}) .kbd { background: transparent !important; color: currentColor !important; box-shadow: inset 0 0 0 1px var(--ol-line); opacity: .85; }
 /* no border of its own: a drawn outline that takes no room */
 :is(${BTN})[data-ol]:not(${KEEP}) { box-shadow: inset 0 0 0 1px var(--ol-line) !important; }
 /* a border of its own is the outline */
@@ -28,7 +33,7 @@ const OUTLINES = (() => {
 :is(${BTN}):not([data-ol]):is(${SELECTED}):not(${KEEP}) { border-color: var(--ol-accent); box-shadow: inset 0 0 0 .5px var(--ol-accent); color: var(--ol-accent); }
 :is(${BTN}):not(${KEEP}):focus-visible { outline: 2px solid var(--ol-accent) !important; outline-offset: 1px; }
 :is(${BTN}):not(${KEEP}):disabled, :is(${BTN})[aria-disabled="true"]:not(${KEEP}) { opacity: .5; }
-:is(${BTN}).danger:not(${KEEP}), :is(${BTN})[data-danger]:not(${KEEP}) { --ol-line: color-mix(in srgb, var(--danger, #e5534b) 70%, transparent); color: var(--danger, #e5534b); }`;
+:is(${BTN}).danger:not(${KEEP}), :is(${BTN})[data-danger]:not(${KEEP}) { --ol-line: color-mix(in srgb, var(--danger, #e5534b) 70%, transparent); color: var(--danger, #e5534b) !important; }`;
   const tag = b => {
     if (!b.matches || !b.matches(BTN) || b.matches(KEEP)) return;
     const cs = (b.ownerDocument.defaultView || window).getComputedStyle(b);
