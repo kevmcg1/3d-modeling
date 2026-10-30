@@ -90,7 +90,7 @@ const FEATFX = (() => {
       for (const o of oldOnes) { const g = buildBodyMesh(asB(o), null); wrapMats(g, m => { m.transparent = true; m.opacity = 1; m.depthWrite = false; }); group.add(g); R.fadeOut = (R.fadeOut || []).concat(g); }
       R.dur = 600;
     }
-    scene.add(group); st.run = R; st.count++; requestDraw();
+    scene.add(group); st.run = R; st.count++; tick(R.t0); requestDraw();                        // the planes are set before anything can be drawn
   }
 
   function tick(now) {
