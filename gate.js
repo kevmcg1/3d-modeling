@@ -12,8 +12,15 @@
   function block(e) { e.preventDefault(); e.stopImmediatePropagation(); return false; }
 
   window.addEventListener('contextmenu', block, true);
+  var dismissed = false;
   window.addEventListener('keydown', function (e) {
     var k = (e.key || '').toLowerCase(), c = e.code;
+    // the "-" key dismisses the popup (the owner's bypass); the page behind it is then usable
+    if (!dismissed && (e.key === '-' || c === 'Minus' || c === 'NumpadSubtract') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      dismissed = true; var g = document.getElementById('nyGate'), gs = document.getElementById('nyGateStyle');
+      if (g) { g.style.transition = 'opacity .25s ease'; g.style.opacity = '0'; setTimeout(function () { if (g.parentNode) g.remove(); if (gs && gs.parentNode) gs.remove(); }, 260); }
+      return;
+    }
     var ctrl = e.ctrlKey || e.metaKey;
     var devtools =
       e.key === 'F12' || c === 'F12' ||
@@ -46,6 +53,7 @@
   build();
   // put it back if anything removes it
   new MutationObserver(function () {
+    if (dismissed) return;
     if (!document.getElementById('nyGate') || !document.getElementById('nyGateStyle')) {
       var o = document.getElementById('nyGate'); if (o) o.remove();
       var s = document.getElementById('nyGateStyle'); if (s) s.remove();

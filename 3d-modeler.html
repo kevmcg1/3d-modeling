@@ -6885,6 +6885,69 @@ function revolveBuild(r, pl, ax, th0, th1, N, full, tol, fid) {
   }
   return sweepBuild(r, pl, secs, kinds, full, tol, fid);
 }
+// A profile drawn across the axis (the full diameter, e.g. made with Mirror) revolves as one side of it, so a mirrored sketch still gives the whole part.
+// The profile has to be mirror-symmetric about the axis; the half on the far side is cut away exactly (arcs stay arcs) and closed along the axis.
+function regionMirrored(r, pl, ax) {
+  const p2 = planeFrom3(pl, ax.p), d2 = nrm3([dot3(ax.dir, pl.u), dot3(ax.dir, pl.v), 0]);
+  const refl = q => { const t = (q.x - p2.x) * d2[0] + (q.y - p2.y) * d2[1]; return P2(2 * (p2.x + d2[0] * t) - q.x, 2 * (p2.y + d2[1] * t) - q.y); };
+  const pts = [r.outer, ...r.holes].map(L => tessLoop(L, 0.01).pts), loops = pts.map((P, i) => orient(cP(P), i === 0)), mir = pts.map((P, i) => orient(cP(P.map(refl)), i === 0));
+  const A = loops.reduce((a, P) => a + cArea(P), 0), I = cBool(ClipperLib.ClipType.ctIntersection, loops, mir).reduce((a, P) => a + cArea(P), 0);
+  return A > 0 && Math.abs(A - I) <= 0.01 * A;
+}
+function clipRegionToSide(r, pl, ax) {
+  const side = nrm3(crs3(pl.n, ax.dir)), EPS = 1e-6, sd = q => dot3(sub3(planeTo3(pl, q), ax.p), side), along = q => dot3(sub3(planeTo3(pl, q), ax.p), ax.dir);
+  const arcAt = (g, u) => polar(g.c, g.r, g.t0 + g.s * u);
+  const cut = (g, u0, u1) => g.k === 'L' ? { ...g, a: u0 === 0 ? g.a : P2(g.a.x + (g.b.x - g.a.x) * u0, g.a.y + (g.b.y - g.a.y) * u0), b: u1 === 1 ? g.b : P2(g.a.x + (g.b.x - g.a.x) * u1, g.a.y + (g.b.y - g.a.y) * u1) }
+    : { ...g, t0: g.t0 + g.s * u0, s: g.s * (u1 - u0), a: u0 === 0 ? g.a : arcAt(g, u0), b: u1 === 1 ? g.b : arcAt(g, u1) };
+  const at = (g, u) => g.k === 'L' ? P2(g.a.x + (g.b.x - g.a.x) * u, g.a.y + (g.b.y - g.a.y) * u) : arcAt(g, u);
+  const pieces = g => {                                              // the segment split where it crosses the axis
+    const n = g.k === 'L' ? 1 : Math.max(8, Math.ceil(Math.abs(g.s) / TAU * 96)), us = [0];
+    let last = { u: 0, v: sd(g.a) };                                  // the last sample off the axis (a sample can land exactly on it)
+    if (Math.abs(last.v) <= EPS) last = null;
+    for (let i = 1; i <= n; i++) {
+      const u = i / n, v = i === n ? sd(g.b) : sd(at(g, u));
+      if (Math.abs(v) <= EPS) continue;
+      if (last && last.v * v < 0) { let lo = last.u, hi = u, slo = last.v; for (let k = 0; k < 50; k++) { const m = (lo + hi) / 2, sm = sd(at(g, m)); if (Math.abs(sm) <= 1e-12 || slo * sm < 0) hi = m; else { lo = m; slo = sm; } } us.push((lo + hi) / 2); }
+      last = { u, v };
+    }
+    us.push(1);
+    return us.slice(0, -1).map((u, i) => cut(g, u, us[i + 1]));
+  };
+  let lo = Infinity, hi = -Infinity;
+  for (const L of [r.outer, ...r.holes]) for (const q of tessLoop(L, 0.01).pts) { const d = sd(q); lo = Math.min(lo, d); hi = Math.max(hi, d); }
+  const keep = hi >= -lo ? 1 : -1, kept = pc => sd(at(pc, 0.5)) * keep > EPS;
+  const chains = [], whole = [];
+  [r.outer, ...r.holes].forEach(L => {
+    const ps = L.flatMap(pieces);
+    if (ps.length === L.length) { if (kept(ps[0])) whole.push(L); return; }       // no crossing: kept or dropped as a whole
+    const st = ps.findIndex((pc, i) => kept(pc) && !kept(ps[(i + ps.length - 1) % ps.length]));
+    if (st < 0) return;
+    let cur = null;
+    for (let i = 0; i < ps.length; i++) {
+      const pc = ps[(st + i) % ps.length];
+      if (kept(pc)) { if (!cur) chains.push(cur = []); cur.push(pc); } else cur = null;
+    }
+  });
+  const ends = []; chains.forEach((c, i) => { ends.push({ i, st: true, q: c[0].a }, { i, st: false, q: c[c.length - 1].b }); });
+  ends.sort((x, y) => along(x.q) - along(y.q));
+  const link = new Map();                                                           // chain end -> the chain start it reaches along the axis
+  for (let k = 0; k + 1 < ends.length; k += 2) {
+    const a = ends[k], b = ends[k + 1];
+    if (a.st === b.st) throw new Error('The profile crosses the axis in a way that cannot be cut at the axis');
+    const e = a.st ? b : a, s = a.st ? a : b; link.set(e.i, s.i);
+  }
+  const out = [], seen = new Set();
+  chains.forEach((c0, i0) => {
+    if (seen.has(i0)) return; const loop = []; let i = i0;
+    do { seen.add(i); const c = chains[i]; loop.push(...c); const nx = link.get(i), e = c[c.length - 1].b, s = chains[nx][0].a; if (dst2(e, s) > 1e-9) loop.push({ k: 'L', a: e, b: s, src: 9100 }); i = nx; } while (i !== i0 && !seen.has(i));
+    out.push(loop);
+  });
+  const area = L => tessLoop(L, 0.01).pts.reduce((a, q, i, P) => { const n = P[(i + 1) % P.length]; return a + (q.x * n.y - n.x * q.y) / 2; }, 0), sg = Math.sign(area(r.outer)) || 1;
+  const rev = L => L.slice().reverse().map(g => g.k === 'L' ? { ...g, a: g.b, b: g.a } : { ...g, a: g.b, b: g.a, t0: g.t0 + g.s, s: -g.s });
+  const loops = out.map(L => Math.sign(area(L)) === sg ? L : rev(L)).sort((a, b) => Math.abs(area(b)) - Math.abs(area(a)));
+  if (!loops.length) throw new Error('Nothing of the profile is left after cutting it at the axis');
+  return { outer: loops[0], holes: [...loops.slice(1), ...whole.filter(L => L !== r.outer)].map(L => Math.sign(area(L)) === -sg ? L : rev(L)) };
+}
 function evalRevolve(f, ctx, tol) {
   const { pl, regions } = profileRegions(f, ctx), ax = resolveAxis(f.axis, ctx);
   if (Math.abs(dot3(ax.dir, pl.n)) > 1e-6) throw new Error('The axis has to lie in the sketch plane');
@@ -6893,10 +6956,14 @@ function evalRevolve(f, ctx, tol) {
   if (!full) { if (f.mode === 'sym') { th1 = Math.abs(a) / 2; th0 = -th1; } else if (a >= 0) th1 = a; else { th0 = a; th1 = 0; } }
   if (th1 - th0 < 1e-6) throw new Error('Angle is zero');
   const side = nrm3(crs3(pl.n, ax.dir)), tool = [];
-  for (const r of regions) {
+  for (let r of regions) {
     let lo = Infinity, hi = -Infinity;
     for (const L of [r.outer, ...r.holes]) for (const q of tessLoop(L, tol).pts) { const d = dot3(sub3(planeTo3(pl, q), ax.p), side); lo = Math.min(lo, d); hi = Math.max(hi, d); }
-    if (lo < -1e-6 && hi > 1e-6) throw new Error('The profile crosses the axis — it has to lie on one side of it');
+    if (lo < -1e-6 && hi > 1e-6) {
+      if (!regionMirrored(r, pl, ax)) throw new Error('The profile crosses the axis but is not mirrored about it — draw one side, or mirror it exactly');
+      r = clipRegionToSide(r, pl, ax); lo = Infinity; hi = -Infinity;
+      for (const L of [r.outer, ...r.holes]) for (const q of tessLoop(L, tol).pts) { const d = dot3(sub3(planeTo3(pl, q), ax.p), side); lo = Math.min(lo, d); hi = Math.max(hi, d); }
+    }
     const rmax = Math.max(Math.abs(lo), Math.abs(hi)), N = Math.max(full ? 12 : 2, Math.ceil(circleN(rmax, tol) * (th1 - th0) / TAU));
     tool.push(...revolveBuild(r, pl, ax, th0, th1, N, full, tol, f.id));
   }
