@@ -8,6 +8,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
   const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox'] });
   const page = await browser.newPage({ viewport: { width: 1400, height: 850 } }); await page.addInitScript(() => { window.DATUM_PREMIUM = true; window.DATUM_AUTO = true; window.DATUM_NOFX = true; });   // the CAM Premium lock is off while testing the features it blocks
   const errs = []; page.on('pageerror', e => errs.push(e.message));
+  await page.route(/gate\.js/, r => r.abort());
   await page.goto('file://' + path.resolve(__dirname, '..', 'house.html')); await page.waitForTimeout(500);
   const pos = (x, y) => page.evaluate(([x, y]) => { const p = HOUSE.toS([x, y]), r = document.querySelector('#pc').getBoundingClientRect(); return [p[0] + r.left, p[1] + r.top]; }, [x, y]);
   const walls = () => page.evaluate(() => HOUSE.doc.walls.filter(w => w.lv === HOUSE.S.lv).map(w => [w.a, w.b].map(p => p.map(v => Math.round(v)).join(',')).join('>')).sort());

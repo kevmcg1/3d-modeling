@@ -129,7 +129,7 @@ const settle = page => page.evaluate(() => new Promise(res => { const n = docume
     const css = await page.evaluate(() => { const c = getComputedStyle(document.getElementById('toolbar')); return [c.maskImage || c.webkitMaskImage, c.filter, c.opacity]; });
     assert.deepStrictEqual(css, ['none', 'none', '1'], 'the ribbon has no mask, filter or fade: ' + css);
     assert.deepStrictEqual(await page.evaluate(() => window.__dev.ribbonProblems()), [], 'a hidden group is not a problem');
-    const flagged = await page.evaluate(() => { const p = document.querySelector('.ribbon .rb-panel.edge'); p.classList.remove('edge'); const out = window.__dev.ribbonProblems(); p.classList.add('edge'); return out; });
+    const flagged = await page.evaluate(() => { const p = document.querySelector('.ribbon .rb-panel.edge'), fit = window.ribFit; window.ribFit = null; p.classList.remove('edge'); const out = window.__dev.ribbonProblems(); p.classList.add('edge'); window.ribFit = fit; return out; });   // (ribFit would put the edge class straight back, as it does for the real page)
     assert(flagged.length > 0 && /cut off by the edge of the ribbon/.test(flagged[0]), JSON.stringify(flagged));
   });
   await ok('switching tabs or sketch mode never shows a cut button, not even for a moment', async () => {
