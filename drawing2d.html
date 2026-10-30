@@ -876,7 +876,7 @@ function pal() {
 }
 let P = pal();
 const ACI_CSS = new Map();
-function aciCss(i) {                                          // AutoCAD index → CSS colour; very light colours (yellow, white) are darkened to stay readable on the white sheet
+function aciCss(i) {                                          // AutoCAD index → CSS color; very light colors (yellow, white) are darkened to stay readable on the white sheet
   if (i === 7 || i === 0) return P.ink;
   let c = ACI_CSS.get(i); if (c) return c;
   const h = aciHex(i), r = parseInt(h.slice(1, 3), 16), g = parseInt(h.slice(3, 5), 16), b = parseInt(h.slice(5, 7), 16), L = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
@@ -978,7 +978,7 @@ function drawEnt(ctx, e, o = {}) {
   const pr = prims(e), s = doc.view.s;
   const box = entBox(e);
   if (box && !pr.inf.length) { const a = toS([box[0], box[3]]), b = toS([box[2], box[1]]); if (b[0] < -20 || a[0] > VW.W + 20 || b[1] < -20 || a[1] > VW.H + 20) return; if ((b[0] - a[0]) < .6 && (b[1] - a[1]) < .6 && pr.texts.length === 0) { ctx.fillStyle = o.color || aciCss(entColor(e)); ctx.fillRect(a[0], a[1], 1, 1); return; } }
-  // fast path: plain continuous strokes of the same colour / weight share one canvas path and a single stroke() call
+  // fast path: plain continuous strokes of the same color / weight share one canvas path and a single stroke() call
   if (ctx === cx && !o.color && !o.ghost && !o.bold && !o.nodash) {
     if (pr.fast === undefined) pr.fast = !pr.fills.length && !pr.texts.length && !pr.pts.length && !pr.inf.length && pr.paths.every(p => !p.hatchLines && !p.boundary && !p.thick);
     if (pr.fast) {
@@ -1971,7 +1971,7 @@ cmd('offset', ['o'], async () => {
 }, { help: 'Create parallel copies of objects at a distance' });
 
 // ── FILLET / CHAMFER ──
-// the centres of circles of radius R tangent to both atoms, nearest first to the picked points
+// the centers of circles of radius R tangent to both atoms, nearest first to the picked points
 function filletCenters(A, B, R, pa, pb) {
   const carrier = (a, s) => a.t === 's' ? offsetAtom(a, s * R) : (a.r + s * R > 1e-12 ? arcAt(a.c, a.r + s * R, 0, TAU) : null);
   const out = [];
@@ -2781,7 +2781,7 @@ cmd('laythw', [], async () => { doc.layers.forEach(l => l.frozen = false); }, { 
 cmd('laylck', [], async () => { const o = await getEnt('Select an object on the layer to be locked'); if (o.e) layerOf(o.e.layer).locked = true; SEL.clear(); }, { repeat: false });
 cmd('layiso', [], async () => { const sel = await getSel('Select objects on the layers to be isolated'); const keep = new Set(sel.map(e => e.layer)); doc.layers.forEach(l => { l.on = keep.has(l.name); }); SEL.clear(); }, { pre: true, repeat: false });
 cmd('layuniso', [], async () => { doc.layers.forEach(l => l.on = true); }, { repeat: false });
-cmd('color', ['col', 'colour'], async () => { const c = await pickColor(doc.cur.color); if (c !== undefined) { doc.cur.color = c; refreshLayerUI(); } }, { repeat: false });
+cmd('color', ['col', 'color'], async () => { const c = await pickColor(doc.cur.color); if (c !== undefined) { doc.cur.color = c; refreshLayerUI(); } }, { repeat: false });
 cmd('linetype', ['lt', 'ltype'], async () => { const r = await dialog({ title: 'Current linetype', body: `<label>Linetype<select id="lt"><option value="">ByLayer</option>${Object.keys(LTYPES).map(n => `<option ${doc.cur.lt === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`, read: d => $('#lt', d).value || null }); if (r !== undefined && r !== false) { doc.cur.lt = r; refreshLayerUI(); } }, { repeat: false });
 cmd('ltscale', ['lts'], async () => { const v = await getNum('Enter new linetype scale factor', { def: doc.ltscale, min: 1e-6 }); if (v.num) { doc.ltscale = v.num; redrawAll(); } }, { repeat: false });
 cmd('lweight', ['lw'], async () => { toggle('lwt'); }, { repeat: false });
@@ -3554,7 +3554,7 @@ const TI = {
   xline: { t: 'Construction line', i: 'xline', d: 'An infinite guide line through a point.', steps: [['Through point', CLK], ['Direction', 'Click a second point; repeat for more lines, or press Enter.', 'rep']] },
   ray: { t: 'Ray', i: 'xline', d: 'A guide line that starts at a point and runs on forever.', steps: [['Start point', CLK], ['Through point', 'Click to aim the ray; repeat or press Enter.', 'rep']] },
   circle: {
-    t: 'Circle', i: 'circle', d: 'Draw a circle by centre, diameter, or tangent objects.',
+    t: 'Circle', i: 'circle', d: 'Draw a circle by center, diameter, or tangent objects.',
     modes: [
       { id: 'CR', t: 'Center, Radius', args: { mode: 'CR' }, steps: [['Center point', CLK], ['Radius', 'Click, or type the radius and press Enter.']] },
       { id: 'CD', t: 'Center, Diameter', args: { mode: 'CD' }, steps: [['Center point', CLK], ['Diameter', 'Click, or type the diameter and press Enter.']] },
@@ -3566,9 +3566,9 @@ const TI = {
     t: 'Arc', i: 'arc', d: 'Draw an arc — choose how you want to define it.',
     modes: [
       { id: '3P', t: '3 Points', s: 'start · second · end', args: { mode: '3P' }, steps: [['Start point', CLK], ['Second point', 'Any point the arc passes through.'], ['End point', 'Click where the arc ends.']] },
-      { id: 'SCE', t: 'Start, Center, End', args: { mode: 'SCE' }, steps: [['Start point', CLK], ['Center point', 'Click the centre of the arc.'], ['End point', 'Click toward where it ends (counter-clockwise).']] },
-      { id: 'SCA', t: 'Start, Center, Angle', args: { mode: 'SCA' }, steps: [['Start point', CLK], ['Center point', 'Click the centre.'], ['Included angle', 'Type the angle in degrees (negative = clockwise).']] },
-      { id: 'SCL', t: 'Start, Center, Length', args: { mode: 'SCL' }, steps: [['Start point', CLK], ['Center point', 'Click the centre.'], ['Chord length', 'Type the straight-line length from start to end.']] },
+      { id: 'SCE', t: 'Start, Center, End', args: { mode: 'SCE' }, steps: [['Start point', CLK], ['Center point', 'Click the center of the arc.'], ['End point', 'Click toward where it ends (counter-clockwise).']] },
+      { id: 'SCA', t: 'Start, Center, Angle', args: { mode: 'SCA' }, steps: [['Start point', CLK], ['Center point', 'Click the center.'], ['Included angle', 'Type the angle in degrees (negative = clockwise).']] },
+      { id: 'SCL', t: 'Start, Center, Length', args: { mode: 'SCL' }, steps: [['Start point', CLK], ['Center point', 'Click the center.'], ['Chord length', 'Type the straight-line length from start to end.']] },
       { id: 'CSE', t: 'Center, Start, End', args: { mode: 'CSE' }, steps: [['Center point', CLK], ['Start point', 'Click where the arc starts.'], ['End point', 'Click toward where it ends.']] },
       { id: 'CSA', t: 'Center, Start, Angle', args: { mode: 'CSA' }, steps: [['Center point', CLK], ['Start point', 'Click where the arc starts.'], ['Included angle', 'Type the angle in degrees.']] },
       { id: 'CSL', t: 'Center, Start, Length', args: { mode: 'CSL' }, steps: [['Center point', CLK], ['Start point', 'Click where the arc starts.'], ['Chord length', 'Type the chord length.']] },
@@ -3584,7 +3584,7 @@ const TI = {
       { k: 'rot', l: 'Rotation (°)', type: 'num', get: () => deg(ST('rectangle').rot || 0), set: v => { ST('rectangle').rot = rad(v); } }]
   },
   polygon: {
-    t: 'Polygon', i: 'polygon', d: 'A regular polygon with any number of sides.', steps: [['Number of sides', 'Type the count (3 or more) and press Enter.'], ['Center point', 'Click the centre — or choose <b>Edge</b> to place one side instead.'], ['Inscribed / circumscribed', 'Pick whether the corners or the sides touch the imaginary circle.'], ['Radius', 'Click or type the radius.']],
+    t: 'Polygon', i: 'polygon', d: 'A regular polygon with any number of sides.', steps: [['Number of sides', 'Type the count (3 or more) and press Enter.'], ['Center point', 'Click the center — or choose <b>Edge</b> to place one side instead.'], ['Inscribed / circumscribed', 'Pick whether the corners or the sides touch the imaginary circle.'], ['Radius', 'Click or type the radius.']],
     opts: [{ k: 'n', l: 'Sides', type: 'num', min: 3, max: 1024, step: 1, get: () => ST('polygon').n, set: v => { ST('polygon').n = Math.round(clamp(v, 3, 1024)); } }]
   },
   ellipse: {
@@ -3597,12 +3597,12 @@ const TI = {
   point: { t: 'Point', i: 'point', d: 'Place point markers.', steps: [['Point', 'Click each place; press Enter or Esc to stop.', 'rep']] },
   donut: { t: 'Donut', i: 'donut', d: 'A filled ring or solid dot.', steps: [['Inside diameter', 'Type a number (0 = solid dot).'], ['Outside diameter', 'Type the outer size.'], ['Center point', 'Click to place; repeat, then Enter.', 'rep']] },
   hatch: {
-    t: 'Hatch', i: 'hatch', d: 'Fill an enclosed area with a pattern or solid colour.', steps: [['Pick inside an area', 'Click inside any closed shape — the boundary is found for you.', 'rep'], ['Create', 'Press <b>Enter</b> to place the hatch. Use <b>Select objects</b> to hatch specific shapes.']],
+    t: 'Hatch', i: 'hatch', d: 'Fill an enclosed area with a pattern or solid color.', steps: [['Pick inside an area', 'Click inside any closed shape — the boundary is found for you.', 'rep'], ['Create', 'Press <b>Enter</b> to place the hatch. Use <b>Select objects</b> to hatch specific shapes.']],
     opts: [{ k: 'pat', l: 'Pattern', type: 'select', items: () => [...Object.keys(HPAT)], get: () => doc.hatch.pat, set: v => { doc.hatch.pat = v; doc.hatch.solid = v === 'SOLID'; } },
       { k: 'sc', l: 'Scale', type: 'num', min: 0.0001, get: () => doc.hatch.sc, set: v => { doc.hatch.sc = Math.max(1e-4, v); } },
       { k: 'ang', l: 'Angle (°)', type: 'num', get: () => deg(doc.hatch.ang), set: v => { doc.hatch.ang = rad(v); } }]
   },
-  move: { t: 'Move', i: 'move', d: 'Move objects from one place to another.', steps: [SEL1, ['Base point', 'Click a reference point (a corner or centre works well).'], ['Second point', 'Click where it should go, or type a distance after aiming.']] },
+  move: { t: 'Move', i: 'move', d: 'Move objects from one place to another.', steps: [SEL1, ['Base point', 'Click a reference point (a corner or center works well).'], ['Second point', 'Click where it should go, or type a distance after aiming.']] },
   copy: { t: 'Copy', i: 'copy', d: 'Make copies of objects.', steps: [SEL1, ['Base point', 'Click a reference point.'], ['Second point', 'Click where each copy goes. Keep clicking for more; Enter finishes.', 'rep']] },
   rotate: { t: 'Rotate', i: 'rotate', d: 'Turn objects around a point.', steps: [SEL1, ['Base point', 'The point they rotate about.'], ['Angle', 'Click to aim, or type degrees (positive = counter-clockwise). Use <b>Copy</b> to keep the original.']] },
   mirror: { t: 'Mirror', i: 'mirror', d: 'Flip objects across a line.', steps: [SEL1, ['First mirror-line point', CLK], ['Second point', 'Click another point on the mirror line.'], ['Keep originals?', 'Choose <b>No</b> to keep both, <b>Yes</b> to delete the originals.']] },
@@ -3628,7 +3628,7 @@ const TI = {
       { k: 'c2', l: 'Distance 2', type: 'num', min: 0, get: () => doc.vars.chamfer[1], set: v => { doc.vars.chamfer[1] = Math.max(0, v); } },
       { k: 'trim', l: 'Trim the originals', type: 'bool', get: () => doc.vars.trimmode, set: v => { doc.vars.trimmode = !!v; } }]
   },
-  array: { t: 'Array', i: 'array', d: 'Repeat objects in a grid or around a centre.', steps: [SEL1, ['Array type', 'Choose <b>Rectangular</b> (rows and columns) or <b>Polar</b> (around a centre).'], ['Counts and spacing', 'Answer each prompt: rows, columns, then the distances — or centre, number of items and angle.']] },
+  array: { t: 'Array', i: 'array', d: 'Repeat objects in a grid or around a center.', steps: [SEL1, ['Array type', 'Choose <b>Rectangular</b> (rows and columns) or <b>Polar</b> (around a center).'], ['Counts and spacing', 'Answer each prompt: rows, columns, then the distances — or center, number of items and angle.']] },
   break: { t: 'Break', i: 'break', d: 'Remove a section from a line, arc or circle.', steps: [['Select object', 'Click the object at the <b>first break point</b>.'], ['Second break point', 'Click where the gap ends.']] },
   breakatpoint: { t: 'Break at point', i: 'break', d: 'Split an object in two at one point.', steps: [['Select object', 'Click the object.'], ['Break point', 'Click where to split it.']] },
   join: { t: 'Join', i: 'join', d: 'Merge connected lines and arcs into one polyline.', steps: [['Select objects', 'Pick the pieces (or type <b>all</b>) and press Enter.']] },
@@ -3655,7 +3655,7 @@ const TI = {
   area: { t: 'Area', i: 'area', d: 'Measure area and perimeter.', steps: [['Pick corners', 'Click around the shape, or choose <b>Object</b>.', 'rep'], ['Result', 'Press Enter to see the area.']] },
   id: { t: 'ID point', i: 'id', d: 'Show the coordinates of a point.', steps: [['Point', 'Click the point.']] },
   list: { t: 'List', i: 'list', d: 'Show an object\'s data.', steps: [SEL1] },
-  matchprop: { t: 'Match properties', i: 'match', d: 'Copy layer, colour and linetype from one object to others.', steps: [['Source object', 'Click the object to copy from.'], ['Destination objects', 'Click each object to change; Enter finishes.', 'rep']] },
+  matchprop: { t: 'Match properties', i: 'match', d: 'Copy layer, color and linetype from one object to others.', steps: [['Source object', 'Click the object to copy from.'], ['Destination objects', 'Click each object to change; Enter finishes.', 'rep']] },
   grid: { t: 'Grid', i: 'grid', d: 'Show or hide the dot grid.', steps: [['Toggle', 'Click to show or hide the grid (F7).']] },
   lwt: { t: 'Show lineweights', i: 'lengthen', d: 'Show line thickness on screen the way it will print.', steps: [['Toggle', 'Click to switch thick lines on or off.']] },
   _dsettings: { t: 'Drafting settings', i: 'settings', d: 'Snap, grid, polar tracking and which object-snap points are active.', steps: [['Open', 'Click, then tick the options you want.']] },
@@ -3669,7 +3669,7 @@ const TI = {
   _png: { t: 'Export PNG', i: 'img', d: 'A picture of the drawing.', steps: [['Save', 'Click to download the .png file.']] },
   save: { t: 'Save drawing', i: 'save', d: 'Download your drawing to keep working later.', steps: [['Save', 'Click, or press Ctrl+S.']] },
   open: { t: 'Open drawing', i: 'open', d: 'Open a DXF from AutoCAD or this program\'s own save.', steps: [['Choose file', 'Click, then pick a .dxf or .json drawing.']] },
-  layer: { t: 'Layers', i: 'layers', d: 'Organise a drawing into layers you can switch off, freeze or lock.', steps: [['Open', 'Click to show or hide the layer list.'], ['Edit', 'Use the dots to switch, freeze or lock a layer.']] },
+  layer: { t: 'Layers', i: 'layers', d: 'Organize a drawing into layers you can switch off, freeze or lock.', steps: [['Open', 'Click to show or hide the layer list.'], ['Edit', 'Use the dots to switch, freeze or lock a layer.']] },
   properties: { t: 'Properties', i: 'props', d: 'Show and edit the details of the selected objects.', steps: [['Open', 'Click to show or hide the panel.'], ['Edit', 'Select objects, then change anything in the list.']] },
   regen: { t: 'Regenerate', i: 'zoomx', d: 'Redraw the whole drawing from scratch.', steps: [['Click', 'Use it if something looks out of date after a big change.']] },
   zoom: { t: 'Zoom', i: 'zoomx', d: 'Change the view.', steps: [['Choose', 'Extents, Window, Previous, or type a scale.']] },
@@ -3912,8 +3912,8 @@ const BTN = {
   btnRedo: ['Redo', 'Bring back the change you just undid.', ['Click it, or press Ctrl+Y.'], 'redo', 'Ctrl+Y'],
   btnHelp: ['Help', 'Every command, its aliases and the keyboard shortcuts.', ['Click it, or press F1.', 'Type any command name in the command line to run it.'], 'help', 'F1'],
   rLayer: ['Current layer', 'New objects go on this layer. With objects selected it moves them to the layer you pick.', ['Open the list.', 'Pick a layer.'], 'layerCur'],
-  rColor: ['Colour', 'The colour for new objects, or for the selection. ByLayer follows the layer.', ['Click it.', 'Pick a colour from the palette.'], 'color'],
-  rLt: ['Linetype', 'Continuous, dashed, hidden, centre and more.', ['Open the list.', 'Pick a linetype.'], 'linetype'],
+  rColor: ['Color', 'The color for new objects, or for the selection. ByLayer follows the layer.', ['Click it.', 'Pick a color from the palette.'], 'color'],
+  rLt: ['Linetype', 'Continuous, dashed, hidden, center and more.', ['Open the list.', 'Pick a linetype.'], 'linetype'],
   rLw: ['Lineweight', 'How thick lines print and, with LWT on, how they show on screen.', ['Open the list.', 'Pick a thickness.'], 'lwt'],
   layClose: ['Close', 'Close the layer list.', [], null], propClose: ['Close', 'Hide this panel. Reopen it from the View tab.', [], null],
   zin: ['Zoom in', 'Look closer at the drawing.', ['Click, or scroll the wheel up over the drawing.'], 'zin'],
@@ -3932,10 +3932,10 @@ const AIDINFO = {
   grid: ['Grid', 'Show a dot grid as a ruler for the drawing.', ['Toggle it to show or hide the dots.'], 'gridS', 'F7'],
   ortho: ['Ortho', 'Force lines to run exactly horizontal or vertical.', ['Turn it on and draw a line: it locks to the nearest axis.'], 'ortho', 'F8'],
   polar: ['Polar tracking', 'Show guides at set angles (15°, 30°, 45°…) and snap to them.', ['Turn it on.', 'Move near an angle: a dotted guide appears.'], 'polar', 'F10'],
-  osnap: ['Object snap', 'Click exactly on endpoints, midpoints, centres and other key points.', ['Turn it on.', 'Move over an object: a marker shows the snap point.'], 'osnap', 'F3'],
+  osnap: ['Object snap', 'Click exactly on endpoints, midpoints, centers and other key points.', ['Turn it on.', 'Move over an object: a marker shows the snap point.'], 'osnap', 'F3'],
   lwt: ['Show lineweights', 'Show line thickness on screen the way it will print.', ['Toggle it to compare thin and thick.'], 'lwt'],
   dyn: ['Dynamic input', 'A small readout next to the cursor shows length and angle while you draw.', ['Turn it on.', 'Type a number to set the length.'], 'dyn', 'F12'],
-  _dsettings: ['Object snap settings', 'Choose which snap points are active (endpoint, midpoint, centre…).', ['Click it.', 'Tick the points you want.'], 'osnap']
+  _dsettings: ['Object snap settings', 'Choose which snap points are active (endpoint, midpoint, center…).', ['Click it.', 'Tick the points you want.'], 'osnap']
 };
 const MISC = {
   'Set current': ['Make current', 'New objects will be drawn on this layer.', ['Click the tick beside a layer.'], 'layerCur'],
@@ -3964,7 +3964,7 @@ function tipInfo(el) {
     return { name: t.t, desc: t.d, steps: steps.map(s => s[0] + ' — ' + s[1].replace(/<[^>]+>/g, '')), art: ART.A[artKey] || null, sk: ['circle', 'arc', 'ellipse'].includes(cmd) && mode ? cmd + mode : artKey, key: cmd.toUpperCase() + (key.length ? ' · ' + key.join(', ') : ''), icon: t.i || cmd };
   }
   const id = el.id, aid = el.dataset && (el.dataset.aid || el.dataset.t), act = el.dataset && el.dataset.act;
-  const b = BTN[id] || (aid && AIDINFO[aid]) || (act === 'cancel' && BTN.cancel) || (act === 'matchprop' && ['Match properties', 'Copy colour, layer and linetype from one object to others.', ['Click it.', 'Pick the source, then each object to change.'], 'matchprop', 'MATCHPROP']) || null;
+  const b = BTN[id] || (aid && AIDINFO[aid]) || (act === 'cancel' && BTN.cancel) || (act === 'matchprop' && ['Match properties', 'Copy color, layer and linetype from one object to others.', ['Click it.', 'Pick the source, then each object to change.'], 'matchprop', 'MATCHPROP']) || null;
   if (b) return { name: b[0], desc: b[1], steps: b[2], art: b[3] ? ART.A[b[3]] : null, sk: b[3] || '', key: b[4] || '' };
   const raw = (el.dataset && el.dataset.tip) || el.textContent.trim(), m2 = MISC[raw] || MISC[el.dataset.tip];
   if (m2) return { name: m2[0], desc: m2[1], steps: m2[2], art: m2[3] ? ART.A[m2[3]] : null, sk: m2[3] || '', key: '' };
@@ -3974,7 +3974,7 @@ function tipInfo(el) {
   if (el.dataset && el.dataset.mode && G.name && TI[G.name] && TI[G.name].modes) { const m = TI[G.name].modes.find(x => x.id === el.dataset.mode); if (m) return { name: m.t, desc: 'How you define the ' + TI[G.name].t.toLowerCase() + '. Click to restart the tool this way.', steps: m.steps.map(s => s[0] + ' — ' + s[1].replace(/<[^>]+>/g, '')), art: ART[G.name === 'arc' ? 'arcM' : 'circM'][m.id] || null, sk: G.name + m.id, key: '' }; }
   if (el.dataset && el.dataset.kw) return { name: el.textContent.trim(), desc: 'An option for this step. Click it, or type ' + ((el.dataset.tip || '').replace(/^Type /, '') || 'its name') + ' in the command line.', steps: [], art: null, key: '' };
   if (el.dataset && el.dataset.x) return { name: el.textContent.trim(), desc: el.dataset.x === 'cancel' ? 'Close this window without changing anything (Esc).' : 'Apply the settings and close this window (Enter).', steps: [], art: null, key: el.dataset.x === 'cancel' ? 'Esc' : 'Enter' };
-  if (el.dataset && el.dataset.c != null) { const n = el.dataset.c === 'bylayer' ? 'ByLayer' : null; return { name: n || (el.dataset.tip || 'Colour').replace(/ ·.*$/, ''), desc: n ? 'Use the colour of the layer.' : 'Use this colour' + (/·/.test(el.dataset.tip || '') ? ' (' + el.dataset.tip.split('· ')[1] + ').' : '.'), steps: [], art: ART.A.color, key: '' }; }
+  if (el.dataset && el.dataset.c != null) { const n = el.dataset.c === 'bylayer' ? 'ByLayer' : null; return { name: n || (el.dataset.tip || 'Color').replace(/ ·.*$/, ''), desc: n ? 'Use the color of the layer.' : 'Use this color' + (/·/.test(el.dataset.tip || '') ? ' (' + el.dataset.tip.split('· ')[1] + ').' : '.'), steps: [], art: ART.A.color, key: '' }; }
   const tip = el.dataset && el.dataset.tip; if (!tip) { const tx = el.textContent.trim(); return tx && el.tagName === 'BUTTON' ? { name: tx, desc: '', steps: [], art: null, key: '' } : null; }
   const km = /^(.*?)\s*\(([^)]+)\)\s*$/.exec(tip), nm = km ? km[1] : tip.replace(/:.*$/, ''), kk = km && isKey(km[2]) ? km[2] : '';
   return { name: nm.charAt(0).toUpperCase() + nm.slice(1), desc: tip.includes(':') ? tip.replace(/^[^:]*:\s*/, '').replace(/^./, c => c.toUpperCase()) + '.' : (km && !kk ? km[2] : ''), steps: [], art: null, key: kk };
@@ -4111,5 +4111,6 @@ function setupControls() {
 }
 init();
 </script>
+<script src="outline-ui.js"></script>
 </body>
 </html>

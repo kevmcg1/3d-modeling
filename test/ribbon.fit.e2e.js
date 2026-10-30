@@ -49,9 +49,9 @@ const probe = () => {
   const errs = [];
   const open = async dpr => {
     const ctx = await browser.newContext({ viewport: { width: 1400, height: 850 }, deviceScaleFactor: dpr }), page = await ctx.newPage();
-    await page.addInitScript(() => { window.DATUM_PREMIUM = true; });
+    await page.addInitScript(() => { window.DATUM_PREMIUM = true; window.DATUM_AUTO = true; window.DATUM_NOFX = true; });
     page.on('pageerror', e => errs.push(e.message)); page.on('dialog', d => d.dismiss());
-    await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' })); await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' })); await page.route(/fonts\.g/, r => r.abort());
+    await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' })); await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' })); await page.route(/gate\.js/, r => r.abort()); await page.route(/fonts\.g/, r => r.abort());
     await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html') + '?dev=1'); await page.waitForTimeout(2500);
     return page;
   };

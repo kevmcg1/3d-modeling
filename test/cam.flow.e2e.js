@@ -9,10 +9,10 @@ let pass = 0, fail = 0;
 const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + name); } catch (e) { fail++; console.log('FAIL - ' + name + ' :: ' + String(e.message).slice(0, 700)); } };
 (async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox', '--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'] });
-  const page = await browser.newPage({ viewport: { width: 1400, height: 850 } }); await page.addInitScript(() => { window.DATUM_PREMIUM = true; });   // the CAM Premium lock is off while testing the features it blocks
+  const page = await browser.newPage({ viewport: { width: 1400, height: 850 } }); await page.addInitScript(() => { window.DATUM_PREMIUM = true; window.DATUM_AUTO = true; window.DATUM_NOFX = true; });   // the CAM Premium lock is off while testing the features it blocks
   const errs = []; page.on('pageerror', e => errs.push(e.message));
   await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
-  await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' }));
+  await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' })); await page.route(/gate\.js/, r => r.abort());
   await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html') + '?dev=1'); await page.waitForTimeout(2000);
   await page.evaluate(() => { const s = SAMPLES.find(x => x.name === 'Pocketed plate'); loadDoc(s.make(), 'test'); });
   await page.waitForTimeout(1500);
@@ -86,7 +86,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
   await ok('Enter finishes, and the next Pocket starts from the values and tool last used', async () => {
     await page.evaluate(() => { const op = opById(CAMUI.op); camEdit(op, 'stepdown', 3); camEdit(op, 'tool', cam().tools.find(t => t.type === 'flat' && t.n !== op.tool).n); });
     const tool = await page.evaluate(() => opById(CAMUI.op).tool);
-    await page.mouse.click(5, 5); await page.keyboard.press('Enter'); await page.waitForTimeout(600);
+    await page.evaluate(() => document.activeElement && document.activeElement.blur()); await page.keyboard.press('Enter'); await page.waitForTimeout(600);
     assert((await st()).view === 'cat', JSON.stringify(await st()));
     await pick('pocket');
     const s = await st();

@@ -343,7 +343,7 @@
   function tidy(w) {
     try {
       w.document.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-      if (w === window && typeof refreshUI === 'function') refreshUI();   // the panel must follow what Escape just cancelled, as it does for a hand
+      if (w === window && typeof refreshUI === 'function') refreshUI();   // the panel must follow what Escape just canceled, as it does for a hand
       if (w === window) { const m = document.getElementById('modal'); if (m && !m.hidden && m.offsetParent) { const c = m.querySelector('[data-do=cancel], [data-mx], .close, button'); if (c) c.click(); } }
     } catch (e) { /* nothing to close */ }
   }
@@ -385,7 +385,7 @@
       if (a.kind !== 'key' && a.kind !== 'view') tidy(w);
       return r.found.filter(x => !WARN[x.type]).length;
     };
-    // a step that goes wrong is tried again (twice) and followed by a control from the same area or its neighbours: the run reaches further around a mistake
+    // a step that goes wrong is tried again (twice) and followed by a control from the same area or its neighbors: the run reaches further around a mistake
     const stepR = async (a, seq) => {
       let n = await step(a, seq);
       if (aimOn && lastFound && !run.stop) {

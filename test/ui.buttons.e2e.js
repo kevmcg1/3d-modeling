@@ -10,10 +10,10 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
 const SKIP = /export|save|open|import|print|download|file|new|clear|reset/i;   // these open the browser's file dialogs
 (async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox'] });
-  const page = await browser.newPage({ viewport: { width: 1600, height: 900 } }); await page.addInitScript(() => { window.DATUM_PREMIUM = true; });   // the CAM Premium lock is off while testing the features it blocks
+  const page = await browser.newPage({ viewport: { width: 1600, height: 900 } }); await page.addInitScript(() => { window.DATUM_PREMIUM = true; window.DATUM_AUTO = true; window.DATUM_NOFX = true; });   // the CAM Premium lock is off while testing the features it blocks
   const errs = []; page.on('pageerror', e => errs.push(e.message)); page.on('dialog', d => d.dismiss());
   await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
-  await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' }));
+  await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' })); await page.route(/gate\.js/, r => r.abort());
   await page.route(/fonts\.g/, r => r.abort());
   await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html') + '?dev=1'); await page.waitForTimeout(1500);
   const load = () => page.evaluate(() => { if (typeof cancelCmd === 'function') try { cancelCmd(); } catch (e) { /* none open */ } loadDoc(SAMPLES.find(s => s.name === 'Pocketed plate').make(), 't'); });

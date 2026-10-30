@@ -16,7 +16,7 @@ window.gcheck = function (text, opts) {
     if (/G20/.test(s)) units = 'in'; if (/G21/.test(s)) units = 'mm';
     if (/G90/.test(s)) abs = true; if (/G91/.test(s) && !/G91 G28/.test(s) && !/G91 G12/.test(s) && !/G91 G13/.test(s)) abs = false;
     if (/G43/.test(s)) hOn = true; if (/G49/.test(s)) hOn = false;
-    let m = s.match(/^T(\d+) M6/); if (m) { tool = +m[1]; toolsSeen.add(tool); hOn = false; spin = false; g = null; continue; }
+    let m = s.match(/^T(\d+) M0?6\b/); if (m) { tool = +m[1]; toolsSeen.add(tool); hOn = false; spin = false; g = null; continue; }
     if (/M3\b/.test(s)) spin = true; if (/M5\b/.test(s)) spin = false;
     const gm = s.match(/^G(\d+(?:\.\d)?)/); const gw = gm ? 'G' + gm[1] : null;
     if (gw && ['G0', 'G1', 'G2', 'G3'].includes(gw)) g = gw;
@@ -58,8 +58,9 @@ window.gReplay = function (text, o, inch) {
   const addSeg = (a, b, rapid) => { if (cur && !cur.fresh) cur.segs.push([a[0] + o[0], a[1] + o[1], a[2] + o[2], b[0] + o[0], b[1] + o[1], b[2] + o[2], rapid ? 1 : 0]); };
   for (const raw of L) {
     const cm = raw.match(/^\((.*)\)\s*$/); if (cm && / — T\d+ /.test(cm[1])) { cur = { name: cm[1].split(' — ')[0], segs: [], skip: false, fresh: true }; ops.push(cur); x = y = z = 0; g = 0; continue; }
+    if (cur && /THE PROGRAM IS THE PART CONTOUR/.test(raw)) cur.skip = true;                       // cutter compensation in the control: the program is the part contour, not the tool center path
     const s = raw.replace(/\(.*?\)/g, '').trim(); if (!s || !cur) continue;
-    if (/^T\d+ M6/.test(s)) continue;
+    if (/^T\d+ M0?6\b/.test(s)) continue;
     const gm = s.match(/^G(\d+(?:\.\d)?)\b/);
     if (/^G91 G28/.test(s) || /^G28/.test(s)) { cur.tilt = cur.tilt || /G68|G53|G91 G28 Z0\. \(clear/.test(raw); continue; }
     if (/^G90$/.test(s)) { abs = true; continue; } if (/^G91 G1[23]/.test(s)) { cur.skip = true; continue; }

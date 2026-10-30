@@ -12,9 +12,9 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
   const open = async (scale = 1) => {
     const ctx = await browser.newContext({ viewport: { width: 1400, height: 850 }, deviceScaleFactor: scale, acceptDownloads: true }), page = await ctx.newPage();
     page.on('pageerror', e => errs.push(e.message)); page.on('dialog', d => d.dismiss());
-    await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' })); await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' })); await page.route(/fonts\.g/, r => r.abort());
+    await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' })); await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' })); await page.route(/gate\.js/, r => r.abort()); await page.route(/fonts\.g/, r => r.abort());
     await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html') + '?dev=1'); await page.waitForTimeout(2500);
-    await page.evaluate(() => { window.DATUM_PREMIUM = true; loadDoc(SAMPLES.find(s => s.name === 'Pocketed plate').make(), 't'); }); await page.waitForTimeout(1200);
+    await page.evaluate(() => { window.DATUM_PREMIUM = true; window.DATUM_AUTO = true; window.DATUM_NOFX = true; loadDoc(SAMPLES.find(s => s.name === 'Pocketed plate').make(), 't'); }); await page.waitForTimeout(1200);
     return page;
   };
   const page = await open();

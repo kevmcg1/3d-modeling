@@ -134,7 +134,7 @@
     return widths;
   }
   const median = a => { if (!a.length) return null; const b = a.slice().sort((x, y) => x - y); return b[b.length >> 1]; };
-  // read a patch (centre, up to 640 × 400 device pixels) of a canvas back and measure its edges
+  // read a patch (center, up to 640 × 400 device pixels) of a canvas back and measure its edges
   let scratch = null;
   function pixelEdges(cv) {
     if (!cv || !cv.width || !cv.height) return null;

@@ -23,7 +23,7 @@ What the Manufacture tab can cut compared with Mastercam's toolpath families, an
 | Mastercam toolpath | Status | Notes |
 |---|---|---|
 | Facing | Done | Face op: zigzag or one-way, rough and finish, auto in Auto Detect |
-| Contour | Done | Chain or faces; inside, outside, on line; multi-pass depth; arc lead-in/out; holding tabs; ramp contour (spiral down a closed chain) added in batch 1 |
+| Contour | Done | Chain or faces; inside, outside, on line; multi-pass depth; arc lead-in/out with an adjustable radius; rough passes at a spacing; compensation Computer, Control (G41 / G42), Wear or Reverse wear; holding tabs; ramp contour (spiral down a closed chain) added in batch 1 |
 | Pocket | Done | Faces or chain with islands; rings from the middle out; finish pass; ramp or helix entry; round pockets post as the Haas G12 cycle |
 | Slot Mill | Done | Straight slot; wider than the tool is cleared with trochoidal loops |
 | Dynamic Mill | Done (approx.) | Batch 1. Deep cuts, light side bite, rounded corners, feed raised for chip thinning. Offset rings, not a true engagement-controlled path |
@@ -94,7 +94,7 @@ What the Manufacture tab can cut compared with Mastercam's toolpath families, an
 | Work offsets | Done | G54 is the Setup origin. Setup adds G55 to G59, each a chosen origin plus an X Y Z shift (several parts or vises on one table); each operation picks its offset and the program posts the G55 line before it, with coordinates relative to that origin |
 | Stock model | Done | The program is replayed against the stock slab by slab, operation by operation (air-cut feed and hop heights already use it). "Only cut what earlier operations left" on any non-drilling operation drops the moves through ground already cleared, for 2D and 3D alike, and the simulation, G-code and heat map follow. Slab model, not a triangle mesh: the leftover is exact to the slab height, and a move within 0.03 mm of cleared ground counts as cleared |
 | Collision checks | Done | Verify checks gouge, shank, holder, rapids through stock and the vise; Batch 5 adds holders for 3D toolpaths |
-| Post processors | Partial | Controller picker in the G-code panel: Haas, Fanuc, Mach3 / Mach4, Grbl and Siemens Sinumerik (own CYCLE81 to 85 calls, `;` comments, `.mpf`), plus optional line numbers. A cycle a control lacks posts as plain moves with a note. Heidenhain TNC conversational (BLK FORM, TOOL CALL, L / CC + C blocks, cycles 200 / 201 / 202 / 205 / 207 called with M99, datum shift #1 to #6 for G54 to G59). Mazak and LinuxCNC later |
+| Post processors | Partial | Z home before every tool change, a tool list in the header, coolant modes. Controller picker in the G-code panel: Haas, Fanuc, Mach3 / Mach4, Grbl and Siemens Sinumerik (own CYCLE81 to 85 calls, `;` comments, `.mpf`), plus optional line numbers. A cycle a control lacks posts as plain moves with a note. Heidenhain TNC conversational (BLK FORM, TOOL CALL, L / CC + C blocks, cycles 200 / 201 / 202 / 205 / 207 called with M99, datum shift #1 to #6 for G54 to G59). Mazak and LinuxCNC later |
 
 ## Batches
 

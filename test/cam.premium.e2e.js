@@ -13,9 +13,9 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
   const open = async premium => {
     const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
     page.errs = []; page.on('pageerror', e => page.errs.push(e.message)); page.on('dialog', d => d.dismiss());
-    if (premium) await page.addInitScript(() => { window.DATUM_PREMIUM = true; });
+    if (premium) await page.addInitScript(() => { window.DATUM_PREMIUM = true; window.DATUM_AUTO = true; window.DATUM_NOFX = true; });
     await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
-    await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' }));
+    await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' })); await page.route(/gate\.js/, r => r.abort());
     await page.route(/fonts\.g/, r => r.abort());
     await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html') + '?dev=1'); await page.waitForTimeout(1500);
     await page.evaluate(() => { loadDoc(SAMPLES.find(s => s.name === 'Pocketed plate').make(), 't'); setWorkspace('cam'); });

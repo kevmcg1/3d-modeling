@@ -12,8 +12,8 @@ const close = (a, b, tol, what) => assert(Math.abs(a - b) <= tol, `${what}: ${a}
   const page = await browser.newPage({ viewport: { width: 1400, height: 850 } });
   const errs = []; page.on('pageerror', e => errs.push(e.message));
   await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
-  await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' }));
-  await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await page.waitForTimeout(1500);
+  await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' })); await page.route(/gate\.js/, r => r.abort());
+  await page.addInitScript(() => { window.DATUM_NOFX = true; }); await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await page.waitForTimeout(1500);
   const box = { id: 10, type: 'primitive', name: 'Arm', shape: 'box', base: 'XY', cx: 10, cy: 0, off: 0, op: 'new', w: 4, d: 4, h: 4, dia: 10, dia2: 0, tube: 6, center: true, sit: true };
   const joint = o => ({ id: 11, type: 'joint', name: 'J', bodies: [10], jtype: 'revolute', axis: { k: 'world', w: 'Z' }, pivot: 'origin', value: 0, value2: 0, min: -180, max: 180, rx: 0, ry: 0, rz: 0, ...o });
   const run = F => page.evaluate(F => {

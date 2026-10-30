@@ -27,7 +27,7 @@
   const SCENES = new Map();
   let cur = null, seq = 0;
 
-  /* ── small maths and colour ── */
+  /* ── small maths and color ── */
   const clamp = (x, a = 0, b = 1) => x < a ? a : x > b ? b : x;
   const lerp = (a, b, t) => a + (b - a) * t;
   const easeIO = t => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
@@ -96,7 +96,7 @@
       const q = g.q; g.q = []; if (!q.length) return;
       const cv = ctx.canvas, k = cv.width / AW; let img = null; try { img = ctx.getImageData(0, 0, cv.width, cv.height).data; } catch (e) { /* unreadable: no nudging */ }
       const placed = [];
-      // the share of a rectangle (picture units) that is not its most common colour: lines, edges, the pointer, other shapes
+      // the share of a rectangle (picture units) that is not its most common color: lines, edges, the pointer, other shapes
       const busy = r => {
         const x0 = Math.max(0, Math.floor(r.x * k)), y0 = Math.max(0, Math.floor(r.y * k)), x1 = Math.min(cv.width, Math.ceil((r.x + r.w) * k)), y1 = Math.min(cv.height, Math.ceil((r.y + r.h) * k)), bins = new Map(); let n = 0, top = '', tn = 0;
         for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = (y * cv.width + x) * 4, key = (img[i] >> 4) + ',' + (img[i + 1] >> 4) + ',' + (img[i + 2] >> 4), c = (bins.get(key) || 0) + 1; bins.set(key, c); n++; if (c > tn) { tn = c; top = key; } }
@@ -239,7 +239,7 @@
         }
       };
       st.draw = () => {
-        // far rows first; each cell is a top plus the front and right walls where its neighbour is lower
+        // far rows first; each cell is a top plus the front and right walls where its neighbor is lower
         const c = rgb(st.c), cc = rgb(st.cutc), F = (col, f) => `rgb(${Math.min(255, col[0] * f) | 0},${Math.min(255, col[1] * f) | 0},${Math.min(255, col[2] * f) | 0})`;
         const kx = 0.866 * g.s, ky = 0.5 * g.s, oz = g.s;
         const X = (x, y) => g.ox + (x - y) * kx, Y = (x, y, z) => g.oy + (x + y) * ky - z * oz;

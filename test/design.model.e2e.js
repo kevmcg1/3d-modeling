@@ -8,10 +8,10 @@ let pass = 0, fail = 0;
 const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + name); } catch (e) { fail++; console.log('FAIL - ' + name + ' :: ' + String(e.message).slice(0, 300)); } };
 (async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox'] });
-  const page = await browser.newPage({ viewport: { width: 1400, height: 850 } }); await page.addInitScript(() => { window.DATUM_PREMIUM = true; });   // the CAM Premium lock is off while testing the features it blocks
+  const page = await browser.newPage({ viewport: { width: 1400, height: 850 } }); await page.addInitScript(() => { window.DATUM_PREMIUM = true; window.DATUM_AUTO = true; window.DATUM_NOFX = true; });   // the CAM Premium lock is off while testing the features it blocks
   const errs = []; page.on('pageerror', e => errs.push(e.message));
   await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
-  await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' }));
+  await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' })); await page.route(/gate\.js/, r => r.abort());
   await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await page.waitForTimeout(1500);
   // a 20 × 10 × 5 box (sketch on the XY plane, extruded 5) plus whatever features a test adds; returns volumes and boxes of every body
   const run = feats => page.evaluate(F => {
@@ -86,7 +86,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
     await page.evaluate(() => { CMD.f.shape = 'sphere'; featSync(); }); await page.waitForTimeout(900);
     await page.waitForFunction(() => MODEL.bodies && MODEL.bodies.length === 1); await page.click('[data-fdo="ok"]'); await page.waitForTimeout(300);
     await page.evaluate(() => action('f:pushpull')); await page.waitForTimeout(700);
-    const [x, y] = await page.evaluate(() => { const b = MODEL.bodies[0].bb, s = toScreen([(b[0] + b[3]) / 2, b[4] - 0.001, (b[2] + b[5]) / 2 - 0]), r = ov.getBoundingClientRect(); return [s.x + r.left, s.y + r.top]; });
+    const [x, y] = await page.evaluate(() => { const b = MODEL.bodies[0].bb, s = toScreen([(b[0] + b[3]) / 2, (b[1] + b[4]) / 2, (b[2] + b[5]) / 2]), r = ov.getBoundingClientRect(); return [s.x + r.left, s.y + r.top]; });
     await page.mouse.move(x, y); await page.waitForTimeout(250); await page.mouse.click(x, y); await page.waitForTimeout(900);
     assert.strictEqual(await page.evaluate(() => CMD.f.faces.length), 1, 'a click picks the sphere face');
   });

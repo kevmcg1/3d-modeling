@@ -12,8 +12,8 @@ const close = (a, b, tol, what) => assert(Math.abs(a - b) <= tol, `${what}: ${a}
   const page = await browser.newPage({ viewport: { width: 1400, height: 850 } });
   const errs = []; page.on('pageerror', e => errs.push(e.message));
   await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
-  await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' }));
-  await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await page.waitForTimeout(1500);
+  await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' })); await page.route(/gate\.js/, r => r.abort());
+  await page.addInitScript(() => { window.DATUM_NOFX = true; }); await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await page.waitForTimeout(1500);
   const P = (id, cx, extra) => Object.assign({ id, type: 'primitive', name: 'P' + id, shape: 'box', base: 'XY', cx, cy: 0, off: 0, op: 'new', w: 20, d: 20, h: 10, dia: 12, dia2: 0, tube: 6, center: true, sit: true }, extra || {});
   await ok('plane along path: halfway along a 100 mm line sits 50 mm along it, square to it; the far end and a bent path work', async () => {
     const r = await page.evaluate(() => {

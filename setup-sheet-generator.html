@@ -91,7 +91,7 @@
   #orientView[data-machine="lathe"] .mill-only, #orientView[data-machine="mill"] .lathe-only { display: none; }
 
   /* Segmented controls with a sliding highlight */
-  /* Buttons size to their own text (never squeezed under a neighbour); long labels wrap inside their button rather than overflow */
+  /* Buttons size to their own text (never squeezed under a neighbor); long labels wrap inside their button rather than overflow */
   .seg { position: relative; display: flex; border: 1px solid var(--ui-line); border-radius: 9px; background: var(--ui-input); padding: 2px; }
   .seg-pill { position: absolute; top: 2px; left: 2px; width: 0; height: 0; border-radius: 7px; background: var(--ui-accent); box-shadow: 0 1px 3px rgba(37,99,235,.35);
     transition: transform .3s var(--ease), width .3s var(--ease), height .3s var(--ease); }
@@ -1882,7 +1882,7 @@
 
     // Draw a draggable label. Once dragged away, a leader with an arrowhead points back to its home spot
     // (or wherever its tip was dragged). o: { size, weight, fill, stroke, anchor, attrs, groupAttrs, ls, tip:[x,y], tipR, minLead,
-    //   name: true for a part name (uppercase italic Roboto), pad: colour of the clear margin behind it }
+    //   name: true for a part name (uppercase italic Roboto), pad: color of the clear margin behind it }
     function dragLabel(key, x, y, text, o, interactive) {
       const m = mv(key), anchor = o.anchor || 'middle', str = o.name ? String(text ?? '').toUpperCase() : String(text ?? '');
       const w = o.name ? twName(str, o.size) : tw(str, o.size, o.weight, o.ls || 0), h = o.size * 1.25;
@@ -1974,7 +1974,7 @@
         `<marker id="arX2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0L10 5L0 10z" fill="#1d5fd6"/></marker>` +
         `<marker id="stepA" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#2563eb"/></marker>${leaderMarker(c.text)}</defs>`);
       const title = (key, s, x) => t(key, x, 34, s, 13, 700, 'start', 'letter-spacing="1.6" opacity=".6"', { ls: 1.6 });
-      // A part name: uppercase italic Roboto; centered ones get a clear margin in the part's own colour
+      // A part name: uppercase italic Roboto; centered ones get a clear margin in the part's own color
       const nm = (key, x, y, s, size, bg) => t(key, x, y, s, size, 700, 'middle', '', { name: true, pad: bg });
       // Outline of one stepped jaw (the top one; the bottom one is its mirror image)
       const jawPath = (flip) => {
@@ -2222,7 +2222,7 @@
         `<text x="${n(x)}" y="${n(y)}" text-anchor="middle" dominant-baseline="central" font-size="${n(size)}" font-weight="${weight}" fill="${c.text}" ${extra}>${esc(t)}</text>`;
       // Every piece of text is a draggable label (see dragLabel)
       const lbl = (key, x, y, t, size, weight, extra = {}) => dragLabel(key, x, y, t, { size, weight, fill: c.text, stroke: c.text, ...extra }, interactive);
-      // A part name: centered, uppercase italic Roboto, on a clear margin in the part's own colour
+      // A part name: centered, uppercase italic Roboto, on a clear margin in the part's own color
       const name = (key, x, y, t, size, bg, extra = {}) => lbl(key, x, y, t, size, 700, { name: true, pad: bg, ...extra });
       const title = (key, t, x, y) => lbl(key, x, y, t, 13, 700, { anchor: 'start', ls: 1.6, attrs: `letter-spacing="1.6" opacity="${n(.6 * g.titleOp)}"` });
       // X/Y (top) or X/Z (front) arrows anchored on the origin, with a white outline so they read over any line
@@ -2641,5 +2641,6 @@
   App.setMode(mode() || 'sheet');
 })();
 </script>
+<script src="outline-ui.js"></script>
 </body>
 </html>

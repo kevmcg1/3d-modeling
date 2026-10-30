@@ -10,7 +10,7 @@
 <meta name="robots" content="noai, noimageai">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>3D Modeler</title>
-<script>try { document.documentElement.setAttribute("data-theme", localStorage.getItem("datum.theme") === "dark" ? "dark" : "light"); } catch (e) { document.documentElement.setAttribute("data-theme", "light"); }   // light unless the user chose dark</script>
+<script>try { document.documentElement.setAttribute("data-theme", localStorage.getItem("datum.theme") === "light" ? "light" : "dark"); } catch (e) { document.documentElement.setAttribute("data-theme", "dark"); }   // dark unless the user chose light</script>
 <script>
 // Early capture for the exported log: errors, rejections and console warnings/errors from page load, before the trace module exists.
 (function () {
@@ -3771,7 +3771,7 @@ body.col-drag { cursor: col-resize; user-select: none; }
 #viewport { position: relative; min-width: 0; min-height: 0; overflow: hidden;
   background: linear-gradient(180deg, var(--view-top), var(--view-bot)); touch-action: none; }
 #gl, #ov { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-/* Shaded mode "studio look": a light vignette backdrop (warm white centre, cool grey edges); sketch ink and grid use the light-theme set so they read on it in either UI theme */
+/* Shaded mode "studio look": a light vignette backdrop (warm white center, cool gray edges); sketch ink and grid use the light-theme set so they read on it in either UI theme */
 :root[data-look="shaded"] { --look-a: #fbf7f4; --look-b: #e6e5e7; --look-c: #bcc2cd; --edge: #1c232d; --body: #b4bec9; }
 /* light theme: sketch ink and grid use the dark set so they read on the pale backdrop */
 :root[data-look="shaded"]:not([data-theme="dark"]) {
@@ -3779,7 +3779,7 @@ body.col-drag { cursor: col-resize; user-select: none; }
   --sk-profile: rgba(236, 166, 52, .20); --sk-profile-hot: rgba(236, 166, 52, .42); --sk-profile-sel: rgba(36, 96, 200, .30);
   --sk-dim: rgba(23, 32, 44, .45); --grid-minor: rgba(35, 52, 76, .07); --grid-major: rgba(35, 52, 76, .15);
   --axis-u: #cf4236; --axis-v: #2b9650; --snap: #e2630f; --face-hot: #3d7cf0; --plane: #6f9be8; }
-/* dark theme: a dark studio backdrop (cool charcoal centre, near-black edges) and the dark theme's light ink */
+/* dark theme: a dark studio backdrop (cool charcoal center, near-black edges) and the dark theme's light ink */
 :root[data-look="shaded"][data-theme="dark"] { --look-a: #3a414c; --look-b: #262b33; --look-c: #111317; --edge: #0b0e12; --body: #9aa6b4; }
 :root[data-look="shaded"] #viewport, :root[data-look="shaded"] body.ws-cam #viewport { background:
   radial-gradient(ellipse 90% 80% at 42% 38%, var(--look-a) 0%, var(--look-b) 58%, var(--look-c) 100%); }
@@ -6251,7 +6251,7 @@ function evalThread(f, ctx) {
           return G;
         };
         items.push({ mk, zA, zB, P, must: t.must });
-      } catch (e) { if (t.must) throw e; }                          // a neighbour that cannot take it is skipped; the picked one must
+      } catch (e) { if (t.must) throw e; }                          // a neighbor that cannot take it is skipped; the picked one must
     }
     let polys = body.polys;
     items.sort((x, y) => (y.must ? 1 : 0) - (x.must ? 1 : 0));          // the picked hole first: it shows how much a mm of this thread takes out
@@ -6260,7 +6260,7 @@ function evalThread(f, ctx) {
         const v0 = polyVolume(polys);
         polys = threadCut(polys, it.mk, it.zA, it.zB, N, it.P, rate);
         if (it.must) rate = (v0 - polyVolume(polys)) / Math.max(1e-6, it.zB - it.zA);
-      } catch (e) { if (it.must) throw e; }                         // a neighbour that cannot take it is skipped
+      } catch (e) { if (it.must) throw e; }                         // a neighbor that cannot take it is skipped
     }
     ctx.bodies = ctx.bodies.map(b => b === body ? { id: b.id, polys, bb: bboxPolys(polys) } : b);
   }
@@ -8235,7 +8235,7 @@ const LH_OPTS = [['none', 'Solid web'], ['holes', 'Lightening holes']];
 // ── Axles & shafts ──
 SHOP.axle = {
   name: 'Stepped axle', grp: 'Axles & shafts', drive: 1, parts: [['Axle', SHOP_COL.steel]],
-  p: [['L', 'Length', 200, 'len'], ['D', 'Main Ø', 25, 'len'], ['jd', 'End journal Ø', 20, 'len'], ['jl', 'Journal length', 30, 'len'], ['cd', 'Shoulder Ø (0 = none)', 35, 'len'], ['cw', 'Shoulder width', 8, 'len'], ['sx', 'Shoulder position', 70, 'len'], ['key', 'Keyway', true, 'chk'], ['kl', 'Keyway length', 50, 'len'], ['rg', 'Circlip grooves', true, 'chk'], ['ch', 'End chamfer', 1.5, 'len'], ['cen', 'Centre holes', true, 'chk']],
+  p: [['L', 'Length', 200, 'len'], ['D', 'Main Ø', 25, 'len'], ['jd', 'End journal Ø', 20, 'len'], ['jl', 'Journal length', 30, 'len'], ['cd', 'Shoulder Ø (0 = none)', 35, 'len'], ['cw', 'Shoulder width', 8, 'len'], ['sx', 'Shoulder position', 70, 'len'], ['key', 'Keyway', true, 'chk'], ['kl', 'Keyway length', 50, 'len'], ['rg', 'Circlip grooves', true, 'chk'], ['ch', 'End chamfer', 1.5, 'len'], ['cen', 'Center holes', true, 'chk']],
   build(P, K) {
     const L = P.L, R = P.D / 2, rj = Math.min(P.jd / 2, R), jl = Math.min(P.jl, L * 0.4), rc = P.cd > P.D ? P.cd / 2 : 0, ch = Math.min(P.ch, rj * 0.5);
     const cw = Math.min(P.cw, L / 4), cx = rc ? Math.max(jl, Math.min(P.sx, L - jl - cw)) : 0, zc = Math.max(R, rc), segs = [];
@@ -8262,8 +8262,8 @@ SHOP.axle = {
   },
 };
 SHOP.wheelAxle = {
-  name: 'Wheel and axle set', grp: 'Axles & shafts', drive: 1, parts: [['Axle', SHOP_COL.steel], ['Wheel L', SHOP_COL.alu], ['Wheel R', SHOP_COL.alu], ['Tyre L', SHOP_COL.black], ['Tyre R', SHOP_COL.black], ['Collar L', SHOP_COL.brass], ['Collar R', SHOP_COL.brass]],
-  p: [['L', 'Axle length', 180, 'len'], ['d', 'Axle Ø', 12, 'len'], ['Dw', 'Wheel Ø', 90, 'len'], ['ww', 'Wheel width', 22, 'len'], ['tt', 'Tyre thickness', 6, 'len'], ['sp', 'Wheel spacing', 120, 'len'], ['lh', 'Wheel web', 'holes', 'sel', LH_OPTS]],
+  name: 'Wheel and axle set', grp: 'Axles & shafts', drive: 1, parts: [['Axle', SHOP_COL.steel], ['Wheel L', SHOP_COL.alu], ['Wheel R', SHOP_COL.alu], ['Tire L', SHOP_COL.black], ['Tire R', SHOP_COL.black], ['Collar L', SHOP_COL.brass], ['Collar R', SHOP_COL.brass]],
+  p: [['L', 'Axle length', 180, 'len'], ['d', 'Axle Ø', 12, 'len'], ['Dw', 'Wheel Ø', 90, 'len'], ['ww', 'Wheel width', 22, 'len'], ['tt', 'Tire thickness', 6, 'len'], ['sp', 'Wheel spacing', 120, 'len'], ['lh', 'Wheel web', 'holes', 'sel', LH_OPTS]],
   build(P, K) {
     const rw = P.Dw / 2, zc = rw, r = P.d / 2, ww = P.ww, tt = Math.min(P.tt, rw * 0.3), hub = Math.max(r * 2.2, 10), x1 = (P.L - P.sp) / 2, x2 = x1 + P.sp, rim = rw - tt;
     const axle = K.turnX(0, zc, 0, [[0, 0], [r - 0.8, 0], [r, 0.8], [r, P.L - 0.8], [r - 0.8, P.L], [0, P.L]]);
@@ -8274,14 +8274,14 @@ SHOP.wheelAxle = {
       if (P.lh === 'holes' && rim - 4 - hub > 12) { const n = 6, rc = (hub + rim - 4) / 2, rr = (rim - 4 - hub) / 2 - 3; for (let i = 0; i < n; i++) { const t = TAU * (i + 0.5) / n; cuts.push(K.cylX(rc * Math.sin(t), zc + rc * Math.cos(t), rr, x0 - 1, x0 + ww + 1)); } }
       return K.sub(body, ...cuts);
     };
-    const tyre = x0 => K.turnX(0, zc, x0, [[rim, 0], [rw - 1.5, 0], [rw, 1.5], [rw, ww - 1.5], [rw - 1.5, ww], [rim, ww]]);
+    const tire = x0 => K.turnX(0, zc, x0, [[rim, 0], [rw - 1.5, 0], [rw, 1.5], [rw, ww - 1.5], [rw - 1.5, ww], [rim, ww]]);
     const collar = x0 => K.sub(K.turnX(0, zc, x0, [[0, 0], [r + 5, 0], [r + 5, 7], [0, 7]]), K.cylX(0, zc, r, x0 - 1, x0 + 8));
-    return [axle, wheel(x1, -1), wheel(x2, 1), tyre(x1 - ww), tyre(x2), collar(x1 - ww - 8), collar(x2 + ww + 1)];
+    return [axle, wheel(x1, -1), wheel(x2, 1), tire(x1 - ww), tire(x2), collar(x1 - ww - 8), collar(x2 + ww + 1)];
   },
 };
 
 // ── Pulleys & sprockets ──
-// V-belt sections: [label, pitch width, groove depth, groove spacing, edge to centre, height above the pitch line]
+// V-belt sections: [label, pitch width, groove depth, groove spacing, edge to center, height above the pitch line]
 const VBELT = { z: ['Z / SPZ', 8.5, 11, 12, 8, 2], a: ['A / SPA', 11, 13.75, 15, 10, 2.75], b: ['B / SPB', 14, 17.5, 19, 12.5, 3.5], c: ['C / SPC', 19, 23.8, 25.5, 17, 4.8] };
 const VBELT_OPTS = Object.entries(VBELT).map(([k, v]) => [k, v[0]]);
 // a V-groove rim profile: points (radius, axial) for the grooves of an n-groove sheave starting at xr0
@@ -8378,10 +8378,10 @@ SHOP.ropeSheave = {
 // ── Belt drive: two V pulleys on shafts joined by a belt, standing on a base plate ──
 SHOP.beltDrive = {
   name: 'V-belt drive', grp: 'Drives', drive: 1, parts: [['Drive shaft', SHOP_COL.steel], ['Driven shaft', SHOP_COL.steel], ['Drive pulley', SHOP_COL.iron], ['Driven pulley', SHOP_COL.iron], ['Belt', SHOP_COL.black], ['Base plate', SHOP_COL.blue]],
-  p: [['d1', 'Drive pulley pitch Ø', 80, 'len'], ['d2', 'Driven pulley pitch Ø', 160, 'len'], ['cd', 'Centre distance', 220, 'len'], ['sec', 'Belt section', 'a', 'sel', VBELT_OPTS], ['sd', 'Shaft Ø', 19, 'len'], ['plate', 'Base plate', true, 'chk']],
+  p: [['d1', 'Drive pulley pitch Ø', 80, 'len'], ['d2', 'Driven pulley pitch Ø', 160, 'len'], ['cd', 'Center distance', 220, 'len'], ['sec', 'Belt section', 'a', 'sel', VBELT_OPTS], ['sd', 'Shaft Ø', 19, 'len'], ['plate', 'Base plate', true, 'chk']],
   build(P, K) {
     const [, wp, dep, , f, hb] = VBELT[P.sec], r1 = P.d1 / 2, r2 = P.d2 / 2, cd = P.cd, tn = Math.tan(17 * Math.PI / 180);
-    if (cd <= r1 + r2 + hb * 2) throw new Error('The pulleys would touch: increase the centre distance');
+    if (cd <= r1 + r2 + hb * 2) throw new Error('The pulleys would touch: increase the center distance');
     const z0 = P.plate ? 12 : 0, zp = z0 + 22, W = 2 * f, hubR = P.sd / 2 + 7, sh = zp + W + 30;
     const sheave = (cx, pd) => {
       const R = pd / 2 + hb, rbot = R - dep, ri = Math.max(hubR + 3, rbot - 5), g = vGroovePts(P.sec, 1, pd, 0, ri + 1);
@@ -8389,7 +8389,7 @@ SHOP.beltDrive = {
       const prof = [[0, 0], [hubR, 0], [hubR, 7], [ri, 7], [ri, 0], [R - 1, 0], [R, 1], ...g.pts, [R, W - 1], [R - 1, W], [ri, W], [ri, W - 7], [hubR, W - 7], [hubR, W], [0, W]];
       return K.sub(K.turn('z', cx, 0, zp, prof), K.cyl('z', cx, 0, P.sd / 2, zp - 1, zp + W + 1));
     };
-    const rp1 = r1, rp2 = r2, gam = Math.acos((rp1 - rp2) / cd), N = 28, loop = rr1 => {        // the belt centre-line offset by the belt's half thickness
+    const rp1 = r1, rp2 = r2, gam = Math.acos((rp1 - rp2) / cd), N = 28, loop = rr1 => {        // the belt center-line offset by the belt's half thickness
       const out = [], a = rp1 + rr1, b = rp2 + rr1;
       for (let i = 0; i <= N; i++) { const t = gam + (TAU - 2 * gam) * i / N; out.push([a * Math.cos(t), a * Math.sin(t)]); }
       for (let i = 0; i <= N; i++) { const t = -gam + 2 * gam * i / N; out.push([cd + b * Math.cos(t), b * Math.sin(t)]); }
@@ -8409,7 +8409,7 @@ SHOP.beltDrive = {
 // ═══════════════════════════════════════════════════════════════════
 //  Deform — bend, twist, taper and warp any bodies, or flow them along a
 //  path. The bodies are cut on a lattice aligned with the world axes (so
-//  neighbouring faces split identically and stay crack-free), every vertex
+//  neighboring faces split identically and stay crack-free), every vertex
 //  goes through the deformation, and each original face becomes one smooth
 //  freeform face whose normals come from the deformation's own slope.
 // ═══════════════════════════════════════════════════════════════════
@@ -10239,7 +10239,7 @@ function restore(s) {
   if (UIX.ws === 'cam') camDraw();
   modelChanged();
 }
-function undo() { if (typeof LIVE !== 'undefined' && LIVE.on) { liveCancel(); setTool('select'); toast('Cancelled'); return; } if (hist.cur <= 0) return; jumpTo(hist.cur - 1); toast('Undid ' + hist.labels[hist.cur + 1]); }
+function undo() { if (typeof LIVE !== 'undefined' && LIVE.on) { liveCancel(); setTool('select'); toast('Canceled'); return; } if (hist.cur <= 0) return; jumpTo(hist.cur - 1); toast('Undid ' + hist.labels[hist.cur + 1]); }
 function redo() { if (hist.cur >= hist.states.length - 1) return; jumpTo(hist.cur + 1); toast('Redid ' + hist.labels[hist.cur]); }
 function saveLocal() { try { localStorage.setItem('datum.doc', snap()); } catch (e) { /* storage unavailable */ } }
 
@@ -10587,8 +10587,10 @@ function frame(now) {
   stepMotion(now);
   simTick(now);
   if (typeof buildTick === 'function') buildTick(now);
+  if (typeof FEATFX === 'object') FEATFX.tick(now);
   if (typeof motionTick === 'function') motionTick(now);
   if (typeof camPoseTick === 'function') camPoseTick(now);
+  if (typeof SECTION === 'object') SECTION.tick();
   updateCamera();
   syncSketch3D();
   // Scale construction planes' outlines with zoom? They are world-sized; fine.
@@ -10604,7 +10606,9 @@ function frame(now) {
   renderer.clearDepth();
   renderer.setViewport(r.x, H - r.y - r.h, r.w, r.h);
   renderer.setScissor(r.x, H - r.y - r.h, r.w, r.h); renderer.setScissorTest(true);
+  const secPlanes = renderer.clippingPlanes; renderer.clippingPlanes = [];                    // the view cube is never cut by the section plane
   renderer.render(cubeScene, cubeCam);
+  renderer.clippingPlanes = secPlanes;
   renderer.setScissorTest(false);
   drawOverlay();
   update2D3D();
@@ -13011,8 +13015,7 @@ addEventListener('pointerdown', e => { if (!ctxmenu.hidden && !ctxmenu.contains(
 //    Any title="…" in the page (now or rendered later) becomes data-tip="…".
 (() => {
   const tip = document.createElement('div');
-  tip.id = 'tip'; tip.setAttribute('role', 'tooltip');
-  document.body.appendChild(tip);
+  tip.id = 'tip'; tip.setAttribute('role', 'tooltip');                                    // (kept detached: the one-line label is pure CSS now, see icon-ux.js)
   const adopt = el => { const t = el.getAttribute('title'); if (t != null) { if (t) el.setAttribute('data-tip', t); el.removeAttribute('title'); } };
   const sweep = root => { if (root.nodeType !== 1) return; if (root.hasAttribute('title')) adopt(root); root.querySelectorAll('[title]').forEach(adopt); };
   sweep(document.body);
@@ -13021,6 +13024,7 @@ addEventListener('pointerdown', e => { if (!ctxmenu.hidden && !ctxmenu.contains(
   let target = null, timer = 0;
   const hide = () => { clearTimeout(timer); target = null; tip.classList.remove('show'); };
   const show = el => {
+    return;                                                                         // the label is CSS (data-ctip), the rich card comes on a long hover
     if (!el.isConnected) return;
     tip.textContent = el.getAttribute('data-tip');
     tip.classList.remove('below');
@@ -13819,7 +13823,7 @@ document.getElementById('btnFit').addEventListener('click', () => fitAll());
 // How bodies are drawn: Solid (lit, with edge lines), Shaded (lit, no lines), Wireframe (edges only).
 let SHADE = 'solid';
 try { const v = localStorage.getItem('datum.shade'); if (v === 'shaded' || v === 'wire') SHADE = v; } catch (e) { /* storage unavailable */ }
-// Studio look (Shaded mode): a product-render finish. Satin aluminium lit by a softbox environment (the scene is Y-up), reflections that
+// Studio look (Shaded mode): a product-render finish. Satin aluminum lit by a softbox environment (the scene is Y-up), reflections that
 // shift across each face as if seen through a wide lens (the camera is orthographic, so a flat face would otherwise be one
 // flat tone), screen-space ambient occlusion in the corners, soft edge lines and a contact shadow, over a light vignette.
 // Solid and Wireframe keep the plain engineering look.
@@ -13834,7 +13838,7 @@ function lookEnv() {
   try {
     const sc = new THREE.Scene(), sg = new THREE.SphereGeometry(50, 48, 24), pos = sg.attributes.position, col = new Float32Array(pos.count * 3);
     const lerp = (a, b, k) => a.map((v, i) => v + (b[i] - v) * k), sm = k => k * k * (3 - 2 * k);
-    const ramp = h => {   // height → colour: bright ceiling, cool grey horizon band, dark floor
+    const ramp = h => {   // height → color: bright ceiling, cool gray horizon band, dark floor
       const T = [0.97, 0.97, 1.0], M = [0.88, 0.91, 0.98], F = [0.78, 0.79, 0.85];
       return h > 0 ? lerp(M, T, sm(Math.min(1, h / 0.75))) : lerp(M, F, sm(Math.min(1, -h / 0.6)));
     };
@@ -13869,7 +13873,7 @@ function lookStyle(m) {
     m.customProgramCacheKey = () => 'datumLook';
     m.needsUpdate = true;
   }
-  const on = LOOK.on && LOOK.env, paint = m !== bodyMat;   // a body with its own colour reads as painted / anodised, the default as bare aluminium
+  const on = LOOK.on && LOOK.env, paint = m !== bodyMat;   // a body with its own color reads as painted / anodised, the default as bare aluminum
   m.envMap = on ? LOOK.env : null;
   m.envMapIntensity = paint ? 0.55 : 1;
   m.metalness = on ? (paint ? 0.12 : 0.9) : 0.08;
@@ -13927,7 +13931,7 @@ function lookAO() {
             vec2 o = vec2(cos(a), sin(a)) * r;
             vec2 u2 = uv + o / uRes;
             if (texture2D(tDepth, u2).x >= 0.99999) continue;
-            vec3 d = vec3(o * uWpp, z0 - lin(u2));                         // from this pixel to the neighbour surface point, in world units (z toward the camera)
+            vec3 d = vec3(o * uWpp, z0 - lin(u2));                         // from this pixel to the neighbor surface point, in world units (z toward the camera)
             float len = length(d);
             if (len < 1e-5) continue;
             occ += max(dot(N, d / len) - 0.2, 0.0) * (1.0 - smoothstep(uRw * 0.6, uRw * 1.6, len));
@@ -13975,7 +13979,7 @@ function applyLook() {
   lookShadowUpdate();
   headLight.intensity = on ? 0.4 : LOOK.plain.head; hemi.intensity = on ? 0.12 : LOOK.plain.hemi;
   for (const m of [bodyMat, ...(typeof BODY_MATS !== 'undefined' ? BODY_MATS.values() : [])]) lookStyle(m);
-  readTheme();   // re-reads the sketch ink / body colours for the backdrop that is now showing
+  readTheme();   // re-reads the sketch ink / body colors for the backdrop that is now showing
   applyShadeVis();
 }
 // Which of a body's two objects show: Solid = surface + edges, Shaded = surface + faint edges, Wireframe = edges only.
@@ -14134,6 +14138,14 @@ const MATERIALS = {
   aluminum: { name: 'Aluminum 6061-T6', short: 'Aluminum', vc: { mill: 300, face: 450, drill: 100, tap: 15 }, fz: 1.0, raw: 0xaeb4bb, cut: 0xdfe3e8 },
   stainless: { name: 'Stainless 304', short: 'Stainless', vc: { mill: 90, face: 150, drill: 30, tap: 5 }, fz: 0.55, raw: 0x8f969e, cut: 0xc6cbd1 },
   brass: { name: 'Brass 360', short: 'Brass', vc: { mill: 220, face: 320, drill: 80, tap: 12 }, fz: 1.1, raw: 0xa88a4c, cut: 0xe2c27a },
+  // Surface speeds vc (m/min) for coated carbide, chip-load factors fz against aluminum (1.0): starting points from tool-maker charts, to be tuned at the machine
+  copper: { name: 'Copper C110', short: 'Copper', vc: { mill: 180, face: 250, drill: 60, tap: 10 }, fz: 0.8, raw: 0xa86a4a, cut: 0xe3a07a },
+  mildsteel: { name: 'Mild steel 1018', short: 'Mild steel', vc: { mill: 120, face: 180, drill: 40, tap: 10 }, fz: 0.7, raw: 0x7e858c, cut: 0xb9bfc6 },
+  alloysteel: { name: 'Alloy steel 4140, pre-hard', short: 'Alloy steel', vc: { mill: 90, face: 140, drill: 30, tap: 8 }, fz: 0.6, raw: 0x727880, cut: 0xaab0b7 },
+  castiron: { name: 'Gray cast iron', short: 'Cast iron', vc: { mill: 110, face: 180, drill: 40, tap: 10 }, fz: 0.8, raw: 0x5f6368, cut: 0x93979c },
+  titanium: { name: 'Titanium Ti-6Al-4V', short: 'Titanium', vc: { mill: 45, face: 60, drill: 15, tap: 3 }, fz: 0.4, raw: 0x8a8d93, cut: 0xbfc2c8 },
+  inconel: { name: 'Inconel 718', short: 'Inconel', vc: { mill: 25, face: 35, drill: 8, tap: 2 }, fz: 0.3, raw: 0x6f747b, cut: 0xa4a9b0 },
+  acetal: { name: 'Acetal (Delrin)', short: 'Acetal', vc: { mill: 400, face: 600, drill: 100, tap: 25 }, fz: 1.5, raw: 0xe8e6df, cut: 0xf6f4ee },
 };
 const matOf = () => MATERIALS[(typeof doc !== 'undefined' && doc && doc.cam && doc.cam.material) || 'aluminum'] || MATERIALS.aluminum;
 // Feeds & speeds for a tool in the current material.
@@ -14440,7 +14452,7 @@ function camHoles() {
   // Only holes that open upward can be drilled from the top; one opening
   // underneath (material above it) is left for another setup.
   // open to the sky across its whole mouth, not just at the center (a cavity under a
-  // wall with a small hole in the middle is not a hole drilled from the top). Nor is the outer wall of a ring groove: its centre stands up.
+  // wall with a small hole in the middle is not a hole drilled from the top). Nor is the outer wall of a ring groove: its center stands up.
   for (const h of out) h.fromTop = [[0, 0], [0.7, 0], [-0.7, 0], [0, 0.7], [0, -0.7]].every(([u, v]) => partTopAt(h.x + u * h.d / 2, h.y + v * h.d / 2) <= h.bot + 0.01);
   return (g.holes = out.filter(h => h.fromTop));
 }
@@ -16650,11 +16662,32 @@ function postGcode() {
   L.push(`(Part: ${doc.features.length} features · generated ${new Date().toISOString().slice(0, 10)})`);
   L.push(`(WCS G54: ${wcsName(C)})`);
   L.push(`(Units: ${inch ? 'inches' : 'millimeters'})`);
+  // the tool list at the top of the program, as Fusion and Mastercam post it: what the operator loads, in order of use
+  {
+    const used = new Map();
+    for (const op of C.ops.filter(op => !op.sup)) {
+      const Pq = toolpath(op); if (!Pq || Pq.pending || Pq.m.length < 2 || (opAxis(op) && !PF.indexed)) continue;
+      const zo = opOrigin(op)[2], u = used.get(Pq.tool.n); let zmin = Infinity;
+      for (const m of Pq.m) if (!m.r && m.z - zo < zmin) zmin = m.z - zo;                           // (a loop: a 3D toolpath has too many moves to spread into Math.min)
+      used.set(Pq.tool.n, { t: Pq.tool, zmin: u ? Math.min(u.zmin, zmin) : zmin });
+    }
+    if (used.size && !grbl) { L.push('(TOOLS)'); for (const { t, zmin } of used.values()) L.push(`(T${t.n}  D=${N(t.d)}${isFinite(zmin) ? ` - ZMIN=${N(zmin)}` : ''} - ${String(TOOL_TYPES[t.type] || t.type).toUpperCase().replace(/[()]/g, '')})`); }
+  }
   const multi = pf.multi === 'g682' ? 'g682' : 'setup', SU = camSetup();
   if (!grbl && SU) L.push(multi === 'g682' ? '(Indexed ops: G68.2 tilted work plane + G53.1. Check your control has tilted-plane machining enabled.)' : `(Indexed ops on the ${SU.name}: rotation center X${N(SU.c[0] - o[0])} Y${N(SU.c[1] - o[1])} Z${N(SU.c[2] - o[2])} from G54 — set it to your rotary's centerline and check its directions.)`);
   L.push(...PF.init(inch), PF.wcs[0]);
   let wcsNow = 54;
   let lastTool = null, totalMin = 0;
+  // coolant: the program default (Off / Flood / Mist / Flood + mist / Through-spindle) with a per-operation override
+  const COOL = { off: ['', ''], flood: ['M8', 'M9'], mist: ['M7', 'M9'], both: ['M7 M8', 'M9'], tsc: ['M88', 'M89'] }, CW = PF.coolWords || COOL;
+  const coolOf = op => op.coolant && op.coolant !== 'inherit' ? op.coolant : (pf.coolant ? pf.coolMode || 'flood' : 'off');
+  let coolNow = 'off';
+  const setCool = want => {
+    if (want === coolNow) return;
+    if (coolNow !== 'off') L.push(CW[coolNow][1]);
+    if (want !== 'off') { L.push(CW[want][0]); if (want === 'tsc' && CW.tsc[0] === 'M8') L.push('(THROUGH-SPINDLE COOLANT IS NOT AVAILABLE ON THIS CONTROLLER - FLOOD INSTEAD)'); }
+    coolNow = want;
+  };
   const ops = C.ops.filter(op => !op.sup);
   for (const op of ops) {
     const o = opOrigin(op), P = toolpath(op);
@@ -16668,14 +16701,15 @@ function postGcode() {
     L.push(`(${op.name} — ${toolName(t)})`);
     if (grbl && P.tap) L.push('(WARNING: GRBL has no synchronized tapping cycle - use a floating tap holder)');
     if (lastTool !== t.n) {
-      if (lastTool !== null) { if (pf.coolant) L.push('M9'); L.push('M5'); if (pf.optStop && !grbl) L.push('M1 (OPTIONAL STOP)'); }
+      if (lastTool !== null) { setCool('off'); L.push('M5'); if (pf.optStop && !grbl) L.push('M1 (OPTIONAL STOP)'); }
+      if (pf.toolRetract !== false && PF.toolRetract) L.push(...PF.toolRetract());                // Z home before the change: a Fanuc-style control does not do it by itself
       L.push(...PF.toolChange(t, toolName(t)));
       const maxRpm = C.maxRpm || MACHINE_MAX_RPM, srpm = Math.min(Math.round(t.rpm), maxRpm);
       if (srpm < Math.round(t.rpm)) L.push(`(T${t.n}: S${Math.round(t.rpm)} is above the ${maxRpm} rpm limit, posted at S${srpm} - lower its feed to keep the chip load)`);
       L.push(op.kind === 'bsf' ? `S${srpm} (SPINDLE STAYS OFF UNTIL THE BLADE IS BELOW THE PART)` : `S${srpm} M3`);
-      if (pf.coolant && op.kind !== 'bsf') L.push('M8');
       lastTool = t.n; st.g = null; st.x = st.y = st.z = null; st.f = null;
     }
+    setCool(op.kind === 'bsf' ? 'off' : coolOf(op));
     if (fr) { L.push('G91 G28 Z0. (clear before turning the part)', 'G90', ...fr.code); st.g = null; st.x = st.y = st.z = null; }
     const endFrame = () => { if (fr) { L.push('G91 G28 Z0.', 'G90', ...fr.end); st.g = null; st.x = st.y = st.z = null; } };
     const wn = 54 + Math.max(0, Math.min(5, (op.wcs | 0) || 0));
@@ -16739,12 +16773,51 @@ function postGcode() {
       endFrame();
       continue;
     }
+    // cutter compensation in the control: a tagged stretch (start-up, run, cancel) posts as the part contour with G41 / G42 ... G40
+    const ccOK = !fr && !PF.noComp, ccSeen = P.m.some(q => q.cc);
+    if (ccSeen && !ccOK) L.push(`(CUTTER COMPENSATION IN THE CONTROL IS NOT AVAILABLE FOR THIS OPERATION ON ${PF.name.toUpperCase()} - POSTED AS THE TOOL CENTER PATH)`);
+    const emitComp = i => {
+      const pl = ccPlan(P, i, o, t); if (!pl) return 0;                                        // a damaged stretch (moves dropped) stays the tool center path
+      const { j, mode, Q, rad, z } = pl, g = pl.left ? 'G41' : 'G42', D = pl.D, dw = PF.noCompD ? '' : ` D${D}`, f2 = pl.fRun, mi = pl.mi;
+      L.push(mode === 'control' ? `(CUTTER COMPENSATION ${g}${dw}: THE PROGRAM IS THE PART CONTOUR${op.leave ? ' PLUS THE STOCK LEFT' : ''} - SET THE TOOL RADIUS ${N(rad)} IN THE OFFSET REGISTER)`
+        : `(${mode === 'rwear' ? 'REVERSE ' : ''}WEAR COMPENSATION ${g}${dw}: THE PROGRAM IS THE TOOL CENTER PATH - KEEP THE REGISTER AT THE WEAR VALUE ONLY)`);
+      SRC = { op: op.id, mi: i };
+      st.x = N(Q[0].x); st.y = N(Q[0].y); st.g = 'G1'; st.f = pl.fEng;
+      L.push(`G1 ${g} X${st.x} Y${st.y}${dw} F${F(pl.fEng)}`);
+      const arcLine = (g2, to, c, from) => {
+        const w = [];
+        if (g2 !== st.g) w.push(g2);
+        st.x = N(to.x); st.y = N(to.y);
+        w.push('X' + st.x, 'Y' + st.y, 'I' + N(c.x - from.x), 'J' + N(c.y - from.y));
+        if (f2 !== st.f) { st.f = f2; w.push('F' + F(f2)); }
+        L.push(w.join(' ')); st.g = g2;
+      };
+      let u = 1;
+      while (u < Q.length) {
+        if (Q[u].arc) { SRC = { op: op.id, mi: mi(u) }; arcLine(Q[u].arc.ccw ? 'G3' : 'G2', Q[u], { x: Q[u].arc.cx, y: Q[u].arc.cy }, Q[u - 1]); u++; continue; }
+        let e = u; while (e + 1 < Q.length && !Q[e + 1].arc) e++;
+        const pts = Q.slice(u - 1, e + 1);
+        if (pf.arcs && pts.length - 1 >= 3) {
+          for (const sg of fitArcs(pts, 0.003)) {
+            SRC = { op: op.id, mi: mi(u - 1 + sg.k) };
+            if (!sg.arc) { move('G1', sg.p.x, sg.p.y, z, f2); continue; }
+            arcLine(sg.ccw ? 'G3' : 'G2', sg.p, sg.c, sg.from);
+          }
+        } else for (let q = 1; q < pts.length; q++) { SRC = { op: op.id, mi: mi(u - 1 + q) }; move('G1', pts[q].x, pts[q].y, z, f2); }
+        u = e + 1;
+      }
+      SRC = { op: op.id, mi: j };
+      const fx = pl.fEnd; st.x = N(pl.end.x); st.y = N(pl.end.y); st.g = 'G1';
+      L.push(`G1 G40 X${st.x} Y${st.y}${fx !== st.f ? ' F' + F(fx) : ''}`); st.f = fx;
+      return j + 1;
+    };
     // group consecutive feed moves at constant Z for arc fitting
     let i = 1;
     while (i < P.m.length) {
       const m = P.m[i];
       SRC = { op: op.id, mi: i };
       if (m.code) L.push(...m.code);
+      if (m.cc === 'on' && ccOK) { const nx = emitComp(i); if (nx) { i = nx; continue; } }
       if (m.g12 && PF.g12 && !fr) {
         const g = m.g12;
         SRC = { op: op.id, mi: g.end };
@@ -16775,7 +16848,7 @@ function postGcode() {
     endFrame();
   }
   SRC = null;
-  if (pf.coolant) L.push('M9');
+  setCool('off');
   L.push('M5');
   L.push(...PF.end(N(camStock().z1 + C.safe - o[2])));
   if (PF.semi) for (let i = 0; i < L.length; i++) L[i] = PF.semi(L[i]);                // ; comments instead of ( )
@@ -17043,7 +17116,7 @@ function chainTravel(c) {
 // real wall. Every segment whose ends lie on one circle with the points beside them gets points on the true arc,
 // until the flats are within ARC_SAG of it.
 // Least-squares circle through points {x, y}: a chain read off the mesh has unevenly spaced points, so their average is
-// not the centre (an 8 mm hole's points averaged 0.2 mm off). d from the mean radius.
+// not the center (an 8 mm hole's points averaged 0.2 mm off). d from the mean radius.
 function circleFit(pts) {
   const n = pts.length;
   let cx = 0, cy = 0; pts.forEach(q => { cx += q.x; cy += q.y; }); cx /= n; cy /= n;
@@ -17056,7 +17129,7 @@ function circleFit(pts) {
 }
 const ARC_SAG = 0.004;
 function chainArcs(p0, closed) {
-  // points in the middle of a straight run (where a neighbouring face split the edge) say nothing about the curve and
+  // points in the middle of a straight run (where a neighboring face split the edge) say nothing about the curve and
   // break the four-points-on-a-circle test: leave them out (the shape is the same; the start point is kept)
   const p = [];
   for (let i = 0; i < p0.length; i++) {
@@ -17090,7 +17163,7 @@ function chainArcs(p0, closed) {
   for (let i = 0; i < (closed ? n : n - 1); i++) {
     const j = at(i + 1), a = p[i], b = p[j];
     out.push(a);
-    // the segment is on an arc when four points in a row (it and a neighbour on either side) share one circle and it is short beside the radius
+    // the segment is on an arc when four points in a row (it and a neighbor on either side) share one circle and it is short beside the radius
     // (and all three segments between those four points are short beside the radius: a rectangle's corners also lie on one circle)
     const seg = (u, v) => (closed || (u >= 0 && v < n)) ? Math.hypot(p[at(v)].x - p[at(u)].x, p[at(v)].y - p[at(u)].y) : Infinity;
     const short = (o, k) => o && [k, k + 1, k + 2].every(u => seg(u, u + 1) <= 0.6 * o.R);
@@ -17215,7 +17288,10 @@ GEN.chain = function (op, tool, st, part, P) {
   chainContour(op, tool, st, part, P, chains);
 };
 function chainContour(op, tool, st, part, P, chains) {
-  const r = tool.d / 2, leave = op.leave || 0, off = r + leave, safe = st.z1 + cam().safe, ret = st.z1 + cam().retract, rho = r * 0.6 + 1;
+  const r = tool.d / 2, leave = op.leave || 0, off = r + leave, safe = st.z1 + cam().safe, ret = st.z1 + cam().retract, rho = op.leadR > 0 ? op.leadR : r * 0.6 + 1;
+  // multiple passes (Fusion's multiple stepovers, Mastercam's multi passes): roughing offsets outside the final one, which keeps Leave
+  const nRough = op._single ? 0 : clamp(Math.round(op.roughN) || 0, 0, 10), spRough = op.roughSp > 0 ? op.roughSp : 0.4 * tool.d;
+  const passLeaves = [...Array.from({ length: nRough }, (_, k) => leave + (nRough - k) * spRough), leave];
   let started = false, notes = [];
   for (const c of chains) {
     const pts = chainTravel(c);
@@ -17232,63 +17308,131 @@ function chainContour(op, tool, st, part, P, chains) {
       const fl = chainSideFloor(c, pts, toolSide);
       return Math.min(c.z, fl === -Infinity ? part.z0 - (op.through == null ? 0.5 : op.through) : fl);
     })();
-    let paths = [];                                       // each: { pts (travel order), closed }
+    let paths = [];                                       // each: { pts (travel order), closed, rough }
     if (c.closed) {
       const ccw = cArea(cP(pts)) > 0;
       if (side === 'on') paths.push({ pts, closed: true });
       else {
         const inside = (side === 'left') === ccw, base = ccw ? cP(pts) : cP(pts.slice().reverse());
-        for (const q of cOffset([base], inside ? -off : off)) {
-          if (cArea(q) <= 1e-4) continue;
-          let u = uP(q); if (!ccw) u = u.reverse();
-          paths.push({ pts: startNear(u, pts[0]), closed: true });
+        for (const lv of passLeaves) {
+          const rough = lv > leave + 1e-9, nom = ccModeOf(op) === 'control' ? (lv ? cOffset([base], inside ? -lv : lv).map(uP) : [pts]) : null;      // the contour the control offsets: the chain itself, or the chain with the stock left
+          const before = paths.length;
+          for (const q of cOffset([base], inside ? -(r + lv) : r + lv)) {
+            if (cArea(q) <= 1e-4) continue;
+            let u = uP(q); if (!ccw) u = u.reverse();
+            paths.push({ pts: startNear(u, pts[0]), closed: true, nom, rough });
+          }
+          if (paths.length === before && !rough) { P.warn.push(`The Ø${fmtTool(tool.d)} tool is too large for ${op.chains.length > 1 ? 'one of these chains' : 'this chain'}.`); paths = []; break; }
         }
-        if (!paths.length) { P.warn.push(`The Ø${fmtTool(tool.d)} tool is too large for ${op.chains.length > 1 ? 'one of these chains' : 'this chain'}.`); continue; }
+        if (!paths.length) continue;
       }
     } else {
-      paths.push({ pts: side === 'on' ? pts : offsetOpen(pts, off, side === 'left' ? 1 : -1), closed: false });
+      for (const lv of side === 'on' ? [leave] : passLeaves) {
+        const rough = lv > leave + 1e-9, dir = side === 'left' ? 1 : -1;
+        paths.push({ pts: side === 'on' ? pts : offsetOpen(pts, r + lv, dir), closed: false, rough, nomOpen: side !== 'on' && ccModeOf(op) === 'control' ? (lv ? offsetOpen(pts, lv, dir) : pts) : null });
+      }
     }
     const zs = op._single ? [bottom] : levels(st.z1, bottom, op.stepdown || 2), tabZ = !op._single && op.tabs > 0 ? bottom + Math.max(0.2, op.tabH || 1.5) : -Infinity;
     const outsideLoop = c.closed && side !== 'on' && (side === 'left') !== (cArea(cP(pts)) > 0);
-    // how far a tool centred at q reaches into the stock block (≤ 0: clear of it)
+    // how far a tool centerd at q reaches into the stock block (≤ 0: clear of it)
     const pen = q => { const dx = Math.max(st.x0 - q.x, 0, q.x - st.x1), dy = Math.max(st.y0 - q.y, 0, q.y - st.y1); return r - (dx || dy ? Math.hypot(dx, dy) : -Math.min(q.x - st.x0, st.x1 - q.x, q.y - st.y0, st.y1 - q.y)); };
     const sgn = toolSide === 'left' ? 1 : -1, nrmAt = t => P2(-t.y * sgn, t.x * sgn);
     for (const path of paths) {
-      let L = path.pts; const n = L.length;
+      let L = path.pts, n = L.length;
       if (n < 2) continue;
-      let useArc = op.lead !== 'none', rh = rho; const leadAt = i => { const t = nrm2(sub2(L[(i + 1) % n], L[i])); return sub2(add2(L[i], mul2(nrmAt(t), rho)), mul2(t, useArc ? rho : 0)); };
-      if (path.closed && outsideLoop && !c.sp && !c.start && pen(leadAt(0)) > 0) {      // no start picked: enter where the stock is thinnest (the side of a block, not its corner)
+      const ccm = typeof ccModeOf === 'function' ? ccModeOf(op) : null;
+      const tabZp = path.rough ? -Infinity : tabZ;                       // holding tabs belong to the final pass only
+      let wantCC = !!ccm && side !== 'on' && !op.ramp && !(tabZp > -Infinity);              // compensation in the control needs a lead in and out; ramping and tabs stay computer-compensated
+      if (ccm && !wantCC && !P.ccWarned) { P.ccWarned = true; P.warn.push(`Cutter compensation in the control is off for this toolpath: ${side === 'on' ? 'the tool is on the line' : op.ramp ? 'it ramps down the loop' : 'it has tabs'}. The path is compensated in the computer.`); }
+      let useArc = op.lead !== 'none' || wantCC, rh = rho; const leadAt = i => { const t = nrm2(sub2(L[(i + 1) % n], L[i])); return sub2(add2(L[i], mul2(nrmAt(t), rho)), mul2(t, useArc ? rho : 0)); };
+      if (wantCC && path.closed && !c.sp && !c.start) {                  // no start picked: lead in mid-edge on the longest side, where an arc can swing in (never off a corner)
+        let bi = 0, bl = -1; for (let i = 0; i < n; i++) { const l = dst2(L[i], L[(i + 1) % n]); if (l > bl) { bl = l; bi = i; } }
+        const a = L[bi], b = L[(bi + 1) % n];
+        L = path.pts = [lerp2(a, b, 0.5), ...L.slice(bi + 1), ...L.slice(0, bi + 1)]; n = L.length;
+      } else if (path.closed && outsideLoop && !c.sp && !c.start && pen(leadAt(0)) > 0) {      // no start picked: enter where the stock is thinnest (the side of a block, not its corner)
         let bi = 0, bp = pen(leadAt(0));
         for (let k = 1, N = Math.min(n, 96); k < N; k++) { const i = Math.floor(k * n / N), v = pen(leadAt(i)); if (v < bp - 0.01) { bp = v; bi = i; } }
         if (bi) L = path.pts = [...L.slice(bi), ...L.slice(0, bi)];
       }
-      const t0 = nrm2(sub2(L[1], L[0])), nside = nrmAt(t0);
+      // Compensation in the control programs the part contour. Anchor the start on the wall: the point of the contour nearest the
+      // tool-center start, and start the tool-center loop a radius out from it, square to the contour there.
+      let nomRing = null, tnom = null;
+      if (wantCC && ccm === 'control') {
+        const hint = nrm2(sub2(L[1], L[0]));
+        if (path.closed) {
+          let best = null;
+          for (const ring of path.nom || []) { const rs = ccRing(ring, L[0], hint); if (rs && (!best || rs.off < best.off)) best = rs; }
+          if (best && Math.abs(best.off - r) < 0.05) {
+            const w0 = best.pts[0], nx = best.pts.find(q => dst2(q, w0) > 1e-6), tn = nx ? nrm2(sub2(nx, w0)) : null, rl = tn ? ccRing(L, add2(w0, mul2(nrmAt(tn), r)), tn) : null;
+            if (rl && rl.off < 0.05) { L = path.pts = rl.pts.slice(0, -1); n = L.length; nomRing = best.pts; tnom = tn; }
+          }
+        } else if (path.nomOpen && path.nomOpen.length > 1) {
+          const q0 = path.nomOpen[0], tn = nrm2(sub2(path.nomOpen[1], q0));
+          if (dst2(add2(q0, mul2(nrmAt(tn), r)), L[0]) < 0.05) { nomRing = path.nomOpen; tnom = tn; }
+        }
+        if (!nomRing) { wantCC = false; if (!P.ccWarned2) { P.ccWarned2 = true; P.warn.push('The contour for compensation in the control could not be matched to the tool path here, so it is compensated in the computer.'); } }
+      }
+      const t0 = tnom || nrm2(sub2(L[1], L[0])), nside = nrmAt(t0);
       const arcIn = k => { const C = add2(L[0], mul2(nside, rh)), phi = Math.PI / 2 * k / 8; return sub2(C, mul2(add2(mul2(t0, Math.cos(phi)), mul2(nside, Math.sin(phi))), rh)); };
       const eEnd = path.closed ? L[0] : L[n - 1], tE = path.closed ? t0 : nrm2(sub2(L[n - 1], L[n - 2])), nE = path.closed ? nside : P2(-tE.y * (toolSide === 'left' ? 1 : -1), tE.x * (toolSide === 'left' ? 1 : -1));
       const arcOut = k => { const C = add2(eEnd, mul2(nE, rh)), phi = Math.PI / 2 * k / 8; return sub2(C, mul2(add2(mul2(tE, Math.cos(phi)), mul2(nE, Math.sin(phi))), rh)); };
-      if (useArc && path.closed && !outsideLoop && side !== 'on') {       // inside a narrow opening a full-size lead arc swings through the far wall: shrink it to fit, or go straight in
+      if (useArc && !wantCC && path.closed && !outsideLoop && side !== 'on') {       // inside a narrow opening a full-size lead arc swings through the far wall: shrink it to fit, or go straight in
         const loop = cP(L), fits = () => [0, 2, 4, 6, 8].every(k => ClipperLib.Clipper.PointInPolygon(cP([arcIn(k)])[0], loop) !== 0 && ClipperLib.Clipper.PointInPolygon(cP([arcOut(8 + k)])[0], loop) !== 0);
         while (rh > 0.3 && !fits()) rh *= 0.7;
         if (!fits()) useArc = false;
       }
-      const S = useArc ? arcIn(0) : L[0], ext = outsideLoop && path.closed ? pen(S) : 0;
-      const Sx = ext > 0 ? add2(S, mul2(nside, ext + 0.5)) : S;            // go down clear of the stock and feed in, rather than plunge into it
+      let S = useArc ? arcIn(0) : L[0]; const ext = outsideLoop && path.closed ? pen(S) : 0;
+      let Sx = ext > 0 ? add2(S, mul2(nside, ext + 0.5)) : S;            // go down clear of the stock and feed in, rather than plunge into it
+      let Ee = null;                                                        // the straight run-off that cancels the compensation
+      if (wantCC && !useArc) { wantCC = false; if (!P.ccWarned2) { P.ccWarned2 = true; P.warn.push('A lead arc does not fit here (the start point is at a corner or the opening is narrow), so this path is compensated in the computer. Move the start point along an edge to use compensation in the control.'); } }
+      if (wantCC) {
+        // start-up and cancel are straight moves tangent to the lead arcs, at least a tool radius long, and the whole lead must
+        // clear the part (walls, bosses) and stay inside the opening it is cutting. Try the full size first, then smaller.
+        const loop = path.closed && !outsideLoop ? cP(L) : null, inLoop = q => !loop || ClipperLib.Clipper.PointInPolygon(cP([q])[0], loop) !== 0;
+        const big = st.x1 - st.x0 + st.y1 - st.y0 + 100, rectA = [cP([P2(st.x0 - big, st.y0 - big), P2(st.x1 + big, st.y0 - big), P2(st.x1 + big, st.y1 + big), P2(st.x0 - big, st.y1 + big)])];
+        const free = cDiff(rectA, cOffset(silhouetteAbove(bottom + 0.05, true), r - 0.02)), seg = (a, b) => inPaths(a, free) && inPaths(b, free) && !segHitsPaths(a, b, free);     // where the tool center may go: not within a radius of the part
+        let done = false;
+        search: for (const rf of [1, 0.7, 0.5, 0.35]) for (const f of [1, 0.75, 0.5, 0.35]) {
+          rh = rho * rf;
+          const lenA = Math.max((r + 1) * f, ext + 0.5), A = add2(arcIn(0), mul2(nside, lenA)), E = add2(arcOut(16), mul2(nE, (r + 1) * f));
+          if (!inLoop(A) || !inLoop(E)) continue;
+          let good = seg(A, arcIn(0)), prev = arcIn(0);
+          for (let k = 1; k <= 8 && good; k++) { const q = arcIn(k); good = seg(prev, q); prev = q; }
+          prev = arcOut(8);
+          for (let k = 9; k <= 16 && good; k++) { const q = arcOut(k); good = seg(prev, q); prev = q; }
+          if (good && seg(prev, E)) { Sx = A; Ee = E; done = true; break search; }
+        }
+        if (done) S = arcIn(0);
+        else { rh = rho; wantCC = false; Sx = ext > 0 ? add2(S, mul2(nside, ext + 0.5)) : S; if (!P.ccWarned2) { P.ccWarned2 = true; P.warn.push('There is no room for the start-up and cancel moves of compensation in the control here (a wall or boss is in the way), so this path is compensated in the computer. Move the start point.'); } }
+      }
+      let nomList = null;                                                   // what the control is told: a lead arc one radius wider, the contour, the lead-out arc
+      if (wantCC && nomRing) {
+        const R = rh + r, W0 = nomRing[0], We = nomRing[nomRing.length - 1], ccw = toolSide === 'left';
+        const Cin = add2(W0, mul2(nside, R)), Cout = add2(We, mul2(nE, R));
+        const nIn = k => { const phi = Math.PI / 2 * k / 8; return sub2(Cin, mul2(add2(mul2(t0, Math.cos(phi)), mul2(nside, Math.sin(phi))), R)); };
+        const nOut = k => { const phi = Math.PI / 2 * k / 8; return sub2(Cout, mul2(add2(mul2(tE, Math.cos(phi)), mul2(nE, Math.sin(phi))), R)); };
+        const a0 = nIn(0), a1 = nOut(16);
+        nomList = [{ x: a0.x, y: a0.y }, { x: W0.x, y: W0.y, arc: { cx: Cin.x, cy: Cin.y, ccw } }];
+        for (let k = 1; k < nomRing.length; k++) nomList.push({ x: nomRing[k].x, y: nomRing[k].y });
+        nomList.push({ x: a1.x, y: a1.y, arc: { cx: Cout.x, cy: Cout.y, ccw } });
+      }
       zs.forEach((z, li) => {
         const zAbove = Math.min(ret, (li ? zs[li - 1] : st.z1) + 1);
-        if (op.ramp && path.closed && !(z < tabZ - 1e-6)) {            // ramp contour: one spiral down the loop, no plunge and lead at every level
+        if (op.ramp && path.closed && !(z < tabZp - 1e-6)) {            // ramp contour: one spiral down the loop, no plunge and lead at every level
           if (!li) { if (!started) { P.rapid(L[0].x, L[0].y, safe); started = true; } else P.rapid(P.cur[0], P.cur[1], ret); P.rapid(L[0].x, L[0].y, ret); P.rapid(L[0].x, L[0].y, zAbove); }
           rampLoop(P, L, li ? zs[li - 1] : zAbove, z, op.rampAngle || 3, 0);
           return;
         }
         if (!started) { P.rapid(Sx.x, Sx.y, safe); started = true; } else P.rapid(P.cur[0], P.cur[1], ret);
-        P.rapid(Sx.x, Sx.y, ret); P.rapid(Sx.x, Sx.y, zAbove); P.plunge(Sx.x, Sx.y, z); if (Sx !== S) P.feed(S.x, S.y, z);
+        P.rapid(Sx.x, Sx.y, ret); P.rapid(Sx.x, Sx.y, zAbove); P.plunge(Sx.x, Sx.y, z); const i0 = P.m.length; if (Sx !== S) P.feed(S.x, S.y, z);
         if (useArc) for (let k = 1; k <= 8; k++) { const q = arcIn(k); P.feed(q.x, q.y, z); } else P.feed(L[0].x, L[0].y, z);
-        if (z < tabZ - 1e-6) chainTabbed(P, path.closed ? [...L, L[0]] : L, z, tabZ, op.tabs, Math.max(0.5, op.tabW || 4), path.closed, tool);
+        if (z < tabZp - 1e-6) chainTabbed(P, path.closed ? [...L, L[0]] : L, z, tabZp, op.tabs, Math.max(0.5, op.tabW || 4), path.closed, tool);
         else { for (let i = 1; i < n; i++) P.feed(L[i].x, L[i].y, z); if (path.closed) P.feed(L[0].x, L[0].y, z); }
         if (useArc) for (let k = 9; k <= 16; k++) { const q = arcOut(k); P.feed(q.x, q.y, z); }
+        if (wantCC) { P.feed(Ee.x, Ee.y, z); if (ccMark(P, i0, toolSide, ccm, op.compD || tool.n, nomList)) P.ccUsed = true; }
       });
     }
-    notes.push(`${c.closed ? 'closed' : 'open'} chain, tool ${side === 'on' ? 'on the line' : side === 'left' ? 'left' : 'right'} of travel, ${fmtLs(st.z1 - bottom)} below the stock top${tabZ > -Infinity ? `, ${op.tabs} tab${op.tabs > 1 ? 's' : ''}` : ''}`);
+    notes.push(`${c.closed ? 'closed' : 'open'} chain, tool ${side === 'on' ? 'on the line' : side === 'left' ? 'left' : 'right'} of travel, ${fmtLs(st.z1 - bottom)} below the stock top${tabZ > -Infinity ? `, ${op.tabs} tab${op.tabs > 1 ? 's' : ''}` : ''}${P.ccUsed ? `, cutter compensation in the ${op.comp === 'control' ? 'control (G41/G42): set the radius of offset D' + (op.compD || tool.n) : 'wear register D' + (op.compD || tool.n)}` : ''}`);
   }
   if (P.cur) P.rapid(P.cur[0], P.cur[1], safe);
   if (notes.length) P.info = notes.length === 1 ? notes[0] : `${notes.length} chains`;
@@ -17345,7 +17489,7 @@ function chainPocket(op, tool, st, part, P, chains) {
     if (fs > 0) {
       const fin = cOffset(area, -(r + lw)).filter(p => Math.abs(cArea(p)) > 1e-4).map(q => ({ k: 0, pts: uP(q) }));
       const rough = items.filter(q => q.k === 0).flatMap(q => q.pts);
-      const finLink = cOffset(area, -(r + lw) + 0.002);           // where the tool's centre may go at the finish
+      const finLink = cOffset(area, -(r + lw) + 0.002);           // where the tool's center may go at the finish
       const inner = q => { let b = null; for (const p of rough) if ((!b || dst2(p, q) < dst2(b, q)) && !segHitsPaths(p, q, finLink)) b = p; return b || q; };
       // a finish ring no roughing ring reaches (a corner the roughing tool did not fit, with its wall stock) has full-height
       // material on it: it is cut down level by level like the roughing, not entered at depth
@@ -17526,11 +17670,20 @@ function chainDeburr(op, tool, st, part, P, chains) {
   chainContour({ ...op, leave: s - tool.d / 2, depthMode: 'chain', _delta: -(v + clr), _single: true, tabs: 0, lead: op.lead || 'arc' }, tool, st, part, P, chains);
   P.info = `${fmtLs(w)} × ${fmtLs(v)} break (${tool.cone || 90}° cone), tool tip ${fmtLs(v + clr)} below the edge`;
 }
+// Cutter compensation: where the tool radius is taken into account (Fusion's Compensation type, Mastercam's Compensation)
+function compFields(op) {
+  const cur = op.comp === 'control' || op.comp === 'wear' || op.comp === 'rwear' ? op.comp : 'computer', t = toolOf(op.tool);
+  const items = [['computer', 'Computer', 'The program is the tool center path, already offset by the tool radius. Nothing to set at the machine.'], ['control', 'Control', 'The program is the part contour with G41 / G42: the control offsets it by the radius in the tool\'s register, so a worn tool is fixed at the machine.'], ['wear', 'Wear', 'Tool center path with G41 / G42 on, so the register holds only the wear: a small number that grows or shrinks the cut.'], ['rwear', 'Reverse wear', 'As Wear on the other side (G41 and G42 swapped), for climb or conventional the other way round.']];
+  return `<div class="field"><span>Compensation</span><div class="seg">${items.map(([v, l, tip]) => `<button data-opset="comp:${v}" class="${cur === v ? 'on' : ''}" data-tip="${tip}">${l}</button>`).join('')}</div></div>
+    ${cur !== 'computer' ? `<div class="row3">${num('opCompD', op.compD || t.n, 'Offset register (D)', 1, 'min="1" max="99"')}</div>
+    <p class="note">${cur === 'control' ? `Set D${op.compD || t.n} in the control to the tool radius (${fmtLs(t.d / 2)}). It needs a lead in and out; ramping and tabs stay computer-compensated.` : 'Keep the register at the wear value only (0 to start).'}</p>` : ''}`;
+}
 // Fields for the new chain modes and tabs
 function chainxFields(op, cm) {
   const seg = (k, items, cur) => `<div class="seg">${items.map(([v, l, t]) => `<button data-opset="${k}:${v}" class="${cur === v ? 'on' : ''}" ${t ? `data-tip="${t}"` : ''}>${l}</button>`).join('')}</div>`;
   const t = toolOf(op.tool), wide = (op.slotW || 0) > t.d + 0.01;
-  if (cm === 'contour') return `<h3 class="sub">Holding tabs</h3><div class="row3">${num('opTabs', op.tabs || 0, 'Tabs (0 = off)', 1, 'min="0" max="12"')}${num('opTabW', op.tabW || 4, 'Width', 0.5)}${num('opTabH', op.tabH || 1.5, 'Height', 0.25)}</div>
+  if (cm === 'contour') return `${compFields(op)}<h3 class="sub">Passes and lead</h3><div class="row3">${num('opRoughN', op.roughN || 0, 'Rough passes', 1, 'min="0" max="10"')}${num('opRoughSp', op.roughSp > 0 ? op.roughSp : 0.4 * t.d, 'Spacing', 0.1)}${num('opLeadR', op.leadR > 0 ? op.leadR : t.d / 2 * 0.6 + 1, 'Lead radius', 0.1)}</div>
+    <p class="note">${op.roughN > 0 ? `${op.roughN} rough pass${op.roughN > 1 ? 'es' : ''} ${fmtLs(op.roughSp > 0 ? op.roughSp : 0.4 * t.d)} apart, outermost first, then the final pass at Leave.` : 'Rough passes cut offset contours outside the final one, so the last pass takes a light, even cut.'}</p><h3 class="sub">Holding tabs</h3><div class="row3">${num('opTabs', op.tabs || 0, 'Tabs (0 = off)', 1, 'min="0" max="12"')}${num('opTabW', op.tabW || 4, 'Width', 0.5)}${num('opTabH', op.tabH || 1.5, 'Height', 0.25)}</div>
     <p class="note">${op.tabs > 0 ? 'The last passes lift over each tab so the part stays held in the stock. Snap them off and file the stubs.' : 'Tabs leave small bridges at the bottom of a through cut so the part cannot move when it is free.'}</p>`;
   if (cm === 'slot') return `<div class="row3">${num('opSlotW', op.slotW || t.d, 'Slot width', 0.5)}${num('opSd', op.stepdown || 2, 'Stepdown', 0.1)}${num('opDepth', op.depth > 0 ? op.depth : Math.min(3, Math.max(1, t.d * 0.5)), 'Depth below chain', 0.1)}</div>
     <div class="row2">${num('opRamp', op.rampAngle || 3, 'Ramp angle °', 1)}${wide ? num('opTroch', op.trochStep || 0.2, 'Advance per loop ×Ø', 0.05) : ''}</div>
@@ -17547,6 +17700,8 @@ function camxBind(op, setN) {
   if (typeof mcBind === 'function') mcBind(op, setN);
   const set = (k, lo) => v => camEdit(op, k, Math.max(lo, v));
   setN('opTabs', v => camEdit(op, 'tabs', clamp(Math.round(v), 0, 12))); setN('opTabW', set('tabW', 0.5)); setN('opTabH', set('tabH', 0.2));
+  setN('opCompD', v => camEdit(op, 'compD', clamp(Math.round(v), 1, 99)));
+  setN('opRoughN', v => camEdit(op, 'roughN', clamp(Math.round(v), 0, 10))); setN('opRoughSp', set('roughSp', 0.05)); setN('opLeadR', set('leadR', 0.2));
   setN('opSlotW', set('slotW', 0.1)); setN('opRamp', v => camEdit(op, 'rampAngle', clamp(v, 0.5, 30))); setN('opTroch', set('trochStep', 0.02));
   setN('opPitch', set('pitch', 0.05)); setN('opChSize', set('chSize', 0.02)); setN('opTipBelow', set('tipBelow', 0));
 }
@@ -17883,7 +18038,7 @@ function camOpMenu(op, x, y) {
 }
 // ── Right panel views ──────────────────────────────────────────────
 // Length fields show display units; setN converts them back to mm.
-const CAM_LEN = new Set(['stSide', 'stTop', 'stBot', 'camSafe', 'camRet', 'opSd', 'opLeave', 'opThrough', 'opLw', 'opLf', 'opPeck', 'opSoL', 'opRest', 'opFs', 'opRough', 'opPkI', 'opPkJ', 'opPkK', 'opRpl', 'opS22', 'opS52', 'opDepth', 'opBsD', 'opBsC', 'opTabW', 'opTabH', 'opSlotW', 'opPitch', 'opChSize', 'opTipBelow', 'opWlBot']);
+const CAM_LEN = new Set(['stSide', 'stTop', 'stBot', 'camSafe', 'camRet', 'opSd', 'opLeave', 'opThrough', 'opLw', 'opLf', 'opPeck', 'opSoL', 'opRest', 'opFs', 'opRough', 'opPkI', 'opPkJ', 'opPkK', 'opRpl', 'opS22', 'opS52', 'opDepth', 'opBsD', 'opBsC', 'opTabW', 'opTabH', 'opRoughSp', 'opLeadR', 'opSlotW', 'opPitch', 'opChSize', 'opTipBelow', 'opWlBot']);
 const num = (id, v, lab, step = 'any', extra = '') => CAM_LEN.has(id)
   ? `<label class="field"><span>${lab} (${uName()})</span><input type="number" id="${id}" data-cam-input="1" data-len="1" step="any" value="${uval(+v)}" ${extra}></label>`
   : `<label class="field"><span>${lab}</span><input type="number" id="${id}" data-cam-input="1" step="${step}" value="${+(+v).toFixed(4)}" ${extra}></label>`;
@@ -17967,7 +18122,7 @@ function camPanel() {
     return `<div class="pn-head"><h2>Setup</h2><span class="tag">stock · WCS</span></div><div class="pn-body">
       <div class="field"><span>Stock</span><div class="row3">${num('stSide', C.stock.side, 'Sides', 0.5, 'min="0"')}${num('stTop', C.stock.top, 'Top', 0.5, 'min="0"')}${num('stBot', C.stock.bottom, 'Bottom', 0.5, 'min="0"')}</div></div>
       <dl class="kv"><dt>Stock size</dt><dd>${[st.x1 - st.x0, st.y1 - st.y0, st.z1 - st.z0].map(x => fmtLs(x)).join(' × ')}</dd></dl>
-      <div class="field"><span>Material</span><div class="seg">${Object.entries(MATERIALS).map(([k, m]) => `<button data-mat="${k}" class="${(C.material || 'aluminum') === k ? 'on' : ''}">${m.short}</button>`).join('')}</div></div>
+      <div class="field"><span>Material</span><div class="seg" style="flex-wrap:wrap">${Object.entries(MATERIALS).map(([k, m]) => `<button data-mat="${k}" class="${(C.material || 'aluminum') === k ? 'on' : ''}">${m.short}</button>`).join('')}</div></div>
       <p class="note">${matOf().name}. Changing it re-derives the speeds and feeds of every tool.</p>
       <div class="field"><span>Work origin (G54)</span><select id="camOrigin">${opts}</select></div>
       <dl class="kv"><dt>Origin in model (X, Y, Z)</dt><dd>${o.map(x => fmtLs(x)).join(', ')}</dd></dl>
@@ -18533,7 +18688,7 @@ refreshUI = function () { refreshUI1S(); snapBarSync(); };
 //  Stress analysis (linear static): constraints, loads and a material go
 //  to a voxel-brick solver in a worker; the result is a full stress tensor
 //  and displacement at every node, which is turned into Fusion-style
-//  colour maps (von Mises, principal, normal and shear stress,
+//  color maps (von Mises, principal, normal and shear stress,
 //  displacement, strain, safety factor), with a legend you can band or
 //  range, min/max markers, probes, a section through the part,
 //  reactions, a mesh-convergence study and an HTML report.
@@ -18561,7 +18716,7 @@ const STRESS_MODES = [
 ];
 const STRESS_MODE = Object.fromEntries(STRESS_MODES.flatMap(([, l]) => l.map(m => [m[0], m])));
 const STRESS_SIGNED = new Set(['s1', 's3', 'sx', 'sy', 'sz', 'txy', 'tyz', 'txz', 'dx', 'dy', 'dz']);
-// colour maps (stops from low to high)
+// color maps (stops from low to high)
 const STRESS_PALS = {
   rainbow: ['Rainbow (Fusion)', [[0.1, 0.25, 0.95], [0.1, 0.75, 0.95], [0.25, 0.85, 0.35], [0.98, 0.9, 0.2], [0.95, 0.2, 0.15]]],
   jet: ['Jet', [[0, 0, 0.55], [0, 0.4, 1], [0.1, 1, 0.9], [0.6, 1, 0.1], [1, 0.75, 0], [1, 0.1, 0], [0.55, 0, 0]]],
@@ -18809,7 +18964,7 @@ const stressScaleInfo = (mode, R) => {                              // [label, u
   if (k === 'e') return [nm, '', v => v, k];
   return [nm, '', v => v, k];
 };
-// the value range the colours span: automatic from what is visible, or typed in
+// the value range the colors span: automatic from what is visible, or typed in
 function stressRange(R, s) {
   if (s.range && isFinite(s.range[0]) && isFinite(s.range[1]) && s.range[1] > s.range[0]) return s.range;
   const a = STRESS.vals; let lo = Infinity, hi = -Infinity;
@@ -18820,7 +18975,7 @@ function stressRange(R, s) {
   return [lo, hi];
 }
 
-// ── the colour map as a texture (smooth or banded) ──
+// ── the color map as a texture (smooth or banded) ──
 function stressPalTexture(s) {
   const stops = STRESS_PALS[s.pal] ? STRESS_PALS[s.pal][1] : STRESS_PALS.rainbow[1], data = new Uint8Array(256 * 4), nb = s.bands > 1 ? Math.min(32, Math.round(s.bands)) : 0;
   for (let i = 0; i < 256; i++) {
@@ -19702,7 +19857,7 @@ function fxPanel() {
     <label class="chk"><input type="checkbox" data-fx-fix="1" ${s.fxFix !== false ? 'checked' : ''}> Keep the colors on one scale (zero to yield, ${stressNum(m.sy / U.s)} ${U.sn}) so a tighter clamp reads hotter</label>
     <label class="chk"><input type="checkbox" data-sx-mark="1" ${s.markers ? 'checked' : ''}> Mark the max and min</label>
     <label class="field"><span>Deformation shown ×</span><input type="number" min="0" step="1" value="${s.scale}" data-sx-scale="1" data-live="1"></label>
-    <p class="note">Pads and screws are green when the tightness is right, amber when too loose, red when too tight. The orange arrow is the cut. Grey bars are the parallels, plate or vise.</p>
+    <p class="note">Pads and screws are green when the tightness is right, amber when too loose, red when too tight. The orange arrow is the cut. Gray bars are the parallels, plate or vise.</p>
     <div class="btns"><button class="btn" data-do="cancel">Close</button><button class="btn primary" data-fx-do="run">Run again</button></div></div>`;
 }
 
@@ -19983,7 +20138,7 @@ function brickK(nu) {
   const Kinv = A.map(r => r.slice(n)), T = new Float64Array(24 * 9), K = new Float64Array(576);
   for (let i = 0; i < 24; i++) for (let j = 0; j < 9; j++) { let s = 0; for (let k = 0; k < 9; k++) s += Kua[i * 9 + k] * Kinv[k][j]; T[i * 9 + j] = s; }
   for (let i = 0; i < 24; i++) for (let j = 0; j < 24; j++) { let s = 0; for (let k = 0; k < 9; k++) s += T[i * 9 + k] * Kua[j * 9 + k]; K[i * 24 + j] = Kuu[i * 24 + j] - s; }
-  // stress at the centre of a unit cube per unit displacement (E = 1): S = D·Bu(0)
+  // stress at the center of a unit cube per unit displacement (E = 1): S = D·Bu(0)
   const S = new Float64Array(6 * 24), B0 = new Float64Array(6 * 24);
   for (let a = 0; a < 8; a++) {
     const dx = 2 * cx[a] / 8, dy = 2 * cy[a] / 8, dz = 2 * cz[a] / 8;
@@ -20082,7 +20237,7 @@ function solveStress(d) {
     }
     return bd <= (1.8 * h) ** 2 ? best : -1;
   };
-  // a patch limits a face to the part of it under a clamp or a jaw: {c: centre, ax: axis normal to the patch, r: circle radius or hx, hy: rectangle half sizes, zt: depth band along ax}
+  // a patch limits a face to the part of it under a clamp or a jaw: {c: center, ax: axis normal to the patch, r: circle radius or hx, hy: rectangle half sizes, zt: depth band along ax}
   const inPatch = (P, x, y, z) => {
     const q = [x, y, z], ax = P.ax, i1 = (ax + 1) % 3, i2 = (ax + 2) % 3, du = q[i1] - P.c[i1], dv = q[i2] - P.c[i2];
     if (P.zt !== undefined && Math.abs(q[ax] - P.c[ax]) > P.zt) return false;
@@ -20145,7 +20300,7 @@ function solveStress(d) {
       });
       if (!(den > 0)) throw new Error('A bearing load needs a hole face the force pushes against.');
       for (const [id, rh, wc] of list) { const k = L.mag * wc / den; put(id, [rh[0] * k, rh[1] * k, rh[2] * k]); }
-    } else if (L.kind === 'moment') {                                     // a torque about an axis through the face centre
+    } else if (L.kind === 'moment') {                                     // a torque about an axis through the face center
       let a = L.dir; if (a === 'in' || a === 'out') { let sn = [0, 0, 0]; samples(L.tris, (x, y, z, w, n1, n2, n3) => { sn[0] += w * n1; sn[1] += w * n2; sn[2] += w * n3; }); const l = Math.hypot(...sn) || 1; a = sn.map(v => v / l * (L.dir === 'in' ? -1 : 1)); }
       const list = []; let den = 0;
       samples(L.tris, (x, y, z, w) => {
@@ -20235,7 +20390,7 @@ function solveStress(d) {
       const id = nodeId[(c * NY + b) * NX + a]; if (id >= 0) near[id] = 1;
     }
   }
-  // ── refine the surface to about one cell per triangle so colours follow the field
+  // ── refine the surface to about one cell per triangle so colors follow the field
   say(0.93, 'Refining the surface');
   const maxTris = 350000; let hd = h, nTot = 0;
   const subs = new Int32Array(T);
@@ -26687,7 +26842,7 @@ function sGearWorm() {
   const wheel = K.gear(wheelProps); K.color(wheel, '#c8963e');
   // worm: its thread passes the wheel's mid-plane (X = 0) on the side facing the wheel
   const bl = 0.04 * m, s0 = Math.PI * m / 2 - bl, rIn = rpw - 1.25 * m - 0.2 * m, wr = s0 + 2 * (rpw - rIn) * Math.tan(20 * Math.PI / 180), x0 = -30 + wr / 2 + 0.02;
-  const worm = K.gear({ gtype: 'worm', m, starts, q, length: 60, hand: 'R', base: 'YZ', cx: -a, cy: yc, off: -30, bore: 0, phase: +((((-x0 / lead) % 1) + 1) % 1 * 360 + 100).toFixed(4) % 360 });   // centred in the clear window found by the mechanism check K.color(worm, '#9aa3ad');
+  const worm = K.gear({ gtype: 'worm', m, starts, q, length: 60, hand: 'R', base: 'YZ', cx: -a, cy: yc, off: -30, bore: 0, phase: +((((-x0 / lead) % 1) + 1) % 1 * 360 + 100).toFixed(4) % 360 });   // centerd in the clear window found by the mechanism check K.color(worm, '#9aa3ad');
   const ws = K.shaft('YZ', -a, yc, 4, -58, 58); K.color(ws, '#5b6470');
   const hs = K.shaft('XZ', 0, 0, 4, 6, 52); K.color(hs, '#5b6470');
   [[base, 'Base'], [wheel, 'Worm wheel'], [worm, 'Worm'], [ws, 'Worm shaft'], [hs, 'Wheel shaft']].forEach(([f, n]) => K.name(f, n));
@@ -27056,7 +27211,7 @@ function bpSVG(d) {
     for (const g of D.cham) if (g.at && callout('front', g.at, `${g.n > 1 ? g.n + '× ' : ''}${bpNum(g.s)} × 45°`)) placed.cham.push(g);
     for (const t of D.threads) if (t.at && callout(t.ax === 'Z' ? 'front' : 'top', t.at, t.text)) placed.threads.push(t.text);
   }
-  // isometric view, top right, in shades of grey
+  // isometric view, top right, in shades of gray
   const ix0 = place.right[0], iy0 = area.y, iw = area.x + area.w - ix0, ih = place.right[1] - gapY * 0.6 - iy0;
   if (iw > 20 && ih > 20) {
     let w = iw, hh = iw / d.iso.aspect; if (hh > ih) { hh = ih; w = ih * d.iso.aspect; }
@@ -27084,7 +27239,7 @@ function bpSVG(d) {
   const check = BP.dims ? bpCheck(d, placed) : [];
   return { svg: `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${SW} ${SH}" width="${SW}mm" height="${SH}mm" font-family="Inter, Helvetica, Arial, sans-serif">${svg}</svg>`, SW, SH, scale: sc, check, boxes };
 }
-// the isometric picture in greys: black and white like the rest of the sheet
+// the isometric picture in grays: black and white like the rest of the sheet
 const bpIsoColor = bpIso;
 bpIso = function (meshes, bodies, bb) {
   const saved = doc.colors; doc.colors = {};
@@ -27684,7 +27839,7 @@ function sWatch() {
   const E2 = P2(E[0], E[1]), B2 = P2(BAL[0], BAL[1]), be = nrm2(sub2(B2, E2)), PV = add2(E2, mul2(be, 4.6));   // fork pivot, clear of the wheel
   const raE = 0.45 * 15 / 2 + 0.45, rs = 0.2, R0 = raE + rs + 0.12, Rin = raE - 0.3 + rs;
   const rot2 = (v, a) => P2(v.x * Math.cos(a) - v.y * Math.sin(a), v.x * Math.sin(a) + v.y * Math.cos(a)), ang = v => Math.atan2(v.y, v.x), bA = ang(be);
-  let best = null;                                             // stone place and fork swing: the swing drops it 0.3 deep, centred 18° off the line
+  let best = null;                                             // stone place and fork swing: the swing drops it 0.3 deep, centerd 18° off the line
   for (let g = -40; g <= 40; g += 0.05) {
     const S = add2(E2, mul2(P2(Math.cos(bA + g * Math.PI / 180), Math.sin(bA + g * Math.PI / 180)), R0));
     for (let a = 0.0005; a < 0.8; a += 0.0005) {
@@ -28854,7 +29009,7 @@ bpSVG = function (d) {
     } else runJobs(jobs);
   }
   for (const k of Object.keys(views)) svg += `<g data-bpv="${k}">${parts[k]}</g>`;
-  // isometric view, top right, in greys
+  // isometric view, top right, in grays
   const isoBox = isoG;
   if (isoBox) {
     const { x, y, w, h: hh } = isoBox;
@@ -29807,9 +29962,9 @@ ToolLook.build = function (tool) {
 
 <script>
 // ═══════════════════════════════════════════════════════════════════
-//  Icons: Font Awesome Free (solid), one colour — the text colour, so
+//  Icons: Font Awesome Free (solid), one color — the text color, so
 //  black on light, white on dark. Each glyph sits in the same 20 × 20
-//  box the old icons used, scaled to fit and centred both ways with its
+//  box the old icons used, scaled to fit and centerd both ways with its
 //  own proportions kept. The glyphs are fetched once from jsDelivr and kept
 //  in this browser, so later visits (and offline ones) have them at once;
 //  any that can't be had keep the drawn icon.
@@ -30131,7 +30286,7 @@ ov.addEventListener('pointerup', e => {
 addEventListener('keydown', e => {
   if (!skmvLive()) return;
   const t = e.target; if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
-  if ((e.ctrlKey || e.metaKey) && /^[zy]$/i.test(e.key)) { e.preventDefault(); e.stopImmediatePropagation(); skmvCancel(); toast('Move cancelled'); return; }
+  if ((e.ctrlKey || e.metaKey) && /^[zy]$/i.test(e.key)) { e.preventDefault(); e.stopImmediatePropagation(); skmvCancel(); toast('Move canceled'); return; }
   if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); if (SKMV.pick) { SKMV.pick = null; SKMV.hover = null; refreshPanel(); requestDraw(); } else skmvCancel(); }
   else if (e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); skmvOK(); }
 }, true);
@@ -31778,7 +31933,7 @@ const COLOR_NAMES = { red: '#d9443a', blue: '#2f6fe0', green: '#2ea052', orange:
 const CMD_UNITS = {
   mm: 1, millimeter: 1, millimeters: 1, millimetre: 1, millimetres: 1,
   cm: 10, centimeter: 10, centimeters: 10, centimetre: 10, centimetres: 10,
-  m: 1000, meter: 1000, meters: 1000, metre: 1000, metres: 1000,
+  m: 1000, meter: 1000, meters: 1000, meter: 1000, meters: 1000,
   um: 0.001, 'µm': 0.001, micron: 0.001, microns: 0.001, micrometer: 0.001, micrometers: 0.001,
   in: 25.4, inch: 25.4, inches: 25.4, '"': 25.4, '″': 25.4,
   ft: 304.8, foot: 304.8, feet: 304.8, "'": 304.8, '′': 304.8,
@@ -31897,8 +32052,8 @@ function runCommand(line) {
   if (head === 'cut') { op = 'cut'; words = words.slice(1); }
   if (words[words.length - 1] === 'new') { op = 'new'; words.pop(); }
   let kind = words[0], args = words.slice(1), note = '';
-  if (kind !== 'color' && kind !== 'colour' && kind !== 'paint') { const nr = cmdNatural(kind, args); args = nr.args; note = nr.note || ''; if (nr.shape) kind = nr.shape; }
-  if (kind === 'color' || kind === 'colour' || kind === 'paint') {
+  if (kind !== 'color' && kind !== 'color' && kind !== 'paint') { const nr = cmdNatural(kind, args); args = nr.args; note = nr.note || ''; if (nr.shape) kind = nr.shape; }
+  if (kind === 'color' || kind === 'color' || kind === 'paint') {
     const c = COLOR_NAMES[args[0]] || (/^#?[0-9a-f]{6}$/i.test(args[0] || '') ? '#' + args[0].replace('#', '') : null);
     if (!c) throw new Error('color needs a name or #rrggbb');
     const bs = visibleBodies(), b = bs[bs.length - 1];
@@ -32677,7 +32832,7 @@ const TIP_TXT = {
   document.body.appendChild(card);
   let el = null, t1 = 0, t2 = 0;
   const keyOf = b => b.dataset.tipkey || b.dataset.act || b.dataset.cam || b.dataset.sheet || b.dataset.tool || '';
-  const hide = () => { clearTimeout(t1); clearTimeout(t2); if (typeof TipAnim !== 'undefined') TipAnim.stop(); card.classList.remove('in', 'more'); card.hidden = true; if (el && el.dataset.tipTitle) { el.title = el.dataset.tipTitle; delete el.dataset.tipTitle; } el = null; };
+  const hide = () => { clearTimeout(t1); clearTimeout(t2); document.body.classList.remove('card-open'); if (typeof TipAnim !== 'undefined') TipAnim.stop(); card.classList.remove('in', 'more'); card.hidden = true; if (el && el.dataset.tipTitle) { el.title = el.dataset.tipTitle; delete el.dataset.tipTitle; } el = null; };
   const place = () => {
     if (!el) return;
     const r = el.getBoundingClientRect(), w = card.offsetWidth, h = card.offsetHeight;
@@ -32698,11 +32853,11 @@ const TIP_TXT = {
     const pic = TipAnim.pic(k, art ? () => TipAnim.legacyPics(TipArt.wrap(art[0]()), TipArt.wrap(art[1]())) : null)
       || (ic && el.closest('#toolbar') ? `<div class="tip-plate" style="--h:${hue || 214}">${ic.outerHTML}</div>` : '');
     card.innerHTML = `<div class="tip-head"><b>${name}</b>${key ? `<span class="kbd">${key}</span>` : ''}${grp ? `<span class="tip-group">${grp}</span>` : ''}</div>${tx[0] ? `<p class="tip-what">${tx[0]}</p>` : ''}${pic}${tx[1] ? `<div class="tip-more"><div class="tip-step">How to use it</div><ol>${tx[1].map(s => `<li>${s}</li>`).join('')}</ol></div><div class="tip-hold">Keep hovering for the steps</div>` : ''}`;
-    card.hidden = false; place(); TipAnim.start(card);
+    card.hidden = false; document.body.classList.add('card-open'); place(); TipAnim.start(card);
     const small = document.getElementById('tip'); if (small) small.classList.remove('show');       // the card takes over from the one-line label
     requestAnimationFrame(() => card.classList.add('in'));
     // step 2: keep holding and it grows the how-to
-    if (tx[1]) t2 = setTimeout(() => { card.classList.add('more'); requestAnimationFrame(place); setTimeout(place, 260); }, 1400);
+    if (tx[1]) t2 = setTimeout(() => { card.classList.add('more'); requestAnimationFrame(place); setTimeout(place, 260); }, 900);
   };
   document.addEventListener('pointerover', e => {
     const b = e.target.closest && e.target.closest('[data-tipkey], #toolbar button:not(.rb-arrow), #toolbar [data-act], #toolbar [data-cam], #topbar button:not(.rb-arrow), #viewtools button, #visGroup button, [data-selmode], #simbar button, #simbar .play, #phy .phy-bar button');
@@ -32712,7 +32867,7 @@ const TIP_TXT = {
     el = b;
     // the card replaces the browser's own tooltip
     if (b.title) { b.dataset.tipTitle = b.title; b.removeAttribute('title'); }
-    t1 = setTimeout(show, 550);
+    t1 = setTimeout(show, 1400);                                                  // the CSS label is there at once; hold the hover and the card takes over
   });
   document.addEventListener('pointerdown', hide, true);
   document.addEventListener('keydown', hide, true);
@@ -33672,7 +33827,7 @@ function umcCard() {
 // LAB-BEGIN: chips, fluid, mechanics, machines and the touch-off lesson (they plug into the physics lab)
 // ── ChipFX: chips as small rigid bodies — shaped by how the metal was cut, flung off the tool, tumbling, bouncing, piling up ──
 // One system for every cutting simulation. A chip is a ribbon: a tight spiral (stringy), a comma (what a milling tooth
-// takes), a saw-tooth segment, a short flake or dust. They carry a temperature that drives the temper colour of steel
+// takes), a saw-tooth segment, a short flake or dust. They carry a temperature that drives the temper color of steel
 // and stainless, fly under gravity and air drag, bounce on the surfaces the host provides, and come to rest.
 const CHIP_KINDS = {
   spiral: { turns: 5, pitch: 0.34, bend: 0, arc: 0 },       // long continuous chip: a coil
@@ -33706,7 +33861,7 @@ function chipFX(parent, o = {}) {
   const tmpM = new THREE.Matrix4(), tmpQ = new THREE.Quaternion(), tmpV = new THREE.Vector3(), tmpS = new THREE.Vector3(), dq = new THREE.Quaternion(), tmpC = new THREE.Color(), up = new THREE.Vector3(0, 1, 0);
   fx.count = () => fx.bodies.length;
   fx.clear = () => { fx.bodies.length = 0; for (const k of kinds) fx.kinds[k].count = 0; };
-  // kind, position, velocity, size (x, y, z), temperature °C, base colour
+  // kind, position, velocity, size (x, y, z), temperature °C, base color
   fx.spawn = (kind, p, v, s, T, col, spin = 1) => {
     const same = fx.bodies.filter(b => b.kind === kind);
     if (same.length >= CAPK) { const i = fx.bodies.findIndex(b => b.kind === kind && b.rest); const j = i >= 0 ? i : fx.bodies.findIndex(b => b.kind === kind); fx.bodies.splice(j, 1); }
@@ -33715,7 +33870,7 @@ function chipFX(parent, o = {}) {
     return fx.bodies[fx.bodies.length - 1];
   };
   fx.wakeAll = () => { for (const b of fx.bodies) b.rest = false; };
-  // the colour a chip shows at temperature T: steel's temper colours, otherwise it just glows a little when very hot
+  // the color a chip shows at temperature T: steel's temper colors, otherwise it just glows a little when very hot
   fx.colorOf = (b, out) => {
     if (b.temper && typeof chipColor === 'function') return out.copy(chipColor(b.T, b.temper));
     out.copy(b.col); if (b.T > 420) out.lerp(tmpC.set(0xff6a2b), Math.min(1, (b.T - 420) / 300)); return out;
@@ -33761,7 +33916,7 @@ function chipRecipe(matKey, c) {
   if (br) return r < 0.6 ? ['flake', 1, 1] : r < 0.85 ? ['dust', 0.7, 1] : ['comma', 0.8, 1];
   return ['comma', 1, 1];
 }
-const CHIP_MAT_OF = { aluminum: 'al', stainless: 'ss', brass: 'brass' };
+const CHIP_MAT_OF = { aluminum: 'al', stainless: 'ss', brass: 'brass', copper: 'mild', mildsteel: 'mild', alloysteel: 'mild', toolsteel: 'mild', castiron: 'ci', titanium: 'ti', inconel: 'ss', acetal: 'plastic' };
 
 // ── Chips: orthogonal cutting (Merchant) with the chips built as they leave the tool, and the bar cut away ──
 const CHIP_MATS = {
@@ -34208,7 +34363,7 @@ function wjCalc(o) {
   const pf = Math.pow(o.psi / 60000, 1.5) * Math.pow(o.orifice / 0.36, 2), af = Math.pow(Math.min(o.abr, 1.4 * Math.pow(o.orifice / 0.36, 2)) / 0.45, 0.35);
   const umax = 1566 * m.f * q[1] * pf * af / Math.pow(t, 1.15);                // mm/min that still cuts through
   const tube = o.orifice < 0.3 ? 0.76 : o.orifice < 0.38 ? 1.0 : 1.2, kerf = tube * 1.18 + 0.05;
-  const tmin = 1000 / umax, cost = o.abr * 1.1 * tmin + (hyd / 0.6) * 0.15 * tmin / 60 + Lmin * 0.004 * tmin;                // garnet, pump power and water per metre of cut
+  const tmin = 1000 / umax, cost = o.abr * 1.1 * tmin + (hyd / 0.6) * 0.15 * tmin / 60 + Lmin * 0.004 * tmin;                // garnet, pump power and water per meter of cut
   return { v, mach: v / 343, Lmin, hyd, mw, ratio: o.abr / mw, umax, kerf, tube, taper: q[2], cost, pf, af };
 }
 function phyWaterjet() {
@@ -34351,7 +34506,7 @@ function phyWaterjet() {
     frame(dt) { if (PHY.orbit && !PHY.drag) PHY.orbit.t.x += (xn * 0.85 - PHY.orbit.t.x) * 0.08; if (!PHY.paused) frameFx(Math.min(0.05, dt * (PHY.speed || 1))); spMat.uniforms.uPx.value = (PHY.rend ? PHY.rend.domElement.height : 700) / (2 * Math.tan(THREE.MathUtils.degToRad(PHY.cam.fov / 2))); },
     info() {
       const c = C(), u = U(), m = WJ_MATS[S.mat], through = u <= c.umax * 1.001, dx = (c.kerf - 2 * S.t * Math.tan(c.taper * Math.PI / 180));
-      return `${m.name} ${S.t} mm · jet ${c.v.toFixed(0)} m/s (Mach ${c.mach.toFixed(1)}) · ${c.Lmin.toFixed(2)} L/min · ${c.hyd.toFixed(1)} kW at the nozzle · garnet ${(c.ratio * 100).toFixed(0)}% of the water · fastest through-cut ${c.umax.toFixed(0)} mm/min (${S.q ? WJ_Q[S.q][0] : ''}) · cutting at ${u.toFixed(0)} mm/min — ${through ? 'cuts through' : `<b>too fast: only ${(Math.pow(c.umax / u, 0.85) * 100).toFixed(0)}% of the depth</b>`} · kerf ${c.kerf.toFixed(2)} mm, taper ${c.taper}° (bottom ${Math.max(0.2, dx).toFixed(2)} mm) · about $${c.cost.toFixed(2)} per metre of cut.`.replace(/<\/?b>/g, '');
+      return `${m.name} ${S.t} mm · jet ${c.v.toFixed(0)} m/s (Mach ${c.mach.toFixed(1)}) · ${c.Lmin.toFixed(2)} L/min · ${c.hyd.toFixed(1)} kW at the nozzle · garnet ${(c.ratio * 100).toFixed(0)}% of the water · fastest through-cut ${c.umax.toFixed(0)} mm/min (${S.q ? WJ_Q[S.q][0] : ''}) · cutting at ${u.toFixed(0)} mm/min — ${through ? 'cuts through' : `<b>too fast: only ${(Math.pow(c.umax / u, 0.85) * 100).toFixed(0)}% of the depth</b>`} · kerf ${c.kerf.toFixed(2)} mm, taper ${c.taper}° (bottom ${Math.max(0.2, dx).toFixed(2)} mm) · about $${c.cost.toFixed(2)} per meter of cut.`.replace(/<\/?b>/g, '');
     },
     dispose() { phyDisposeGroup(g); },
   };
@@ -34444,7 +34599,7 @@ function phyHose() {
     const period = sp * 0.95 / Math.max(0.5, S.speed); emitT += dt;
     while (emitT >= period && N < CAP - 40) { emitT -= period; slice(S.speed * emitT); }
     for (let i = 0; i < N; i++) { vy[i] -= 9.81 * dt; ox[i] = px[i]; oy[i] = py[i]; oz[i] = pz[i]; px[i] += vx[i] * dt; py[i] += vy[i] * dt; pz[i] += vz[i] * dt; }
-    // hash grid and neighbour lists
+    // hash grid and neighbor lists
     head.fill(-1);
     for (let i = 0; i < N; i++) { const c = cellOf(px[i], py[i], pz[i]); nextI[i] = head[c]; head[c] = i; }
     const h2 = h * h;
@@ -35782,7 +35937,7 @@ function studyDialog(mode) {
     STUDY.busy = false; go.disabled = false;
   });
 }
-// open one setup and alloy in the model and solve it, to look at the colours
+// open one setup and alloy in the model and solve it, to look at the colors
 function studyOpen(c, key) {
   try { if (!(CMD && CMD.type === 'stress')) cmdStress(); studyApply(c); stressSetup().mat = key; stressClear(true); STRESS.result = null; refreshPanel(); rebuildHighlights(); requestDraw(); setTimeout(() => stressRun(), 60); } catch (e) { toast(e.message); }
 }
@@ -36592,7 +36747,7 @@ function gsPanel() {
     const sz = st ? [st.x1 - st.x0, st.y1 - st.y0, st.z1 - st.z0].map(x => fmtLs(x)).join(' × ') : '';
     const f = (id, lab, v) => `<label>${lab}<input type="number" id="${id}" step="${isIn() ? 0.01 : 0.5}" min="0" value="${+toU(v).toFixed(4)}"></label>`;
     body = `<h3 class="gs-h3">2 · Decide the stock</h3><p class="gs-lead">The material the part is cut from: its type, and how much extra there is around the part. You can also drag the arrows on the stock in the view.</p>
-      <div class="field"><span>Material</span><div class="seg">${Object.entries(MATERIALS).map(([k, m]) => `<button data-gs="mat:${k}" class="${(C.material || 'aluminum') === k ? 'on' : ''}">${m.short}</button>`).join('')}</div></div>
+      <div class="field"><span>Material</span><div class="seg" style="flex-wrap:wrap">${Object.entries(MATERIALS).map(([k, m]) => `<button data-gs="mat:${k}" class="${(C.material || 'aluminum') === k ? 'on' : ''}">${m.short}</button>`).join('')}</div></div>
       <div class="field"><span>Extra stock (${uName()})</span><div class="gs-fields">${f('gsSide', 'Sides', C.stock.side)}${f('gsTop', 'Top', C.stock.top)}${f('gsBot', 'Bottom', C.stock.bottom)}</div></div>
       <div class="gs-row"><button class="btn" data-gs="fit">Fit the part exactly</button><button class="btn" data-gs="round">Round up to bar size</button></div>
       <div class="gs-stat ok">Stock ${sz} · ${matOf().name}</div>`;
@@ -36643,7 +36798,7 @@ refreshPanel = function () {
   panel.dataset.mode = 'guided'; panel.innerHTML = gsPanel(); panel.hidden = false;
 };
 addEventListener('resize', () => { if (GS.open) refreshPanel(); });
-// theme: light by default, dark when the user picks it
+// theme: dark by default, light when the user picks it
 document.getElementById('btnTheme').addEventListener('click', () => {
   const dark = document.documentElement.getAttribute('data-theme') !== 'dark';
   document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
@@ -37265,9 +37420,9 @@ const RB_TXT = {
   'f:deform': ['Bend, twist, taper or warp a body — or flow it along a path.', ['Pick the bodies to deform.', 'Choose Bend, Twist, Taper, Warp or Flow along a path.', 'Set the amount and the axis, then OK.']],
   'hw:fast': ['Screws, bolts, nuts and washers in any metric or inch size.', ['Choose the kind (socket cap, hex, nut, washer…) and the size.', 'Change the drive, head or length if you need to.', 'Place it on a hole or a point, then OK.']],
   'hw:shop': ['Vises, toe clamps, parallels, 1-2-3 blocks and fixtures to hold the part.', ['Pick the item from the list.', 'Set its size and where it sits — or place it on a point.', 'OK. Fixtures also show up in the Manufacture view.']],
-  'hw:drive': ['Axles, V-belt, flat and timing pulleys, sprockets, sheaves and belt drives.', ['Pick an axle, pulley or drive.', 'Set the diameters, tooth counts and centre distance.', 'Place it, then run it in the Physics lab.']],
+  'hw:drive': ['Axles, V-belt, flat and timing pulleys, sprockets, sheaves and belt drives.', ['Pick an axle, pulley or drive.', 'Set the diameters, tooth counts and center distance.', 'Place it, then run it in the Physics lab.']],
   'hw:phys': ['The physics lab: swinging sticks, marble tower, drone, water, hoses, chips and more.', ['Pick an experiment.', 'Press play and adjust the sliders.', 'Drag things with the mouse to poke at them.']],
-  stress: ['Stress analysis with Fusion-style colour maps: von Mises, displacement, safety factor.', ['Pick the material.', 'Click the faces that are held fixed.', 'Add loads: force, pressure, torque or gravity.', 'Solve, then read the colour map and probe any point.']],
+  stress: ['Stress analysis with Fusion-style color maps: von Mises, displacement, safety factor.', ['Pick the material.', 'Click the faces that are held fixed.', 'Add loads: force, pressure, torque or gravity.', 'Solve, then read the color map and probe any point.']],
   'mach:umc400': ['Haas UMC-400 5-axis machine. Its trunnion table loads into the view.', ['Click it to make it the machine.', 'The Ø230 platter, cradle and C drive appear with their real hole patterns.', 'Tilted operations post as B and C; the setup checks fit and travel.']],
   'add:drill:cbore': ['Counterbore every matching hole: a flat-bottomed larger pocket for a screw head.', ['Pick the counterbore tool.', 'Choose the holes (or leave Auto).', 'Set the depth, then simulate.']],
   'add:drill:bsf': ['Back spot-face: the tool reaches through the hole and cuts the underside flat.', ['Pick the back spot-face tool.', 'Choose the holes and the depth.', 'Simulate to check the tool clears the part.']],
@@ -37483,7 +37638,7 @@ const GD = {
       gS('Fix some faces', 'Add a <b>Constraint</b> and click the faces that are held: bolt holes, a clamped end.', () => nc > 0),
       gS('Apply loads', 'Add a <b>Load</b> — force, pressure, torque or bearing — and click the faces it acts on.', () => nl > 0),
       gS('Solve', 'Press <b>Solve</b>. A coarse mesh is quick; refine it to check the answer converges.', () => !!R),
-      gS('Read the colour map', 'Switch between von Mises, displacement and safety factor. Click the part to probe a point.', () => !!R, true),
+      gS('Read the color map', 'Switch between von Mises, displacement and safety factor. Click the part to probe a point.', () => !!R, true),
       gS('Compare alloys', 'Use <b>Compare alloys</b> to read the same setup for many materials at once.', null, true)];
   }],
   'cam:overview': ['Manufacture steps', () => {
@@ -37577,7 +37732,7 @@ GD['feat:shop'] = ['Workholding & drives', () => {
   const dr = !!((typeof SHOP !== 'undefined' && SHOP[CMD.f.kind]) || {}).drive;
   return [
     gS(dr ? 'Choose the axle, pulley or drive' : 'Choose the item', dr ? 'Axles, V-belt, flat and timing pulleys, sprockets and belt drives.' : 'Vises, toe clamps, parallels, 1-2-3 blocks, fixtures.'),
-    gS('Set its size', dr ? 'Diameters, tooth counts, belt width, centre distance.' : 'Length, width, jaw opening and so on.', null, true),
+    gS('Set its size', dr ? 'Diameters, tooth counts, belt width, center distance.' : 'Length, width, jaw opening and so on.', null, true),
     gS('Put it in place', 'Which way it points, where it sits — or <b>Place on a point</b>.', () => !!CMD.f && (CMD.f.cx || CMD.f.cy || CMD.f.off) ? true : false, true),
     gS('Confirm', 'Press <b>OK</b>.' + (dr ? ' Then try it in the Physics lab.' : ''))];
 }];
@@ -38305,6 +38460,10 @@ function gsPick(i) {
 <!-- Export log, settings cog, mouse and keyboard layouts: own file so it can be loaded last -->
 <script src="input-settings.js"></script>
 <script src="cam-premium.js"></script>
+<script src="section.js"></script>
+<script src="fx-anim.js"></script>
+<script src="icon-ux.js"></script>
+<script src="outline-ui.js"></script>
 <!-- Import and export previews (Shaded, Wireframe, Solid) and the closed-mesh check -->
 <script src="io-preview.js"></script>
 <!-- Early-access release: hides tabs and export formats, shows the notice (release-config.js lists what is hidden) -->
@@ -38316,5 +38475,6 @@ function gsPick(i) {
 <script src="blur-check.js"></script>
 <!-- Dev mode: press ` to open the self-test panel (stress-tests every workspace, control and kind of modeling, and grades smoothness) -->
 <script src="dev-mode.js"></script>
+<script src="dev-features.js"></script>
 </body>
 </html>
