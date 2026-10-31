@@ -31,8 +31,20 @@
   if (typeof setWorkspace === 'function') {
     const prev = setWorkspace;
     // 'sheet' stays reachable because Manufacture opens it for the setup sheet
-    setWorkspace = function (ws) { if (!R.tabs.includes(ws) && !(ws === 'sheet' && !R.modelingOnly && R.tabs.includes('cam'))) return; return prev.apply(this, arguments); };
+    setWorkspace = function (ws) { if (!R.tabs.includes(ws) && !(ws === 'sheet' && ((!R.modelingOnly && R.tabs.includes('cam')) || camRevealed))) return; return prev.apply(this, arguments); };
   }
+
+  // ── Hidden Manufacture tab: pressing = (not while typing in a field) brings the Manufacture tab (and the Setup Sheet it opens) back, with no reload ──
+  let camRevealed = false;
+  document.addEventListener('keydown', e => {
+    if (e.key !== '=' || e.ctrlKey || e.metaKey || e.altKey || camRevealed) return;
+    const t = e.target, tag = t && t.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable)) return;
+    camRevealed = true; e.preventDefault();
+    if (!R.tabs.includes('cam')) R.tabs.push('cam');
+    const b = document.querySelector('.ws [data-ws="cam"]'); if (b) b.hidden = false;
+    if (typeof toast === 'function') toast('Manufacture tab is on.');
+  }, true);
 
   // ── Sketching and 3D modeling only: the physics, hardware, fixture and drawing extras of the Design ribbon are hidden (CSS and menu lists; nothing is removed) ──
   if (R.modelingOnly) {
