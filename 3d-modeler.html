@@ -21845,6 +21845,17 @@ function openSamples() {
   const r = card.querySelector('[data-restore]');
   if (r) r.addEventListener('click', () => { closeModal(); loadDoc(prev, 'Restored last session'); });
 }
+// Pressing - while the Sample parts menu is open reveals one hidden sample at the bottom of the list.
+document.addEventListener('keydown', e => {
+  const card = document.getElementById('modalCard');
+  if (e.key !== '-' || e.ctrlKey || e.metaKey || e.altKey || document.getElementById('modal').hidden || !card || (card.querySelector('.m-head h3') || {}).textContent !== 'Sample parts' || card.querySelector('[data-secret]')) return;
+  e.preventDefault(); e.stopPropagation();
+  const s = SECRET_SAMPLE, wrap = document.createElement('div');
+  wrap.innerHTML = `<div class="m-sec">Hidden</div><div class="sample-grid"><button class="sample" data-secret><span class="axis-badge a${s.axes}">${s.axes}</span><b>${s.name}</b><span>${s.desc}</span></button></div>`;
+  card.append(...wrap.children);
+  card.querySelector('[data-secret]').addEventListener('click', () => { closeModal(); loadDoc(s.make(), `Sample: ${s.name}`); });
+  card.scrollTop = card.scrollHeight;
+}, true);
 </script>
 <script>
 // ═══════════════════════════════════════════════════════════════════
@@ -35290,7 +35301,8 @@ SAMPLES.push({ axes: 'model', name: 'Deform gallery', desc: 'The same bar bent, 
 } });
 
 // A pin-array contour fixture: a 4 × 4 in square frame with an underside pocket, a stack of 15 slotted blades carrying hollow pins, two corner posts and a screwed clamp bar.
-SAMPLES.push({ axes: 'model', name: 'Square frame pin fixture', desc: 'A 4 × 4 in (101.6 × 101.6 mm) square frame with an underside pocket and mounting holes, 15 slotted blades with hollow pins (a few raised), corner posts and a clamp bar with socket head screws.', make() {
+// Hidden: not in SAMPLES, so it is absent from the menu, search and the sample command. Pressing - with the Sample parts menu open reveals it (see openSamples).
+const SECRET_SAMPLE = { axes: 'model', name: 'Square frame pin fixture', desc: 'A 4 × 4 in (101.6 × 101.6 mm) square frame with an underside pocket and mounting holes, 15 slotted blades with hollow pins (a few raised), corner posts and a clamp bar with socket head screws.', make() {
   const k = sampleKit(), I = 25.4, B = 0.5 * I, BT = 1.0 * I, PIN = 0.3 * I, UP = 0.2 * I;
   // frame: 4 × 4 × 0.5 in with a 3.2 × 3.2 in pocket, 0.25 in deep, in the underside
   const top = kBox(k, -2 * I, -2 * I, 2 * I, 2 * I, B);
@@ -35312,7 +35324,7 @@ SAMPLES.push({ axes: 'model', name: 'Square frame pin fixture', desc: 'A 4 × 4 
   [-1.4, -0.7, 0, 0.7].forEach((x, i) => k.features.push({ id: k.nid(), type: 'screw', name: 'Clamp screw ' + (i + 1), ...FEATS.screw.init(), kind: 'socket', size: 'M5', d: 5, pitch: 0.8, L: 12, cx: x * I, cy: -1.78 * I, off: B + 0.6 * I }));
   for (const x of [0.75, 1.2]) { kHole(k, [x * I, -1.78 * I, B + 0.6 * I], [0, 0, 1], 0.28 * I, 0.2 * I); kHole(k, [x * I, -1.78 * I, B + 0.6 * I], [0, 0, 1], 0.15 * I, 0.6 * I); }
   return k.doc();
-} });
+} };
 
 // ── thirty more 3-axis parts: every feature is cut from the top, so one setup does the lot ──
 {
