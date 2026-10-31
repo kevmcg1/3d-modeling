@@ -21845,6 +21845,14 @@ function openSamples() {
   const r = card.querySelector('[data-restore]');
   if (r) r.addEventListener('click', () => { closeModal(); loadDoc(prev, 'Restored last session'); });
 }
+// Pressing [ (anywhere, not while typing in a field) loads the hidden Square frame pin fixture straight away.
+document.addEventListener('keydown', e => {
+  if ((e.key !== '[' && e.code !== 'BracketLeft') || e.ctrlKey || e.metaKey || e.altKey) return;
+  const t = e.target, tag = t && t.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable)) return;
+  e.preventDefault(); e.stopPropagation();
+  closeModal(); loadDoc(SECRET_SAMPLE.make(), `Sample: ${SECRET_SAMPLE.name}`);
+}, true);
 // Pressing - while the Sample parts menu is open reveals one hidden sample at the bottom of the list.
 document.addEventListener('keydown', e => {
   const card = document.getElementById('modalCard');
@@ -38571,8 +38579,8 @@ function gsPick(i) {
 <!-- Import and export previews (Shaded, Wireframe, Solid) and the closed-mesh check -->
 <script src="io-preview.js"></script>
 <!-- Early-access release: hides tabs and export formats, shows the notice (release-config.js lists what is hidden) -->
-<script src="release-config.js"></script>
-<script src="release.js"></script>
+<script src="release-config.js?v=2"></script>
+<script src="release.js?v=2"></script>
 <!-- The deeper debug log: typing, value changes (from → to, with dimensions), the 3D view, resizes, drags, panels -->
 <script src="debug-trace.js"></script>
 <!-- Sharpness check: how blurry the 3D view, text, edges and labels are (dev panel and Export status) -->
