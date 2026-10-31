@@ -35310,27 +35310,29 @@ SAMPLES.push({ axes: 'model', name: 'Deform gallery', desc: 'The same bar bent, 
 
 // A pin-array contour fixture: a 4 × 4 in square frame with an underside pocket, a stack of 15 slotted blades carrying hollow pins, two corner posts and a screwed clamp bar.
 // Hidden: not in SAMPLES, so it is absent from the menu, search and the sample command. Pressing - with the Sample parts menu open reveals it (see openSamples).
-const SECRET_SAMPLE = { axes: 'model', name: 'Square frame pin fixture', desc: 'A 4 × 4 in (101.6 × 101.6 mm) square frame with an underside pocket and mounting holes, 15 slotted blades with hollow pins (a few raised), corner posts and a clamp bar with socket head screws.', make() {
-  const k = sampleKit(), I = 25.4, B = 0.5 * I, BT = 1.0 * I, PIN = 0.3 * I, UP = 0.2 * I;
+const SECRET_SAMPLE = { axes: 'model', name: 'Square frame pin fixture', desc: 'A 4 × 4 in (101.6 × 101.6 mm) square frame with an underside pocket and mounting holes, a grid of 15 columns × 10 rows of hollow pins on 15 slotted blades (a few raised), corner posts, and a clamp bar on one side with four socket head cap screws and two counterbored holes.', make() {
+  const k = sampleKit(), I = 25.4, B = 0.5 * I, BT = 1.0 * I, PIN = 0.3 * I, UP = 0.2 * I, COLS = 15, ROWS = 10;
   // frame: 4 × 4 × 0.5 in with a 3.2 × 3.2 in pocket, 0.25 in deep, in the underside
-  const top = kBox(k, -2 * I, -2 * I, 2 * I, 2 * I, B);
+  kBox(k, -2 * I, -2 * I, 2 * I, 2 * I, B);
   k.extrude(k.sketch(hPlane(0), k.rect(-1.6 * I, -1.6 * I, 1.6 * I, 1.6 * I)), [P2(0, 0)], 0.25 * I, 'cut');
   // four corner mounting holes and the edge holes
   for (const [x, y] of [[-1.8, -1.8], [1.8, -1.8], [-1.8, 1.8], [1.8, 1.8]]) kHole(k, [x * I, y * I, B], [0, 0, 1], 0.17 * I, B);
   for (const [x, y, d] of [[-0.1, 1.8, 0.16], [0.75, 1.8, 0.08], [-0.75, -1.8, 0.12], [0, -1.8, 0.16]]) kHole(k, [x * I, y * I, B], [0, 0, 1], d * I, B);
-  // 15 blades along X, 0.23 in thick on a 0.25 in pitch, each carrying 11 hollow pins; every pin on the diagonal rows is raised
-  for (let i = 0; i < 15; i++) {
-    const x = (i - 7) * 0.25 * I, t = 0.115 * I;
-    const bl = k.extrude(k.sketch(hPlane(B), k.rect(x - t, -1.45 * I, x + t, 1.45 * I)), [P2(x, 0)], BT - B, 'new');
-    const ring = (y, h) => { const ro = 0.05 * I, ri = 0.025 * I; k.extrude(k.sketch(hPlane(BT), [k.C(x, y, ro), k.C(x, y, ri)]), [P2(x + (ro + ri) / 2, y)], h, 'join'); };
-    for (let j = 0; j < 11; j++) ring((j - 5) * 0.26 * I, (i + j) % 7 === 0 ? PIN + UP : PIN);
+  // 15 columns: one blade each, 0.2 in thick on a 0.22 in pitch, carrying 10 rows of hollow pins; a pin is raised every seventh place
+  for (let i = 0; i < COLS; i++) {
+    const x = (i - (COLS - 1) / 2) * 0.22 * I, t = 0.1 * I;
+    k.extrude(k.sketch(hPlane(B), k.rect(x - t, -1.45 * I, x + t, 1.45 * I)), [P2(x, 0)], BT - B, 'new');
+    const ring = (y, h) => { const ro = 0.045 * I, ri = 0.022 * I; k.extrude(k.sketch(hPlane(BT), [k.C(x, y, ro), k.C(x, y, ri)]), [P2(x + (ro + ri) / 2, y)], h, 'join'); };
+    for (let j = 0; j < ROWS; j++) ring((j - (ROWS - 1) / 2) * 0.28 * I, (i + j) % 7 === 0 ? PIN + UP : PIN);
     kHole(k, [x, 1.45 * I, 0.72 * I], [0, 1, 0], 0.1 * I, 0.6 * I);          // relief hole at the blade end
   }
-  // two diagonal corner posts and the clamp bar along the front edge, with two counterbores and four screws
+  // two diagonal corner posts
   for (const [x0, y0] of [[-2, 1.5], [1.5, -2]]) kJoin(k, B, k.rect(x0 * I, y0 * I, (x0 + 0.5) * I, (y0 + 0.5) * I), [P2((x0 + 0.25) * I, (y0 + 0.25) * I)], 0.7 * I);
-  const bar = k.extrude(k.sketch(hPlane(B), k.rect(-1.75 * I, -1.95 * I, 1.75 * I, -1.6 * I)), [P2(0, -1.78 * I)], 0.6 * I, 'new');
-  [-1.4, -0.7, 0, 0.7].forEach((x, i) => k.features.push({ id: k.nid(), type: 'screw', name: 'Clamp screw ' + (i + 1), ...FEATS.screw.init(), kind: 'socket', size: 'M5', d: 5, pitch: 0.8, L: 12, cx: x * I, cy: -1.78 * I, off: B + 0.6 * I }));
-  for (const x of [0.75, 1.2]) { kHole(k, [x * I, -1.78 * I, B + 0.6 * I], [0, 0, 1], 0.28 * I, 0.2 * I); kHole(k, [x * I, -1.78 * I, B + 0.6 * I], [0, 0, 1], 0.15 * I, 0.6 * I); }
+  // the clamp bar on the +X side, 0.3 in thick: six places along it, four socket head cap screws lying on their sides (heads out, pointing in toward the blades) and two counterbored holes
+  const XB = 2 * I, ZC = B + 0.25 * I;
+  k.extrude(k.sketch(hPlane(B), k.rect(1.7 * I, -1.45 * I, XB, 1.45 * I)), [P2(1.85 * I, 0)], 0.5 * I, 'new');
+  [-1.2, -0.72, 0.72, 1.2].forEach((y, i) => k.features.push({ id: k.nid(), type: 'screw', name: 'Clamp screw ' + (i + 1), ...FEATS.screw.init(), kind: 'socket', size: 'M5', d: 5, pitch: 0.8, L: 7, base: 'YZ', cx: y * I, cy: ZC, off: XB }));
+  for (const y of [-0.24, 0.24]) { kHole(k, [XB, y * I, ZC], [1, 0, 0], 0.28 * I, 0.1 * I); kHole(k, [XB, y * I, ZC], [1, 0, 0], 0.15 * I, 0.3 * I); }
   return k.doc();
 } };
 
