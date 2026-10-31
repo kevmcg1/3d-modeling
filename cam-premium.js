@@ -18,7 +18,7 @@ const CAM_LOCK = (() => {
   // Auto Program and Auto Detect are locked for everyone, Premium included, while the 2D and 3D toolpaths are proven by hand.
   // Tests that need them set window.DATUM_AUTO = true before this script runs.
   const AUTO_MSG = 'Auto Program and Auto Detect are coming soon';
-  const autoLocked = window.DATUM_AUTO !== true;
+  let autoLocked = window.DATUM_AUTO !== true;
   const isAutoAct = a => a === 'autoprog' || a === 'auto';
   // what stays usable for a free user: nothing. (Kept as lists so a feature can be opened up again by adding it here.)
   const FREE_VIEWS = new Set();
@@ -37,6 +37,8 @@ const CAM_LOCK = (() => {
     // a New Toolpath picker entry (cam-flow.js): 3D and other chain modes and the rest of the catalog are blocked
     item: it => on && (api.op(it.type) || it.group === '3D' || it.group === 'Other'),
     icon: '',
+    // unlock everything, Auto Program and Auto Detect included (bound to the ] key at the bottom of this file)
+    unlockAll() { autoLocked = false; api.set(false); try { const tb = document.getElementById('toolbar'); if (tb) tb._h = null; refreshUI(); } catch (e) { /* not ready */ } },
     say() { try { toast(MSG); } catch (e) { /* toast not ready */ } },
     panel() {
       return `<div class="pn-head"><h2>Premium</h2><span class="tag">coming soon</span></div><div class="pn-body"><div class="prem-note">${LOCK_SVG}<p>${MSG}</p></div>
@@ -137,3 +139,14 @@ const CAM_LOCK = (() => {
   return api;
 })();
 window.CAM_LOCK = CAM_LOCK;
+
+// Pressing ] (not while typing in a field) unlocks every CAM feature, Auto Program and Auto Detect included, and shows the Manufacture tab.
+document.addEventListener('keydown', e => {
+  if ((e.key !== ']' && e.code !== 'BracketRight') || e.ctrlKey || e.metaKey || e.altKey) return;
+  const t = e.target, tag = t && t.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable)) return;
+  e.preventDefault();
+  if (window.DATUM_REVEAL_CAM) window.DATUM_REVEAL_CAM();
+  CAM_LOCK.unlockAll();
+  try { toast('All Manufacture features are unlocked.'); } catch (err) { /* toast not ready */ }
+}, true);
