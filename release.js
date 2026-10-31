@@ -37,7 +37,7 @@
   // ── Hidden Manufacture tab: pressing = (not while typing in a field) brings the Manufacture tab (and the Setup Sheet it opens) back, with no reload ──
   let camRevealed = false;
   document.addEventListener('keydown', e => {
-    if (e.key !== '=' || e.ctrlKey || e.metaKey || e.altKey || camRevealed) return;
+    if ((e.key !== '=' && e.key !== '+' && e.code !== 'Equal' && e.code !== 'NumpadEqual') || e.ctrlKey || e.metaKey || e.altKey || camRevealed) return;
     const t = e.target, tag = t && t.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable)) return;
     camRevealed = true; e.preventDefault();
