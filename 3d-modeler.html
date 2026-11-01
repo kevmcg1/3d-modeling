@@ -35310,7 +35310,7 @@ SAMPLES.push({ axes: 'model', name: 'Deform gallery', desc: 'The same bar bent, 
 
 // A pin-array contour fixture: a 4 × 4 in square frame with an underside pocket, a stack of 15 slotted blades carrying hollow pins, two corner posts and a screwed clamp bar.
 // Hidden: not in SAMPLES, so it is absent from the menu, search and the sample command. Pressing - with the Sample parts menu open reveals it (see openSamples).
-const SECRET_SAMPLE = { axes: 'model', name: 'Square frame pin fixture', desc: 'A 4 × 4 in (101.6 × 101.6 mm) square frame with an underside pocket and mounting holes, a top block of 15 columns × 10 rows of 0.100 in holes with a groove between every column, corner posts, and a clamp bar on one side with four socket head cap screws and two counterbored holes.', make() {
+const SECRET_SAMPLE = { axes: 'model', name: 'Square frame pin fixture', desc: 'A 4 × 4 in (101.6 × 101.6 mm) square frame with an underside pocket and mounting holes, a top block of 15 columns × 10 rows of 0.100 in holes with a groove down every column, corner posts, and a clamp bar on one side with four socket head cap screws and two counterbored holes.', make() {
   const k = sampleKit(), I = 25.4, B = 0.5 * I, BT = 1.0 * I, COLS = 15, ROWS = 10;
   // frame: 4 × 4 × 0.5 in with a 3.2 × 3.2 in pocket, 0.25 in deep, in the underside
   kBox(k, -2 * I, -2 * I, 2 * I, 2 * I, B);
@@ -35318,14 +35318,14 @@ const SECRET_SAMPLE = { axes: 'model', name: 'Square frame pin fixture', desc: '
   // four corner mounting holes and the edge holes
   for (const [x, y] of [[-1.8, -1.8], [1.8, -1.8], [-1.8, 1.8], [1.8, 1.8]]) kHole(k, [x * I, y * I, B], [0, 0, 1], 0.17 * I, B);
   for (const [x, y, d] of [[-0.1, 1.8, 0.16], [0.75, 1.8, 0.08], [-0.75, -1.8, 0.12], [0, -1.8, 0.16]]) kHole(k, [x * I, y * I, B], [0, 0, 1], d * I, B);
-  // the block on top: 15 columns on a 0.22 in pitch (3.3 × 2.9 × 0.5 in), one 0.100 in hole at every place of the 15 × 10 array, and a groove down between every pair of columns
+  // the block on top: 15 columns on a 0.22 in pitch (3.3 × 2.9 × 0.5 in), one 0.100 in hole at every place of the 15 × 10 array, and a groove down the middle of every column, through its holes
   const X0 = -(COLS / 2) * 0.22 * I, Y0 = -1.45 * I;
   kJoin(k, B, k.rect(X0, Y0, -X0, -Y0), [P2(0, 0)], BT - B);
   const cx = i => (i - (COLS - 1) / 2) * 0.22 * I, cy = j => (j - (ROWS - 1) / 2) * 0.28 * I, centers = [];
   for (let i = 0; i < COLS; i++) for (let j = 0; j < ROWS; j++) centers.push([cx(i), cy(j)]);
   kCut(k, BT, centers.map(([x, y]) => k.C(x, y, 0.05 * I)), centers.map(([x, y]) => P2(x, y)), 0.4 * I);
-  for (let i = 0; i < COLS - 1; i++) {
-    const gx = cx(i) + 0.11 * I;
+  for (let i = 0; i < COLS; i++) {
+    const gx = cx(i);                                                                                           // on the column's own center line, through its holes
     kCut(k, BT, k.rect(gx - 0.01 * I, Y0, gx + 0.01 * I, -Y0), [P2(gx, 0)], 0.35 * I);                         // the groove, 0.02 in wide, along the whole column
     kHole(k, [gx, -Y0, 0.65 * I], [0, 1, 0], 0.1 * I, 2.9 * I);                                                 // a round relief at its bottom, seen on the end face
   }
