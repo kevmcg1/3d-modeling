@@ -35310,14 +35310,11 @@ SAMPLES.push({ axes: 'model', name: 'Deform gallery', desc: 'The same bar bent, 
 
 // A pin-array contour fixture: a 4 × 4 in square frame with an underside pocket, a stack of 15 slotted blades carrying hollow pins, two corner posts and a screwed clamp bar.
 // Hidden: not in SAMPLES, so it is absent from the menu, search and the sample command. Pressing - with the Sample parts menu open reveals it (see openSamples).
-const SECRET_SAMPLE = { axes: 'model', name: 'Square frame pin fixture', desc: 'A 4 × 4 in (101.6 × 101.6 mm) square frame, 1 in tall with an underside pocket and mounting holes. Its top is one level face: 15 columns × 10 rows of 0.100 in holes, a groove down every column cutting through its holes, and six 8-32 stainless socket head cap screws evenly spaced along the +X side.', make() {
+const SECRET_SAMPLE = { axes: 'model', name: 'Square frame pin fixture', desc: 'A 4 × 4 in (101.6 × 101.6 mm) square frame, 1 in tall with an underside pocket. Its top is one level face: 15 columns × 10 rows of 0.100 in holes, a groove down every column cutting through its holes, and six 8-32 stainless socket head cap screws evenly spread over the full +X side.', make() {
   const k = sampleKit(), I = 25.4, H = 1.0 * I, COLS = 15, ROWS = 10;
   // frame: 4 × 4 × 1 in, so the whole top (rim, block and screw side) is one level face; a 3.2 × 3.2 in pocket, 0.25 in deep, in the underside
   kBox(k, -2 * I, -2 * I, 2 * I, 2 * I, H);
   k.extrude(k.sketch(hPlane(0), k.rect(-1.6 * I, -1.6 * I, 1.6 * I, 1.6 * I)), [P2(0, 0)], 0.25 * I, 'cut');
-  // four corner mounting holes and the edge holes, straight through
-  for (const [x, y] of [[-1.8, -1.8], [1.8, -1.8], [-1.8, 1.8], [1.8, 1.8]]) kHole(k, [x * I, y * I, H], [0, 0, 1], 0.17 * I, H);
-  for (const [x, y, d] of [[-0.1, 1.8, 0.16], [0.75, 1.8, 0.08], [-0.75, -1.8, 0.12], [0, -1.8, 0.16]]) kHole(k, [x * I, y * I, H], [0, 0, 1], d * I, H);
   // 15 columns on a 0.22 in pitch, one 0.100 in hole at every place of the 15 × 10 array, and a groove down the middle of every column that cuts through its holes
   const cx = i => (i - (COLS - 1) / 2) * 0.22 * I, cy = j => (j - (ROWS - 1) / 2) * 0.28 * I, centers = [];
   for (let i = 0; i < COLS; i++) for (let j = 0; j < ROWS; j++) centers.push([cx(i), cy(j)]);
@@ -35330,7 +35327,7 @@ const SECRET_SAMPLE = { axes: 'model', name: 'Square frame pin fixture', desc: '
   // six 8-32 stainless socket head cap screws, evenly spaced along the +X side (heads out, lying on their sides), each in a tapped hole 0.45 in deep
   const SZ = HW_SIZES.find(z => z.id === '#8-32'), ZC = H / 2, ids = {};
   for (let i = 0; i < 6; i++) {
-    const y = (i - 2.5) * (2.9 / 6) * I;
+    const y = (i - 2.5) * 0.64 * I;
     kHole(k, [2 * I, y, ZC], [1, 0, 0], SZ.d, 0.45 * I);
     const f = { id: k.nid(), type: 'screw', name: '8-32 screw ' + (i + 1), ...FEATS.screw.init(), kind: 'socket', size: SZ.id, fam: SZ.fam, d: +SZ.d.toFixed(4), pitch: +SZ.p.toFixed(4), L: 0.375 * I, base: 'YZ', cx: y, cy: ZC, off: 2 * I };
     k.features.push(f); ids[f.id] = '#c9ced4';
