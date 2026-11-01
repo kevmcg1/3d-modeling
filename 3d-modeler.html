@@ -35310,33 +35310,32 @@ SAMPLES.push({ axes: 'model', name: 'Deform gallery', desc: 'The same bar bent, 
 
 // A pin-array contour fixture: a 4 × 4 in square frame with an underside pocket, a stack of 15 slotted blades carrying hollow pins, two corner posts and a screwed clamp bar.
 // Hidden: not in SAMPLES, so it is absent from the menu, search and the sample command. Pressing - with the Sample parts menu open reveals it (see openSamples).
-const SECRET_SAMPLE = { axes: 'model', name: 'Square frame pin fixture', desc: 'A 4 × 4 in (101.6 × 101.6 mm) square frame with an underside pocket and mounting holes, a top block of 15 columns × 10 rows of 0.100 in holes with a groove down every column, corner posts, and a clamp bar on one side with four socket head cap screws and two counterbored holes.', make() {
-  const k = sampleKit(), I = 25.4, B = 0.5 * I, BT = 1.0 * I, COLS = 15, ROWS = 10;
-  // frame: 4 × 4 × 0.5 in with a 3.2 × 3.2 in pocket, 0.25 in deep, in the underside
-  kBox(k, -2 * I, -2 * I, 2 * I, 2 * I, B);
+const SECRET_SAMPLE = { axes: 'model', name: 'Square frame pin fixture', desc: 'A 4 × 4 in (101.6 × 101.6 mm) square frame, 1 in tall with an underside pocket and mounting holes. Its top is one level face: 15 columns × 10 rows of 0.100 in holes, a groove down every column cutting through its holes, and six 8-32 stainless socket head cap screws evenly spaced along the +X side.', make() {
+  const k = sampleKit(), I = 25.4, H = 1.0 * I, COLS = 15, ROWS = 10;
+  // frame: 4 × 4 × 1 in, so the whole top (rim, block and screw side) is one level face; a 3.2 × 3.2 in pocket, 0.25 in deep, in the underside
+  kBox(k, -2 * I, -2 * I, 2 * I, 2 * I, H);
   k.extrude(k.sketch(hPlane(0), k.rect(-1.6 * I, -1.6 * I, 1.6 * I, 1.6 * I)), [P2(0, 0)], 0.25 * I, 'cut');
-  // four corner mounting holes and the edge holes
-  for (const [x, y] of [[-1.8, -1.8], [1.8, -1.8], [-1.8, 1.8], [1.8, 1.8]]) kHole(k, [x * I, y * I, B], [0, 0, 1], 0.17 * I, B);
-  for (const [x, y, d] of [[-0.1, 1.8, 0.16], [0.75, 1.8, 0.08], [-0.75, -1.8, 0.12], [0, -1.8, 0.16]]) kHole(k, [x * I, y * I, B], [0, 0, 1], d * I, B);
-  // the block on top: 15 columns on a 0.22 in pitch (3.3 × 2.9 × 0.5 in), one 0.100 in hole at every place of the 15 × 10 array, and a groove down the middle of every column, through its holes
-  const X0 = -(COLS / 2) * 0.22 * I, Y0 = -1.45 * I;
-  kJoin(k, B, k.rect(X0, Y0, -X0, -Y0), [P2(0, 0)], BT - B);
+  // four corner mounting holes and the edge holes, straight through
+  for (const [x, y] of [[-1.8, -1.8], [1.8, -1.8], [-1.8, 1.8], [1.8, 1.8]]) kHole(k, [x * I, y * I, H], [0, 0, 1], 0.17 * I, H);
+  for (const [x, y, d] of [[-0.1, 1.8, 0.16], [0.75, 1.8, 0.08], [-0.75, -1.8, 0.12], [0, -1.8, 0.16]]) kHole(k, [x * I, y * I, H], [0, 0, 1], d * I, H);
+  // 15 columns on a 0.22 in pitch, one 0.100 in hole at every place of the 15 × 10 array, and a groove down the middle of every column that cuts through its holes
   const cx = i => (i - (COLS - 1) / 2) * 0.22 * I, cy = j => (j - (ROWS - 1) / 2) * 0.28 * I, centers = [];
   for (let i = 0; i < COLS; i++) for (let j = 0; j < ROWS; j++) centers.push([cx(i), cy(j)]);
-  kCut(k, BT, centers.map(([x, y]) => k.C(x, y, 0.05 * I)), centers.map(([x, y]) => P2(x, y)), 0.4 * I);
+  kCut(k, H, centers.map(([x, y]) => k.C(x, y, 0.05 * I)), centers.map(([x, y]) => P2(x, y)), 0.4 * I);
   for (let i = 0; i < COLS; i++) {
-    const gx = cx(i);                                                                                           // on the column's own center line, through its holes
-    kCut(k, BT, k.rect(gx - 0.01 * I, Y0, gx + 0.01 * I, -Y0), [P2(gx, 0)], 0.35 * I);                         // the groove, 0.02 in wide, along the whole column
-    kHole(k, [gx, -Y0, 0.65 * I], [0, 1, 0], 0.1 * I, 2.9 * I);                                                 // a round relief at its bottom, seen on the end face
+    const gx = cx(i);
+    kCut(k, H, k.rect(gx - 0.01 * I, -2 * I, gx + 0.01 * I, 2 * I), [P2(gx, 0)], 0.35 * I);                    // the groove, 0.02 in wide, the whole length of the column
+    kHole(k, [gx, 2 * I, H - 0.35 * I], [0, 1, 0], 0.1 * I, 4 * I);                                              // a round relief at its bottom, seen on both end faces
   }
-  // two diagonal corner posts
-  for (const [x0, y0] of [[-2, 1.5], [1.5, -2]]) kJoin(k, B, k.rect(x0 * I, y0 * I, (x0 + 0.5) * I, (y0 + 0.5) * I), [P2((x0 + 0.25) * I, (y0 + 0.25) * I)], 0.7 * I);
-  // the clamp bar on the +X side, 0.3 in thick: six places along it, four socket head cap screws lying on their sides (heads out, pointing in toward the blades) and two counterbored holes
-  const XB = 2 * I, ZC = B + 0.25 * I;
-  k.extrude(k.sketch(hPlane(B), k.rect(1.7 * I, -1.45 * I, XB, 1.45 * I)), [P2(1.85 * I, 0)], 0.5 * I, 'new');
-  [-1.2, -0.72, 0.72, 1.2].forEach((y, i) => k.features.push({ id: k.nid(), type: 'screw', name: 'Clamp screw ' + (i + 1), ...FEATS.screw.init(), kind: 'socket', size: 'M5', d: 5, pitch: 0.8, L: 7, base: 'YZ', cx: y * I, cy: ZC, off: XB }));
-  for (const y of [-0.24, 0.24]) { kHole(k, [XB, y * I, ZC], [1, 0, 0], 0.28 * I, 0.1 * I); kHole(k, [XB, y * I, ZC], [1, 0, 0], 0.15 * I, 0.3 * I); }
-  return k.doc();
+  // six 8-32 stainless socket head cap screws, evenly spaced along the +X side (heads out, lying on their sides), each in a tapped hole 0.45 in deep
+  const SZ = HW_SIZES.find(z => z.id === '#8-32'), ZC = H / 2, ids = {};
+  for (let i = 0; i < 6; i++) {
+    const y = (i - 2.5) * (2.9 / 6) * I;
+    kHole(k, [2 * I, y, ZC], [1, 0, 0], SZ.d, 0.45 * I);
+    const f = { id: k.nid(), type: 'screw', name: '8-32 screw ' + (i + 1), ...FEATS.screw.init(), kind: 'socket', size: SZ.id, fam: SZ.fam, d: +SZ.d.toFixed(4), pitch: +SZ.p.toFixed(4), L: 0.375 * I, base: 'YZ', cx: y, cy: ZC, off: 2 * I };
+    k.features.push(f); ids[f.id] = '#c9ced4';
+  }
+  const d = k.doc(); d.colors = ids; return d;
 } };
 
 // ── thirty more 3-axis parts: every feature is cut from the top, so one setup does the lot ──
