@@ -35310,20 +35310,20 @@ SAMPLES.push({ axes: 'model', name: 'Deform gallery', desc: 'The same bar bent, 
 
 // A pin-array contour fixture: a 4 × 4 in square frame with an underside pocket, a stack of 15 slotted blades carrying hollow pins, two corner posts and a screwed clamp bar.
 // Hidden: not in SAMPLES, so it is absent from the menu, search and the sample command. Pressing - with the Sample parts menu open reveals it (see openSamples).
-const SECRET_SAMPLE = { axes: 'model', name: 'Square frame pin fixture', desc: 'A 4 × 4 in (101.6 × 101.6 mm) square frame with an underside pocket and mounting holes, a grid of 15 columns × 10 rows of hollow pins on 15 slotted blades (a few raised), corner posts, and a clamp bar on one side with four socket head cap screws and two counterbored holes.', make() {
-  const k = sampleKit(), I = 25.4, B = 0.5 * I, BT = 1.0 * I, PIN = 0.3 * I, UP = 0.2 * I, COLS = 15, ROWS = 10;
+const SECRET_SAMPLE = { axes: 'model', name: 'Square frame pin fixture', desc: 'A 4 × 4 in (101.6 × 101.6 mm) square frame with an underside pocket and mounting holes, a grid of 15 columns × 10 rows of hollow pins (each 0.100 in across, all the same height) on 15 slotted blades, corner posts, and a clamp bar on one side with four socket head cap screws and two counterbored holes.', make() {
+  const k = sampleKit(), I = 25.4, B = 0.5 * I, BT = 1.0 * I, PIN = 0.3 * I, COLS = 15, ROWS = 10;
   // frame: 4 × 4 × 0.5 in with a 3.2 × 3.2 in pocket, 0.25 in deep, in the underside
   kBox(k, -2 * I, -2 * I, 2 * I, 2 * I, B);
   k.extrude(k.sketch(hPlane(0), k.rect(-1.6 * I, -1.6 * I, 1.6 * I, 1.6 * I)), [P2(0, 0)], 0.25 * I, 'cut');
   // four corner mounting holes and the edge holes
   for (const [x, y] of [[-1.8, -1.8], [1.8, -1.8], [-1.8, 1.8], [1.8, 1.8]]) kHole(k, [x * I, y * I, B], [0, 0, 1], 0.17 * I, B);
   for (const [x, y, d] of [[-0.1, 1.8, 0.16], [0.75, 1.8, 0.08], [-0.75, -1.8, 0.12], [0, -1.8, 0.16]]) kHole(k, [x * I, y * I, B], [0, 0, 1], d * I, B);
-  // 15 columns: one blade each, 0.2 in thick on a 0.22 in pitch, carrying 10 rows of hollow pins; a pin is raised every seventh place
+  // 15 columns: one blade each, 0.2 in thick on a 0.22 in pitch, carrying 10 rows of hollow pins, each 0.100 in across and all the same height
   for (let i = 0; i < COLS; i++) {
     const x = (i - (COLS - 1) / 2) * 0.22 * I, t = 0.1 * I;
     k.extrude(k.sketch(hPlane(B), k.rect(x - t, -1.45 * I, x + t, 1.45 * I)), [P2(x, 0)], BT - B, 'new');
-    const ring = (y, h) => { const ro = 0.045 * I, ri = 0.022 * I; k.extrude(k.sketch(hPlane(BT), [k.C(x, y, ro), k.C(x, y, ri)]), [P2(x + (ro + ri) / 2, y)], h, 'join'); };
-    for (let j = 0; j < ROWS; j++) ring((j - (ROWS - 1) / 2) * 0.28 * I, (i + j) % 7 === 0 ? PIN + UP : PIN);
+    const ring = (y, h) => { const ro = 0.05 * I, ri = 0.025 * I; k.extrude(k.sketch(hPlane(BT), [k.C(x, y, ro), k.C(x, y, ri)]), [P2(x + (ro + ri) / 2, y)], h, 'join'); };
+    for (let j = 0; j < ROWS; j++) ring((j - (ROWS - 1) / 2) * 0.28 * I, PIN);
     kHole(k, [x, 1.45 * I, 0.72 * I], [0, 1, 0], 0.1 * I, 0.6 * I);          // relief hole at the blade end
   }
   // two diagonal corner posts
