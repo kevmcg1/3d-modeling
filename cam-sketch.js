@@ -39,6 +39,7 @@
     const pl = planeOf(sk), out = { sig, flat: isTop(pl), chains: [], ents: new Map() };
     cache.set(sk.id, out);
     if (!out.flat) return out;
+    out.polys = sk.ents.filter(usable).map(e => ({ e, w: entPts(e).map(p => planeTo3(pl, p)) }));      // the curves in model space, cut once, not on every frame
     const toM = p => { const P = planeTo3(pl, p); return [P[0], -P[2], P[1]]; };
     const mk = (seq, closed, ids) => {
       const pts = []; let z = -Infinity;
@@ -141,14 +142,13 @@
   SK.thickness = () => (cam().sketchThk > 0 ? cam().sketchThk : 12.7);
 
   // ── Picking a sketch curve in the view ──
-  const world = (sk, p) => planeTo3(planeOf(sk), p);
-  function skPick(x, y, tol) {
+    function skPick(x, y, tol) {
     if (UIX.ws !== 'cam') return null;
     let best = null;
     for (const sk of skList()) {
       if (!chainsOf(sk).flat) continue;
-      for (const e of sk.ents.filter(usable)) {
-        const s = entPts(e).map(p => toScreen(world(sk, p)));
+      for (const { e, w } of chainsOf(sk).polys) {
+        const s = w.map(P => toScreen(P));
         for (let i = 0; i + 1 < s.length; i++) {
           const a = s[i], b = s[i + 1], dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy, t = L2 ? Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / L2)) : 0, d = Math.hypot(x - (a.x + dx * t), y - (a.y + dy * t));
           if (d <= tol && (!best || d < best.d)) best = { d, sk: sk.id, ent: e };
@@ -204,7 +204,9 @@
         og.save(); og.strokeStyle = COL.muted || '#8a94a6'; og.lineWidth = 1.5; og.lineJoin = 'round'; og.globalAlpha = 0.85;
         for (const sk of skList()) {
           if (!chainsOf(sk).flat) continue;
-          for (const e of sk.ents.filter(usable)) { const s = entPts(e).map(p => toScreen(world(sk, p))); og.beginPath(); s.forEach((q, i) => i ? og.lineTo(q.x, q.y) : og.moveTo(q.x, q.y)); og.stroke(); }
+          og.beginPath();
+          for (const { w } of chainsOf(sk).polys) w.forEach((P, i) => { const q = toScreen(P); i ? og.lineTo(q.x, q.y) : og.moveTo(q.x, q.y); });
+          og.stroke();
         }
         og.restore();
       }
