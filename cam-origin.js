@@ -8,7 +8,7 @@
   'use strict';
   const ORG = { on: false, hover: null, pend: null };
   window.ORG_STATE = ORG;
-  const NEW_KINDS = { scorner: 'Stock corner', sedge: 'Stock edge midpoint', sface: 'Stock face center', eon: 'Point on edge', surf: 'Point on surface' };
+  const NEW_KINDS = { skpt: 'Sketch point', scorner: 'Stock corner', sedge: 'Stock edge midpoint', sface: 'Stock face center', eon: 'Point on edge', surf: 'Point on surface' };
   Object.assign(KP_LABEL, NEW_KINDS);
   Object.assign(IC, { camorigin: '<circle cx="10" cy="10" r="2.2"/><path d="M10 2v4.5M10 13.5V18M2 10h4.5M13.5 10H18" opacity=".6"/><path d="M10 10l5.5-5.5M13 4.5h2.5V7"/>' });
   FA_MAP.camorigin = 'location-crosshairs';
@@ -40,6 +40,10 @@
     if (st && VIS.stock) for (const s of stockPoints(st)) {
       const d = dst2(toScreen(s.P), m);
       if (d <= PX && (!best || d < best.d - 0.5)) best = { P: s.P, k: s.k, d };
+    }
+    if (window.CAMSK && CAMSK.snap) {                                       // a sketch's endpoints, midpoints and circle / arc centers (cam-sketch.js)
+      const s = CAMSK.snap(x, y, PX);
+      if (s && (!best || s.d < best.d - 0.5)) best = { P: s.P, k: 'skpt', d: s.d };
     }
     if (!best) {
       const e = bodies.length ? pickEdge(x, y, bodies, 9) : null;
@@ -174,7 +178,7 @@
       <div class="org-cmp">
         <div class="org-col was"><h4>Your origin was here</h4><div class="org-name">${xmlEsc(wcsName(C) || 'Work origin')}</div><div class="org-xyz">${coords(o)}</div><div class="org-pic">${was}</div></div>
         <div class="org-arrow" aria-hidden="true"><svg viewBox="0 0 24 24" width="22" height="22"><path d="M4 12h15M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-        <div class="org-col now"><h4>Now you moved it here</h4><div class="org-name">${KP_LABEL[c.k]}${onStock(c.k) ? ' on the stock' : ' on the part'}</div><div class="org-xyz">${coords(n)}</div><div class="org-pic">${now}</div></div>
+        <div class="org-col now"><h4>Now you moved it here</h4><div class="org-name">${KP_LABEL[c.k]}${onStock(c.k) ? ' on the stock' : c.k === 'skpt' ? ' on the sketch' : ' on the part'}</div><div class="org-xyz">${coords(n)}</div><div class="org-pic">${now}</div></div>
       </div>
       <div class="org-shift">${moved ? `Every coordinate shifts by <b>X ${fmtLs(-d[0])}</b> <b>Y ${fmtLs(-d[1])}</b> <b>Z ${fmtLs(-d[2])}</b>` : 'That is where the origin already is, nothing would change.'}</div>
       <p class="org-q"><b>You ok with this?</b> It's going to move all your coordinates and change your G-code and toolpaths.</p>
