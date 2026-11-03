@@ -680,6 +680,7 @@
   const modelKey = () => { try { return typeof camModelKey === 'function' ? camModelKey() : ''; } catch (e) { return ''; } };
   function staleOf(op, mk) {
     if (!(op.chains || []).length && !(op.faces || []).length) return false;
+    if (!(op.faces || []).length && !(op.diams || []).length && op.chains.every(c => c.sk)) return false;      // sketch chains follow their sketch (cam-sketch.js)
     const gk = geoKey(op);
     if (op._gk !== gk) { op._gk = gk; op._gsig = mk; }                 // geometry just picked (or first seen): fresh
     return op._gsig !== mk;
@@ -693,6 +694,7 @@
     if ((op.chains || []).length) {
       const keep = [];
       for (const c of op.chains) {
+        if (c.sk && window.CAMSK) { if (CAMSK.refresh(c)) keep.push(c); else lost++; continue; }                 // a sketch chain: read the sketch again
         const hit = (c.eks || []).map(k => all.get(k)).find(Boolean), nc = hit && buildChain(hit.m, hit.ch, (c.eks || []).length > 1 || c.closed);
         if (!nc) { lost++; continue; }
         if (nc.pts.length !== c.pts.length) c.start = 0;

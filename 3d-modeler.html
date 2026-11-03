@@ -14280,6 +14280,11 @@ function camDefaults() {
 }
 const cam = () => doc.cam || (doc.cam = camDefaults());
 let toolOf = n => cam().tools.find(t => t.n === n) || cam().tools[0];
+// The tool as one operation runs it: the operation's own feed, plunge and spindle speed (Mastercam's per-toolpath feeds) win over the tool's.
+function camToolFor(op) {
+  const t = toolOf(op.tool);
+  return t && (op.feed > 0 || op.plunge > 0 || op.rpm > 0) ? { ...t, ...(op.feed > 0 ? { feed: op.feed } : {}), ...(op.plunge > 0 ? { plunge: op.plunge } : {}), ...(op.rpm > 0 ? { rpm: op.rpm } : {}) } : t;
+}
 const toolName = t => t.wire ? `Wire Ø${fmtLs(t.d)}` : `T${t.n} · ${isIn() ? `Ø${fmt(t.d / 25.4, 3)}"` : `Ø${+t.d}`} ${t.type === 'chamfer' ? (t.cone || 90) + '° ' : t.type === 'dovetail' ? (t.dt || 60) + '° ' : ''}${TOOL_TYPES[t.type].toLowerCase()}`;
 
 // ── Part, stock and work origin (CAM absolute coordinates) ─────────
@@ -15704,7 +15709,7 @@ const camModelKey = () => hashStr(doc.features.map(stable).join('|') + '|' + act
 function toolpath(op) {
   const st = camStock(), part = camPart();
   if (!st) return null;
-  const tool = toolOf(op.tool);
+  const tool = camToolFor(op);
   const key = camEpoch + '|' + JSON.stringify(op) + JSON.stringify(tool) + JSON.stringify(cam().stock) + cam().safe + '|' + cam().retract;
   let c = TP.get(op.id);
   if (c && c.key === key && c.path) return c.path;
@@ -16747,7 +16752,7 @@ function postGcode() {
   if (!grbl && SU) L.push(multi === 'g682' ? '(Indexed ops: G68.2 tilted work plane + G53.1. Check your control has tilted-plane machining enabled.)' : `(Indexed ops on the ${SU.name}: rotation center X${N(SU.c[0] - o[0])} Y${N(SU.c[1] - o[1])} Z${N(SU.c[2] - o[2])} from G54 — set it to your rotary's centerline and check its directions.)`);
   L.push(...PF.init(inch), PF.wcs[0]);
   let wcsNow = 54;
-  let lastTool = null, totalMin = 0;
+  let lastTool = null, lastRpm = 0, totalMin = 0;
   // coolant: the program default (Off / Flood / Mist / Flood + mist / Through-spindle) with a per-operation override
   const COOL = { off: ['', ''], flood: ['M8', 'M9'], mist: ['M7', 'M9'], both: ['M7 M8', 'M9'], tsc: ['M88', 'M89'] }, CW = PF.coolWords || COOL;
   const coolOf = op => op.coolant && op.coolant !== 'inherit' ? op.coolant : (pf.coolant ? pf.coolMode || 'flood' : 'off');
@@ -16777,7 +16782,10 @@ function postGcode() {
       const maxRpm = C.maxRpm || MACHINE_MAX_RPM, srpm = Math.min(Math.round(t.rpm), maxRpm);
       if (srpm < Math.round(t.rpm)) L.push(`(T${t.n}: S${Math.round(t.rpm)} is above the ${maxRpm} rpm limit, posted at S${srpm} - lower its feed to keep the chip load)`);
       L.push(op.kind === 'bsf' ? `S${srpm} (SPINDLE STAYS OFF UNTIL THE BLADE IS BELOW THE PART)` : `S${srpm} M3`);
-      lastTool = t.n; st.g = null; st.x = st.y = st.z = null; st.f = null;
+      lastTool = t.n; lastRpm = Math.round(t.rpm); st.g = null; st.x = st.y = st.z = null; st.f = null;
+    } else if (op.kind !== 'bsf' && Math.round(t.rpm) !== lastRpm && t.rpm > 0) {                       // same tool, its own spindle speed in this operation
+      const srpm = Math.min(Math.round(t.rpm), C.maxRpm || MACHINE_MAX_RPM);
+      L.push(`S${srpm} (${op.name}: spindle speed)`); lastRpm = Math.round(t.rpm);
     }
     setCool(op.kind === 'bsf' ? 'off' : coolOf(op));
     if (fr) { L.push('G91 G28 Z0. (clear before turning the part)', 'G90', ...fr.code); st.g = null; st.x = st.y = st.z = null; }
@@ -17818,7 +17826,7 @@ function feedsOf(op, t) {
   return { vc, fzTool, ref, fzRef, ratio, sd, so, mrr };
 }
 function feedsCard(op) {
-  const t = toolOf(op.tool);
+  const t = camToolFor(op);
   if (!t || t.wire) return '';
   const M = matOf(), { vc, fzTool, ref, ratio, mrr } = feedsOf(op, t);
   const flag = ratio < 0.5 ? 'Chip load is low: the tool will rub and wear. ' : ratio > 1.6 ? 'Chip load is high: expect chatter or a broken tool. ' : '';
@@ -38534,6 +38542,7 @@ function gsPick(i) {
 <script src="cam-flow.js"></script>
 <script src="cam-chaining.js"></script>
 <script src="cam-chainstart.js"></script>
+<script src="cam-sketch.js"></script>
 <script src="cam-origin.js"></script>
 <script src="cam-vise.js"></script>
 <script src="heatmap.js"></script>
