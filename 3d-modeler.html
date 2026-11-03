@@ -4263,10 +4263,13 @@ button svg, .rb-btn svg, .tb svg, .btn svg { transition: transform .22s cubic-be
 #dimEdit input { width: 96px; padding: 4px 6px; border: 1px solid var(--rule); border-radius: 5px; background: var(--panel-2); color: var(--ink); font: 12.5px var(--mono); }
 #dimEdit span { font-size: 11px; color: var(--muted); margin-right: 2px; }
 #dimEdit button { border: 0; border-radius: 5px; width: 24px; height: 24px; cursor: pointer; background: var(--panel-2); color: var(--ink); }
+#dimEdit button.dm, .dimlist button.dm { border: 1px solid var(--rule); background: transparent; color: var(--muted); font: 600 12px Inter, system-ui, sans-serif; border-radius: 5px; transition: color .18s ease, border-color .18s ease, background-color .18s ease; }
+#dimEdit button.dm:hover, .dimlist button.dm:hover, #dimEdit button.dm.on, .dimlist button.dm.on { color: var(--accent); border-color: var(--accent); }
+.dimlist button.dm { width: 24px; height: 22px; padding: 0; }
 #dimEdit button[data-de="ok"] { background: var(--accent); color: var(--accent-ink); }
 .tb.pend { color: #d9792a; }
 .dimlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.dimlist li { display: grid; grid-template-columns: 1fr 92px 22px; gap: 6px; align-items: center; font-size: 12px; }
+.dimlist li { display: grid; grid-template-columns: 1fr 92px 24px 22px; gap: 6px; align-items: center; font-size: 12px; }
 .dimlist li.pend input { border-color: #d9792a; color: #d9792a; }
 .dimlist li.sel { outline: 1px solid var(--accent); border-radius: 4px; }
 .dimlist input { width: 100%; padding: 3px 5px; border: 1px solid var(--rule); border-radius: 4px; background: var(--panel-2); color: var(--ink); font: 12px var(--mono); }
@@ -24641,7 +24644,7 @@ function dimFn(sk, V, d) {
   if (d.type === 'ptline') {
     const P = ptOf(sk, V, R[0]), L = lineOf(sk, V, R[1].e);
     if (!P || !L) return null;
-    return { vars: uniq(P.vars.concat(L.vars)), f: x => { const a = L.a(x), b = L.b(x), u = sub2(b, a), l = len2(u) || 1e-12; return d.s * crs2(u, sub2(P.at(x), a)) / l; } };
+    return { vars: uniq(P.vars.concat(L.vars)), f: x => { const a = L.a(x), b = L.b(x), u = sub2(b, a), l = len2(u) || 1e-12; return (d.dm ? 2 : 1) * d.s * crs2(u, sub2(P.at(x), a)) / l; } };
   }
   if (d.type === 'dia' || d.type === 'rad') { const C = rOf(sk, V, R[0].e); if (!C) return null; return { vars: C.vars, f: x => (d.type === 'dia' ? 2 : 1) * C.r(x) }; }
   if (d.type === 'ang') {
@@ -24870,7 +24873,7 @@ function dimsSync(sk) {
 const skDriving = sk => !!(sk && sk.dims && sk.dims.some(d => !d.driven));
 const dimsPending = sk => (sk && sk.dims ? sk.dims.filter(d => d.pend !== undefined && !d.driven) : []);
 const isAng = d => d.type === 'ang';
-const dimText = (d, v) => { v = v === undefined ? d.value : v; const t = isAng(d) ? `${+(v * 180 / Math.PI).toFixed(2)}°` : (d.type === 'dia' ? 'Ø' : d.type === 'rad' ? 'R' : '') + (+toU(v).toFixed(isIn() ? 4 : 3)); return d.driven ? `(${t})` : t; };
+const dimText = (d, v) => { v = v === undefined ? d.value : v; const t = isAng(d) ? `${+(v * 180 / Math.PI).toFixed(2)}°` : (d.type === 'dia' || d.dm ? 'Ø' : d.type === 'rad' ? 'R' : '') + (+toU(v).toFixed(isIn() ? 4 : 3)); return d.driven ? `(${t})` : t; };
 
 // Update Sketch: every pending value at once.
 function dimUpdate(quiet, noUndo) {
@@ -24917,6 +24920,14 @@ function dimCommitText(d, text) {
   if (plain) delete d.expr; else d.expr = text;        // set first: the sketch is solved (and expressions re-read) while the value is applied
   dimSetPending(d, v);
   if (d.pend !== undefined) { if (old === undefined) delete d.expr; else d.expr = old; }
+}
+// Distance to a line (the revolve axis): measured to the line (radius) or across it (diameter, twice as much).
+function dimToggleDia(d) {
+  if (d.type !== 'ptline') return;
+  pushUndo(d.dm ? 'Dimension as radius' : 'Dimension as diameter');
+  d.dm = !d.dm; delete d.expr; delete d.pend;
+  d.value = dimMeasure(S.sk, d);
+  refreshPanel(); refreshToolbar(); requestDraw();
 }
 function dimDelete(d) {
   pushUndo('Delete dimension');
@@ -24971,7 +24982,7 @@ function dimCandidate(items, M) {
     if (x1 - x0 > 1e-9 && y1 - y0 > 1e-9 && (M.x > x1 + tol || M.x < x0 - tol) && M.y > y0 - tol && M.y < y1 + tol) return { type: 'vdist', refs: [r0, r1], s: Math.sign(b.y - a.y) };
     return { type: 'dist', refs: [r0, r1] };
   };
-  const ptLine = (r, e) => { const p = ptVal(sk, r), c = crs2(sub2(e.b, e.a), sub2(p, e.a)); if (Math.abs(c) < 1e-9) return null; return { type: 'ptline', refs: [r, { e: e.id }], s: Math.sign(c) }; };
+  const ptLine = (r, e) => { const p = ptVal(sk, r), c = crs2(sub2(e.b, e.a), sub2(p, e.a)); if (Math.abs(c) < 1e-9) return null; return { type: 'ptline', refs: [r, { e: e.id }], s: Math.sign(c), dm: !!e.cons }; };
   if (items.length === 1) {
     const it = items[0];
     if (isL(it)) return linear({ e: it.e.id, k: 'a' }, { e: it.e.id, k: 'b' });
@@ -25039,7 +25050,7 @@ function dimOpenEditor(d) {
   if (!S.sk || d.driven) { if (d.driven) toast('Driven (reference) dimensions follow the sketch. Delete one of the others to make it driving.'); return; }
   const h = DIM.hits.find(q => q.d === d);
   const cur = d.pend !== undefined ? d.pend : d.value, shown = isAng(d) ? +(cur * 180 / Math.PI).toFixed(4) : +toU(cur).toFixed(isIn() ? 5 : 4);
-  dimEdit.innerHTML = `<input type="text" inputmode="decimal" autocomplete="off" spellcheck="false" value="${d.expr || shown}" title="A number, or an expression such as width/2 + 3 mm" aria-label="Dimension value"><span>${isAng(d) ? '°' : uName()}</span><button data-de="ok" title="Set (Enter)">✓</button><button data-de="x" title="Cancel (Esc)">✕</button>`;
+  dimEdit.innerHTML = `<input type="text" inputmode="decimal" autocomplete="off" spellcheck="false" value="${d.expr || shown}" title="A number, or an expression such as width/2 + 3 mm" aria-label="Dimension value"><span>${isAng(d) ? '°' : uName()}</span>${d.type === 'ptline' ? `<button data-de="dia" class="dm ${d.dm ? 'on' : ''}" aria-pressed="${!!d.dm}" title="${d.dm ? 'Diameter — across the line (click for radius)' : 'Radius / distance (click for diameter)'}">Ø</button>` : ''}<button data-de="ok" title="Set (Enter)">✓</button><button data-de="x" title="Cancel (Esc)">✕</button>`;
   dimEdit.hidden = false;
   const x = h ? (h.x0 + h.x1) / 2 : W / 2, y = h ? h.y1 + 6 : H / 2;
   dimEdit.style.left = clamp(x - 80, 6, W - 200) + 'px'; dimEdit.style.top = clamp(y, 6, H - 50) + 'px';
@@ -25053,6 +25064,8 @@ function dimOpenEditor(d) {
   };
   inp.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter') { ev.preventDefault(); done(true); } if (ev.key === 'Escape') { ev.preventDefault(); done(false); } });
   dimEdit.querySelector('[data-de="ok"]').addEventListener('click', () => done(true));
+  const dmb = dimEdit.querySelector('[data-de="dia"]');
+  if (dmb) { dmb.addEventListener('mousedown', ev => ev.preventDefault()); dmb.addEventListener('click', () => { DIM.edit = null; dimEdit.hidden = true; dimToggleDia(d); dimOpenEditor(d); }); }
   dimEdit.querySelector('[data-de="x"]').addEventListener('click', () => done(false));
   inp.addEventListener('blur', () => setTimeout(() => { if (DIM.edit === d && !dimEdit.contains(document.activeElement)) done(true); }, 120));
   inp.focus(); inp.select();
@@ -25079,7 +25092,7 @@ function drawDim(sk, m, d, state) {
   if (measured == null) { og.restore(); return; }
   if (d.type === 'dist' || d.type === 'hdist' || d.type === 'vdist' || d.type === 'ptline') {
     let a = ptVal(sk, d.refs[0]), b;
-    if (d.type === 'ptline') { const e = sk.ents.find(q => q.id === d.refs[1].e), u = nrm2(sub2(e.b, e.a)); b = add2(e.a, mul2(u, dot2(sub2(a, e.a), u))); }
+    if (d.type === 'ptline') { const e = sk.ents.find(q => q.id === d.refs[1].e), u = nrm2(sub2(e.b, e.a)); b = add2(e.a, mul2(u, dot2(sub2(a, e.a), u))); if (d.dm) b = P2(2 * b.x - a.x, 2 * b.y - a.y); }
     else b = ptVal(sk, d.refs[1]);
     let A2, B2;
     if (d.type === 'hdist') { A2 = P2(a.x, Lp.y); B2 = P2(b.x, Lp.y); }
@@ -25145,10 +25158,10 @@ Object.assign(IC, {
 function dimsPanel() {
   const sk = S.sk;
   if (!sk || !sk.dims || !sk.dims.length) return '';
-  const name = d => ({ dist: 'Length', hdist: 'Horizontal', vdist: 'Vertical', ptline: 'Distance', dia: 'Diameter', rad: 'Radius', ang: 'Angle' })[d.type];
+  const name = d => ({ dist: 'Length', hdist: 'Horizontal', vdist: 'Vertical', ptline: d.dm ? 'Diameter' : 'Distance', dia: 'Diameter', rad: 'Radius', ang: 'Angle' })[d.type];
   const val = d => { const v = d.pend !== undefined ? d.pend : d.value; return isAng(d) ? +(v * 180 / Math.PI).toFixed(4) : +toU(v).toFixed(isIn() ? 5 : 4); };
   const np = dimsPending(sk).length;
-  return `<div class="divider"></div><div class="field"><span>Dimensions (${isIn() ? 'in' : 'mm'} · °)</span><ul class="dimlist">${sk.dims.map(d => `<li class="${d.pend !== undefined ? 'pend' : ''} ${DIM.sel === d ? 'sel' : ''}"><span class="${d.driven ? 'drv' : ''}">${name(d)}${d.driven ? ' (driven)' : ''}</span><input type="text" inputmode="decimal" autocomplete="off" spellcheck="false" data-dimv="${d.id}" value="${d.expr ? String(d.expr).replace(/"/g, '&quot;') : val(d)}" title="A number, or an expression such as width/2 + 3 mm" ${d.driven ? 'disabled' : ''}><button data-dimx="${d.id}" title="Delete dimension">×</button></li>`).join('')}</ul></div>
+  return `<div class="divider"></div><div class="field"><span>Dimensions (${isIn() ? 'in' : 'mm'} · °)</span><ul class="dimlist">${sk.dims.map(d => `<li class="${d.pend !== undefined ? 'pend' : ''} ${DIM.sel === d ? 'sel' : ''}"><span class="${d.driven ? 'drv' : ''}">${name(d)}${d.driven ? ' (driven)' : ''}</span><input type="text" inputmode="decimal" autocomplete="off" spellcheck="false" data-dimv="${d.id}" value="${d.expr ? String(d.expr).replace(/"/g, '&quot;') : val(d)}" title="A number, or an expression such as width/2 + 3 mm" ${d.driven ? 'disabled' : ''}>${d.type === 'ptline' ? `<button data-dimdia="${d.id}" class="dm ${d.dm ? 'on' : ''}" aria-pressed="${!!d.dm}" title="${d.dm ? 'Diameter — click for radius / distance' : 'Distance — click for diameter'}">Ø</button>` : '<span></span>'}<button data-dimx="${d.id}" title="Delete dimension">×</button></li>`).join('')}</ul></div>
     <button class="btn ${np ? 'primary' : ''}" data-do="dimupd" ${np ? '' : 'disabled'}>Update sketch${np ? ` (${np} change${np > 1 ? 's' : ''})` : ''}</button>`;
 }
 function bindDimsPanel() {
@@ -25157,6 +25170,7 @@ function bindDimsPanel() {
     inp.addEventListener('change', () => { if (d) dimCommitText(d, inp.value); });
     inp.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter') { ev.preventDefault(); inp.blur(); } });
   });
+  panel.querySelectorAll('[data-dimdia]').forEach(b => b.addEventListener('click', () => { const d = S.sk.dims.find(q => q.id === +b.dataset.dimdia); if (d) dimToggleDia(d); }));
   panel.querySelectorAll('[data-dimx]').forEach(b => b.addEventListener('click', () => { const d = S.sk.dims.find(q => q.id === +b.dataset.dimx); if (d) dimDelete(d); }));
   const u = panel.querySelector('[data-do="dimupd"]'); if (u) u.addEventListener('click', () => dimUpdate());
 }
