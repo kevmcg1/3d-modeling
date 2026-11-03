@@ -94,6 +94,58 @@ const near = (a, b, tol, what) => assert(Math.abs(a - b) <= tol, `${what}: ${a} 
     assert(r && Math.abs(r.thk - 25.4) < 1e-6, JSON.stringify(r)); near(r.z, 25.4 + 12.7, 1e-6, 'stock height = thickness + margins');
   });
 
+  // the work origin, on a part that is only sketches
+  const gcode0 = () => page.evaluate(() => { const g = postGcode().text.split('\n').find(l => /^G0 X/.test(l)); const m = /X(-?[\d.]+) Y(-?[\d.]+)/.exec(g || ''); return m ? [+m[1], +m[2]] : null; });
+  await page.evaluate(() => { const op = cam().ops[0]; op.chains = CAMSK.allChains(1).filter(c => c.ents.length === 4); op.depthMode = 'through'; CAMUI.view = 'setup'; camRefresh(); });
+  await page.waitForTimeout(300);
+  await ok('the work origin list moves G54 for a sketch-only part: every choice lands where it says and the program follows', async () => {
+    const r = await page.evaluate(async () => {
+      const out = {}, sel = document.getElementById('camOrigin');
+      if (!sel) return null;
+      const g0 = () => { const g = postGcode().text.split('\n').find(l => /^G0 X/.test(l)), m = /X(-?[\d.]+) Y(-?[\d.]+)/.exec(g || ''); return m ? [+m[1], +m[2]] : null; };
+      for (const k of ['top-center', 'top-corner', 'bottom-corner', 'model-top']) {
+        document.getElementById('camOrigin').value = k; document.getElementById('camOrigin').dispatchEvent(new Event('change', { bubbles: true }));
+        out[k] = { o: camOrigin(), is: cam().origin, g: g0(), st: camStock(), p: camPart() };
+      }
+      return out;
+    });
+    assert(r, 'no origin list in Stock & origin');
+    const c = r['top-center'], k = r['top-corner'], b = r['bottom-corner'], m = r['model-top'];
+    near(c.o[0], (c.st.x0 + c.st.x1) / 2, 1e-6, 'top center X'); near(c.o[2], c.st.z1, 1e-6, 'top center Z');
+    near(k.o[0], k.st.x0, 1e-6, 'top corner X'); near(k.o[1], k.st.y0, 1e-6, 'top corner Y'); near(k.o[2], k.st.z1, 1e-6, 'top corner Z');
+    near(b.o[2], b.st.z0, 1e-6, 'bottom corner Z');
+    near(m.o[0], (m.p.x0 + m.p.x1) / 2, 1e-6, 'part top center X'); near(m.o[2], m.p.z1, 1e-6, 'part top Z');
+    assert(c.g && k.g, 'a program with a first move');
+    near((k.g[0] - c.g[0]) * 25.4, c.o[0] - k.o[0], 0.02, 'the program moved with the origin (X)'); near((k.g[1] - c.g[1]) * 25.4, c.o[1] - k.o[1], 0.02, 'the program moved with the origin (Y)');
+  });
+  await ok('Set Origin snaps to a sketch corner: hover shows it, a click and Confirm moves G54 there, and Undo puts it back', async () => {
+    await page.evaluate(() => { cam().origin = 'top-center'; CAMUI.view = 'overview'; camRefresh(); });
+    await page.waitForTimeout(400);
+    const before = await page.evaluate(() => JSON.stringify(cam().origin));
+    await page.click('#orgChip .oc-b'); await page.waitForTimeout(200);
+    const on = await page.evaluate(() => ORG_STATE.on); assert(on, 'Set Origin did not start');
+    const s = await page.evaluate(() => { const q = toScreen(planeTo3(MODEL.planes[1] || doc.features[0].plane, { x: 60, y: 40 })), r = ov.getBoundingClientRect(); return { x: q.x + r.left, y: q.y + r.top }; });
+    await page.mouse.move(s.x + 3, s.y + 2); await page.waitForTimeout(250);
+    const hov = await page.evaluate(() => ORG_STATE.hover && { k: ORG_STATE.hover.k, m: ORG_STATE.hover.m });
+    assert(hov && hov.k === 'skpt', 'hover: ' + JSON.stringify(hov)); near(hov.m[0], 60, 1e-3, 'hover X'); near(hov.m[1], 40, 1e-3, 'hover Y');
+    await page.mouse.click(s.x + 3, s.y + 2); await page.waitForTimeout(300);
+    await page.click('[data-org="ok"]'); await page.waitForTimeout(300);
+    const after = await page.evaluate(() => ({ o: camOrigin(), org: cam().origin, on: ORG_STATE.on, name: wcsName(cam()) }));
+    assert(after.org && after.org.k === 'skpt' && !after.on, JSON.stringify(after)); near(after.o[0], 60, 1e-3, 'G54 X'); near(after.o[1], 40, 1e-3, 'G54 Y'); near(after.o[2], 0, 1e-3, 'G54 Z');
+    const g = await gcode0(); assert(g, 'program'); assert(Math.abs(g[0]) < 8 && Math.abs(g[1]) < 8, 'the program is now measured from that corner: ' + JSON.stringify(g));
+    await page.evaluate(() => undo()); await page.waitForTimeout(200);
+    assert.strictEqual(await page.evaluate(() => JSON.stringify(cam().origin)), before);
+  });
+  await ok('Set Origin still snaps to the stock box of a sketch-only part, and Escape leaves it alone', async () => {
+    await page.click('#orgChip .oc-b'); await page.waitForTimeout(200);
+    const s = await page.evaluate(() => { const st = camStock(), q = toScreen(toW(st.x0, st.y0, st.z1)), r = ov.getBoundingClientRect(); return { x: q.x + r.left, y: q.y + r.top }; });
+    await page.mouse.move(s.x, s.y); await page.waitForTimeout(250);
+    const hov = await page.evaluate(() => ORG_STATE.hover && ORG_STATE.hover.k); assert(hov === 'scorner', String(hov));
+    await page.keyboard.press('Escape'); await page.waitForTimeout(200);
+    assert.strictEqual(await page.evaluate(() => ORG_STATE.on), false);
+  });
+  await page.evaluate(() => { cam().origin = 'top-center'; CAMUI.view = 'overview'; camRefresh(); });
+
   // the left sidebar
   const left = () => page.evaluate(() => { const q = document.querySelector('#tabBody [data-opq]'); return q ? q.innerText : null; });
   await page.evaluate(() => { const op = cam().ops[0]; op.chains = CAMSK.allChains(1).filter(c => c.ents.length === 4); CAMUI.view = 'op'; CAMUI.op = op.id; camRefresh(); });

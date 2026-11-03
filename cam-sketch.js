@@ -158,6 +158,22 @@
     return best ? { skHit: true, sk: best.sk, ent: best.ent } : null;
   }
   SK.pick = skPick;
+  // Points the work origin can snap to: curve ends, line midpoints, circle and arc centers. Returns { P (model space), d (pixels) } for the nearest within tol.
+  SK.snap = function (x, y, tol) {
+    if (UIX.ws !== 'cam') return null;
+    let best = null;
+    const test = P => { const q = toScreen(P), d = Math.hypot(q.x - x, q.y - y); if (d <= tol && (!best || d < best.d)) best = { P, d }; };
+    for (const sk of skList()) {
+      const R = chainsOf(sk);
+      if (!R.flat) continue;
+      const pl = planeOf(sk);
+      for (const { e, w } of R.polys) {
+        if (e.type === 'line') { test(w[0]); test(w[w.length - 1]); test(planeTo3(pl, lerp2(e.a, e.b, 0.5))); }
+        else { if (e.type === 'arc') { test(w[0]); test(w[w.length - 1]); } test(planeTo3(pl, e.c)); }
+      }
+    }
+    return best;
+  };
   const pick0 = chainPickAt;
   chainPickAt = function (x, y) {
     const src = CHAINUI.src || 'both';
