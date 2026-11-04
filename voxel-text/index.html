@@ -6,7 +6,7 @@
 <title>Voxel Text</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@500;800&display=swap" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@500&family=Roboto:ital,wght@1,900&display=swap" />
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
 <style>
   :root { color-scheme: dark; --bg:#000; --fg:#f2f2f2; --dim:#8a8a8a; --line:#3a3a3a; }
@@ -61,10 +61,10 @@ const statusEl = document.getElementById('status');
 const replay = document.getElementById('replay');
 
 const DURATION = 7500;     // ms, whole sequence
-const TRAVEL = 0.46;       // fraction of the timeline each cube spends travelling
+const TRAVEL = 0.62;       // fraction of the timeline each cube spends travelling
 const LAST_ARRIVAL = 0.76; // every cube has fully landed by this phase
 const FADE_END = 0.98;     // shard layer fully handed to the text layer by here
-const FONT = '800 {s}px Inter, "Helvetica Neue", Arial, sans-serif';
+const FONT = 'italic 900 {s}px Roboto, Arial, sans-serif';
 
 let W = 0, H = 0, dpr = 1, cx0 = 0, cy0 = 0;
 let shards = [], dust = [], glyph = null, gw = 0, gh = 0;
@@ -74,8 +74,12 @@ const rnd = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) | 0) >>> 0) /
 const clamp = (v, a = 0, b = 1) => v < a ? a : v > b ? b : v;
 const lerp = (a, b, t) => a + (b - a) * t;
 const smooth = t => { t = clamp(t); return t * t * (3 - 2 * t); };
-// Quintic ease-in-out: zero velocity AND zero acceleration at both ends, so cubes glide to rest with no visible stop.
-const ease = t => { t = clamp(t); return t < .5 ? 16 * t ** 5 : 1 - Math.pow(-2 * t + 2, 5) / 2; };
+// Trapezoid velocity profile: a short, sharp ramp up, a fast cruise, and a short, sharp ramp down to rest.
+const RAMP = .2;
+const ease = t => { t = clamp(t); const v = 1 / (1 - RAMP);
+  if (t < RAMP) return v * t * t / (2 * RAMP);
+  if (t > 1 - RAMP) { const r = 1 - t; return 1 - v * r * r / (2 * RAMP); }
+  return v * (RAMP / 2 + (t - RAMP)); };
 const TAU = Math.PI * 2;
 const CAM = 900;
 
@@ -95,7 +99,7 @@ function buildScene(keepElapsed) {
 
   // Glyph bitmap at device resolution. The shards sample it and the final layer draws it, so both are pixel-identical.
   const even = n => Math.ceil(n / 2) * 2;
-  const gwDev = even((w100 * fs / 100 + 24) * dpr), ghDev = even(fs * 1.3 * dpr);
+  const gwDev = even((w100 * fs / 100 + 64) * dpr), ghDev = even(fs * 1.3 * dpr);
   gw = gwDev; gh = ghDev;
   const g = document.createElement('canvas'); g.width = gwDev; g.height = ghDev;
   const o = g.getContext('2d');
@@ -121,7 +125,7 @@ function buildScene(keepElapsed) {
         sx: x + Math.cos(ang) * dist, sy: y + Math.sin(ang) * dist * .65, sz: (rnd() - .5) * 1000,
         rx: (rnd() - .5) * TAU * 1.6, ry: (rnd() - .5) * TAU * 1.6, rz: (rnd() - .5) * TAU * 1.6,
         grow: .75 + rnd() * .5, depth: half * (.9 + rnd() * .5), tint: rnd(),
-        delay: clamp((x / (gwDev / dpr) + .5)) * .2 + rnd() * (LAST_ARRIVAL - TRAVEL - .2),
+        delay: rnd() * (LAST_ARRIVAL - TRAVEL), // random across the whole word, so every letter builds together
         z: 0
       });
     }
@@ -243,10 +247,10 @@ input.addEventListener('change', restart);
 let debounce;
 window.addEventListener('resize', () => { clearTimeout(debounce); debounce = setTimeout(resize, 120); });
 
-// Wait for Inter so the shards and the final text are built from the real typeface.
+// Wait for Roboto Italic so the shards and the final text are built from the real typeface.
 const boot = () => { resize(); requestAnimationFrame(render); };
 if (document.fonts && document.fonts.load) {
-  Promise.race([document.fonts.load('800 100px Inter'), new Promise(r => setTimeout(r, 2500))]).then(boot, boot);
+  Promise.race([document.fonts.load('italic 900 100px Roboto'), new Promise(r => setTimeout(r, 2500))]).then(boot, boot);
 } else boot();
 })();
 </script>
