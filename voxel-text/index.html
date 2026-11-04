@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Voxel Text</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@500;800&display=swap" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+<style>
+  :root { color-scheme: dark; --bg:#000; --fg:#f2f2f2; --dim:#8a8a8a; --line:#3a3a3a; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: var(--bg); color: var(--fg); font-family: "Inter", sans-serif; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  .top { position: fixed; top: 24px; left: clamp(20px, 5vw, 64px); display: flex; align-items: center; gap: 12px;
+    text-transform: uppercase; letter-spacing: .24em; font-size: 10px; font-weight: 500; color: var(--dim); }
+  .top i { color: var(--fg); font-size: 12px; }
+  .bottom { position: fixed; bottom: 24px; left: clamp(20px, 5vw, 64px); right: clamp(20px, 5vw, 64px);
+    display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+  .eyebrow { color: var(--dim); text-transform: uppercase; font-size: 10px; letter-spacing: .24em; font-weight: 500; margin-bottom: 8px; }
+  .status { color: var(--fg); font-size: 12px; letter-spacing: .04em; font-weight: 500; }
+  .controls { display: flex; align-items: center; gap: 10px; }
+  input, button { font-family: inherit; background: transparent; color: var(--fg); border: 1px solid var(--line); border-radius: 4px;
+    font-size: 11px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; outline: none;
+    transition: border-color .3s ease, color .3s ease, transform .3s ease; }
+  input { width: 168px; padding: 12px 14px; }
+  button { cursor: pointer; padding: 12px 16px; display: inline-flex; align-items: center; gap: 9px; }
+  input:hover, button:hover, input:focus { border-color: var(--fg); }
+  button:hover { transform: translateY(-2px); }
+  button:active { transform: translateY(0); }
+  .progress { position: fixed; bottom: 0; left: 0; width: 100%; height: 2px; background: #141414; }
+  .progress > div { width: 100%; height: 100%; background: var(--fg); transform-origin: 0 50%; transform: scaleX(0); will-change: transform; }
+  @media (max-width: 640px) {
+    .bottom { justify-content: center; bottom: 20px; }
+    .info { display: none; }
+    input { width: 140px; }
+    .top span:last-child { display: none; }
+  }
+</style>
+</head>
+<body>
+<canvas id="scene" aria-label="Animated voxel cubes assembling into text"></canvas>
+<div class="top"><i class="fa-solid fa-cube"></i><span>Voxel / Form</span></div>
+<div class="bottom">
+  <div class="info"><div class="eyebrow">Voxels to type</div><div class="status" id="status">Initializing</div></div>
+  <div class="controls">
+    <input id="words" maxlength="16" value="REBUILD" aria-label="Text" spellcheck="false" autocomplete="off" />
+    <button id="replay" type="button" aria-label="Replay animation"><i class="fa-solid fa-rotate-right"></i><span>Replay</span></button>
+  </div>
+</div>
+<div class="progress"><div id="progressbar"></div></div>
+<script>
+(() => {
+'use strict';
+const canvas = document.getElementById('scene');
+const ctx = canvas.getContext('2d', { alpha: false });
+const input = document.getElementById('words');
+const progressbar = document.getElementById('progressbar');
+const statusEl = document.getElementById('status');
+const replay = document.getElementById('replay');
+
+const DURATION = 7500;     // ms, whole sequence
+const TRAVEL = 0.46;       // fraction of the timeline each cube spends travelling
+const LAST_ARRIVAL = 0.76; // every cube has fully landed by this phase
+const FADE_END = 0.98;     // shard layer fully handed to the text layer by here
+const FONT = '800 {s}px Inter, "Helvetica Neue", Arial, sans-serif';
+
+let W = 0, H = 0, dpr = 1, cx0 = 0, cy0 = 0;
+let shards = [], dust = [], glyph = null, gw = 0, gh = 0;
+let started = performance.now(), completed = false;
+let seed = 1;
+const rnd = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) | 0) >>> 0) / 4294967296;
+const clamp = (v, a = 0, b = 1) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, t) => a + (b - a) * t;
+const smooth = t => { t = clamp(t); return t * t * (3 - 2 * t); };
+// Quintic ease-in-out: zero velocity AND zero acceleration at both ends, so cubes glide to rest with no visible stop.
+const ease = t => { t = clamp(t); return t < .5 ? 16 * t ** 5 : 1 - Math.pow(-2 * t + 2, 5) / 2; };
+const TAU = Math.PI * 2;
+const CAM = 900;
+
+const project = (x, y, z) => { const d = z + CAM, s = CAM / d; return [cx0 + x * s, cy0 + y * s, d, s]; };
+
+function buildScene(keepElapsed) {
+  const elapsed = keepElapsed ? performance.now() - started : 0;
+  seed = 729931;
+  const text = (input.value.trim() || 'REBUILD').toUpperCase().slice(0, 16);
+  input.value = text;
+
+  // Fit the type to the viewport.
+  const m = document.createElement('canvas').getContext('2d');
+  m.font = FONT.replace('{s}', 100);
+  const w100 = m.measureText(text).width;
+  const fs = Math.min(230, (Math.min(W * .88, 1100) / w100) * 100, H * .3);
+
+  // Glyph bitmap at device resolution. The shards sample it and the final layer draws it, so both are pixel-identical.
+  const even = n => Math.ceil(n / 2) * 2;
+  const gwDev = even((w100 * fs / 100 + 24) * dpr), ghDev = even(fs * 1.3 * dpr);
+  gw = gwDev; gh = ghDev;
+  const g = document.createElement('canvas'); g.width = gwDev; g.height = ghDev;
+  const o = g.getContext('2d');
+  o.font = FONT.replace('{s}', fs * dpr);
+  o.textAlign = 'center'; o.fillStyle = '#ffffff';
+  const mm = o.measureText(text);
+  o.fillText(text, gwDev / 2, ghDev / 2 + (mm.actualBoundingBoxAscent - mm.actualBoundingBoxDescent) / 2);
+  glyph = g;
+
+  const cell = Math.max(4, Math.round(clamp(W / 120, 6, 9) * dpr));
+  const data = o.getImageData(0, 0, gwDev, ghDev).data;
+  const half = cell / dpr / 2;
+  const next = [];
+  for (let py = 0; py + cell <= ghDev; py += cell) {
+    for (let px = 0; px + cell <= gwDev; px += cell) {
+      let ink = false;
+      for (let y = py; y < py + cell && !ink; y++) for (let x = px; x < px + cell; x++) if (data[(y * gwDev + x) * 4 + 3] > 6) { ink = true; break; }
+      if (!ink) continue;
+      const x = (px + cell / 2 - gwDev / 2) / dpr, y = (py + cell / 2 - ghDev / 2) / dpr;
+      const ang = rnd() * TAU, dist = 240 + rnd() * Math.max(W, H) * .6;
+      next.push({
+        px, py, cell, half, x, y,
+        sx: x + Math.cos(ang) * dist, sy: y + Math.sin(ang) * dist * .65, sz: (rnd() - .5) * 1000,
+        rx: (rnd() - .5) * TAU * 1.6, ry: (rnd() - .5) * TAU * 1.6, rz: (rnd() - .5) * TAU * 1.6,
+        grow: .75 + rnd() * .5, depth: half * (.9 + rnd() * .5), tint: rnd(),
+        delay: clamp((x / (gwDev / dpr) + .5)) * .2 + rnd() * (LAST_ARRIVAL - TRAVEL - .2),
+        z: 0
+      });
+    }
+  }
+  shards = next;
+  dust = Array.from({ length: 90 }, () => ({ x: (rnd() - .5) * W * 1.8, y: (rnd() - .5) * H * 1.6, z: (rnd() - .5) * 500, r: rnd() * 1.4 + .4, tw: rnd() * TAU }));
+  started = performance.now() - elapsed;
+  completed = false;
+  statusEl.textContent = 'Assembling';
+}
+
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight;
+  canvas.width = Math.floor(W * dpr); canvas.height = Math.floor(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // Snap the scene centre to a device pixel so settled cubes land exactly on the text bitmap's pixel grid.
+  cx0 = Math.round(W * .5 * dpr) / dpr; cy0 = Math.round(H * .48 * dpr) / dpr;
+  buildScene(true);
+}
+
+// Corner indices: 0..3 front (z = -depth), 4..7 back. Windings give a positive screen cross-product when facing the camera.
+const FACES = [[0, 1, 2, 3, 1], [0, 4, 5, 1, .86], [3, 2, 6, 7, .45], [0, 3, 7, 4, .62], [1, 5, 6, 2, .72]];
+const vx = new Float64Array(8), vy = new Float64Array(8);
+
+function drawShard(s, phase, tint) {
+  const u = clamp((phase - s.delay) / TRAVEL);
+  const e = u >= 1 ? 1 : ease(u);
+  const arrive = 1 - e;
+  const cx = e >= 1 ? s.x : lerp(s.sx, s.x, e), cy = e >= 1 ? s.y : lerp(s.sy, s.y, e), cz = e >= 1 ? 0 : lerp(s.sz, 0, e);
+  const rx = s.rx * arrive, ry = s.ry * arrive, rz = s.rz * arrive;
+  const k = lerp(s.grow, 1, e), h = s.half * k, d = s.depth * arrive;
+  const alpha = clamp(phase * 14); // cubes fade in at the very start only
+
+  // The cube body dissolves as the cube lands, while the glyph texture on its face takes over. Both are driven
+  // by the cube's own motion, so there is no moment where the voxel look "ends".
+  const body = alpha * (1 - smooth((e - .45) / .5));
+  const tex = alpha * smooth((e - .25) / .5);
+
+  const sa = Math.sin(rx), ca = Math.cos(rx), sb = Math.sin(ry), cb = Math.cos(ry), sc = Math.sin(rz), cc = Math.cos(rz);
+  let sxp = 0, syp = 0, szp = 0, ss = 0;
+  for (let i = 0; i < 8; i++) {
+    let x = (i === 0 || i === 3 || i === 4 || i === 7) ? -h : h;
+    let y = i < 2 || i === 4 || i === 5 ? -h : h;
+    let z = i < 4 ? -d : d;
+    let t = y * ca - z * sa; z = y * sa + z * ca; y = t;
+    t = x * cb + z * sb; z = -x * sb + z * cb; x = t;
+    t = x * cc - y * sc; y = x * sc + y * cc; x = t;
+    const p = project(x + cx, y + cy, z + cz);
+    vx[i] = p[0]; vy[i] = p[1];
+    if (i === 0) szp = p[3];
+  }
+
+  if (body > .004) {
+    ctx.globalAlpha = body;
+    for (let f = 0; f < 5; f++) {
+      const F = FACES[f];
+      const ax = vx[F[1]] - vx[F[0]], ay = vy[F[1]] - vy[F[0]], bx = vx[F[2]] - vx[F[0]], by = vy[F[2]] - vy[F[0]];
+      if (ax * by - ay * bx <= 0) continue;
+      const val = Math.floor(52 + F[4] * 150 + s.tint * 30);
+      ctx.fillStyle = `rgb(${val},${val},${val})`;
+      ctx.beginPath(); ctx.moveTo(vx[F[0]], vy[F[0]]);
+      ctx.lineTo(vx[F[1]], vy[F[1]]); ctx.lineTo(vx[F[2]], vy[F[2]]); ctx.lineTo(vx[F[3]], vy[F[3]]);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+  if (tex > .004) {
+    // Map the real glyph pixels onto the (3D-transformed) front face.
+    ctx.globalAlpha = tex * tint;
+    // Additive during the handoff: tile coverage a*(1-b) plus text-layer coverage a*b sums to exactly a, so
+    // nothing dips or brightens at any frame (background is pure black, which makes 'lighter' exact).
+    ctx.globalCompositeOperation = tint < 1 ? 'lighter' : 'source-over';
+    ctx.setTransform(dpr * (vx[1] - vx[0]), dpr * (vy[1] - vy[0]), dpr * (vx[3] - vx[0]), dpr * (vy[3] - vy[0]), dpr * vx[0], dpr * vy[0]);
+    ctx.drawImage(glyph, s.px, s.py, s.cell, s.cell, 0, 0, 1, 1);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
+  }
+}
+
+function render() {
+  const now = performance.now();
+  const phase = clamp((now - started) / DURATION);
+  ctx.globalAlpha = 1; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = '#ffffff';
+  for (const p of dust) {
+    const q = project(p.x + Math.sin(now * .00015 + p.tw) * 20, p.y + Math.cos(now * .00017 + p.tw) * 12, p.z);
+    ctx.globalAlpha = .08 + .22 * Math.sin(now * .0012 + p.tw) ** 2;
+    ctx.fillRect(q[0], q[1], p.r * q[3], p.r * q[3]);
+  }
+
+  // blend: 0 -> shards only, 1 -> text layer only. The text layer is the same bitmap the shards sample.
+  const blend = smooth((phase - LAST_ARRIVAL) / (FADE_END - LAST_ARRIVAL));
+  if (blend < 1) {
+    for (const s of shards) {
+      const u = clamp((phase - s.delay) / TRAVEL);
+      s.z = u >= 1 ? 0 : lerp(s.sz, 0, ease(u));
+    }
+    shards.sort((a, b) => b.z - a.z);
+    const tint = 1 - blend;
+    for (const s of shards) drawShard(s, phase, tint);
+  }
+  if (blend > 0) {
+    ctx.globalAlpha = blend;
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.drawImage(glyph, cx0 - gw / dpr / 2, cy0 - gh / dpr / 2, gw / dpr, gh / dpr);
+  }
+  ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+
+  progressbar.style.transform = `scaleX(${phase})`;
+  if (phase >= 1 && !completed) { completed = true; statusEl.textContent = 'Complete'; }
+  requestAnimationFrame(render);
+}
+
+const restart = () => { buildScene(false); };
+replay.addEventListener('click', restart);
+input.addEventListener('keydown', e => { if (e.key === 'Enter') { input.blur(); restart(); } });
+input.addEventListener('change', restart);
+let debounce;
+window.addEventListener('resize', () => { clearTimeout(debounce); debounce = setTimeout(resize, 120); });
+
+// Wait for Inter so the shards and the final text are built from the real typeface.
+const boot = () => { resize(); requestAnimationFrame(render); };
+if (document.fonts && document.fonts.load) {
+  Promise.race([document.fonts.load('800 100px Inter'), new Promise(r => setTimeout(r, 2500))]).then(boot, boot);
+} else boot();
+})();
+</script>
+</body>
+</html>
