@@ -71,8 +71,8 @@
   <div class="panel">
    <div class="sliders">
       <label class="speed" for="speed"><span>Speed</span><input id="speed" type="range" min="0.25" max="3" step="0.05" value="1" /><output id="speedval" for="speed">1.0×</output></label>
-      <label class="speed" for="accel"><span>Accel</span><input id="accel" type="range" min="0" max="100" step="1" value="70" /><output id="accelval" for="accel">70%</output></label>
-      <label class="speed" for="decel"><span>Decel</span><input id="decel" type="range" min="0" max="100" step="1" value="70" /><output id="decelval" for="decel">70%</output></label>
+      <label class="speed" for="accel"><span>Accel</span><input id="accel" type="range" min="0" max="400" step="5" value="100" /><output id="accelval" for="accel">100%</output></label>
+      <label class="speed" for="decel"><span>Decel</span><input id="decel" type="range" min="0" max="400" step="5" value="100" /><output id="decelval" for="decel">100%</output></label>
     </div>
     <div class="controls">
     <input id="words" maxlength="16" value="REBUILD" aria-label="Text" spellcheck="false" autocomplete="off" />
@@ -315,9 +315,8 @@ function render() {
   }
   ctx.globalAlpha = 1;
 
-  // The whole word is a 3D object that keeps turning gently, from the first frame to the last.
-  const amp = smooth(phase * 3 + .15);
-  const ay = .38 * amp * Math.sin(now * .00042), ax = .14 * amp * Math.sin(now * .00031 + 1.2);
+  // The word is a fixed 3D solid seen from a three-quarter angle. No auto-rotation.
+  const ay = -.34, ax = .13;
   const cxr = Math.cos(ax), sxr = Math.sin(ax), cyr = Math.cos(ay), syr = Math.sin(ay);
   const R = [cyr, 0, -syr, syr * sxr, cxr, cyr * sxr, syr * cxr, -sxr, cyr * cxr]; // column-major Ry*Rx
 
@@ -376,7 +375,8 @@ const speedInput = document.getElementById('speed'), speedVal = document.getElem
 speedInput.addEventListener('input', () => { speed = +speedInput.value; speedVal.textContent = speed.toFixed(2).replace(/0$/, '') + '×'; });
 const bindRamp = (id, set) => {
   const el = document.getElementById(id), out = document.getElementById(id + 'val');
-  const apply = () => { const v = +el.value; out.textContent = v + '%'; set(.5 - .47 * v / 100); };
+  // 100% = the standard ramp (17% of the flight); 400% = about 6%.
+  const apply = () => { const v = +el.value; out.textContent = v + '%'; set(.5 / (1 + 1.94 * v / 100)); };
   el.addEventListener('input', apply);
   el.addEventListener('change', restart); // replay on release so the new motion is what you see
   apply();
