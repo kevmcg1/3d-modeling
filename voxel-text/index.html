@@ -20,21 +20,31 @@
     display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
   .eyebrow { color: var(--dim); text-transform: uppercase; font-size: 10px; letter-spacing: .24em; font-weight: 500; margin-bottom: 8px; }
   .status { color: var(--fg); font-size: 12px; letter-spacing: .04em; font-weight: 500; }
-  .controls { display: flex; align-items: center; gap: 10px; }
+  .controls { display: flex; align-items: center; justify-content: center; gap: 10px 16px; flex-wrap: wrap; }
   input, button { font-family: inherit; background: transparent; color: var(--fg); border: 1px solid var(--line); border-radius: 4px;
     font-size: 11px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; outline: none;
     transition: border-color .3s ease, color .3s ease, transform .3s ease; }
-  input { width: 168px; padding: 12px 14px; }
+  input#words { width: 168px; padding: 12px 14px; }
   button { cursor: pointer; padding: 12px 16px; display: inline-flex; align-items: center; gap: 9px; }
   input:hover, button:hover, input:focus { border-color: var(--fg); }
   button:hover { transform: translateY(-2px); }
   button:active { transform: translateY(0); }
+  .speed { display: flex; align-items: center; gap: 12px; font-size: 10px; font-weight: 500; letter-spacing: .24em; text-transform: uppercase; color: var(--dim); }
+  .speed output { min-width: 40px; color: var(--fg); letter-spacing: .08em; font-variant-numeric: tabular-nums; }
+  input[type=range] { -webkit-appearance: none; appearance: none; width: 120px; height: 24px; padding: 0; border: 0; border-radius: 0; background: transparent; cursor: pointer; }
+  input[type=range]::-webkit-slider-runnable-track { height: 1px; background: var(--line); }
+  input[type=range]::-moz-range-track { height: 1px; background: var(--line); }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; margin-top: -7px; border-radius: 50%; background: var(--bg); border: 1px solid var(--fg); transition: transform .25s ease, border-color .3s ease; }
+  input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--bg); border: 1px solid var(--fg); transition: transform .25s ease; }
+  input[type=range]:hover::-webkit-slider-thumb, input[type=range]:focus-visible::-webkit-slider-thumb { transform: scale(1.25); }
+  input[type=range]:hover::-moz-range-thumb, input[type=range]:focus-visible::-moz-range-thumb { transform: scale(1.25); }
   .progress { position: fixed; bottom: 0; left: 0; width: 100%; height: 2px; background: #141414; }
   .progress > div { width: 100%; height: 100%; background: var(--fg); transform-origin: 0 50%; transform: scaleX(0); will-change: transform; }
   @media (max-width: 640px) {
     .bottom { justify-content: center; bottom: 20px; }
     .info { display: none; }
-    input { width: 140px; }
+    input#words { width: 140px; }
+    .speed { width: 100%; justify-content: center; }
     .top span:last-child { display: none; }
   }
 </style>
@@ -45,6 +55,7 @@
 <div class="bottom">
   <div class="info"><div class="eyebrow">Voxels to type</div><div class="status" id="status">Initializing</div></div>
   <div class="controls">
+    <label class="speed" for="speed"><span>Speed</span><input id="speed" type="range" min="0.25" max="3" step="0.05" value="1" /><output id="speedval" for="speed">1.0×</output></label>
     <input id="words" maxlength="16" value="REBUILD" aria-label="Text" spellcheck="false" autocomplete="off" />
     <button id="replay" type="button" aria-label="Replay animation"><i class="fa-solid fa-rotate-right"></i><span>Replay</span></button>
   </div>
@@ -68,7 +79,7 @@ const FONT = 'italic 900 {s}px Roboto, Arial, sans-serif';
 
 let W = 0, H = 0, dpr = 1, cx0 = 0, cy0 = 0;
 let shards = [], dust = [], glyph = null, gw = 0, gh = 0;
-let started = performance.now(), completed = false;
+let phaseT = 0, lastNow = performance.now(), speed = 1, completed = false;
 let seed = 1;
 const rnd = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) | 0) >>> 0) / 4294967296;
 const clamp = (v, a = 0, b = 1) => v < a ? a : v > b ? b : v;
@@ -86,7 +97,6 @@ const CAM = 900;
 const project = (x, y, z) => { const d = z + CAM, s = CAM / d; return [cx0 + x * s, cy0 + y * s, d, s]; };
 
 function buildScene(keepElapsed) {
-  const elapsed = keepElapsed ? performance.now() - started : 0;
   seed = 729931;
   const text = (input.value.trim() || 'REBUILD').toUpperCase().slice(0, 16);
   input.value = text;
@@ -132,7 +142,7 @@ function buildScene(keepElapsed) {
   }
   shards = next;
   dust = Array.from({ length: 90 }, () => ({ x: (rnd() - .5) * W * 1.8, y: (rnd() - .5) * H * 1.6, z: (rnd() - .5) * 500, r: rnd() * 1.4 + .4, tw: rnd() * TAU }));
-  started = performance.now() - elapsed;
+  if (!keepElapsed) phaseT = 0;
   completed = false;
   statusEl.textContent = 'Assembling';
 }
@@ -207,7 +217,9 @@ function drawShard(s, phase, tint) {
 
 function render() {
   const now = performance.now();
-  const phase = clamp((now - started) / DURATION);
+  // Progress is accumulated, so moving the speed slider mid-animation never makes the cubes jump.
+  phaseT += Math.min(now - lastNow, 64) * speed / DURATION; lastNow = now;
+  const phase = clamp(phaseT);
   ctx.globalAlpha = 1; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
 
   ctx.fillStyle = '#ffffff';
@@ -240,6 +252,8 @@ function render() {
   requestAnimationFrame(render);
 }
 
+const speedInput = document.getElementById('speed'), speedVal = document.getElementById('speedval');
+speedInput.addEventListener('input', () => { speed = +speedInput.value; speedVal.textContent = speed.toFixed(2).replace(/0$/, '') + '×'; });
 const restart = () => { buildScene(false); };
 replay.addEventListener('click', restart);
 input.addEventListener('keydown', e => { if (e.key === 'Enter') { input.blur(); restart(); } });
