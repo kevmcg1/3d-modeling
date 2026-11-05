@@ -4,14 +4,14 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Voxel Text</title>
+<meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@500&family=Roboto:ital,wght@1,900&display=swap" />
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
 <style>
   :root { color-scheme: dark; --bg:#000; --fg:#f2f2f2; --dim:#8a8a8a; --line:#3a3a3a; }
   * { box-sizing: border-box; }
-  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: var(--bg); color: var(--fg); font-family: "Inter", sans-serif; }
+  html, body { margin: 0; height: 100%; width: 100%; overflow: hidden; background: var(--bg); color: var(--fg); font-family: "Inter", sans-serif; }
   canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   .top { position: fixed; top: 24px; left: clamp(20px, 5vw, 64px); display: flex; align-items: center; gap: 12px;
     text-transform: uppercase; letter-spacing: .24em; font-size: 10px; font-weight: 500; color: var(--dim); }
@@ -54,11 +54,18 @@
     .speed { justify-content: center; }
     .top span:last-child { display: none; }
   }
+  body { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .top { top: calc(24px + env(safe-area-inset-top, 0px)); left: max(clamp(20px, 5vw, 64px), env(safe-area-inset-left, 0px)); }
+  .bottom { bottom: calc(24px + env(safe-area-inset-bottom, 0px)); left: max(clamp(20px, 5vw, 64px), env(safe-area-inset-left, 0px)); right: max(clamp(20px, 5vw, 64px), env(safe-area-inset-right, 0px)); }
+  .controls svg { width: 12px; height: 12px; fill: currentColor; flex: none; }
+  @media (max-width: 640px) { .bottom { bottom: calc(20px + env(safe-area-inset-bottom, 0px)); } }
+  @media (prefers-reduced-motion: reduce) { button { transition: none; } }
 </style>
 </head>
 <body>
-<canvas id="scene" aria-label="Animated voxel cubes assembling into text"></canvas>
-<div class="top"><i class="fa-solid fa-cube"></i><span>Voxel / Form</span></div>
+<canvas id="bg" aria-hidden="true"></canvas>
+<canvas id="gl" aria-label="Animated 3D text assembling from voxel pieces"></canvas>
+<div class="top"><span>Voxel / Form</span></div>
 <div class="bottom">
   <div class="info"><div class="eyebrow">Voxels to type</div><div class="status" id="status">Initializing</div></div>
   <div class="panel">
@@ -70,58 +77,149 @@
     <div class="controls">
     <input id="words" maxlength="16" value="REBUILD" aria-label="Text" spellcheck="false" autocomplete="off" />
     <button id="metal" type="button" aria-pressed="false" aria-label="Toggle 3D metallic finish"><span>Metal</span><span id="metalstate" class="state">Off</span></button>
-    <button id="replay" type="button" aria-label="Replay animation"><i class="fa-solid fa-rotate-right"></i><span>Replay</span></button>
+    <button id="replay" type="button" aria-label="Replay animation"><svg viewBox="0 0 512 512" aria-hidden="true"><path d="M463.5 224H472c13.3 0 24-10.7 24-24V72c0-9.7-5.8-18.5-14.8-22.2s-19.3-1.7-26.2 5.2L413.4 96.6c-87.6-86.5-228.7-86.2-315.8 1c-87.5 87.5-87.5 229.3 0 316.8s229.3 87.5 316.8 0c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0c-62.5 62.5-163.8 62.5-226.3 0s-62.5-163.8 0-226.3c62.2-62.2 162.7-62.5 225.3-1L327 183c-6.9 6.9-8.9 17.2-5.2 26.2s12.5 14.8 22.2 14.8H463.5z"/></svg><span>Replay</span></button>
   </div></div>
 </div>
 <div class="progress"><div id="progressbar"></div></div>
 <script>
 (() => {
 'use strict';
-const canvas = document.getElementById('scene');
-const ctx = canvas.getContext('2d', { alpha: false });
+const bg = document.getElementById('bg');
+const ctx = bg.getContext('2d', { alpha: false });
+const glc = document.getElementById('gl');
+const gl = glc.getContext('webgl2', { antialias: true, alpha: true, premultipliedAlpha: true, depth: true });
 const input = document.getElementById('words');
 const progressbar = document.getElementById('progressbar');
 const statusEl = document.getElementById('status');
 const replay = document.getElementById('replay');
+if (!gl) { statusEl.textContent = 'WebGL 2 is required'; return; }
 
-const DURATION = 7500;     // ms, whole sequence
-const TRAVEL = 0.62;       // fraction of the timeline each cube spends travelling
-const LAST_ARRIVAL = 0.76; // every cube has fully landed by this phase
-const FADE_END = 0.98;     // shard layer fully handed to the text layer by here
+const DURATION = 7500;     // ms at 1x
+const TRAVEL = 0.62;       // fraction of the timeline each piece spends in flight
+const LAST_ARRIVAL = 0.76; // every piece has landed by this phase
 const FONT = 'italic 900 {s}px Roboto, Arial, sans-serif';
+const CAM = 900, NEAR = 50, FAR = 4000;
 
 let W = 0, H = 0, dpr = 1, cx0 = 0, cy0 = 0;
-let shards = [], dust = [], glyph = null, gw = 0, gh = 0;
-let glyphMetal = null, sideBmp = null, scratch = null, comp = null, maxDepth = 0, metalOn = false, metal = 0;
+let shards = [], dust = [], S = 0, N = 8, depthFull = 20, halfTile = 4, cellDev = 8;
+let gw = 0, gh = 0, gTop = .3, gBot = .7;
 let phaseT = 0, lastNow = performance.now(), speed = 1, completed = false;
-let seed = 1;
+let rampA = .17, rampD = .17, metalOn = false, metal = 0, seed = 1;
+let vao = null, vbo = null, glyphTex = null, dataTex = null, dataArr = null;
+
 const rnd = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) | 0) >>> 0) / 4294967296;
 const clamp = (v, a = 0, b = 1) => v < a ? a : v > b ? b : v;
 const lerp = (a, b, t) => a + (b - a) * t;
 const smooth = t => { t = clamp(t); return t * t * (3 - 2 * t); };
-// Trapezoid velocity profile. rampA / rampD are the fractions of each cube's flight spent speeding up and slowing down.
-let rampA = .17, rampD = .17;
+// Trapezoid velocity profile. rampA / rampD are the fractions of each piece's flight spent speeding up and slowing down.
 const ease = t => { t = clamp(t); const v = 1 / (1 - (rampA + rampD) / 2);
   if (t < rampA) return v * t * t / (2 * rampA);
   if (t > 1 - rampD) { const r = 1 - t; return 1 - v * r * r / (2 * rampD); }
   return v * (rampA / 2 + (t - rampA)); };
 const TAU = Math.PI * 2;
-const CAM = 900;
 
-const project = (x, y, z) => { const d = z + CAM, s = CAM / d; return [cx0 + x * s, cy0 + y * s, d, s]; };
+// ---------------------------------------------------------------- shaders
+// Every piece is a stack of N thin slices (one instance per slice). Each slice is cut from the same glyph bitmap,
+// so a flying piece is a genuine solid chunk of the extruded word: a cube at first, carved into letter shape as it lands.
+const VS = `#version 300 es
+precision highp float;
+in vec2 aCorner; in float aShard; in vec2 aTile;
+uniform sampler2D uData;
+uniform mat3 uRg; uniform vec2 uView, uCenter, uGSize;
+uniform float uCam, uHalf, uCell, uN, uNear, uFar; uniform vec3 uLight;
+out vec2 vUV; out vec2 vCorner; flat out float vSlice; flat out float vMorph; flat out float vTint; out vec3 vLightL;
+void main() {
+  int si = int(aShard);
+  vec4 d0 = texelFetch(uData, ivec2(si, 0), 0), d1 = texelFetch(uData, ivec2(si, 1), 0), d2 = texelFetch(uData, ivec2(si, 2), 0);
+  float i = float(gl_InstanceID);
+  float t = uN > 1. ? i / (uN - 1.) : 0.;
+  float z = -d2.x * .5 + t * d2.x;
+  vec3 q = vec3(aCorner * uHalf * d0.w, z);
+  vec3 r = d1.xyz;
+  float a = cos(r.x), b = sin(r.x), c = cos(r.y), d = sin(r.y), e = cos(r.z), f = sin(r.z);
+  mat3 Rx = mat3(1., 0., 0., 0., a, b, 0., -b, a);
+  mat3 Ry = mat3(c, 0., -d, 0., 1., 0., d, 0., c);
+  mat3 Rz = mat3(e, f, 0., -f, e, 0., 0., 0., 1.);
+  mat3 R = uRg * (Rz * Ry * Rx);
+  vec3 p = d0.xyz + R * q;
+  float dd = p.z + uCam;
+  float zc = dd * (uFar + uNear) / (uFar - uNear) - 2. * uFar * uNear / (uFar - uNear);
+  gl_Position = vec4((2. * uCenter.x / uView.x - 1.) * dd + 2. * uCam * p.x / uView.x,
+                     (1. - 2. * uCenter.y / uView.y) * dd - 2. * uCam * p.y / uView.y, zc, dd);
+  vUV = (aTile + (aCorner * .5 + .5) * uCell) / uGSize;
+  vCorner = aCorner; vSlice = i; vMorph = d1.w; vTint = d2.y;
+  vLightL = transpose(R) * uLight;
+}`;
+const FS = `#version 300 es
+precision highp float;
+uniform sampler2D uGlyph;
+uniform vec2 uGSize, uGy; uniform float uPass, uMetal, uSweep, uSweepAmp, uTilt, uN;
+in vec2 vUV; in vec2 vCorner; flat in float vSlice; flat in float vMorph; flat in float vTint; in vec3 vLightL;
+out vec4 o;
+float A(vec2 uv) { return texture(uGlyph, uv).a; }
+float chromeG(float t) {
+  t = clamp(t, 0., 1.);
+  if (t < .30) return mix(1., .81, t / .30);
+  if (t < .47) return mix(.81, .36, (t - .30) / .17);
+  if (t < .52) return mix(.36, .91, (t - .47) / .05);
+  if (t < .76) return mix(.91, .74, (t - .52) / .24);
+  return mix(.74, .54, (t - .76) / .24);
+}
+void main() {
+  bool front = vSlice < .5;
+  float a = A(vUV);
+  float mask = mix(1., a, vMorph);
+  if (mask < .5 && uPass < .5) discard;
+  float ty = clamp((vUV.y - uGy.x) / (uGy.y - uGy.x), 0., 1.);
+  vec3 chrome = vec3(chromeG(ty + uTilt));
+  vec3 L = normalize(vLightL);
+  vec3 col;
+  if (front) {
+    vec3 glyphCol = mix(vec3(1.), chrome, uMetal);
+    vec3 body = vec3(.5 + .25 * vTint);
+    col = mix(body, glyphCol, mix(a, 1., vMorph));
+    col *= .8 + .25 * clamp(-L.z, 0., 1.);
+    float s = vUV.x + (vUV.y - .5) * .35 - uSweep;
+    col += vec3(exp(-s * s * 500.) * uSweepAmp * uMetal * .9);
+  } else {
+    vec2 ex = vec2(1.5 / uGSize.x, 0.), ey = vec2(0., 1.5 / uGSize.y);
+    vec2 g = vec2(A(vUV - ex) - A(vUV + ex), A(vUV - ey) - A(vUV + ey));
+    vec2 sq = abs(vCorner.x) > abs(vCorner.y) ? vec2(sign(vCorner.x), 0.) : vec2(0., sign(vCorner.y));
+    vec2 n2 = mix(sq, g, vMorph);
+    float l = length(n2);
+    float diff = l > .01 ? max(dot(vec3(n2 / l, 0.), L), 0.) : .3;
+    float shade = .22 + .78 * diff;
+    vec3 base = mix(vec3(.78 + .1 * vTint), chrome * .62, uMetal);
+    col = base * shade * (1. - .3 * vSlice / max(uN - 1., 1.));
+    float s = vUV.x + (vUV.y - .5) * .35 - uSweep;
+    col += vec3(exp(-s * s * 500.) * uSweepAmp * uMetal * .25);
+  }
+  float alpha = uPass > .5 ? clamp(mask, 0., 1.) : 1.;
+  o = vec4(col * alpha, alpha);
+}`;
+function compile(type, src) { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+const prog = gl.createProgram();
+gl.attachShader(prog, compile(gl.VERTEX_SHADER, VS)); gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FS));
+gl.linkProgram(prog);
+if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+gl.useProgram(prog);
+const U = {}; ['uData', 'uGlyph', 'uRg', 'uView', 'uCenter', 'uGSize', 'uCam', 'uHalf', 'uCell', 'uN', 'uNear', 'uFar', 'uLight', 'uGy', 'uPass', 'uMetal', 'uSweep', 'uSweepAmp', 'uTilt']
+  .forEach(n => U[n] = gl.getUniformLocation(prog, n));
+const LIGHT = (() => { const l = [-.42, -.52, -.74], n = Math.hypot(...l); return l.map(v => v / n); })();
 
+// ---------------------------------------------------------------- scene build
 function buildScene(keepElapsed) {
   seed = 729931;
   const text = (input.value.trim() || 'REBUILD').toUpperCase().slice(0, 16);
   input.value = text;
 
-  // Fit the type to the viewport.
   const m = document.createElement('canvas').getContext('2d');
   m.font = FONT.replace('{s}', 100);
   const w100 = m.measureText(text).width;
-  const fs = Math.min(230, (Math.min(W * .88, 1100) / w100) * 100, H * .3);
+  const fs = Math.min(230, (Math.min(W * .84, 1100) / w100) * 100, H * .28);
 
-  // Glyph bitmap at device resolution. The shards sample it and the final layer draws it, so both are pixel-identical.
+  // One glyph bitmap at device resolution, sampled by every slice of every piece.
   const even = n => Math.ceil(n / 2) * 2;
   const gwDev = even((w100 * fs / 100 + 64) * dpr), ghDev = even(fs * 1.3 * dpr);
   gw = gwDev; gh = ghDev;
@@ -130,51 +228,60 @@ function buildScene(keepElapsed) {
   o.font = FONT.replace('{s}', fs * dpr);
   o.textAlign = 'center'; o.fillStyle = '#ffffff';
   const mm = o.measureText(text);
-  o.fillText(text, gwDev / 2, ghDev / 2 + (mm.actualBoundingBoxAscent - mm.actualBoundingBoxDescent) / 2);
-  glyph = g;
   const yBase = ghDev / 2 + (mm.actualBoundingBoxAscent - mm.actualBoundingBoxDescent) / 2;
-  const top = yBase - mm.actualBoundingBoxAscent, bot = yBase + mm.actualBoundingBoxDescent;
-  const mk = () => { const c = document.createElement('canvas'); c.width = gwDev; c.height = ghDev; return c; };
-  // Front face: chrome gradient with a horizon band.
-  glyphMetal = mk();
-  { const c = glyphMetal.getContext('2d');
-    c.drawImage(g, 0, 0); c.globalCompositeOperation = 'source-in';
-    const gr = c.createLinearGradient(0, top, 0, bot);
-    [[0, '#ffffff'], [.3, '#cfcfcf'], [.47, '#5c5c5c'], [.52, '#e8e8e8'], [.76, '#bcbcbc'], [1, '#8a8a8a']].forEach(([t, col]) => gr.addColorStop(t, col));
-    c.fillStyle = gr; c.fillRect(0, 0, gwDev, ghDev); }
-  // Extrusion walls: darker metal, stacked behind the face.
-  sideBmp = mk();
-  { const c = sideBmp.getContext('2d');
-    c.drawImage(g, 0, 0); c.globalCompositeOperation = 'source-in';
-    const gr = c.createLinearGradient(0, top, 0, bot);
-    [[0, '#6a6a6a'], [.5, '#2c2c2c'], [1, '#555555']].forEach(([t, col]) => gr.addColorStop(t, col));
-    c.fillStyle = gr; c.fillRect(0, 0, gwDev, ghDev); }
-  scratch = mk(); comp = mk();
-  maxDepth = fs * dpr * .1;
+  o.fillText(text, gwDev / 2, yBase);
+  gTop = (yBase - mm.actualBoundingBoxAscent) / ghDev; gBot = (yBase + mm.actualBoundingBoxDescent) / ghDev;
 
-  const cell = Math.max(4, Math.round(clamp(W / 120, 6, 9) * dpr));
+  cellDev = Math.max(4, Math.round(clamp(W / 120, 6, 9) * dpr));
   const data = o.getImageData(0, 0, gwDev, ghDev).data;
-  const half = cell / dpr / 2;
+  halfTile = cellDev / dpr / 2;
   const next = [];
-  for (let py = 0; py + cell <= ghDev; py += cell) {
-    for (let px = 0; px + cell <= gwDev; px += cell) {
+  for (let py = 0; py + cellDev <= ghDev; py += cellDev) {
+    for (let px = 0; px + cellDev <= gwDev; px += cellDev) {
       let ink = false;
-      for (let y = py; y < py + cell && !ink; y++) for (let x = px; x < px + cell; x++) if (data[(y * gwDev + x) * 4 + 3] > 6) { ink = true; break; }
+      for (let y = py; y < py + cellDev && !ink; y++) for (let x = px; x < px + cellDev; x++) if (data[(y * gwDev + x) * 4 + 3] > 6) { ink = true; break; }
       if (!ink) continue;
-      const x = (px + cell / 2 - gwDev / 2) / dpr, y = (py + cell / 2 - ghDev / 2) / dpr;
+      const x = (px + cellDev / 2 - gwDev / 2) / dpr, y = (py + cellDev / 2 - ghDev / 2) / dpr;
       const ang = rnd() * TAU, dist = 240 + rnd() * Math.max(W, H) * .6;
       next.push({
-        px, py, cell, half, x, y,
+        px, py, x, y,
         sx: x + Math.cos(ang) * dist, sy: y + Math.sin(ang) * dist * .65, sz: (rnd() - .5) * 1000,
         rx: (rnd() - .5) * TAU * 1.6, ry: (rnd() - .5) * TAU * 1.6, rz: (rnd() - .5) * TAU * 1.6,
-        grow: .75 + rnd() * .5, depth: half * (.9 + rnd() * .5), tint: rnd(),
-        delay: rnd() * (LAST_ARRIVAL - TRAVEL), // random across the whole word, so every letter builds together
-        z: 0
+        grow: .75 + rnd() * .5, cube: halfTile * 2 * (.9 + rnd() * .4), tint: rnd(),
+        delay: rnd() * (LAST_ARRIVAL - TRAVEL)
       });
     }
   }
-  shards = next;
+  shards = next; S = shards.length;
+  depthFull = Math.min(36, fs * .13);
+  N = clamp(Math.ceil(depthFull / 2) + 1, 6, 20);
   dust = Array.from({ length: 90 }, () => ({ x: (rnd() - .5) * W * 1.8, y: (rnd() - .5) * H * 1.6, z: (rnd() - .5) * 500, r: rnd() * 1.4 + .4, tw: rnd() * TAU }));
+
+  // GPU resources
+  if (glyphTex) gl.deleteTexture(glyphTex);
+  glyphTex = gl.createTexture(); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, glyphTex);
+  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, g);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+  if (dataTex) gl.deleteTexture(dataTex);
+  dataTex = gl.createTexture(); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, dataTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, Math.max(S, 1), 3, 0, gl.RGBA, gl.FLOAT, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  dataArr = new Float32Array(Math.max(S, 1) * 3 * 4);
+
+  const corners = [[-1, -1], [1, -1], [1, 1], [-1, -1], [1, 1], [-1, 1]];
+  const verts = new Float32Array(S * 6 * 5);
+  shards.forEach((s, i) => corners.forEach((c, k) => { const o5 = (i * 6 + k) * 5; verts.set([c[0], c[1], i, s.px, s.py], o5); }));
+  if (vao) { gl.deleteVertexArray(vao); gl.deleteBuffer(vbo); }
+  vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+  vbo = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vbo); gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
+  [['aCorner', 2, 0], ['aShard', 1, 2], ['aTile', 2, 3]].forEach(([n, size, off]) => {
+    const l = gl.getAttribLocation(prog, n); gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, size, gl.FLOAT, false, 20, off * 4);
+  });
+
   if (!keepElapsed) phaseT = 0;
   completed = false;
   statusEl.textContent = 'Assembling';
@@ -183,137 +290,90 @@ function buildScene(keepElapsed) {
 function resize() {
   dpr = Math.min(window.devicePixelRatio || 1, 2);
   W = innerWidth; H = innerHeight;
-  canvas.width = Math.floor(W * dpr); canvas.height = Math.floor(H * dpr);
+  for (const c of [bg, glc]) { c.width = Math.floor(W * dpr); c.height = Math.floor(H * dpr); }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  // Snap the scene centre to a device pixel so settled cubes land exactly on the text bitmap's pixel grid.
+  gl.viewport(0, 0, glc.width, glc.height);
   cx0 = Math.round(W * .5 * dpr) / dpr; cy0 = Math.round(H * .48 * dpr) / dpr;
   buildScene(true);
 }
 
-// Corner indices: 0..3 front (z = -depth), 4..7 back. Windings give a positive screen cross-product when facing the camera.
-const FACES = [[0, 1, 2, 3, 1], [0, 4, 5, 1, .86], [3, 2, 6, 7, .45], [0, 3, 7, 4, .62], [1, 5, 6, 2, .72]];
-const vx = new Float64Array(8), vy = new Float64Array(8);
-
-function drawShard(s, phase, tint) {
-  const u = clamp((phase - s.delay) / TRAVEL);
-  const e = u >= 1 ? 1 : ease(u);
-  const arrive = 1 - e;
-  const cx = e >= 1 ? s.x : lerp(s.sx, s.x, e), cy = e >= 1 ? s.y : lerp(s.sy, s.y, e), cz = e >= 1 ? 0 : lerp(s.sz, 0, e);
-  const rx = s.rx * arrive, ry = s.ry * arrive, rz = s.rz * arrive;
-  const k = lerp(s.grow, 1, e), h = s.half * k, d = s.depth * arrive;
-  const alpha = clamp(phase * 14); // cubes fade in at the very start only
-
-  // The cube body dissolves as the cube lands, while the glyph texture on its face takes over. Both are driven
-  // by the cube's own motion, so there is no moment where the voxel look "ends".
-  const body = alpha * (1 - smooth((e - .45) / .5));
-  const tex = alpha * smooth((e - .25) / .5);
-
-  const sa = Math.sin(rx), ca = Math.cos(rx), sb = Math.sin(ry), cb = Math.cos(ry), sc = Math.sin(rz), cc = Math.cos(rz);
-  let sxp = 0, syp = 0, szp = 0, ss = 0;
-  for (let i = 0; i < 8; i++) {
-    let x = (i === 0 || i === 3 || i === 4 || i === 7) ? -h : h;
-    let y = i < 2 || i === 4 || i === 5 ? -h : h;
-    let z = i < 4 ? -d : d;
-    let t = y * ca - z * sa; z = y * sa + z * ca; y = t;
-    t = x * cb + z * sb; z = -x * sb + z * cb; x = t;
-    t = x * cc - y * sc; y = x * sc + y * cc; x = t;
-    const p = project(x + cx, y + cy, z + cz);
-    vx[i] = p[0]; vy[i] = p[1];
-    if (i === 0) szp = p[3];
-  }
-
-  if (body > .004) {
-    ctx.globalAlpha = body;
-    for (let f = 0; f < 5; f++) {
-      const F = FACES[f];
-      const ax = vx[F[1]] - vx[F[0]], ay = vy[F[1]] - vy[F[0]], bx = vx[F[2]] - vx[F[0]], by = vy[F[2]] - vy[F[0]];
-      if (ax * by - ay * bx <= 0) continue;
-      const val = Math.floor(52 + F[4] * 150 + s.tint * 30);
-      ctx.fillStyle = `rgb(${val},${val},${val})`;
-      ctx.beginPath(); ctx.moveTo(vx[F[0]], vy[F[0]]);
-      ctx.lineTo(vx[F[1]], vy[F[1]]); ctx.lineTo(vx[F[2]], vy[F[2]]); ctx.lineTo(vx[F[3]], vy[F[3]]);
-      ctx.closePath(); ctx.fill();
-    }
-  }
-  if (tex > .004) {
-    // Map the real glyph pixels onto the (3D-transformed) front face.
-    ctx.globalAlpha = tex * tint;
-    // Additive during the handoff: tile coverage a*(1-b) plus text-layer coverage a*b sums to exactly a, so
-    // nothing dips or brightens at any frame (background is pure black, which makes 'lighter' exact).
-    ctx.globalCompositeOperation = tint < 1 ? 'lighter' : 'source-over';
-    ctx.setTransform(dpr * (vx[1] - vx[0]), dpr * (vy[1] - vy[0]), dpr * (vx[3] - vx[0]), dpr * (vy[3] - vy[0]), dpr * vx[0], dpr * vy[0]);
-    ctx.drawImage(glyph, s.px, s.py, s.cell, s.cell, 0, 0, 1, 1);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.globalCompositeOperation = 'source-over';
-  }
-}
-
-function drawMetal(now, k) {
-  const sc = scratch.getContext('2d'), c = comp.getContext('2d');
-  // Front face with a travelling specular sweep.
-  sc.globalCompositeOperation = 'source-over'; sc.globalAlpha = 1; sc.clearRect(0, 0, gw, gh);
-  sc.drawImage(glyphMetal, 0, 0);
-  const sp = ((now / 1000) % 5) / 1.8;
-  if (sp < 1) {
-    const x = lerp(-.25, 1.25, sp) * gw, wd = gw * .09, edge = Math.sin(sp * Math.PI);
-    const g = sc.createLinearGradient(x - wd, 0, x + wd, gh * .45);
-    g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(.5, `rgba(255,255,255,${.9 * edge * k})`); g.addColorStop(1, 'rgba(255,255,255,0)');
-    sc.globalCompositeOperation = 'source-atop'; sc.fillStyle = g; sc.fillRect(0, 0, gw, gh);
-  }
-  c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1; c.clearRect(0, 0, gw, gh);
-  const depth = maxDepth * k, n = Math.max(1, Math.ceil(depth / (1.5 * dpr))), step = depth / n;
-  for (let i = n; i >= 1; i--) c.drawImage(sideBmp, .55 * i * step, .83 * i * step);
-  c.drawImage(scratch, 0, 0);
-}
+const project = (x, y, z) => { const d = z + CAM, s = CAM / d; return [cx0 + x * s, cy0 + y * s, d, s]; };
 
 function render() {
   const now = performance.now();
-  // Progress is accumulated, so moving the speed slider mid-animation never makes the cubes jump.
   const dt = Math.min(now - lastNow, 64);
   phaseT += dt * speed / DURATION; lastNow = now;
   const phase = clamp(phaseT);
-  ctx.globalAlpha = 1; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
 
+  // Background + dust on the 2D canvas.
+  ctx.globalAlpha = 1; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
   ctx.fillStyle = '#ffffff';
   for (const p of dust) {
     const q = project(p.x + Math.sin(now * .00015 + p.tw) * 20, p.y + Math.cos(now * .00017 + p.tw) * 12, p.z);
     ctx.globalAlpha = .08 + .22 * Math.sin(now * .0012 + p.tw) ** 2;
     ctx.fillRect(q[0], q[1], p.r * q[3], p.r * q[3]);
   }
+  ctx.globalAlpha = 1;
 
-  // blend: 0 -> shards only, 1 -> text layer only. The text layer is the same bitmap the shards sample.
-  const blend = smooth((phase - LAST_ARRIVAL) / (FADE_END - LAST_ARRIVAL));
-  if (blend < 1) {
-    for (const s of shards) {
-      const u = clamp((phase - s.delay) / TRAVEL);
-      s.z = u >= 1 ? 0 : lerp(s.sz, 0, ease(u));
-    }
-    shards.sort((a, b) => b.z - a.z);
-    const tint = 1 - blend;
-    for (const s of shards) drawShard(s, phase, tint);
-  }
-  // Metal only starts once the word is complete, easing in from the identical flat text, so there is no jump.
+  // The whole word is a 3D object that keeps turning gently, from the first frame to the last.
+  const amp = smooth(phase * 3 + .15);
+  const ay = .38 * amp * Math.sin(now * .00042), ax = .14 * amp * Math.sin(now * .00031 + 1.2);
+  const cxr = Math.cos(ax), sxr = Math.sin(ax), cyr = Math.cos(ay), syr = Math.sin(ay);
+  const R = [cyr, 0, -syr, syr * sxr, cxr, cyr * sxr, syr * cxr, -sxr, cyr * cxr]; // column-major Ry*Rx
+
   const target = metalOn && phase >= 1 ? 1 : 0;
   metal += (target - metal) * (1 - Math.exp(-dt / 280));
   if (Math.abs(target - metal) < .0005) metal = target;
-  const mx = smooth(metal);
-  if (blend > 0) {
-    const fx = cx0 - gw / dpr / 2, fy = cy0 - gh / dpr / 2, fw = gw / dpr, fh = gh / dpr;
-    ctx.globalCompositeOperation = 'lighter';
-    // Flat text and metal text are mixed additively (a*(1-m) + a*m), so coverage and brightness stay exact.
-    if (mx < 1) { ctx.globalAlpha = blend * (1 - mx); ctx.drawImage(glyph, fx, fy, fw, fh); }
-    if (mx > 0) { drawMetal(now, mx); ctx.globalAlpha = blend * mx; ctx.drawImage(comp, fx, fy, fw, fh); }
+  const sp = ((now / 1000) % 5) / 1.8;
+
+  const grow = smooth(phase * 16);
+  for (let i = 0; i < S; i++) {
+    const s = shards[i];
+    const u = clamp((phase - s.delay) / TRAVEL), e = u >= 1 ? 1 : ease(u), ar = 1 - e;
+    const fx = R[0] * s.x + R[3] * s.y, fy = R[1] * s.x + R[4] * s.y, fz = R[2] * s.x + R[5] * s.y;
+    const a = i * 4, b = (S + i) * 4, c = (2 * S + i) * 4;
+    dataArr[a] = e >= 1 ? fx : lerp(s.sx, fx, e); dataArr[a + 1] = e >= 1 ? fy : lerp(s.sy, fy, e); dataArr[a + 2] = e >= 1 ? fz : lerp(s.sz, fz, e);
+    dataArr[a + 3] = lerp(s.grow, 1, e) * grow;
+    dataArr[b] = s.rx * ar; dataArr[b + 1] = s.ry * ar; dataArr[b + 2] = s.rz * ar;
+    dataArr[b + 3] = smooth((e - .3) / .55);
+    dataArr[c] = lerp(s.cube, depthFull, smooth(e)); dataArr[c + 1] = s.tint;
   }
-  ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+
+  gl.useProgram(prog);
+  gl.bindVertexArray(vao);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, dataTex);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, S, 3, gl.RGBA, gl.FLOAT, dataArr);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, glyphTex);
+  gl.uniform1i(U.uData, 0); gl.uniform1i(U.uGlyph, 1);
+  gl.uniformMatrix3fv(U.uRg, false, new Float32Array(R));
+  gl.uniform2f(U.uView, W, H); gl.uniform2f(U.uCenter, cx0, cy0); gl.uniform2f(U.uGSize, gw, gh);
+  gl.uniform1f(U.uCam, CAM); gl.uniform1f(U.uHalf, halfTile); gl.uniform1f(U.uCell, cellDev); gl.uniform1f(U.uN, N);
+  gl.uniform1f(U.uNear, NEAR); gl.uniform1f(U.uFar, FAR); gl.uniform3f(U.uLight, LIGHT[0], LIGHT[1], LIGHT[2]);
+  gl.uniform2f(U.uGy, gTop, gBot);
+  gl.uniform1f(U.uMetal, smooth(metal)); gl.uniform1f(U.uTilt, -ax * .8);
+  gl.uniform1f(U.uSweep, sp < 1 ? lerp(-.3, 1.3, sp) : -5); gl.uniform1f(U.uSweepAmp, sp < 1 ? Math.sin(sp * Math.PI) : 0);
+
+  gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
+  // Pass 0: every slice, opaque, alpha-tested (hard edges on the side walls).
+  gl.disable(gl.BLEND); gl.depthMask(true); gl.uniform1f(U.uPass, 0);
+  if (S) gl.drawArraysInstanced(gl.TRIANGLES, 0, S * 6, N);
+  // Pass 1: the front face again with soft alpha, so the letter outline is anti-aliased.
+  gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false); gl.uniform1f(U.uPass, 1);
+  if (S) gl.drawArraysInstanced(gl.TRIANGLES, 0, S * 6, 1);
 
   progressbar.style.transform = `scaleX(${phase})`;
   if (phase >= 1 && !completed) { completed = true; statusEl.textContent = 'Complete'; }
   requestAnimationFrame(render);
 }
 
+// ---------------------------------------------------------------- UI
+const restart = () => buildScene(false);
+replay.addEventListener('click', restart);
+input.addEventListener('keydown', e => { if (e.key === 'Enter') { input.blur(); restart(); } });
+input.addEventListener('change', restart);
 const speedInput = document.getElementById('speed'), speedVal = document.getElementById('speedval');
 speedInput.addEventListener('input', () => { speed = +speedInput.value; speedVal.textContent = speed.toFixed(2).replace(/0$/, '') + '×'; });
-const restart = () => { buildScene(false); };
 const bindRamp = (id, set) => {
   const el = document.getElementById(id), out = document.getElementById(id + 'val');
   const apply = () => { const v = +el.value; out.textContent = v + '%'; set(.5 - .47 * v / 100); };
@@ -329,13 +389,10 @@ metalBtn.addEventListener('click', () => {
   metalBtn.setAttribute('aria-pressed', metalOn);
   document.getElementById('metalstate').textContent = metalOn ? 'On' : 'Off';
 });
-replay.addEventListener('click', restart);
-input.addEventListener('keydown', e => { if (e.key === 'Enter') { input.blur(); restart(); } });
-input.addEventListener('change', restart);
 let debounce;
 window.addEventListener('resize', () => { clearTimeout(debounce); debounce = setTimeout(resize, 120); });
 
-// Wait for Roboto Italic so the shards and the final text are built from the real typeface.
+// Wait for Roboto Italic so the pieces are cut from the real typeface.
 const boot = () => { resize(); requestAnimationFrame(render); };
 if (document.fonts && document.fonts.load) {
   Promise.race([document.fonts.load('italic 900 100px Roboto'), new Promise(r => setTimeout(r, 2500))]).then(boot, boot);
