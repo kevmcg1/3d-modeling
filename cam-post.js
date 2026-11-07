@@ -1,6 +1,6 @@
 // Manufacture: controllers (post processors) and work offsets G54 to G59.
 //
-// postGcode() in 3d-modeler.html builds one program from every operation. What differs between controllers is small and lives
+// postGcode() in index.html builds one program from every operation. What differs between controllers is small and lives
 // here, as a profile per controller: the program header and end, the tool change, how the tool length is applied, which
 // canned cycles exist (and in what words), how a dwell is written, comment style, and the work-offset words. Everything a
 // profile cannot do is posted as plain moves, which every control accepts, with a comment saying so.

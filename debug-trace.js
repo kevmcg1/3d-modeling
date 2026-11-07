@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════
-//  The deeper debug log and status tracker. Trace (in 3d-modeler.html) already records every button, menu item, shortcut key and
+//  The deeper debug log and status tracker. Trace (in index.html) already records every button, menu item, shortcut key and
 //  command. While it is recording, this adds everything else:
 //
 //    type      every key typed in a field (the text so far), and Tab / Enter / arrows / Escape inside it
