@@ -2,7 +2,7 @@
 // Run: NODE_PATH=<dir with playwright, three@0.128, clipper-lib@6.4.2> CHROMIUM_PATH=<chrome> node test/ui.defaults.e2e.js
 let chromium; try { ({ chromium } = require('playwright')); } catch (e) { console.log('skip: playwright is not installed'); process.exit(0); }
 let libs = null; try { libs = { three: require.resolve('three/build/three.min.js'), clipper: require.resolve('clipper-lib/clipper.js') }; } catch (e) { /* offline */ }
-if (!libs) { console.log('skip: needs three and clipper-lib in node_modules (3d-modeler.html loads them from CDNs)'); process.exit(0); }
+if (!libs) { console.log('skip: needs three and clipper-lib in node_modules (index.html loads them from CDNs)'); process.exit(0); }
 const path = require('path'), assert = require('assert'), fs = require('fs');
 let pass = 0, fail = 0;
 const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + name); } catch (e) { fail++; console.log('FAIL - ' + name + ' :: ' + String(e.message).slice(0, 900)); } };
@@ -14,7 +14,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
     page.errs = []; page.on('pageerror', e => page.errs.push(e.message));
     await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
     await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' })); await page.route(/gate\.js/, r => r.abort());
-    await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html') + '?dev=1'); await page.waitForTimeout(2000);
+    await page.goto('file://' + path.resolve(__dirname, '..', 'index.html') + '?dev=1'); await page.waitForTimeout(2000);
     return page;
   };
   const p = await mk();
@@ -38,7 +38,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
     assert(/"/.test(r.l) && /\(12\.7\)/.test(r.l2), JSON.stringify(r));
   });
   await ok('the interface text uses American spellings (color, center, gray, neighbor, canceled, meter, aluminum, tire)', async () => {
-    const src = fs.readFileSync(path.resolve(__dirname, '..', '3d-modeler.html'), 'utf8').split('\n');
+    const src = fs.readFileSync(path.resolve(__dirname, '..', 'index.html'), 'utf8').split('\n');
     const bad = [], re = /(?<![A-Za-z0-9_.])(colou?r(?!s?\b)|colour\w*|centre\w*|neighbour\w*|behaviour\w*|aluminium|grey\b|cancelled|metres?\b|tyre\w*|catalogue|modelling|labelled|organis\w*|optimis\w*|favourite)/gi;
     src.forEach((l, i) => { if (/\.METRE\.|centimetres\?|grey: '#9aa3ad'/.test(l)) return; const m = l.match(re); if (m && m.some(w => !/^colo(r)/i.test(w))) bad.push((i + 1) + ': ' + m.join(',')); });
     assert(!bad.length, bad.slice(0, 8).join(' | '));

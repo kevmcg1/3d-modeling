@@ -8,7 +8,7 @@
 //  Settings: what the left, middle and right mouse buttons and the wheel do, and every
 //  shortcut, with "Change keyboard layout to" templates (Blender, SolidWorks, Fusion,
 //  Mastercam, AutoCAD, Inventor, Onshape, FreeCAD, Rhino). Everything is saved between visits.
-//  The mouse side lives in 3d-modeler.html (MOUSE); the keyboard side is a capture-phase listener
+//  The mouse side lives in index.html (MOUSE); the keyboard side is a capture-phase listener
 //  here that stays out of the way (one early return) until a shortcut has been changed.
 // ═══════════════════════════════════════════════════════════════════
 (() => {

@@ -5,7 +5,7 @@
 // Run: NODE_PATH=<dir with playwright, three@0.128, clipper-lib@6.4.2, occt-import-js@0.0.23> CHROMIUM_PATH=<chrome> node test/io.roundtrip.e2e.js
 let chromium; try { ({ chromium } = require('playwright')); } catch (e) { console.log('skip: playwright is not installed'); process.exit(0); }
 let libs = null; try { libs = { three: require.resolve('three/build/three.min.js'), clipper: require.resolve('clipper-lib/clipper.js'), occt: path => require.resolve('occt-import-js/dist/' + path) }; require.resolve('occt-import-js/dist/occt-import-js.js'); } catch (e) { libs = null; }
-if (!libs) { console.log('skip: needs three, clipper-lib and occt-import-js in node_modules (3d-modeler.html loads them from CDNs)'); process.exit(0); }
+if (!libs) { console.log('skip: needs three, clipper-lib and occt-import-js in node_modules (index.html loads them from CDNs)'); process.exit(0); }
 const path = require('path'), assert = require('assert'), fs = require('fs');
 let pass = 0, fail = 0;
 const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + name); } catch (e) { fail++; console.log('FAIL - ' + name + ' :: ' + String(e.message).slice(0, 1500)); } };
@@ -24,7 +24,7 @@ const near = (a, b, rel, what) => assert(Math.abs(a - b) <= rel * Math.max(1, Ma
     page.on('pageerror', e => errs.push(e.message)); page.on('dialog', d => d.dismiss());
     await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' })); await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' })); await page.route(/gate\.js/, r => r.abort()); await page.route(/fonts\.g/, r => r.abort());
     await page.route(/cdn\.jsdelivr\.net\/npm\/occt-import-js@0\.0\.23\/dist\//, (r, req) => { const f = req.url().split('/dist/')[1]; r.fulfill({ path: libs.occt(f), contentType: f.endsWith('.wasm') ? 'application/wasm' : 'text/javascript', headers: { 'access-control-allow-origin': '*' } }); });
-    await page.addInitScript(() => { window.DATUM_NOFX = true; }); await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html')); await page.waitForTimeout(2500);
+    await page.addInitScript(() => { window.DATUM_NOFX = true; }); await page.goto('file://' + path.resolve(__dirname, '..', 'index.html')); await page.waitForTimeout(2500);
     await page.evaluate(() => { loadDoc(SAMPLES.find(s => s.name === 'Pocketed plate').make(), 't'); }); await page.waitForTimeout(1000);
     return page;
   };

@@ -4,7 +4,7 @@
 // Run: NODE_PATH=<dir with playwright, three@0.128, clipper-lib@6.4.2> CHROMIUM_PATH=<chrome> node test/debug.log.e2e.js
 let chromium; try { ({ chromium } = require('playwright')); } catch (e) { console.log('skip: playwright is not installed'); process.exit(0); }
 let libs = null; try { libs = { three: require.resolve('three/build/three.min.js'), clipper: require.resolve('clipper-lib/clipper.js') }; } catch (e) { /* offline */ }
-if (!libs) { console.log('skip: needs three and clipper-lib in node_modules (3d-modeler.html loads them from CDNs)'); process.exit(0); }
+if (!libs) { console.log('skip: needs three and clipper-lib in node_modules (index.html loads them from CDNs)'); process.exit(0); }
 const path = require('path'), assert = require('assert');
 let pass = 0, fail = 0;
 const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + name); } catch (e) { fail++; console.log('FAIL - ' + name + ' :: ' + String(e.message).slice(0, 1200)); } };
@@ -17,7 +17,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
   await page.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' }));
   await page.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' })); await page.route(/gate\.js/, r => r.abort());
   await page.route(/fonts\.g/, r => r.abort());
-  await page.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html') + '?dev=1'); await page.waitForTimeout(2500);
+  await page.goto('file://' + path.resolve(__dirname, '..', 'index.html') + '?dev=1'); await page.waitForTimeout(2500);
   await page.evaluate(() => { window.DATUM_PREMIUM = true; window.DATUM_AUTO = true; window.DATUM_NOFX = true; loadDoc(SAMPLES.find(s => s.name === 'Pocketed plate').make(), 't'); });
   await page.waitForTimeout(800);
   const since = async (f, ms = 900) => { logs.length = 0; await f(); await page.waitForTimeout(ms); return logs.join('\n'); };
@@ -100,7 +100,7 @@ const ok = async (name, f) => { try { await f(); pass++; console.log('ok - ' + n
     const p = await browser.newPage({ viewport: { width: 1400, height: 850 } }), dl = [];
     p.on('console', m => { const t = m.text(); if (/\[3D Modeler/.test(t)) dl.push(t.replace(/%c/g, '').replace(/ color:[^ ]*(?: color:[^ ]*)*/g, '')); }); p.on('pageerror', e => errs.push(e.message)); p.on('dialog', d => d.dismiss());
     await p.route(/three\.min\.js/, r => r.fulfill({ path: libs.three, contentType: 'text/javascript' })); await p.route(/clipper\.js/, r => r.fulfill({ path: libs.clipper, contentType: 'text/javascript' })); await p.route(/gate\.js/, r => r.abort()); await p.route(/fonts\.g/, r => r.abort());
-    await p.goto('file://' + path.resolve(__dirname, '..', '3d-modeler.html') + '?dev=1'); await p.waitForTimeout(3500);
+    await p.goto('file://' + path.resolve(__dirname, '..', 'index.html') + '?dev=1'); await p.waitForTimeout(3500);
     assert.strictEqual(await p.evaluate(() => Trace.on), false);
     await p.locator('body').click({ position: { x: 700, y: 400 } }); await p.keyboard.press('`'); await p.waitForTimeout(500);
     assert.strictEqual(await p.evaluate(() => document.getElementById('devLog').checked), true, 'the debug log option is on by default');

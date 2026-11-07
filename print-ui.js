@@ -737,7 +737,7 @@ function tagTips(root) {
   root.querySelectorAll('[data-l]').forEach(b => set(b, +b.dataset.l < 0 ? 'print:layerdn' : 'print:layerup', +b.dataset.l < 0 ? 'Layer down' : 'Layer up', +b.dataset.l < 0 ? '↓' : '↑'));
 }
 
-// the workspace button (3d-modeler.html carries it; add it here for older pages)
+// the workspace button (index.html carries it; add it here for older pages)
 (function ensureButton() {
   const ws = document.querySelector('.ws'); if (!ws || ws.querySelector('[data-ws="print"]')) return;
   const b = document.createElement('button'); b.dataset.ws = 'print'; b.textContent = '3D Print';
