@@ -140,9 +140,9 @@ const CAM_LOCK = (() => {
 })();
 window.CAM_LOCK = CAM_LOCK;
 
-// Pressing ] (not while typing in a field) unlocks every CAM feature, Auto Program and Auto Detect included, and shows the Manufacture tab.
+// Pressing ] or - (not while typing in a field; - also dismisses the gate popup in gate.js) unlocks every CAM feature, Auto Program and Auto Detect included, and shows the Manufacture tab.
 document.addEventListener('keydown', e => {
-  if ((e.key !== ']' && e.code !== 'BracketRight') || e.ctrlKey || e.metaKey || e.altKey) return;
+  if ((e.key !== ']' && e.code !== 'BracketRight' && e.key !== '-' && e.code !== 'Minus' && e.code !== 'NumpadSubtract') || e.ctrlKey || e.metaKey || e.altKey) return;
   const t = e.target, tag = t && t.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable)) return;
   e.preventDefault();
