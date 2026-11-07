@@ -34,7 +34,7 @@
     setWorkspace = function (ws) { if (!R.tabs.includes(ws) && !(ws === 'sheet' && ((!R.modelingOnly && R.tabs.includes('cam')) || camRevealed))) return; return prev.apply(this, arguments); };
   }
 
-  // ── Hidden Manufacture tab: pressing = (not while typing in a field) brings the Manufacture tab (and the Setup Sheet it opens) back, with no reload ──
+  // ── Hidden Manufacture tab: pressing = or + (or -, which also dismisses the gate popup in gate.js) (not while typing in a field) brings the Manufacture tab (and the Setup Sheet it opens) back, with no reload ──
   let camRevealed = false;
   const revealCam = () => {
     if (!R.tabs.includes('cam')) R.tabs.push('cam');
@@ -43,7 +43,7 @@
   };
   window.DATUM_REVEAL_CAM = revealCam;
   document.addEventListener('keydown', e => {
-    if ((e.key !== '=' && e.key !== '+' && e.code !== 'Equal' && e.code !== 'NumpadEqual') || e.ctrlKey || e.metaKey || e.altKey || camRevealed) return;
+    if ((e.key !== '=' && e.key !== '+' && e.key !== '-' && e.code !== 'Equal' && e.code !== 'NumpadEqual' && e.code !== 'Minus' && e.code !== 'NumpadSubtract') || e.ctrlKey || e.metaKey || e.altKey || camRevealed) return;
     const t = e.target, tag = t && t.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable)) return;
     e.preventDefault(); revealCam();
